@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    trigger_topic: dock_trigger
+    use_dock_id: true
+    dock_id: home_dock
+    navigate_to_staging_pose: true
+    undock_on_false: false

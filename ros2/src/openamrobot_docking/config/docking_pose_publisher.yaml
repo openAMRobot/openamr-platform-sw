@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    parent_frame: map
+    child_frame: charging_dock_apriltag
+    output_topic: detected_dock_pose
+    publish_rate: 10.0
