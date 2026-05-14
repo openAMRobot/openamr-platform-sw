@@ -1,0 +1,39 @@
+# CODEOWNERS for openamr-platform-sw
+#
+# Lines later in the file override earlier ones. Paths follow gitignore syntax.
+# Owners listed here are automatically requested for review when a Pull Request
+# touches matching files.
+
+# Default repository owner
+* @BotshareAI
+
+# Repository governance files
+/LICENSE                @BotshareAI
+/CONTRIBUTING.md        @BotshareAI
+/SECURITY.md            @BotshareAI
+/NOTICE.md              @BotshareAI
+/AUTHORS.md             @BotshareAI
+/CHANGELOG.md           @BotshareAI
+/README.md              @BotshareAI
+/.github/               @BotshareAI
+/.gitignore             @BotshareAI
+
+# ROS 2 packages
+/ros2/src/openamrobot_description/   @BotshareAI
+/ros2/src/openamrobot_gazebo/        @BotshareAI
+/ros2/src/openamrobot_nav2/          @BotshareAI
+/ros2/src/openamrobot_docking/       @BotshareAI
+/ros2/src/openamrobot_bringup/       @BotshareAI
+/ros2/src/openamrobot_control/       @BotshareAI
+/ros2/src/openamrobot_drivers/       @BotshareAI
+/ros2/src/openamrobot_perception/    @BotshareAI
+
+# Documentation
+/docs/                  @BotshareAI
+/ros2/src/openamrobot_docking/docs/  @BotshareAI
+
+# Product-level configuration and assets
+/config/                @BotshareAI
+/simulation/            @BotshareAI
+/scripts/               @BotshareAI
+/tools/                 @BotshareAI
