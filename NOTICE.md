@@ -37,7 +37,7 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 - **Modifications applied in this repository (see `AUTHORS.md` for credit):**
   - added a `base_footprint` link plus `base_joint` for Nav2-conventional TF
   - symmetrised the left/right wheel inertials (off-diagonals zeroed and the two wheels made identical) to fix the "robot curves when commanded straight" failure caused by tiny (1e-8-level) asymmetries in the SolidWorks export
-  - reconciled an inconsistent `wheel_radius` (the DiffDrive plugin had `0.11` while the wheel cylinder collisions had `0.10`) to a single value of `0.10 m`
+  - set the DiffDrive plugin `wheel_radius` to `0.10 m` (kinematic radius used for `ω = v / r`) while keeping the wheel cylinder **collision** radius at `0.11 m`. The 1 cm difference is intentional: `base_footprint` is at ground level, `base_joint` lifts `base_link` 0.053467 m so the wheel centres sit at z = 0.10 m; a 0.10 m collision cylinder only touches the ground (zero penetration → zero normal force → zero friction), so the 0.11 m collision is what gives ODE the contact depth required for traction
   - added a `camera_link` plus `camera_rgb_optical_frame` with the standard −π/2, 0, −π/2 optical rotation required by `apriltag_ros::solvePnP`
   - adjusted the lidar range from 0.40–10 m to 0.15–12 m to span the 10×10 m docking scenario
   - added a Gazebo RGB camera plugin (640×480 @ 15 Hz, horizontal_fov 1.2 rad)

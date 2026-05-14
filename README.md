@@ -1,5 +1,15 @@
 # OpenAMR Platform Software
 
+📖 **[README](README.md)** &nbsp;·&nbsp;
+🤝 **[Contributing](CONTRIBUTING.md)** &nbsp;·&nbsp;
+📜 **[License](LICENSE)** &nbsp;·&nbsp;
+🔒 **[Security](SECURITY.md)** &nbsp;·&nbsp;
+👥 **[Authors](AUTHORS.md)** &nbsp;·&nbsp;
+📝 **[Changelog](CHANGELOG.md)** &nbsp;·&nbsp;
+ℹ️ **[Notice](NOTICE.md)**
+
+---
+
 ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot description, Gazebo Harmonic simulation, Nav2 navigation, AprilTag-based autodocking, and the launch compositions that wire it all together.
 
 > Maturity: **experimental.** Tuned end-to-end in the docking simulation. Real-robot bringup (drivers, control, hardware integration) is in progress and lives under the `openamrobot_drivers`/`openamrobot_control` packages (not yet populated in this revision).
