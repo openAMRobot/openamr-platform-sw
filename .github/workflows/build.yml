@@ -1,0 +1,107 @@
+# Build + test the openamr-platform-sw workspace on every push to main and
+# every Pull Request. Catches regressions like the ones that lived for weeks
+# in this repository before the joint_state_publisher / wheel-collision /
+# AprilTag path bugs were discovered manually (cf. lessons-learned doc).
+
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel an older run if a new commit lands on the same PR/branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  colcon-build:
+    name: colcon build + test (ROS 2 Jazzy)
+    runs-on: ubuntu-24.04
+    # Jazzy on Ubuntu Noble (24.04). Match what local devs use.
+    container:
+      image: osrf/ros:jazzy-desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: System deps (apriltag_ros, ros_gz, slam_toolbox, nav2_bringup, cyclonedds)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions \
+            python3-rosdep \
+            ros-jazzy-apriltag-ros \
+            ros-jazzy-ros-gz \
+            ros-jazzy-ros-gz-bridge \
+            ros-jazzy-ros-gz-sim \
+            ros-jazzy-slam-toolbox \
+            ros-jazzy-nav2-bringup \
+            ros-jazzy-nav2-common \
+            ros-jazzy-rmw-cyclonedds-cpp \
+            ros-jazzy-joint-state-publisher \
+            ros-jazzy-joint-state-publisher-gui \
+            ros-jazzy-robot-state-publisher \
+            ros-jazzy-xacro
+          rm -rf /var/lib/apt/lists/*
+
+      - name: rosdep install (catch anything we forgot above)
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          rosdep update --rosdistro jazzy || true
+          rosdep install --from-paths ros2/src --ignore-src -r -y --rosdistro jazzy || true
+
+      - name: colcon build
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build \
+            --event-handlers console_cohesion+ \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+      - name: colcon test
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test \
+            --event-handlers console_cohesion+ \
+            --return-code-on-test-failure
+
+      - name: colcon test-result (print failures if any)
+        if: always()
+        shell: bash
+        run: |
+          colcon test-result --verbose || true
+
+      - name: Smoke-load the launch files
+        shell: bash
+        # `ros2 launch --print` parses + expands the launch tree without
+        # actually spawning processes. Catches missing files, wrong
+        # paths, broken IncludeLaunchDescription chains. Cheap and fast.
+        env:
+          RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          for launch in \
+            "openamrobot_gazebo gz_simulator.launch.py" \
+            "openamrobot_nav2 nav2_bringup.launch.py" \
+            "openamrobot_bringup sim_only.launch.py" \
+            "openamrobot_bringup sim_nav.launch.py" \
+            "openamrobot_docking docking_sim.launch.py" ; do
+              echo "::group::ros2 launch --print $launch"
+              # Some launch files (gz_simulator) include gz_sim which only
+              # exists when ros_gz is installed; --print does not run gz
+              # so this remains pure parsing.
+              timeout 30 ros2 launch --print $launch || {
+                echo "FAILED: $launch"
+                exit 1
+              }
+              echo "::endgroup::"
+          done

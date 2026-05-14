@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>openamrobot_control</name>
+  <version>0.0.0</version>
+  <description>STUB. Reserved for low-level control integration (ros2_control hardware interfaces, controller_manager, joint trajectory controllers, the cmd_vel-to-wheel-velocity adapter). Not yet implemented — see README.md.</description>
+
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <!-- Real exec_depends will be added when the package is populated.
+       Likely candidates: ros2_control, controller_manager,
+       diff_drive_controller, joint_state_broadcaster. -->
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
