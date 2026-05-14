@@ -1,0 +1,96 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# colcon / ROS 2 build outputs
+# ──────────────────────────────────────────────────────────────────────────────
+build/
+install/
+log/
+
+# colcon-internal markers in the workspace root (kept by the tooling, not by us)
+COLCON_IGNORE
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# C / C++ build artefacts (in case any node compiles outside colcon)
+# ──────────────────────────────────────────────────────────────────────────────
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Editors / IDEs
+# ──────────────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.~lock.*
+
+# CLion / Qt Creator / Eclipse droppings
+cmake-build-*/
+*.kdev4
+.cproject
+.project
+.settings/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# OS metadata
+# ──────────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Gazebo / Ignition runtime caches
+# ──────────────────────────────────────────────────────────────────────────────
+.gz/
+.ignition/
+
+# Generated SDF caches sometimes left next to xacro files
+*.sdf.tmp
+*.urdf.tmp
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Logs / cores
+# ──────────────────────────────────────────────────────────────────────────────
+*.log
+core
+core.*
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Local environment overrides (do NOT commit these)
+# ──────────────────────────────────────────────────────────────────────────────
+.env
+.env.local
+*.local
