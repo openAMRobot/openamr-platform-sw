@@ -83,6 +83,64 @@ behavior_server:
     wait:
       plugin: nav2_behaviors::Wait
 
+# docking_server is included here so Nav2's lifecycle manager (which hard-codes
+# `docking_server` in its node_names on Jazzy) can activate it cleanly. The
+# 4-phase sequencer (dock_trigger.py) does NOT call this server — it has its
+# own pure-pursuit controller. We just keep a valid configuration so lifecycle
+# bringup does not abort. If you want the legacy controlled_approach flow,
+# launch openamrobot_docking.launch.py.
+docking_server:
+  ros__parameters:
+    base_frame: base_footprint
+    controller:
+      costmap_topic: local_costmap/costmap_raw
+      dock_collision_threshold: 0.3
+      footprint_topic: local_costmap/published_footprint
+      k_delta: 0.5
+      k_phi: 4.0
+      projection_time: 5.0
+      simulation_step: 0.1
+      transform_tolerance: 0.1
+      use_collision_detection: false
+      v_linear_max: 0.08
+      v_linear_min: 0.04
+    controller_frequency: 50.0
+    dock_approach_timeout: 30.0
+    dock_backwards: false
+    dock_plugins:
+    - home_dock_plugin
+    dock_prestaging_tolerance: 0.5
+    docks:
+    - home_dock
+    fixed_frame: odom
+    home_dock:
+      frame: map
+      pose:
+      - 4.0
+      - 8.9
+      - 1.5707
+      type: home_dock_plugin
+    home_dock_plugin:
+      docking_threshold: 0.6
+      external_detection_rotation_pitch: -1.5707
+      external_detection_rotation_roll: -1.5707
+      external_detection_rotation_yaw: 0.0
+      external_detection_timeout: 2.0
+      external_detection_translation_x: 0.0
+      external_detection_translation_y: 0.0
+      filter_coef: 0.1
+      plugin: opennav_docking::SimpleChargingDock
+      staging_x_offset: -2.5
+      use_battery_status: false
+      use_external_detection_pose: true
+      use_stall_detection: false
+    initial_perception_timeout: 25.0
+    max_retries: 3
+    undock_angular_tolerance: 0.1
+    undock_linear_tolerance: 0.05
+    use_sim_time: true
+    wait_charge_timeout: 5.0
+
 bt_navigator:
   ros__parameters:
     action_server_result_timeout: 900.0
