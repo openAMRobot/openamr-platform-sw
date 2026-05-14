@@ -3,8 +3,8 @@
   <name>openamrobot_docking</name>
   <version>0.0.2</version>
   <description>AprilTag-based autodocking package for OpenAMRobot. Provides the 4-phase docking sequencer, the camera-frame AprilTag pipeline, and the Gazebo-Harmonic docking simulation that composes openamrobot_description + openamrobot_gazebo + openamrobot_nav2.</description>
-  <maintainer email="user@todo.todo">user</maintainer>
-  <license>Apache-2.0</license>
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

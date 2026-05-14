@@ -1,5 +1,6 @@
-# SPDX-License-Identifier: Apache-2.0
-"""Launch Gazebo Harmonic with the OpenAMRobot platform.
+# SPDX-License-Identifier: MIT
+"""
+Launch Gazebo Harmonic with the OpenAMRobot platform.
 
 Accepted launch arguments:
   world         — full path to a .sdf world (default: walled_world.sdf
@@ -11,7 +12,6 @@ Downstream packages compose this launch and override `world` to drop the
 robot into a scenario-specific environment. See
 `openamrobot_docking/launch/docking_sim.launch.py` for an example.
 """
-import math
 import os
 from pathlib import Path
 

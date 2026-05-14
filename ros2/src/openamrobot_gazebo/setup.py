@@ -1,6 +1,7 @@
-from setuptools import find_packages, setup
-import os
 from glob import glob
+import os
+
+from setuptools import find_packages, setup
 
 package_name = 'openamrobot_gazebo'
 
@@ -18,10 +19,10 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Raj Indulkar',
-    maintainer_email='rajindulkar7@gmail.com',
+    maintainer='OpenAMRobot Maintainers',
+    maintainer_email='botshare.ai@gmail.com',
     description='Gazebo Harmonic simulation package for OpenAMRobot',
-    license='Apache-2.0',
+    license='MIT',
     extras_require={
         'test': ['pytest'],
     },

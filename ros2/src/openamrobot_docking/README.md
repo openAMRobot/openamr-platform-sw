@@ -1,6 +1,20 @@
 # openamrobot_docking
 
-ROS 2 autodocking for **OpenAMRobot** — AprilTag-based, fully simulated. Provides:
+ROS 2 autodocking for **OpenAMRobot** — AprilTag-based, fully simulated.
+
+## What's in this package
+
+This package contains **both**:
+
+1. **The docking logic** — the 4-phase sequencer, the AprilTag detection pipeline, the TF → PoseStamped bridge, and the launches that wire them together.
+2. **The simulation-specific docking assets** — `worlds/` and `models/`, which are installed into `share/` by `CMakeLists.txt` so Gazebo can find them at launch time.
+
+   - `models/` contains Gazebo model assets for the AprilTag docking station (the 0.40 × 0.40 m textured panel that the camera sees).
+   - `worlds/` contains Gazebo docking test scenarios (a 10 × 10 m room with the AprilTag dock placed against the north wall).
+
+Bundling the logic and the test assets in the same package keeps the docking pipeline **runnable from a clean clone** with a single command — there is no separate "simulation" package to install, configure, or keep in sync.
+
+## Full feature list
 
 - a **4-phase docking sequencer** (`scripts/dock_trigger.py`): Nav2 staging → centring scan + initial filter → align spin → line-tracking pure-pursuit + straight-line final approach
 - a TF → PoseStamped bridge for the detected dock (`src/detected_dock_pose_publisher.cpp`)
