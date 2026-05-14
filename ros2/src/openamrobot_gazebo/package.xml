@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Gazebo Harmonic simulation package for OpenAMRobot — world files, ROS–Gazebo bridge config, and simulation launch files.</description>
   <maintainer email="rajindulkar7@gmail.com">Raj Indulkar</maintainer>
-  <license>Apache-2.0</license>
+  <license>MIT</license>
 
   <depend>openamrobot_description</depend>
   <exec_depend>robot_state_publisher</exec_depend>

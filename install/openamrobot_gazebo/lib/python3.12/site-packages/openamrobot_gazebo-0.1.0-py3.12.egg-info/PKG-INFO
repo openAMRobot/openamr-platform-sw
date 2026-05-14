@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: openamrobot-gazebo
-Version: 0.1.0
-Summary: Gazebo Harmonic simulation package for OpenAMRobot
-Maintainer: Raj Indulkar
-Maintainer-email: rajindulkar7@gmail.com
-License: Apache-2.0
-Provides-Extra: test
