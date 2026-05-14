@@ -9,7 +9,7 @@ launch:
     name: apriltag
     namespace: apriltag
     param:
-    - from: $(find-pkg-share openamrobot_docking)/simulation/config/tags_36h11_sim.yaml
+    - from: $(find-pkg-share openamrobot_docking)/config/tags_36h11_sim.yaml
     remap:
     - from: /apriltag/image_rect
       to: /camera/image_raw

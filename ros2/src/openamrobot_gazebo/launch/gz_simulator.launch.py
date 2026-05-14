@@ -18,10 +18,11 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
+    AppendEnvironmentVariable,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     OpaqueFunction,
-    SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
@@ -44,7 +45,9 @@ def _build_nodes(context):
     xacro_file = os.path.join(description_dir, 'urdf', 'robo_urdf.urdf.xacro')
     robot_desc = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
-    gz_resource_path = SetEnvironmentVariable(
+    # AppendEnvironmentVariable (not Set) so a parent launch that already
+    # pushed scenario-specific model paths onto GZ_SIM_RESOURCE_PATH keeps them.
+    gz_resource_path = AppendEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
         value=':'.join([
             os.path.join(gazebo_dir, 'worlds'),
@@ -61,14 +64,6 @@ def _build_nodes(context):
             {'use_sim_time': True},
             {'robot_description': robot_desc},
         ],
-    )
-
-    joint_state_publisher = Node(
-        package='joint_state_publisher',
-        executable='joint_state_publisher',
-        name='joint_state_publisher',
-        output='screen',
-        parameters=[{'use_sim_time': True}],
     )
 
     bridge = Node(
@@ -92,21 +87,33 @@ def _build_nodes(context):
         launch_arguments={'gz_args': ['-r -v 4 ', world]}.items(),
     )
 
+    # Spawn the robot ~2 s after gz-sim starts. Without the delay, ros_gz_sim
+    # create fires before the gz server has finished loading the world and
+    # the entity is dropped (or worse: spawned but disconnected from physics,
+    # which produces TF without motion). The 2 s value comes from the prior
+    # working sim — it gives gz-sim enough time on a modest laptop.
+    #
     # The URDF root (base_footprint) is at ground level. base_joint lifts
     # base_link by 0.053467 m so wheel centres sit at z = wheel_radius = 0.10 m.
     # Spawn z must therefore be 0.0 — non-zero z makes the drive wheels float.
-    spawn_entity = Node(
-        package='ros_gz_sim',
-        executable='create',
-        arguments=[
-            '-name', 'openamrobot',
-            '-topic', '/robot_description',
-            '-x', spawn_x,
-            '-y', spawn_y,
-            '-z', '0.0',
-            '-Y', spawn_yaw,
+    spawn_entity = TimerAction(
+        period=2.0,
+        actions=[
+            Node(
+                package='ros_gz_sim',
+                executable='create',
+                name='spawn_openamrobot',
+                output='screen',
+                arguments=[
+                    '-name', 'openamrobot',
+                    '-topic', '/robot_description',
+                    '-x', spawn_x,
+                    '-y', spawn_y,
+                    '-z', '0.0',
+                    '-Y', spawn_yaw,
+                ],
+            ),
         ],
-        output='screen',
     )
 
     return [
@@ -115,7 +122,6 @@ def _build_nodes(context):
         bridge,
         spawn_entity,
         start_robot_state_publisher_cmd,
-        joint_state_publisher,
     ]
 
 

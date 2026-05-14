@@ -532,7 +532,11 @@
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.10" length="0.046"/>
+        <!-- 0.11 cylinder vs DiffDrive wheel_radius=0.10 gives ~1 cm of
+             penetration into the ground plane, which ODE's contact solver
+             uses to apply traction. Without that overlap the wheels merely
+             touch the floor and the robot does not move. -->
+        <cylinder radius="0.11" length="0.046"/>
       </geometry>
     </collision>
   </link>
@@ -577,7 +581,11 @@
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.10" length="0.046"/>
+        <!-- 0.11 cylinder vs DiffDrive wheel_radius=0.10 gives ~1 cm of
+             penetration into the ground plane, which ODE's contact solver
+             uses to apply traction. Without that overlap the wheels merely
+             touch the floor and the robot does not move. -->
+        <cylinder radius="0.11" length="0.046"/>
       </geometry>
     </collision>
   </link>
