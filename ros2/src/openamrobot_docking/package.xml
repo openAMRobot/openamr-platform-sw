@@ -1,25 +1,58 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>openamrobot_docking</name>
-  <version>0.0.1</version>
-  <description>AprilTag-based autodocking package for OpenAMRobot.</description>
+  <version>0.0.2</version>
+  <description>AprilTag-based autodocking package for OpenAMRobot. Provides the 4-phase docking sequencer, the camera-frame AprilTag pipeline, and the Gazebo-Harmonic docking simulation that composes openamrobot_description + openamrobot_gazebo + openamrobot_nav2.</description>
   <maintainer email="user@todo.todo">user</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Core ROS 2 (build + runtime) -->
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
 
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>nav2_lifecycle_manager</exec_depend>
-  <exec_depend>opennav_docking</exec_depend>
-  <exec_depend>opennav_docking_msgs</exec_depend>
+  <!-- Python runtime (dock_trigger.py) -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+
+  <!-- Launch infrastructure -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+
+  <!-- AprilTag perception -->
+  <exec_depend>apriltag_msgs</exec_depend>
+  <exec_depend>apriltag_ros</exec_depend>
+
+  <!-- Real-robot camera + rectification (apriltag.launch.yml) -->
+  <exec_depend>camera_ros</exec_depend>
+  <exec_depend>image_proc</exec_depend>
+
+  <!-- Nav2 + docking action interfaces (kept for the legacy controlled_approach launch) -->
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>opennav_docking_msgs</exec_depend>
+
+  <!-- Visualisation -->
+  <exec_depend>rviz2</exec_depend>
+
+  <!-- Simulation only — these come from the sibling OpenAMRobot packages and
+       from ROS 2 ports of Gazebo Harmonic. The simulation launch composes
+       openamrobot_gazebo (URDF + Gazebo + bridge) and openamrobot_nav2 (Nav2
+       + SLAM) and only adds the docking-specific pieces. -->
+  <exec_depend>openamrobot_description</exec_depend>
+  <exec_depend>openamrobot_gazebo</exec_depend>
+  <exec_depend>openamrobot_nav2</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>xacro</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

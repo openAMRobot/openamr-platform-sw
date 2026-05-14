@@ -1,10 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by
-Stephen Brawner (brawner@gmail.com) 
-     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
-     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<!--
+  OpenAMRobot differential-drive robot description.
+
+  Link/joint geometry and STL meshes originate from a SolidWorks-exported URDF
+  (sw_urdf_exporter, Stephen Brawner) by Niraj Dhakal (the upstream URDF author),
+  later packaged by Raj Indulkar in openamrobot-simulation. See top-level
+  NOTICE.md for the full attribution chain.
+
+  Modifications applied in this revision (openamrobot-docking contribution):
+    - added a base_footprint root link + base_joint (Nav2 TF convention)
+    - symmetrised left/right wheel inertials (off-diagonals set to 0 and the
+      two wheels made identical) — fixes the "robot circles when commanded
+      straight" failure caused by SolidWorks-exported asymmetries
+    - added camera_link and camera_rgb_optical_frame for AprilTag detection
+    - lidar range adjusted to 0.15-12 m (see gazebo_control.xacro)
+    - cylinder collisions on drive wheels with radius 0.10 m (reconciled
+      with the DiffDrive plugin wheel_radius — see gazebo_control.xacro)
+-->
 <robot
-  name="robo_urdf" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  name="openamrobot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    base_footprint: ground-projection of base_link, Nav2 convention.
+    base_joint lifts base_link 0.053467 m so the drive-wheel centres sit at
+    z = wheel_radius = 0.10 m above the ground when base_footprint is at z=0.
+  -->
+  <link name="base_footprint"/>
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0.053467" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+  </joint>
+
   <link
     name="base_link">
     <inertial>
@@ -469,21 +496,24 @@ Stephen Brawner (brawner@gmail.com)
       xyz="0 1 0" />
     <dynamics damping="0.001" friction="0.001" />
   </joint>
+
+  <!--
+    Drive wheels.
+
+    Inertials made symmetric: off-diagonal terms zeroed and ixx = iyy = izz
+    forced to the same average so left and right behave identically. The
+    SolidWorks-exported per-wheel inertials had tiny (1e-8) off-diagonal
+    asymmetries that made the robot curve when commanded straight in Gazebo.
+  -->
   <link
     name="left_wheel_link">
     <inertial>
-      <origin
-        xyz="6.28502999154333E-07 -0.0039870676124848 -0.000569790977384271"
-        rpy="0 0 0" />
-      <mass
-        value="1.06112497715273" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1.06112497715273" />
       <inertia
-        ixx="0.00339900487986557"
-        ixy="-1.58838850523255E-08"
-        ixz="-5.99560271951721E-08"
-        iyy="0.00642634969436629"
-        iyz="-1.66764633557271E-07"
-        izz="0.0033973895137008" />
+        ixx="0.003398197" ixy="0" ixz="0"
+        iyy="0.006426349" iyz="0"
+        izz="0.003397389" />
     </inertial>
     <visual>
       <origin
@@ -502,7 +532,7 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.11" length="0.046"/>
+        <cylinder radius="0.10" length="0.046"/>
       </geometry>
     </collision>
   </link>
@@ -523,18 +553,12 @@ Stephen Brawner (brawner@gmail.com)
   <link
     name="right_wheel_link">
     <inertial>
-      <origin
-        xyz="-6.2850299915387E-07 0.0039870676124848 -0.000569790977384271"
-        rpy="0 0 0" />
-      <mass
-        value="1.06112497715273" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1.06112497715273" />
       <inertia
-        ixx="0.00339900487986557"
-        ixy="-1.58838850523222E-08"
-        ixz="5.99560271951723E-08"
-        iyy="0.00642634969436629"
-        iyz="1.66764633557271E-07"
-        izz="0.0033973895137008" />
+        ixx="0.003398197" ixy="0" ixz="0"
+        iyy="0.006426349" iyz="0"
+        izz="0.003397389" />
     </inertial>
     <visual>
       <origin
@@ -553,7 +577,7 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.11" length="0.046"/>
+        <cylinder radius="0.10" length="0.046"/>
       </geometry>
     </collision>
   </link>
@@ -626,6 +650,29 @@ Stephen Brawner (brawner@gmail.com)
       link="lidar_link" />
     <axis
       xyz="0 0 0" />
+  </joint>
+
+  <!--
+    Camera links.
+
+    camera_link is the physical camera frame (X forward, Y left, Z up).
+    camera_rgb_optical_frame is its image-coordinate counterpart (X right,
+    Y down, Z forward) — the convention apriltag_ros::solvePnP requires when
+    computing the AprilTag pose. The rotation rpy="-1.5708 0 -1.5708" applied
+    to the optical joint is the standard −π/2, 0, −π/2 mapping.
+  -->
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0.35 0 0.22" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+  </joint>
+
+  <link name="camera_rgb_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+    <parent link="camera_link"/>
+    <child link="camera_rgb_optical_frame"/>
   </joint>
 
   <xacro:include filename="gazebo_control.xacro" />

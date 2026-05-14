@@ -1,13 +1,27 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ── World-level plugins (no reference attribute) ─────────────── -->
+  <!--
+    World-level plugins.
+
+    DiffDrive: wheel_radius/wheel_separation must match the physical wheel
+    meshes. The upstream SolidWorks export had wheel_radius=0.11 in the plugin
+    but cylinder collisions of radius 0.10 on the wheel links; we keep them
+    in sync at 0.10 m. wheel_separation = 0.4075 m is the centre-to-centre
+    distance from the URDF wheel joint origins (±0.20375 m).
+
+    child_frame_id is base_footprint so the Gazebo-side odometry TF aligns
+    with the Nav2-convention TF chain produced by robot_state_publisher.
+
+    Topics are relative (no leading slash) so the plugin works correctly
+    when the robot is spawned inside a namespace.
+  -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
       <wheel_separation>0.4075</wheel_separation>
-      <wheel_radius>0.11</wheel_radius>
+      <wheel_radius>0.1</wheel_radius>
       <max_linear_acceleration>0.5</max_linear_acceleration>
       <min_linear_acceleration>-0.5</min_linear_acceleration>
       <max_angular_acceleration>1.0</max_angular_acceleration>
@@ -16,23 +30,23 @@
       <min_linear_velocity>-1.0</min_linear_velocity>
       <max_angular_velocity>2.0</max_angular_velocity>
       <min_angular_velocity>-2.0</min_angular_velocity>
-      <topic>/cmd_vel</topic>
+      <topic>cmd_vel</topic>
       <frame_id>odom</frame_id>
-      <child_frame_id>base_link</child_frame_id>
-      <odom_topic>/odom</odom_topic>
-      <tf_topic>/tf</tf_topic>
+      <child_frame_id>base_footprint</child_frame_id>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
       <odom_publish_frequency>50</odom_publish_frequency>
     </plugin>
 
     <plugin filename="gz-sim-joint-state-publisher-system"
       name="gz::sim::systems::JointStatePublisher">
-      <topic>/joint_states</topic>
+      <topic>joint_states</topic>
       <joint_name>left_wheel_joint</joint_name>
       <joint_name>right_wheel_joint</joint_name>
     </plugin>
   </gazebo>
 
-  <!-- ── Link-level: base_link ─────────────────────────────────────── -->
+  <!-- base_link surface -->
   <gazebo reference="base_link">
     <material>Gazebo/White</material>
     <gravity>true</gravity>
@@ -52,7 +66,7 @@
     </surface>
   </gazebo>
 
-  <!-- ── Link-level: left_wheel_link ────────────────────────────────────── -->
+  <!-- Drive wheels: high friction in rolling direction, low slip -->
   <gazebo reference="left_wheel_link">
     <material>Gazebo/DarkGrey</material>
     <surface>
@@ -76,7 +90,6 @@
     </surface>
   </gazebo>
 
-  <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
   <gazebo reference="right_wheel_link">
     <material>Gazebo/DarkGrey</material>
     <surface>
@@ -100,8 +113,7 @@
     </surface>
   </gazebo>
 
-  <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
-  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
+  <!-- Casters: friction 0 so the drive wheels carry all the traction. -->
   <xacro:macro name="caster_gazebo" params="prefix">
     <gazebo reference="${prefix}_caster_link">
       <material>Gazebo/Grey</material>
@@ -132,12 +144,18 @@
   <xacro:caster_gazebo prefix="bl" />
   <xacro:caster_gazebo prefix="br" />
 
-  <!-- ── Link-level: lidar_link — sensor ONLY here ─────────────────── -->
+  <!--
+    Lidar.
+
+    Range, samples and noise tuned for the docking simulation:
+      - 0.15 m near limit so the lidar can see close obstacles next to the robot
+      - 12 m far limit to span the 10x10 m room used by the docking scenario
+  -->
   <gazebo reference="lidar_link">
     <material>Gazebo/Black</material>
     <sensor name="lidar_sensor" type="gpu_lidar">
       <pose relative_to="lidar_link">0 0 0 0 0 0</pose>
-      <topic>/scan</topic>
+      <topic>scan</topic>
       <gz_frame_id>lidar_link</gz_frame_id>
       <update_rate>10</update_rate>
       <lidar>
@@ -150,8 +168,8 @@
           </horizontal>
         </scan>
         <range>
-          <min>0.40</min>
-          <max>10.0</max>
+          <min>0.15</min>
+          <max>12.0</max>
           <resolution>0.01</resolution>
         </range>
         <noise>
@@ -162,6 +180,46 @@
       </lidar>
       <visualize>true</visualize>
       <always_on>true</always_on>
+    </sensor>
+  </gazebo>
+
+  <!--
+    RGB camera.
+
+    640x480 @ 15 Hz is the maximum the gz<->ROS bridge handles reliably; HD
+    (1280x720) stalls the image bridge to ~0.2 Hz. horizontal_fov=1.2 rad
+    chosen to match the real-robot camera.
+
+    gz_frame_id is camera_rgb_optical_frame (declared in the main xacro) so
+    the image stream carries the -pi/2,-pi/2 rotation that apriltag_ros::solvePnP
+    expects when computing the tag pose.
+  -->
+  <gazebo reference="camera_link">
+    <material>Gazebo/Black</material>
+    <sensor name="rgb_camera" type="camera">
+      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+      <topic>camera/image_raw</topic>
+      <gz_frame_id>camera_rgb_optical_frame</gz_frame_id>
+      <update_rate>15</update_rate>
+      <camera>
+        <horizontal_fov>1.2</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>15.0</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.005</stddev>
+        </noise>
+      </camera>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
     </sensor>
   </gazebo>
 

@@ -55,7 +55,7 @@ def generate_launch_description():
         executable='static_transform_publisher',
         arguments=['--x', '0', '--y', '0', '--z', '0',
                    '--roll', '0', '--pitch', '0', '--yaw', '0',
-                   '--frame-id', 'odom', '--child-frame-id', 'base_link'])
+                   '--frame-id', 'odom', '--child-frame-id', 'base_footprint'])
 
     ld = LaunchDescription()
     ld.add_action(DeclareLaunchArgument(

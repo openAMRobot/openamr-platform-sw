@@ -8,6 +8,22 @@ Current maturity level: Experimental
 
 This repository is under active development and will serve as the main software repository for the OpenAMR mobile robot platform.
 
+## Quickstart — docking simulation
+
+```bash
+git clone https://github.com/openAMRobot/openamr-platform-sw.git
+cd openamr-platform-sw
+echo 'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp' >> ~/.bashrc && source ~/.bashrc
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-up-to openamrobot_docking
+source install/setup.bash
+ros2 launch openamrobot_docking docking_sim.launch.py
+```
+
+Then in another terminal: `ros2 topic pub /dock_trigger std_msgs/msg/Bool "{data: true}" --once`.
+
+Full walkthrough in [`docs/getting_started/01_quickstart_docking_sim.md`](docs/getting_started/01_quickstart_docking_sim.md).
+
 ## Purpose
 
 This repository contains the product-level software stack for the OpenAMR platform, including:

@@ -1,0 +1,114 @@
+<?xml version="1.0"?>
+<!--
+  Docking scenario: 10x10 m walled room + AprilTag dock against the north wall.
+
+  This world is intentionally similar in spirit to openamrobot_gazebo/worlds/
+  walled_world.sdf (same plugins, same overall dimensions) but with thinner
+  walls (0.1 m vs 0.2 m) to leave room for a 1-cm AprilTag panel mounted
+  10 cm south of the north wall. The dock faces -y so a robot starting
+  inside the room and travelling north arrives head-on.
+
+  Default robot spawn (set in the launch): world (-4, -4, 0), south-west
+  corner facing east. With the SLAM convention that places the map origin
+  at the spawn pose, the dock's map-frame pose becomes (4.0, 8.9, +pi/2).
+-->
+<sdf version="1.9">
+  <world name="docking_scenario">
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <light name="sun" type="directional">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>20 20</size></plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>20 20</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.5 0.5 0.5 1</ambient>
+            <diffuse>0.5 0.5 0.5 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- North wall -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 5 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>10 0.1 1</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>10 0.1 1</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <!-- South wall -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -5 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>10 0.1 1</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>10 0.1 1</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <!-- West wall -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-5 0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>0.1 10 1</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>0.1 10 1</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <!-- East wall (dock side) -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>5 0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>0.1 10 1</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>0.1 10 1</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- AprilTag dock: against the north wall (wall at y=5), the dock panel
+         centred 10 cm south at y=4.9 with the tag face pointing south so a
+         robot inside the room sees it head-on. -->
+    <include>
+      <uri>model://apriltag_dock</uri>
+      <name>apriltag_dock</name>
+      <pose>0 4.9 0.3 0 0 -1.5707</pose>
+    </include>
+
+  </world>
+</sdf>

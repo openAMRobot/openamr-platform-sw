@@ -1,0 +1,49 @@
+launch:
+- arg:
+    name: device
+    default: "0"
+
+- node_container:
+    pkg: rclcpp_components
+    exec: component_container
+    name: apriltag_container
+    namespace: ""
+    composable_node:
+    - pkg: camera_ros
+      plugin: camera::CameraNode
+      name: camera
+      namespace: camera
+      param:
+      - name: camera
+        value: $(var device)
+      extra_arg:
+      - name: use_intra_process_comms
+        value: "True"
+
+    - pkg: image_proc
+      plugin: image_proc::RectifyNode
+      name: rectify
+      namespace: camera
+      remap:
+      - from: image
+        to: /camera/camera/image_raw
+      - from: camera_info
+        to: /camera/camera/camera_info
+      extra_arg:
+      - name: use_intra_process_comms
+        value: "True"
+
+    - pkg: apriltag_ros
+      plugin: AprilTagNode
+      name: apriltag
+      namespace: apriltag
+      remap:
+      - from: /apriltag/image_rect
+        to: /camera/image_rect
+      - from: /camera/camera_info
+        to: /camera/camera/camera_info
+      param:
+      - from: $(find-pkg-share openamrobot_docking)/config/tags_36h11.yaml
+      extra_arg:
+      - name: use_intra_process_comms
+        value: "True"

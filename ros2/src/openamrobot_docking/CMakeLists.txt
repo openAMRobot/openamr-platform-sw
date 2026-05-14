@@ -28,8 +28,14 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch config docs
+install(DIRECTORY launch config docs worlds models
   DESTINATION share/${PROJECT_NAME}
+)
+
+# AprilTag panel texture — installed inside the model's materials/textures
+# directory so Gazebo can resolve the COLLADA/PBR reference.
+install(FILES models/apriltag_dock/materials/textures/tag0_big.png
+  DESTINATION share/${PROJECT_NAME}/models/apriltag_dock/materials/textures
 )
 
 ament_package()

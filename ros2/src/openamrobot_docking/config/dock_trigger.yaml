@@ -1,7 +1,128 @@
 /**:
   ros__parameters:
+    # ─── Trigger topic ─────────────────────────────────────────────────────────
+    # Publish std_msgs/Bool true on this topic to start the docking sequence.
+    # Publish false to trigger undock when `undock_on_false: true`.
     trigger_topic: dock_trigger
+    undock_on_false: false
+
+    # Legacy fields read by opennav_docking::SimpleChargingDock — kept so the
+    # real-robot launch can fall back to the upstream pipeline. The 7-phase
+    # sequencer ignores them and runs its own NavigateToPose + control loop.
     use_dock_id: true
     dock_id: home_dock
-    navigate_to_staging_pose: true
-    undock_on_false: false
+    dock_type: openamrobot_dock
+    navigate_to_staging_pose: false
+
+    # ─── Dock pose in the map frame ───────────────────────────────────────────
+    # Must match docking_server.docks.home_dock in nav2_sim_full.yaml so both
+    # pipelines agree on where the dock is. The third value is the *approach
+    # yaw* — the heading the robot has when docked.
+    #
+    # Sim layout: robot spawns at world (-4,-4) yaw=0 → map origin coincides
+    # with the spawn. Dock at world (0, 4.9) → map (4.0, 8.9, π/2).
+    dock_pose_x: 4.0
+    dock_pose_y: 8.9
+    dock_pose_yaw: 1.5707
+
+    # ─── Phase 1 — Nav2 NavigateToPose to the staging zone ───────────────────
+    # Distance (m) in front of the dock at which the robot first stops, and
+    # the distance at which the perpendicular-line tracking begins.
+    staging_distance: 2.5
+    # Hold (s) at staging before the tag search begins, so velocity decays
+    # smoothly and the camera image stabilises.
+    staging_hold_seconds: 1.0
+
+    # ─── Phase 2 — tag search & centring scan ────────────────────────────────
+    # After Nav2 reaches the staging zone the robot rotates in place to
+    # centre the tag in the camera image. The scan operates in two regimes:
+    #
+    #   - open-loop rotation at scan_rotation_speed when no detection;
+    #   - closed-loop yaw P-control (omega = −scan_centring_kp × atan2(X,Z)
+    #     in camera_optical frame) once the tag is in view.
+    #
+    # It exits when the tag is within scan_centring_tolerance of the image
+    # centre for scan_consecutive_target frames in a row.
+    #
+    # Using the camera-frame angle rather than the running-average map
+    # position means the centring is robust to solvePnP map-frame bias:
+    # the tag is centred as it ACTUALLY appears in the image.
+    scan_rotation_speed: 0.3            # rad/s — open-loop scan + clamp on centring
+    scan_consecutive_target: 5          # centred frames in a row
+    scan_centring_tolerance: 0.035      # rad ≈ 2° — tag must be this close to image centre
+    scan_centring_kp: 1.0               # rad/s per rad of image-frame angle
+
+    # ─── Phase 2 — initial filter (running average seed) ─────────────────────
+    # Number of samples folded into the running-average tag pose before
+    # phase 3 (the spin to perpendicular). The running average then keeps
+    # updating throughout phase 4.
+    filter_num_samples: 40
+    # Maximum time (s) to wait for filter_num_samples. The tag publisher
+    # runs at ~10 Hz, so 40 samples need ≥4 s plus margin.
+    filter_max_collect_time: 6.0
+
+    # ─── Phase 3 — spin in place to perpendicular yaw ────────────────────────
+    spin_kp: 1.5
+    spin_max_omega: 0.3
+    # Phase 3 exits when |yaw_err| < spin_yaw_tolerance. 0.02 rad ≈ 1.1°.
+    spin_yaw_tolerance: 0.02
+
+    # ─── Phase 4 — line-tracking advance (pure-pursuit) ──────────────────────
+    # Drive forward toward the running-average tag while steering to stay on
+    # the perpendicular line through the averaged tag centre.
+    #
+    # Pure-pursuit control law:
+    #
+    #     desired_yaw = perp_yaw − atan2(lateral, line_lookahead_distance)
+    #     omega       = line_yaw_kp × (desired_yaw − robot_yaw)
+    #     omega       saturated by drive_yaw_max_omega
+    #
+    # The atan2 maps the signed lateral offset to a bounded heading deviation
+    # (±π/2). As the robot approaches the line, lateral → 0, so desired_yaw
+    # → perp_yaw and the robot arrives perpendicular to the tag — no
+    # standing yaw bias at the dock.
+    #
+    # Tuning intuition:
+    #   - smaller line_lookahead_distance = more aggressive lateral
+    #     convergence (steeper desired heading at the same offset);
+    #   - increase line_yaw_kp to track desired_yaw faster (note the
+    #     drive_yaw_max_omega saturation);
+    #   - if the robot oscillates near the line, increase lookahead
+    #     distance or decrease line_yaw_kp.
+    docking_distance: 0.9               # m — final distance from the averaged tag.
+                                         # Stops the robot before the near-field
+                                         # regime where small lateral motion
+                                         # produces large image-angle changes
+                                         # that any final-approach corrector
+                                         # would over-react to.
+    drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
+    line_yaw_kp: 2.5                    # rad/s per rad of (desired_yaw − robot_yaw)
+    line_lookahead_distance: 0.3        # m — pure-pursuit lookahead on the perpendicular line.
+                                         # Smaller = steeper desired heading at
+                                         # a given offset = faster lateral
+                                         # convergence onto the line.
+    drive_yaw_max_omega: 0.3            # rad/s clamp on omega
+    drive_rate_hz: 20.0                 # Hz control loop frequency
+    cmd_vel_topic: /cmd_vel_nav         # Twist goes through velocity_smoother → collision_monitor → /cmd_vel
+
+    # When the robot gets within this distance of the running-average tag,
+    # the controller stops correcting the heading (omega = 0) and just
+    # drives forward in a straight line until docking_distance.
+    #
+    # IMPORTANT: this MUST be larger than docking_distance for the
+    # straight-line phase to engage at all. With docking_distance=0.9 we
+    # need visual_servo_distance > 0.9 — set to 1.4 here so the robot
+    # has a clear ~0.5 m of straight-line final approach.
+    #
+    # Set to 0 to keep the line-tracking controller active all the way.
+    visual_servo_distance: 1.4
+
+    # Kept declared for backwards compatibility with older code paths
+    # (and the real-robot opennav fallback). Not used by the line-tracking
+    # advance.
+    drive_yaw_kp: 1.5
+
+    # ─── Tag detection topic ─────────────────────────────────────────────────
+    detection_topic: /detected_dock_pose
+    # Maximum age (s) of a detection message before it is dropped as stale.
+    detection_max_age: 1.5

@@ -1,6 +1,0 @@
-source;share/openamrobot_nav2/hook/pythonpath.ps1
-source;share/openamrobot_nav2/hook/pythonpath.dsv
-source;share/openamrobot_nav2/hook/pythonpath.sh
-source;share/openamrobot_nav2/hook/ament_prefix_path.ps1
-source;share/openamrobot_nav2/hook/ament_prefix_path.dsv
-source;share/openamrobot_nav2/hook/ament_prefix_path.sh

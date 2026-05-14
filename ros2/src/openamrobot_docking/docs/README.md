@@ -1,15 +1,45 @@
-# Docking documentation
+# openamrobot_docking — package documentation
 
-This folder documents how the current AprilTag-based docking pipeline is configured for the OpenAMRobot docking package. It is intended to help contributors and student interns understand the existing system, reconfigure it carefully, and reproduce results.
+This folder contains the engineering documentation for the autodocking pipeline shipped by `openamrobot_docking`.
 
-Read in this order:
-1. `02_apriltag_ros.md` - How the AprilTag pipeline is launched, topics/remaps, and how to change tag IDs, sizes, and frames.
-2. `03_tf_frames.md` - Required TF chain and example static transforms for `base_link`, `camera_link`, and `camera_optical_frame`.
-3. `04_docking_pipeline.md` - End-to-end docking flow, nodes involved, and how detections reach `opennav_docking`.
-4. `05_dock_setup_map.md` - How to place/measure the dock (tag) pose in the `map` frame and set `home_dock.pose`.
-5. `06_parameters.md` - Quick reference for key parameters across AprilTag, pose publisher, trigger, and docking server.
-6. `07_reproduce_results.md` - Step-by-step checklist to reproduce results from a clean start.
-7. `08_troubleshooting.md` - Common failure modes and what to check first.
-8. `09_diagrams.md` - Mermaid diagrams: block diagram, TF tree, state flow, and parameter dependencies.
+## Layout
 
-If you add new tags, change frame names, or alter docking parameters, update the relevant doc section so the workflow stays reproducible.
+```
+docs/
+├── 00_overview.md             ← what the package is, design summary
+├── 01_quickstart.md           ← run the docking sim end-to-end
+├── 02_architecture.md         ← topology, node graph, lifecycle
+├── 03_tf_frames.md            ← the TF chain (robot, dock, optical frames)
+├── 04_apriltag.md             ← AprilTag sizing/family/detector params
+├── 05_parameters.md           ← every dock_trigger.yaml parameter explained
+├── 06_camera_calibration.md   ← intrinsics flow (real-robot only)
+├── 07_reproduce_results.md    ← reproducing the simulated end state
+├── 08_sequencer_4phase.md     ← the 4-phase docking flow, phase by phase
+├── 09_troubleshooting.md      ← symptom → cause → fix matrix
+├── 10_diagrams.md             ← sequence/state diagrams (text)
+├── 11_changes_from_upstream.md ← what this revision changes vs prior pipelines
+├── 12_lessons_learned.md      ← decisions diary, with rationale
+└── legacy/                    ← original 9 docs from the controlled_approach era
+```
+
+## How to read
+
+1. New here? Start at `00_overview.md` then `01_quickstart.md`.
+2. Tuning the controller? `05_parameters.md` and `08_sequencer_4phase.md`.
+3. Something went wrong? `09_troubleshooting.md` first, then `12_lessons_learned.md` for the deeper why.
+4. Onboarding teammates onto the 4-phase pipeline? `08_sequencer_4phase.md` plus `10_diagrams.md`.
+
+## Legacy docs
+
+The `legacy/` subfolder contains the documentation written when the pipeline used `opennav_docking::SimpleChargingDock::controlled_approach`. The 4-phase sequencer replaced that flow because controlled_approach produced curved trajectories that did not arrive head-on at the dock. The legacy docs are preserved verbatim so the rationale remains traceable.
+
+## Path / naming caveat
+
+A few of the 4-phase docs in this folder were written before the migration to `openamr-platform-sw`. They may still reference:
+
+- `omr_description` (now `openamrobot_description`)
+- `openamrobot-docking-main` workspace path (now `openamr-platform-sw`)
+- `simulation/config/...` (now split across `openamrobot_nav2/config/` and this package's `config/`)
+- the `simulation.launch.py` entry point (now `docking_sim.launch.py`)
+
+When in doubt, the canonical bringup is the platform-level `README.md` at the root of `openamr-platform-sw`, and the package-level `README.md` next to this folder. The docs here are the engineering record; treat them as the source for *why*, and the README as the source for *how to run today*.

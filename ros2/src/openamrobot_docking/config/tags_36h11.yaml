@@ -1,0 +1,20 @@
+/**:
+    ros__parameters:
+        image_transport: raw
+        family: 36h11
+        size: 0.0555            # tag edge size in meter (5.55 cm)
+        max_hamming: 0
+
+        detector:
+            threads: 1
+            decimate: 2.0
+            blur: 0.0
+            refine: True
+            sharpening: 0.25
+            debug: False
+
+        pose_estimation_method: "pnp"
+
+        tag:
+            ids: [0]
+            frames: [charging_dock_apriltag]

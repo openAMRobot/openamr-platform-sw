@@ -1,0 +1,360 @@
+# Nav2 + SLAM Toolbox parameters for the OpenAMRobot platform.
+#
+# These are tuned for the 10x10 m walled simulation world and the OpenAMRobot
+# differential-drive base described in openamrobot_description. They also work
+# on the real robot once odometry/lidar are wired through the same topic names.
+#
+# docking_server is intentionally NOT included here — see the openamrobot_docking
+# package for docking-specific configuration. velocity_smoother and
+# collision_monitor live here because they are part of the general Nav2 chain
+# and benefit any Nav2-based behaviour, docking or not.
+
+amcl:
+  ros__parameters:
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: base_footprint
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: map
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 100.0
+    laser_min_range: -1.0
+    laser_model_type: likelihood_field
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    odom_frame_id: odom
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: nav2_amcl::DifferentialMotionModel
+    save_pose_rate: 0.5
+    scan_topic: scan
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    use_sim_time: true
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+
+behavior_server:
+  ros__parameters:
+    assisted_teleop:
+      plugin: nav2_behaviors::AssistedTeleop
+    backup:
+      plugin: nav2_behaviors::BackUp
+    behavior_plugins:
+    - spin
+    - backup
+    - drive_on_heading
+    - assisted_teleop
+    - wait
+    cycle_frequency: 10.0
+    drive_on_heading:
+      plugin: nav2_behaviors::DriveOnHeading
+    global_costmap_topic: global_costmap/costmap_raw
+    global_footprint_topic: global_costmap/published_footprint
+    global_frame: map
+    local_costmap_topic: local_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    local_frame: odom
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    robot_base_frame: base_link
+    rotational_acc_lim: 3.2
+    simulate_ahead_time: 2.0
+    spin:
+      plugin: nav2_behaviors::Spin
+    transform_tolerance: 0.1
+    use_sim_time: true
+    wait:
+      plugin: nav2_behaviors::Wait
+
+bt_navigator:
+  ros__parameters:
+    action_server_result_timeout: 900.0
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    error_code_names:
+    - compute_path_error_code
+    - follow_path_error_code
+    global_frame: map
+    navigate_through_poses:
+      plugin: nav2_bt_navigator::NavigateThroughPosesNavigator
+    navigate_to_pose:
+      plugin: nav2_bt_navigator::NavigateToPoseNavigator
+    navigators:
+    - navigate_to_pose
+    - navigate_through_poses
+    odom_topic: /odom
+    robot_base_frame: base_link
+    use_sim_time: true
+    wait_for_service_timeout: 1000
+
+# Collision monitor is wired into the cmd_vel chain:
+#   controller_server / behavior_server -> /cmd_vel_nav
+#   velocity_smoother -> /cmd_vel_smoothed
+#   collision_monitor (this node) -> /cmd_vel
+#
+# FootprintApproach is disabled by default — it tripped on phantom near-
+# obstacles when the lidar caught a glimpse of the robot's own body during
+# tight rotations. Enable it if your environment has real near-obstacle risk.
+collision_monitor:
+  ros__parameters:
+    FootprintApproach:
+      action_type: approach
+      enabled: false
+      footprint_topic: /local_costmap/published_footprint
+      min_points: 6
+      simulation_time_step: 0.1
+      time_before_collision: 1.2
+      type: polygon
+      visualize: false
+    base_frame_id: base_footprint
+    base_shift_correction: true
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel
+    observation_sources:
+    - scan
+    odom_frame_id: odom
+    polygons:
+    - FootprintApproach
+    scan:
+      enabled: true
+      max_height: 2.0
+      min_height: 0.15
+      topic: scan
+      type: scan
+    source_timeout: 1.0
+    state_topic: collision_monitor_state
+    stop_pub_timeout: 2.0
+    transform_tolerance: 0.2
+    use_sim_time: true
+
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins:
+    - progress_checker
+    goal_checker_plugins:
+    - general_goal_checker
+    controller_plugins:
+    - FollowPath
+    progress_checker:
+      plugin: nav2_controller::SimpleProgressChecker
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+    general_goal_checker:
+      plugin: nav2_controller::SimpleGoalChecker
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.05
+      stateful: true
+    # RegulatedPurePursuit — smooth, predictable, no oscillation in an open
+    # room. Fine final approach near a dock is delegated to the docking
+    # sequencer in the openamrobot_docking package.
+    FollowPath:
+      plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      desired_linear_vel: 0.55
+      lookahead_dist: 0.5
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 0.7
+      lookahead_time: 1.5
+      rotate_to_heading_angular_vel: 0.5
+      transform_tolerance: 0.1
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: false
+      use_regulated_linear_velocity_scaling: true
+      use_fixed_curvature_lookahead: false
+      use_cost_regulated_linear_velocity_scaling: false
+      regulated_linear_scaling_min_radius: 0.6
+      regulated_linear_scaling_min_speed: 0.15
+      use_rotate_to_heading: true
+      allow_reversing: false
+      rotate_to_heading_min_angle: 0.785
+      max_angular_accel: 0.6
+      max_robot_pose_search_dist: 10.0
+    use_sim_time: true
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      always_send_full_costmap: true
+      global_frame: map
+      inflation_layer:
+        # Steep cost falloff: fewer "medium-cost" cells -> less plan wobble
+        # when the lidar shifts an obstacle by a few cm.
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.45
+        plugin: nav2_costmap_2d::InflationLayer
+      obstacle_layer:
+        enabled: true
+        observation_sources: scan
+        plugin: nav2_costmap_2d::ObstacleLayer
+        scan:
+          clearing: true
+          data_type: LaserScan
+          marking: true
+          max_obstacle_height: 2.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.0
+          topic: /scan
+      plugins:
+      - obstacle_layer
+      - inflation_layer
+      publish_frequency: 1.0
+      resolution: 0.05
+      robot_base_frame: base_link
+      robot_radius: 0.35
+      rolling_window: true
+      width: 20
+      height: 20
+      track_unknown_space: false
+      update_frequency: 1.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      always_send_full_costmap: true
+      global_frame: odom
+      height: 3
+      inflation_layer:
+        cost_scaling_factor: 8.0
+        inflation_radius: 0.45
+        plugin: nav2_costmap_2d::InflationLayer
+      plugins:
+      - voxel_layer
+      - inflation_layer
+      publish_frequency: 2.0
+      resolution: 0.05
+      robot_base_frame: base_link
+      robot_radius: 0.35
+      rolling_window: true
+      static_layer:
+        map_subscribe_transient_local: true
+        plugin: nav2_costmap_2d::StaticLayer
+      update_frequency: 5.0
+      voxel_layer:
+        enabled: true
+        mark_threshold: 0
+        max_obstacle_height: 2.0
+        observation_sources: scan
+        origin_z: 0.0
+        plugin: nav2_costmap_2d::VoxelLayer
+        publish_voxel_map: true
+        scan:
+          clearing: true
+          data_type: LaserScan
+          marking: true
+          max_obstacle_height: 2.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          topic: /scan
+        z_resolution: 0.05
+        z_voxels: 16
+      width: 3
+
+map_saver:
+  ros__parameters:
+    free_thresh_default: 0.25
+    map_subscribe_transient_local: true
+    occupied_thresh_default: 0.65
+    save_map_timeout: 5.0
+    use_sim_time: true
+
+planner_server:
+  ros__parameters:
+    GridBased:
+      allow_unknown: true
+      plugin: nav2_navfn_planner::NavfnPlanner
+      # tolerance: 1.0 -> accept any free cell within 1 m of the goal if the
+      # exact goal cell is temporarily in an inflation zone. Avoids the
+      # "Failed to plan" errors caused by costmap flicker near the target.
+      tolerance: 1.0
+      # A* is faster and more robust than Dijkstra when there are
+      # unknown/transient cells in the costmap.
+      use_astar: true
+    costmap_update_timeout: 1.0
+    expected_planner_frequency: 20.0
+    planner_plugins:
+    - GridBased
+    use_sim_time: true
+
+smoother_server:
+  ros__parameters:
+    simple_smoother:
+      do_refinement: true
+      max_its: 1000
+      plugin: nav2_smoother::SimpleSmoother
+      tolerance: 1.0e-10
+    smoother_plugins:
+    - simple_smoother
+    use_sim_time: true
+
+# Linear accel/decel are conservative because the casters tend to drag and a
+# brusque deceleration can make the robot wobble. Softer decel (-0.5 m/s²)
+# avoids overshoot of the navigation goal.
+velocity_smoother:
+  ros__parameters:
+    deadband_velocity:
+    - 0.0
+    - 0.0
+    - 0.0
+    feedback: OPEN_LOOP
+    max_accel:
+    - 1.2
+    - 0.0
+    - 1.5
+    max_decel:
+    - -0.5
+    - 0.0
+    - -1.0
+    max_velocity:
+    - 0.7
+    - 0.0
+    - 1.2
+    min_velocity:
+    - -0.7
+    - 0.0
+    - -1.2
+    odom_duration: 0.1
+    odom_topic: odom
+    scale_velocities: false
+    smoothing_frequency: 20.0
+    stamp_smoothed_velocity_with_smoothing_time: false
+    use_sim_time: true
+    velocity_timeout: 1.0
+
+waypoint_follower:
+  ros__parameters:
+    action_server_result_timeout: 900.0
+    loop_rate: 20
+    stop_on_failure: false
+    use_sim_time: true
+    wait_at_waypoint:
+      enabled: true
+      plugin: nav2_waypoint_follower::WaitAtWaypoint
+      waypoint_pause_duration: 200
+    waypoint_task_executor_plugin: wait_at_waypoint

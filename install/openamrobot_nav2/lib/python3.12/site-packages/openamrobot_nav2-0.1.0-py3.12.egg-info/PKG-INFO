@@ -1,7 +1,0 @@
-Metadata-Version: 2.1
-Name: openamrobot-nav2
-Version: 0.1.0
-Summary: Nav2 bringup, configuration, maps, SLAM, localization, and navigation stack integration for OpenAMRobot.
-Maintainer: OpenAMRobot Maintainers
-Maintainer-email: botshare.ai@gmail.com
-License: MIT

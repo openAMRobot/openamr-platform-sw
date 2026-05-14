@@ -1,0 +1,20 @@
+/**:
+    ros__parameters:
+        image_transport: raw
+        family: 36h11
+        size: 0.40              # simulated tag panel size in meters (matches model.sdf box face)
+        max_hamming: 0
+
+        detector:
+            threads: 2
+            decimate: 1.0       # no decimation — camera resolution is already limited
+            blur: 0.0
+            refine: True
+            sharpening: 0.25
+            debug: False
+
+        pose_estimation_method: "pnp"
+
+        tag:
+            ids: [0]
+            frames: [charging_dock_apriltag]

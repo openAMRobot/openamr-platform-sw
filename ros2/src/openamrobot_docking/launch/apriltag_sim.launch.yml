@@ -1,0 +1,17 @@
+launch:
+# AprilTag detection for simulation.
+# Does NOT start camera_ros — the camera is provided by Gazebo via ros_gz_bridge.
+# Passes raw image directly to AprilTagNode (no rectification needed in simulation).
+
+- node:
+    pkg: apriltag_ros
+    exec: apriltag_node
+    name: apriltag
+    namespace: apriltag
+    param:
+    - from: $(find-pkg-share openamrobot_docking)/simulation/config/tags_36h11_sim.yaml
+    remap:
+    - from: /apriltag/image_rect
+      to: /camera/image_raw
+    - from: /camera/camera_info
+      to: /camera/camera_info

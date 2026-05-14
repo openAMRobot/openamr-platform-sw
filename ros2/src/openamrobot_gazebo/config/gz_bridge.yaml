@@ -1,62 +1,68 @@
-# gz topic published by the simulator core
+# ROS 2 <-> Gazebo Harmonic topic bridge for the OpenAMRobot platform.
+#
+# All robot-side topics are kept relative (no leading slash) so the bridge
+# behaves correctly when the robot is spawned inside a namespace. Simulator
+# globals (/clock, /tf) keep absolute paths.
+
+# Simulator clock (published by gz-sim physics)
 - ros_topic_name: "clock"
   gz_topic_name: "clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"
   gz_type_name: "gz.msgs.Clock"
   direction: GZ_TO_ROS
 
-# gz topic published by JointState plugin
-# - ros_topic_name: "/joint_states"
-#   gz_topic_name: "/joint_states"
-#   ros_type_name: "sensor_msgs/msg/JointState"
-#   gz_type_name: "gz.msgs.Model"
-#   direction: GZ_TO_ROS
-
-# gz topic published by DiffDrive plugin
-- ros_topic_name: "/odom"
-  gz_topic_name: "/odom"
+# Odometry from the DiffDrive plugin
+- ros_topic_name: "odom"
+  gz_topic_name: "odom"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
 
-# gz topic published by DiffDrive plugin
-- ros_topic_name: "/tf"
-  gz_topic_name: "/tf"
+# TF from the DiffDrive plugin (odom -> base_footprint)
+- ros_topic_name: "tf"
+  gz_topic_name: "tf"
   ros_type_name: "tf2_msgs/msg/TFMessage"
   gz_type_name: "gz.msgs.Pose_V"
   direction: GZ_TO_ROS
 
-# gz topic subscribed to by DiffDrive plugin
-- ros_topic_name: "/cmd_vel"
-  gz_topic_name: "/cmd_vel"
+# Velocity command into the DiffDrive plugin
+- ros_topic_name: "cmd_vel"
+  gz_topic_name: "cmd_vel"
   ros_type_name: "geometry_msgs/msg/Twist"
   gz_type_name: "gz.msgs.Twist"
   direction: ROS_TO_GZ
 
-# gz topic published by IMU plugin
+# Wheel joint states (published by gz-sim-joint-state-publisher-system)
+- ros_topic_name: "joint_states"
+  gz_topic_name: "joint_states"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+# IMU (published by the IMU plugin if enabled in the world)
 - ros_topic_name: "imu"
   gz_topic_name: "imu"
   ros_type_name: "sensor_msgs/msg/Imu"
   gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/scan"
-  gz_topic_name: "/scan"
+# 2D LiDAR (published by the gpu_lidar sensor on lidar_link)
+- ros_topic_name: "scan"
+  gz_topic_name: "scan"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-# gz topic published by Sensors plugin
-- ros_topic_name: "/rgb_image"
-  gz_topic_name: "/rgb_image"
+# RGB camera image (published by the camera sensor on camera_link)
+- ros_topic_name: "/camera/image_raw"
+  gz_topic_name: "/camera/image_raw"
   ros_type_name: "sensor_msgs/msg/Image"
   gz_type_name: "gz.msgs.Image"
   direction: GZ_TO_ROS
-  
 
-# gz topic published by Sensors plugin (Camera)
-- ros_topic_name: "camera/camera_info"
-  gz_topic_name: "camera/camera_info"
+# RGB camera intrinsics (published by the sensors system alongside the image)
+- ros_topic_name: "/camera/camera_info"
+  gz_topic_name: "/camera/camera_info"
   ros_type_name: "sensor_msgs/msg/CameraInfo"
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS

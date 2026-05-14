@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="apriltag_dock">
+    <static>true</static>
+    <link name="panel_link">
+      <visual name="tag_visual">
+        <geometry>
+          <box>
+            <size>0.01 0.40 0.40</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://apriltag_dock/materials/textures/tag0_big.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>1.0</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <collision name="tag_collision">
+        <geometry>
+          <box>
+            <size>0.01 0.40 0.40</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
