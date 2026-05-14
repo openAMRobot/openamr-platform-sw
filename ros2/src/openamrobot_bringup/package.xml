@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>openamrobot_bringup</name>
+  <version>0.1.0</version>
+  <description>Top-level launch compositions for the OpenAMRobot platform: assembles description, simulator, navigation, and docking sub-packages into ready-to-use bringup launches (sim-only, sim+nav, real-robot).</description>
+
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>openamrobot_description</exec_depend>
+  <exec_depend>openamrobot_gazebo</exec_depend>
+  <exec_depend>openamrobot_nav2</exec_depend>
+  <exec_depend>openamrobot_docking</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
