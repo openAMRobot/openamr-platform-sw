@@ -1,0 +1,25 @@
+# ROS 2 / colcon generated folders
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# C/C++ build artifacts
+*.o
+*.so
+*.a
+
+# Logs
+*.log
+
+# Editors
+.vscode/
+.idea/
+
+# Cache
+.cache/
