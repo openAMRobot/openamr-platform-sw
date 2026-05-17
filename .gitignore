@@ -1,25 +1,89 @@
-# ROS 2 / colcon generated folders
+# OpenAMR Platform Software
+# Ignore generated files, local development artifacts, ROS 2 / colcon outputs, and editor/system files.
+
+# ROS 2 / colcon build outputs
 build/
 install/
 log/
+ros2/build/
+ros2/install/
+ros2/log/
 
-# Python cache
+# Python cache and virtual environments
 __pycache__/
-*.pyc
-*.pyo
-*.egg-info/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
 
-# C/C++ build artifacts
+# C/C++ / CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
 *.o
+*.obj
 *.so
+*.dylib
+*.dll
 *.a
+*.lib
+*.exe
 
-# Logs
+# ROS logs and recorded data
+*.bag
+*.db3
+*.mcap
 *.log
+*.pid
 
-# Editors
-.vscode/
+# Gazebo / Gazebo Sim generated files
+.gazebo/
+.ignition/
+.gz/
+*.sdf.bak
+*.world.bak
+
+# Editor and IDE files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
+*.swp
+*.swo
+*~
 
-# Cache
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files and secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.secret
+secrets/
+
+# Temporary files
+tmp/
+temp/
 .cache/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
