@@ -3,13 +3,16 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     pkg = get_package_share_directory('openamrobot_nav2')
     map_file = os.path.join(pkg, 'maps', 'my_map.yaml')
+    use_rviz = LaunchConfiguration('use_rviz')
 
     localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -39,6 +42,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{'use_sim_time': True}],
         arguments=['-d', rviz_config],
+        condition=IfCondition(use_rviz),
     )
 
     return LaunchDescription([
@@ -56,6 +60,11 @@ def generate_launch_description():
             name='initial_pose_yaw',
             default_value='0.0',
             description='Initial robot yaw in map frame'
+        ),
+        DeclareLaunchArgument(
+            name='use_rviz',
+            default_value='false',
+            description='Start RViz. Default false reduces simulation lag.'
         ),
         localization,
         navigation,

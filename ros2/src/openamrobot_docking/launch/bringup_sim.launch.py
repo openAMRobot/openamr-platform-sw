@@ -14,6 +14,10 @@ Usage:
 
     ros2 launch openamrobot_docking bringup_sim.launch.py
 
+Headless simulation without Gazebo GUI or RViz:
+
+    ros2 launch openamrobot_docking bringup_sim.launch.py gazebo_gui:=false use_rviz:=false
+
 Then trigger docking from any sourced terminal:
 
     ros2 topic pub /dock_trigger std_msgs/msg/Bool "{data: true}" --once
@@ -44,19 +48,23 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     nav2_delay = LaunchConfiguration('nav2_delay')
     docking_delay = LaunchConfiguration('docking_delay')
+    gazebo_gui = LaunchConfiguration('gazebo_gui')
+    use_rviz = LaunchConfiguration('use_rviz')
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('openamrobot_gazebo'),
             'launch', 'gz_simulator.launch.py',
-        ]))
+        ])),
+        launch_arguments={'gui': gazebo_gui}.items(),
     )
 
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('openamrobot_nav2'),
             'launch', 'sim_bringup_launch.py',
-        ]))
+        ])),
+        launch_arguments={'use_rviz': use_rviz}.items(),
     )
 
     docking = IncludeLaunchDescription(
@@ -76,6 +84,14 @@ def generate_launch_description():
             'docking_delay', default_value='16.0',
             description='Seconds to wait after Gazebo before starting the docking layer '
                         '(must be > nav2_delay so AMCL has localized).',
+        ),
+        DeclareLaunchArgument(
+            'gazebo_gui', default_value='true',
+            description='Start Gazebo GUI.',
+        ),
+        DeclareLaunchArgument(
+            'use_rviz', default_value='true',
+            description='Start RViz.',
         ),
         # Gazebo first (at t=0): it owns /clock, so everything else can run on
         # sim time once it is up.

@@ -17,6 +17,7 @@
 
   <!-- Python runtime (dock_trigger.py) -->
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
 
   <!-- Launch infrastructure -->
