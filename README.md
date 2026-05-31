@@ -75,6 +75,12 @@ This brings up the whole stack in the right order with a delay between each laye
 ros2 launch openamrobot_docking bringup_sim.launch.py nav2_delay:=10 docking_delay:=22
 ```
 
+For headless simulation without Gazebo GUI or RViz:
+
+```bash
+ros2 launch openamrobot_docking bringup_sim.launch.py gazebo_gui:=false use_rviz:=false
+```
+
 ### 3b. …or run the three layers separately
 
 Useful while tuning or restarting one layer without bringing the others down. **The order matters** — each layer depends on the one before it, so start them top to bottom (one sourced terminal each):

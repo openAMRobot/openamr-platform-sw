@@ -22,7 +22,7 @@ from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import (
     NavigateToPose,
@@ -378,6 +378,13 @@ class DockTrigger(Node):
         self.goal_pose_pub = self.create_publisher(
             PoseStamped, self.goal_pose_forward_topic, 10)
 
+        # ── Docking status publisher (consumed by the web UI) ────────────────
+        # Publishes one of: idle | docking | docked | undocking | failed
+        self.dock_status_pub = self.create_publisher(String, 'dock_trigger_status', 10)
+
+        # Heartbeat: re-publish current state every 2 s so the UI syncs on connect.
+        self.create_timer(2.0, self._heartbeat_status, callback_group=self.cb_group)
+
         # ── Triggers ────────────────────────────────────────────────────────
         self.create_subscription(
             Bool, self.trigger_topic, self.on_trigger, 10,
@@ -405,6 +412,13 @@ class DockTrigger(Node):
     # ──────────────────────────────────────────────────────────────────────
     # Callbacks
     # ──────────────────────────────────────────────────────────────────────
+    def _pub_status(self, state: str) -> None:
+        self.dock_status_pub.publish(String(data=state))
+
+    def _heartbeat_status(self) -> None:
+        if not self.busy:
+            self._pub_status('docked' if self.is_docked else 'idle')
+
     def on_detection(self, msg: PoseStamped):
         self.detected_pose = msg
 
@@ -420,11 +434,13 @@ class DockTrigger(Node):
             self._send_undock()
 
     def _run_and_release(self):
+        self._pub_status('docking')
         try:
             self.run_docking_sequence()
         except Exception as e:
             self.get_logger().error(f'Docking sequence error: {e}')
         finally:
+            self._pub_status('docked' if self.is_docked else 'failed')
             self.busy = False
 
     def on_undock(self, msg: Bool):
@@ -440,11 +456,13 @@ class DockTrigger(Node):
         t.start()
 
     def _undock_and_release(self):
+        self._pub_status('undocking')
         try:
             self.run_undock_sequence()
         except Exception as e:
             self.get_logger().error(f'Undock sequence error: {e}')
         finally:
+            self._pub_status('idle' if not self.is_docked else 'failed')
             self.busy = False
 
     def on_goal_pose(self, msg: PoseStamped):
@@ -462,15 +480,19 @@ class DockTrigger(Node):
         t.start()
 
     def _undock_then_forward(self, goal_msg: PoseStamped):
+        self._pub_status('undocking')
         try:
             self.get_logger().info('Navigation goal received while docked — undocking first')
             if self.run_undock_sequence():
                 self.get_logger().info('   undock complete — forwarding goal to Nav2')
+                self._pub_status('idle')
                 self.goal_pose_pub.publish(goal_msg)
             else:
                 self.get_logger().error('   undock failed — navigation goal NOT forwarded')
+                self._pub_status('failed')
         except Exception as e:
             self.get_logger().error(f'Undock-then-navigate error: {e}')
+            self._pub_status('failed')
         finally:
             self.busy = False
 
@@ -1308,9 +1330,12 @@ def main():
     executor.add_node(node)
     try:
         executor.spin()
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
