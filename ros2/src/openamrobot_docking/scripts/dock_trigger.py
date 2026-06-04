@@ -12,6 +12,7 @@ Sequence on /dock_trigger=true:
 """
 
 import math
+import subprocess
 import threading
 import time
 
@@ -23,11 +24,12 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from std_msgs.msg import Bool
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import Point, PoseStamped, Twist
 from nav2_msgs.action import (
     NavigateToPose,
     UndockRobot,
 )
+from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
 
 
@@ -302,6 +304,51 @@ class DockTrigger(Node):
         self.declare_parameter('filter_num_samples', 20)
         self.declare_parameter('filter_max_collect_time', 1.5) # s
 
+        # Debug visualisation: publish the perpendicular approach line and the
+        # running-average tag centre as RViz markers (visualization_msgs/
+        # MarkerArray) on debug_marker_topic. See docs/13_perception_and_line.md.
+        self.declare_parameter('publish_debug_markers', True)
+        self.declare_parameter('debug_marker_topic', '/docking/debug_markers')
+
+        # Gazebo marker mirror: draw the same line + tag centre INSIDE the
+        # Gazebo GUI. Gazebo does not consume ROS markers, so we push a
+        # gz.msgs.Marker_V to the gz transport service via the `gz` CLI (no
+        # Python gz bindings on this system). The call is throttled and run in
+        # a daemon thread so it never stalls the control loop. Map ≡ world in
+        # this sim, so map coords are world coords. See docs/13.
+        self.declare_parameter('publish_gz_marker', True)
+        self.declare_parameter('gz_marker_service', '/marker_array')
+        self.declare_parameter('gz_marker_period', 0.4)   # s — throttle (subprocess is heavy)
+
+        # ── Camera-centric approach (two-sided normal estimation) ───────────
+        # See docs/13_perception_and_line.md §6. The robot estimates the tag
+        # normal from two sides (cancels solvePnP view-angle bias), goes to a
+        # point on the normal, re-verifies, then does a camera-only final
+        # approach (immune to wheel slip).
+        self.declare_parameter('too_close_distance', 1.0)        # m — back off if closer
+        self.declare_parameter('predock_distance', 1.5)          # m on the normal (P1)
+        self.declare_parameter('refined_predock_distance', 1.30) # m on the normal (P2)
+        self.declare_parameter('normal_tolerance_deg', 5.0)      # deg — N vs N' agreement
+        self.declare_parameter('obs_lateral', 0.5)               # m — side offset for obs B
+        self.declare_parameter('obs_distance', 2.0)              # m from tag for obs B
+        # Final approach: visual-servo until the tag depth reaches
+        # visual_servo_min_depth (below which a 0.30 m tag leaves the camera
+        # FOV and detection is unreliable), then a short straight blind advance
+        # — distance measured by odometry, reliable over such a short stretch —
+        # down to docking_distance (camera-to-tag depth at the dock).
+        self.declare_parameter('visual_servo_min_depth', 0.5)    # m camera→tag
+        # Phase 5 two regimes: FAR (> freeze_axis_distance) the robot averages
+        # the dock axis from the 3 tags and pure-pursuits it; NEAR (≤ this) the
+        # axis is frozen (no more averaging — close-range estimates are noisy)
+        # and the robot finishes on the centre-tag visual corrector. Camera→tag
+        # depth.
+        self.declare_parameter('freeze_axis_distance', 0.70)     # m camera→tag
+        # EMA weight for the live axis estimate (Phase 5 FAR). A cumulative mean
+        # would freeze the early (off-axis, wrong) estimates; an EMA keeps
+        # following the recent, better ones as the robot centres up. Higher =
+        # more reactive (noisier), lower = smoother (slower).
+        self.declare_parameter('axis_filter_alpha', 0.15)
+
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value
         self.dock_type = self.get_parameter('dock_type').value
@@ -341,6 +388,23 @@ class DockTrigger(Node):
         self.detection_max_age = float(self.get_parameter('detection_max_age').value)
         self.filter_num_samples = int(self.get_parameter('filter_num_samples').value)
         self.filter_max_collect_time = float(self.get_parameter('filter_max_collect_time').value)
+        self.publish_debug_markers = bool(self.get_parameter('publish_debug_markers').value)
+        self.debug_marker_topic = self.get_parameter('debug_marker_topic').value
+        self.publish_gz_marker = bool(self.get_parameter('publish_gz_marker').value)
+        self.gz_marker_service = self.get_parameter('gz_marker_service').value
+        self.gz_marker_period = float(self.get_parameter('gz_marker_period').value)
+        self._last_gz_marker_t = 0.0
+        self._gz_marker_inflight = False
+        self.too_close_distance = float(self.get_parameter('too_close_distance').value)
+        self.predock_distance = float(self.get_parameter('predock_distance').value)
+        self.refined_predock_distance = float(self.get_parameter('refined_predock_distance').value)
+        self.normal_tolerance = math.radians(
+            float(self.get_parameter('normal_tolerance_deg').value))
+        self.obs_lateral = float(self.get_parameter('obs_lateral').value)
+        self.obs_distance = float(self.get_parameter('obs_distance').value)
+        self.visual_servo_min_depth = float(self.get_parameter('visual_servo_min_depth').value)
+        self.freeze_axis_distance = float(self.get_parameter('freeze_axis_distance').value)
+        self.axis_filter_alpha = float(self.get_parameter('axis_filter_alpha').value)
 
         # ── Multi-threaded callback group so the long-running sequence can
         #    run while subscriptions and TF still get processed. ────────────
@@ -377,6 +441,10 @@ class DockTrigger(Node):
         # ── Goal-pose gate publisher (forwards to Nav2 after undock) ────────
         self.goal_pose_pub = self.create_publisher(
             PoseStamped, self.goal_pose_forward_topic, 10)
+
+        # ── Debug marker publisher (perpendicular line + tag centre) ────────
+        self.marker_pub = self.create_publisher(
+            MarkerArray, self.debug_marker_topic, 10)
 
         # ── Triggers ────────────────────────────────────────────────────────
         self.create_subscription(
@@ -478,66 +546,301 @@ class DockTrigger(Node):
     # Main sequence
     # ──────────────────────────────────────────────────────────────────────
     def run_docking_sequence(self):
-        # ── Phase 1: Nav2 to the canonical staging zone. ──────────────────
-        self.get_logger().info('── Phase 1/4: NavigateToPose → staging zone')
+        # Camera-centric pipeline — see docs/13_perception_and_line.md §6.
+
+        # ── Phase 1: Nav2 coarse approach to the staging zone. ────────────
+        self.get_logger().info('── Phase 1: NavigateToPose → approach zone')
         if not self.navigate_to_staging():
             self.get_logger().error('NavigateToPose failed — aborting')
             return
-
-        # ── Phase 2: scan + initial filter of the tag pose. ───────────────
-        # The scan rotates the robot in place until the tag has been
-        # consistently visible. The filter then averages N samples while
-        # stationary to seed the running-average tag estimate.
-        self.get_logger().info(
-            f'── Phase 2/4: tag search + initial filter ({self.filter_num_samples} samples)'
-        )
         self._publish_cmd_vel(0.0, 0.0)
         time.sleep(self.staging_hold_seconds)
 
+        # See both tags and estimate the dock (centre + normal from baseline).
         if not self._search_for_tag():
-            self.get_logger().error('   tag never detected during scan — aborting')
+            self.get_logger().error('   tags not detected during scan — aborting')
             return
-
-        tag_avg = TagRunningAverage()
-        if not self._collect_initial_samples(tag_avg, self.filter_num_samples):
+        est = self._estimate_dock()
+        if est is None:
+            self.get_logger().error('   could not estimate dock from both tags — aborting')
             return
-
-        self.get_logger().info(
-            f'   tag at ({tag_avg.x:.3f}, {tag_avg.y:.3f}) after {tag_avg.count} samples'
-        )
-
-        # ── Phase 3: spin to the running-average perpendicular yaw. ──────
+        cx, cy, normal_yaw = est
         pose = self.lookup_robot_pose()
         if pose is None:
             return
         rx, ry, _ = pose
-        perp_yaw = tag_avg.perpendicular_yaw(rx, ry)
-        if perp_yaw is None:
-            self.get_logger().error('   could not compute perpendicular yaw — aborting')
+        d0 = math.hypot(cx - rx, cy - ry)
+        self.get_logger().info(
+            f'   dock centre ({cx:.2f}, {cy:.2f}), normal '
+            f'{math.degrees(normal_yaw):.1f}°, distance {d0:.2f}m')
+
+        # ── Phase 1.5: back off if too close. ─────────────────────────────
+        if d0 < self.too_close_distance:
+            self.get_logger().info(
+                f'── Phase 1.5: too close ({d0:.2f}m) — backing off to '
+                f'{self.predock_distance:.2f}m on the normal')
+            if not self._goto_point_on_normal(cx, cy, normal_yaw,
+                                              self.predock_distance):
+                return
+            if not self._search_for_tag():
+                return
+            est = self._estimate_dock()
+            if est is None:
+                return
+            cx, cy, normal_yaw = est
+
+        # ── Phase 3: go to the pre-dock point on the normal. ──────────────
+        self.get_logger().info(
+            f'── Phase 3: pre-dock point ({self.predock_distance:.2f}m on normal)')
+        if not self._goto_point_on_normal(cx, cy, normal_yaw, self.predock_distance):
             return
 
-        self.get_logger().info(
-            f'── Phase 3/4: ALIGN (spin to perpendicular yaw {perp_yaw:.3f})'
-        )
-        if not self._spin_to_yaw(perp_yaw):
-            self.get_logger().error('   alignment spin failed')
+        # ── Phase 4: re-estimate head-on and confirm/refine. ──────────────
+        self.get_logger().info('── Phase 4: re-estimate dock normal')
+        if not self._search_for_tag():
             return
-
-        # ── Phase 4: line-tracking advance. ──────────────────────────────
-        # Drive forward while continuously updating the running average and
-        # steering to stay on the perpendicular line through the averaged
-        # tag. No discrete realign, no separate auto-cal — one continuous
-        # closed loop. Stop when distance to the averaged tag ≤ docking
-        # distance.
+        est = self._estimate_dock()
+        if est is None:
+            return
+        cx2, cy2, normal_yaw2 = est
+        err = abs(normalize_angle(normal_yaw2 - normal_yaw))
         self.get_logger().info(
-            f'── Phase 4/4: line-tracking advance to {self.docking_distance:.2f}m'
-        )
-        if not self._advance_with_line_tracking(tag_avg):
-            self.get_logger().error('   advance failed')
+            f'   re-estimated normal {math.degrees(normal_yaw2):.1f}° '
+            f'(was {math.degrees(normal_yaw):.1f}°, diff {math.degrees(err):.1f}°)')
+        cx, cy, normal_yaw = cx2, cy2, normal_yaw2
+        if err > self.normal_tolerance:
+            self.get_logger().info(
+                f'   disagree (> {math.degrees(self.normal_tolerance):.1f}°) — '
+                f'repositioning to {self.refined_predock_distance:.2f}m')
+            if not self._goto_point_on_normal(cx, cy, normal_yaw,
+                                              self.refined_predock_distance):
+                return
+        else:
+            self.get_logger().info('   normals agree — confirmed')
+
+        # ── Phase 5: final visual approach (camera-only). ─────────────────
+        self.get_logger().info(
+            f'── Phase 5: visual approach to {self.docking_distance:.2f}m (camera depth)')
+        if not self._final_visual_approach(cx, cy, normal_yaw):
+            self.get_logger().error('   final approach failed')
             return
 
         self.is_docked = True
         self.get_logger().info('Docking sequence complete ✓')
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Camera-centric helpers (see docs/13_perception_and_line.md §6)
+    # ──────────────────────────────────────────────────────────────────────
+    def _estimate_dock(self, num_samples=None):
+        """Average num_samples joint observations of the three tags' map
+        positions, then derive the dock target and normal:
+
+          - dock target = the CENTRE tag (id1), the point we drive onto;
+          - dock normal = perpendicular to the wide baseline between the OUTER
+            tags (id0→id2), disambiguated toward the robot.
+
+        Using the outer tag *centres* and their wide baseline gives a far more
+        robust dock orientation than a single-tag solvePnP normal.
+
+        Returns (cx, cy, normal_yaw) or None.
+        """
+        if num_samples is None:
+            num_samples = self.filter_num_samples
+        s = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]   # sums for tag 0,1,2
+        n = 0
+        last_key = None
+        deadline = time.time() + self.filter_max_collect_time
+        while time.time() < deadline and n < num_samples:
+            p0 = self._lookup_tag_map('charging_dock_tag_0')
+            p1 = self._lookup_tag_map('charging_dock_tag_1')
+            p2 = self._lookup_tag_map('charging_dock_tag_2')
+            if p0 is not None and p1 is not None and p2 is not None:
+                key = (round(p0[0], 4), round(p1[0], 4), round(p2[0], 4))
+                if key != last_key:        # don't count an unchanged TF twice
+                    for i, p in enumerate((p0, p1, p2)):
+                        s[i][0] += p[0]
+                        s[i][1] += p[1]
+                    n += 1
+                    last_key = key
+            time.sleep(0.05)
+        if n == 0:
+            self.get_logger().error('   never saw all three tags together')
+            return None
+        c0 = (s[0][0] / n, s[0][1] / n)
+        c1 = (s[1][0] / n, s[1][1] / n)
+        c2 = (s[2][0] / n, s[2][1] / n)
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return None
+        rx, ry, _ = pose
+        return self._dock_pose_from_tags(c0, c1, c2, rx, ry)
+
+    def _dock_pose_from_tags(self, c0, c1, c2, rx, ry):
+        """Dock target + heading-to-dock from the three tag centres.
+
+        Target = midpoint of the OUTER tags (c0+c2)/2. The outer tags are big
+        and well localised, so their midpoint pins the dock centre more
+        precisely than the small centre tag (and equals it geometrically). The
+        normal is perpendicular to the wide baseline c0→c2, disambiguated toward
+        the robot; the returned yaw faces the robot toward the dock.
+        """
+        cx = 0.5 * (c0[0] + c2[0])          # midpoint of the precise outer tags
+        cy = 0.5 * (c0[1] + c2[1])
+        dx, dy = c2[0] - c0[0], c2[1] - c0[1]   # wide baseline
+        L = math.hypot(dx, dy)
+        if L < 1e-6:
+            return None
+        nx, ny = -dy / L, dx / L            # perpendicular to the tag row
+        if nx * (rx - cx) + ny * (ry - cy) < 0.0:
+            nx, ny = -nx, -ny               # point toward the robot
+        return cx, cy, math.atan2(-ny, -nx)
+
+    def _goto_point_on_normal(self, tag_x, tag_y, normal_yaw, dist):
+        """Drive to the point `dist` metres in front of the tag along its
+        normal (robot side), then face the tag. normal_yaw is the heading from
+        that point toward the tag.
+        """
+        px = tag_x - dist * math.cos(normal_yaw)
+        py = tag_y - dist * math.sin(normal_yaw)
+        self.get_logger().info(
+            f'   → ({px:.2f}, {py:.2f}) then face the tag')
+        if not self._drive_to_xy(px, py):
+            return False
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return False
+        rx, ry, _ = pose
+        return self._spin_to_yaw(math.atan2(tag_y - ry, tag_x - rx))
+
+
+    def _final_visual_approach(self, cx, cy, normal_yaw, max_time=90.0):
+        """Two-regime final approach.
+
+        FAR (camera depth > freeze_axis_distance): the axis (dock centre +
+        normal) is re-derived every iteration from the live 3-tag perception and
+        folded into a **running average**, and the robot pure-pursuits that axis
+        — so it converges onto the perpendicular line while still far, where the
+        estimate is clean.
+
+        NEAR (≤ freeze_axis_distance): the averaged axis is **frozen** (close-up
+        estimates are noisy and the outer tags start leaving the FOV — averaging
+        them in caused the end-of-approach zig-zag). The robot finishes on the
+        **centre-tag visual corrector** (keep the centre tag centred in the
+        image), which from an already-aligned pose only trims the residual.
+
+        Stops when camera→centre-tag depth ≤ docking_distance.
+        """
+        period = 1.0 / self.drive_rate_hz
+        deadline = time.time() + max_time
+        camera_forward_offset = 0.35   # camera_link is +0.35 m ahead of base_link (URDF)
+
+        acx, acy = cx, cy
+        asin, acos = math.sin(normal_yaw), math.cos(normal_yaw)
+        n = 1
+        frozen = False
+        filtered_angle = None
+
+        pose0 = self.lookup_robot_pose()
+        if pose0 is None:
+            return False
+        x0, y0, _ = pose0
+        max_travel = math.hypot(cx - x0, cy - y0) + 0.5
+
+        while time.time() < deadline:
+            pose = self.lookup_robot_pose()
+            if pose is None:
+                time.sleep(period)
+                continue
+            rx, ry, ryaw = pose
+
+            c1cam = self._lookup_tag_cam('charging_dock_tag_1')
+            if c1cam is not None and c1cam[2] > 0.05:
+                depth = c1cam[2]
+            else:
+                depth = max(0.0, math.hypot(cx - rx, cy - ry)
+                            - camera_forward_offset)
+            if depth <= self.docking_distance:
+                self._publish_cmd_vel(0.0, 0.0)
+                self.get_logger().info(
+                    f'   docked: depth {depth:.3f}m ≤ {self.docking_distance:.2f}m')
+                return True
+
+            if math.hypot(rx - x0, ry - y0) > max_travel:
+                self._publish_cmd_vel(0.0, 0.0)
+                self.get_logger().error('   exceeded travel safety')
+                return False
+
+            if depth > self.freeze_axis_distance:
+                # FAR: refine the axis with a proximity-weighted EMA. The EMA
+                # weight grows as the robot gets closer, so the samples taken
+                # while advancing (nearer = tags bigger in the image = more
+                # accurate) count MUCH more than the early far ones.
+                est = self._estimate_dock_once()
+                if est is not None:
+                    ecx, ecy, eyaw = est
+                    a = min(0.6, self.axis_filter_alpha
+                            * (self.predock_distance / max(depth, 0.4)))
+                    acx = (1.0 - a) * acx + a * ecx
+                    acy = (1.0 - a) * acy + a * ecy
+                    asin = (1.0 - a) * asin + a * math.sin(eyaw)
+                    acos = (1.0 - a) * acos + a * math.cos(eyaw)
+                    n += 1
+                cx, cy = acx, acy
+                normal_yaw = math.atan2(asin, acos)
+                lateral = (-(rx - cx) * math.sin(normal_yaw)
+                           + (ry - cy) * math.cos(normal_yaw))
+                desired_yaw = normalize_angle(
+                    normal_yaw - math.atan2(lateral, self.line_lookahead_distance))
+                yaw_err = normalize_angle(desired_yaw - ryaw)
+                omega = self.line_yaw_kp * yaw_err
+            else:
+                # NEAR: axis frozen, finish on the centre-tag visual corrector.
+                if not frozen:
+                    frozen = True
+                    self.get_logger().info(
+                        f'   depth {depth:.2f}m ≤ {self.freeze_axis_distance:.2f}m '
+                        f'— freezing axis ({n} samples), visual corrector')
+                if c1cam is not None and c1cam[2] > 0.0:
+                    raw_angle = math.atan2(c1cam[0], c1cam[2])
+                    if filtered_angle is None:
+                        filtered_angle = raw_angle
+                    else:
+                        a = self.visual_servo_filter_alpha
+                        filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
+                    omega = -self.visual_servo_kp * filtered_angle
+                else:
+                    omega = 0.0   # tag out of view in the last cm — go straight
+
+            omega = max(-self.drive_yaw_max_omega,
+                        min(self.drive_yaw_max_omega, omega))
+            v = self.drive_speed
+            taper = 2.0 * self.docking_distance
+            if depth < taper:
+                v = max(0.03, self.drive_speed * depth / taper)
+
+            self._publish_cmd_vel(v, omega)
+            self._publish_line_markers(cx, cy, normal_yaw)
+            self._publish_gz_line_marker(cx, cy, normal_yaw)
+            time.sleep(period)
+
+        self._publish_cmd_vel(0.0, 0.0)
+        self.get_logger().error('   final approach timeout')
+        return False
+
+    def _estimate_dock_once(self):
+        """One-shot dock estimate (cx, cy, normal_yaw) in the map frame from a
+        single read of the three tags, or None if the outer tags aren't both
+        visible. Used to keep the approach axis adapting in real time."""
+        p0 = self._lookup_tag_map('charging_dock_tag_0')
+        p2 = self._lookup_tag_map('charging_dock_tag_2')
+        if p0 is None or p2 is None:
+            return None
+        p1 = self._lookup_tag_map('charging_dock_tag_1')
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return None
+        rx, ry, _ = pose
+        return self._dock_pose_from_tags(p0, p1, p2, rx, ry)
 
     # ──────────────────────────────────────────────────────────────────────
     # Undock sequence
@@ -562,7 +865,9 @@ class DockTrigger(Node):
         self.get_logger().info(
             f'   spinning 180° (from {ryaw:.3f} to {target_yaw:.3f})'
         )
-        if not self._spin_to_yaw(target_yaw):
+        # 180° is the longest spin — give it more time than the default 15 s
+        # (a slow spin_max_omega or collision-monitor clamping can stretch it).
+        if not self._spin_to_yaw(target_yaw, max_time=30.0):
             self.get_logger().error('   undock 180° spin failed')
             return False
 
@@ -611,58 +916,56 @@ class DockTrigger(Node):
         return age < self.detection_max_age
 
     def _search_for_tag(self) -> bool:
-        """Rotate in place until the tag has been freshly detected AND
-        centred in the camera image for scan_consecutive_target consecutive
-        frames. Bounded by one full rotation.
+        """Rotate in place until BOTH tags are visible and their midpoint is
+        centred in the image for scan_consecutive_target consecutive frames.
+        Bounded by ~one rotation.
 
-        The centring uses TF camera_optical_frame → charging_dock_apriltag
-        directly: with +X right and +Z forward in the optical frame, the
-        horizontal angular offset to centre is atan2(X, Z). The scan
-        rotates at scan_rotation_speed when no detection is available, then
-        switches to a yaw P-loop (omega = −scan_centring_kp × atan2(X, Z))
-        once the tag is in view. We declare "centred" when |angle| <
-        scan_centring_tolerance for the required consecutive frames.
+        Centring uses the midpoint of the two tags in camera_optical_frame:
+        with +X right and +Z forward, the horizontal offset is atan2(X, Z).
+        If only one tag is visible we steer toward it to bring the other into
+        view; if neither is visible we rotate open-loop.
         """
         period = 1.0 / self.drive_rate_hz
-        timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 10.0
+        timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 15.0
         deadline = time.time() + timeout_s
         centred_count = 0
 
         self.get_logger().info(
-            f'   scanning to centre tag in camera '
-            f'(tolerance ±{math.degrees(self.scan_centring_tolerance):.1f}°, '
+            f'   scanning for BOTH tags (tolerance '
+            f'±{math.degrees(self.scan_centring_tolerance):.1f}°, '
             f'need {self.scan_consecutive_target} consecutive frames)'
         )
 
         while time.time() < deadline:
-            cam_tag = self.lookup_tag_in_camera_optical()
-            if cam_tag is not None and cam_tag[2] > 0.05:
-                tx_cam, _, tz_cam = cam_tag
-                image_angle = math.atan2(tx_cam, tz_cam)
+            both = self._dock_center_cam(require_all=True)
+            if both is not None and both[2] > 0.05:
+                image_angle = math.atan2(both[0], both[2])
                 if abs(image_angle) < self.scan_centring_tolerance:
                     centred_count += 1
                     if centred_count >= self.scan_consecutive_target:
                         self._publish_cmd_vel(0.0, 0.0)
                         self.get_logger().info(
-                            f'   tag centred in camera '
-                            f'(image_angle={math.degrees(image_angle):+.1f}°, '
-                            f'consecutive={centred_count})'
-                        )
+                            f'   both tags centred '
+                            f'(angle={math.degrees(image_angle):+.1f}°)')
                         return True
-                    # Hold (no command this iteration to keep the camera
-                    # steady for the next centring check).
                     self._publish_cmd_vel(0.0, 0.0)
                 else:
                     centred_count = 0
-                    # Yaw P-loop to drive image_angle toward 0.
                     omega = -self.scan_centring_kp * image_angle
                     omega = max(-self.scan_rotation_speed,
                                 min(self.scan_rotation_speed, omega))
                     self._publish_cmd_vel(0.0, omega)
             else:
-                # No detection — open-loop slow rotation until we find it.
                 centred_count = 0
-                self._publish_cmd_vel(0.0, self.scan_rotation_speed)
+                one = self._any_tag_cam()
+                if one is not None and one[2] > 0.05:
+                    # One tag visible — steer toward it to reveal the others.
+                    omega = -self.scan_centring_kp * math.atan2(one[0], one[2])
+                    omega = max(-self.scan_rotation_speed,
+                                min(self.scan_rotation_speed, omega))
+                    self._publish_cmd_vel(0.0, omega)
+                else:
+                    self._publish_cmd_vel(0.0, self.scan_rotation_speed)
             time.sleep(period)
 
         self._publish_cmd_vel(0.0, 0.0)
@@ -871,6 +1174,9 @@ class DockTrigger(Node):
                 self._publish_cmd_vel(0.0, 0.0)
                 time.sleep(period)
                 continue
+
+            self._publish_line_markers(avg, perp_yaw)
+            self._publish_gz_line_marker(avg, perp_yaw)
 
             lateral = avg.signed_lateral_offset(rx, ry, perp_yaw)
             distance = math.hypot(avg.x - rx, avg.y - ry)
@@ -1236,6 +1542,115 @@ class DockTrigger(Node):
         msg.angular.z = float(omega)
         self.cmd_vel_pub.publish(msg)
 
+    def _publish_line_markers(self, cx: float, cy: float, perp_yaw: float):
+        """Publish the perpendicular approach line and the dock centre as RViz
+        markers in the map frame. See docs/13_perception_and_line.md.
+        """
+        if not self.publish_debug_markers:
+            return
+        now = self.get_clock().now().to_msg()
+        dirx, diry = math.cos(perp_yaw), math.sin(perp_yaw)
+        arr = MarkerArray()
+
+        # Green line: the perpendicular approach axis through the dock centre.
+        # perp_yaw points from the robot toward the dock, so the robot side of
+        # the line is at centre − dir; draw from there to just past the dock.
+        line = Marker()
+        line.header.frame_id = 'map'
+        line.header.stamp = now
+        line.ns = 'docking_line'
+        line.id = 0
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.scale.x = 0.03
+        line.color.g = 1.0
+        line.color.a = 1.0
+        line.pose.orientation.w = 1.0
+        line.points = [
+            Point(x=cx - 4.0 * dirx, y=cy - 4.0 * diry, z=0.15),
+            Point(x=cx + 0.3 * dirx, y=cy + 0.3 * diry, z=0.15),
+        ]
+        arr.markers.append(line)
+
+        # Red sphere: the dock centre.
+        tag = Marker()
+        tag.header.frame_id = 'map'
+        tag.header.stamp = now
+        tag.ns = 'docking_tag'
+        tag.id = 1
+        tag.type = Marker.SPHERE
+        tag.action = Marker.ADD
+        tag.pose.position.x = cx
+        tag.pose.position.y = cy
+        tag.pose.position.z = 0.30
+        tag.pose.orientation.w = 1.0
+        tag.scale.x = tag.scale.y = tag.scale.z = 0.12
+        tag.color.r = 1.0
+        tag.color.a = 1.0
+        arr.markers.append(tag)
+
+        self.marker_pub.publish(arr)
+
+    def _publish_gz_line_marker(self, cx_in: float, cy_in: float, perp_yaw: float):
+        """Mirror the line + dock centre into the Gazebo GUI via the gz marker
+        service. Throttled and run off-thread so the control loop never blocks.
+        Map ≡ world in this sim, so (cx_in, cy_in) are world coordinates.
+        """
+        if not self.publish_gz_marker or self._gz_marker_inflight:
+            return
+        now = time.time()
+        if now - self._last_gz_marker_t < self.gz_marker_period:
+            return
+        self._last_gz_marker_t = now
+
+        # map ≡ world in this sim (robot spawns at the world origin, AMCL is
+        # initialised there), so the map-frame estimate is also the world pose.
+        wx, wy, wyaw = cx_in, cy_in, perp_yaw
+
+        # A thin CYLINDER (not LINE_STRIP) — gz renders line markers as 1-px
+        # lines that are nearly invisible in the 3D view. A cylinder is a real
+        # mesh: always visible, properly coloured, thickness controllable.
+        dirx, diry = math.cos(wyaw), math.sin(wyaw)
+        x1, y1 = wx - 4.0 * dirx, wy - 4.0 * diry
+        x2, y2 = wx + 0.3 * dirx, wy + 0.3 * diry
+        cx, cy = 0.5 * (x1 + x2), 0.5 * (y1 + y2)
+        length = math.hypot(x2 - x1, y2 - y1)
+        # Quaternion rotating the cylinder's +Z axis onto the (horizontal) line
+        # direction: a 90° rotation about the axis Z × dir = (−sin, cos, 0).
+        qw = 0.70710678
+        qx = -0.70710678 * diry
+        qy = 0.70710678 * dirx
+        req = (
+            'marker { action: ADD_MODIFY ns: "docking_line" id: 1 type: CYLINDER '
+            'material { ambient { r: 0 g: 1 b: 0 a: 1 } diffuse { r: 0 g: 1 b: 0 a: 1 } } '
+            f'pose {{ position {{ x: {cx:.3f} y: {cy:.3f} z: 0.15 }} '
+            f'orientation {{ x: {qx:.5f} y: {qy:.5f} z: 0.0 w: {qw:.5f} }} }} '
+            f'scale {{ x: 0.04 y: 0.04 z: {length:.3f} }} '
+            '} '
+            'marker { action: ADD_MODIFY ns: "docking_tag" id: 2 type: SPHERE '
+            'material { ambient { r: 1 g: 0 b: 0 a: 1 } diffuse { r: 1 g: 0 b: 0 a: 1 } } '
+            f'pose {{ position {{ x: {wx:.3f} y: {wy:.3f} z: 0.30 }} '
+            'orientation { w: 1 } } '
+            'scale { x: 0.08 y: 0.08 z: 0.08 } }'
+        )
+        self._gz_marker_inflight = True
+        threading.Thread(target=self._run_gz_marker, args=(req,), daemon=True).start()
+
+    def _run_gz_marker(self, req: str):
+        try:
+            subprocess.run(
+                ['gz', 'service', '-s', self.gz_marker_service,
+                 '--reqtype', 'gz.msgs.Marker_V',
+                 '--reptype', 'gz.msgs.Boolean',
+                 '--timeout', '1000', '--req', req],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=2.0,
+            )
+        except Exception:
+            pass
+        finally:
+            self._gz_marker_inflight = False
+
     def lookup_robot_pose(self):
         try:
             t = self.tf_buffer.lookup_transform(
@@ -1271,6 +1686,60 @@ class DockTrigger(Node):
         return (t.transform.translation.x,
                 t.transform.translation.y,
                 t.transform.translation.z)
+
+    # ── Multi-tag perception (3 tags: id0/id2 outer, id1 centre) ──────────
+    def _lookup_tag_cam(self, frame):
+        """3D position (x, y, z) of `frame` in camera_optical_frame, or None if
+        the TF is missing or stale."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'camera_optical_frame', frame, rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
+                t.transform.translation.z)
+
+    def _lookup_tag_map(self, frame):
+        """(x, y) of `frame` in the map frame, or None if missing/stale."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'map', frame, rclpy.time.Time(), timeout=Duration(seconds=0.2))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y)
+
+    def _dock_center_cam(self, require_all=True):
+        """The CENTRE tag (id1) in camera_optical_frame — the thing we centre
+        on and drive onto. With require_all=True, return it only when all three
+        tags are visible (so the dock can be estimated); with require_all=False
+        return it as soon as the centre tag is visible (near field, where the
+        outer tags leave the FOV first)."""
+        c1 = self._lookup_tag_cam('charging_dock_tag_1')
+        if c1 is None:
+            return None
+        if require_all:
+            if (self._lookup_tag_cam('charging_dock_tag_0') is None or
+                    self._lookup_tag_cam('charging_dock_tag_2') is None):
+                return None
+        return c1
+
+    def _any_tag_cam(self):
+        """Any visible tag in camera_optical_frame (for the search scan)."""
+        for f in ('charging_dock_tag_1', 'charging_dock_tag_0',
+                  'charging_dock_tag_2'):
+            c = self._lookup_tag_cam(f)
+            if c is not None:
+                return c
+        return None
 
     def _send_action_blocking(self, client, goal) -> bool:
         send_future = client.send_goal_async(goal)

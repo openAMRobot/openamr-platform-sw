@@ -48,7 +48,7 @@
     # the distance at which the perpendicular-line tracking begins. With
     # the 0.40 m AprilTag and the 1.047 rad camera FOV (Raj's setup), 1.5 m
     # gives ~120 px of tag in the image — comfortable for sub-pixel solvePnP.
-    staging_distance: 1.5
+    staging_distance: 2.0
     # Hold (s) at staging before the tag search begins, so velocity decays
     # smoothly and the camera image stabilises.
     staging_hold_seconds: 1.0
@@ -83,7 +83,9 @@
 
     # ─── Phase 3 — spin in place to perpendicular yaw ────────────────────────
     spin_kp: 1.5
-    spin_max_omega: 0.3
+    spin_max_omega: 0.5                  # rad/s clamp. 0.3 made the 180° undock
+                                         # spin too slow (timed out); 0.5 keeps
+                                         # precision (P-loop slows near target).
     # Phase 3 exits when |yaw_err| < spin_yaw_tolerance. 0.02 rad ≈ 1.1°.
     spin_yaw_tolerance: 0.02
 
@@ -109,12 +111,11 @@
     #     drive_yaw_max_omega saturation);
     #   - if the robot oscillates near the line, increase lookahead
     #     distance or decrease line_yaw_kp.
-    docking_distance: 0.9               # m — final distance from the averaged tag.
-                                         # Stops the robot before the near-field
-                                         # regime where small lateral motion
-                                         # produces large image-angle changes
-                                         # that any final-approach corrector
-                                         # would over-react to.
+    docking_distance: 0.15              # m — final CAMERA→tag depth at the dock.
+                                         # Camera-centric pipeline (docs §6) stops
+                                         # here. The tag leaves the FOV before this,
+                                         # so the last stretch is a blind straight
+                                         # advance (see visual_servo_min_depth).
     drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
     line_yaw_kp: 2.5                    # rad/s per rad of (desired_yaw − robot_yaw)
     line_lookahead_distance: 0.3        # m — pure-pursuit lookahead on the perpendicular line.
@@ -198,3 +199,48 @@
     detection_topic: /detected_dock_pose
     # Maximum age (s) of a detection message before it is dropped as stale.
     detection_max_age: 1.5
+
+    # ─── Debug visualisation ─────────────────────────────────────────────────
+    # Publish the perpendicular approach line (green LINE_STRIP) and the
+    # running-average tag centre (red SPHERE) as an RViz MarkerArray during
+    # Phase 4. Add a MarkerArray display on debug_marker_topic in RViz to see
+    # it. See docs/13_perception_and_line.md.
+    publish_debug_markers: true
+    debug_marker_topic: /docking/debug_markers
+
+    # Mirror the same line + tag centre INSIDE the Gazebo GUI. Gazebo does not
+    # consume ROS markers, so this pushes a gz.msgs.Marker_V to the gz marker
+    # service via the `gz` CLI (throttled, off-thread). Map ≡ world in this sim.
+    # Set publish_gz_marker false if you only use RViz, or if the gz service
+    # name differs on your Gazebo version (adjust gz_marker_service then).
+    publish_gz_marker: true
+    gz_marker_service: /marker_array
+    gz_marker_period: 0.4               # s — min interval between gz CLI calls
+
+    # ─── Camera-centric approach (two-sided normal estimation) ───────────────
+    # See docs/13_perception_and_line.md §6. Estimate the tag normal from two
+    # sides (cancels solvePnP view-angle bias), go to a point on the normal,
+    # re-verify, then do a camera-only final approach (immune to wheel slip).
+    too_close_distance: 1.0            # m — if closer at arrival, back off first
+    predock_distance: 2.0              # m on the normal (P1) — far enough to see all 3 tags
+    refined_predock_distance: 1.50     # m on the normal (P2, if N' disagrees)
+    normal_tolerance_deg: 5.0          # deg — N vs N' agreement threshold
+    obs_lateral: 0.5                   # m — side offset for the 2nd observation
+    obs_distance: 2.0                  # m from the tag for the 2nd observation
+    # Final approach: visual-servo down to this camera→tag depth, then a blind
+    # straight advance (odometry-measured) to docking_distance. Set just above
+    # the depth where the 0.30 m tag leaves the camera FOV.
+    visual_servo_min_depth: 0.18       # m camera→tag (legacy; unused by the
+                                        # two-regime Phase 5)
+    # Phase 5 hand-over: FAR (> this) average the 3-tag axis + pure-pursuit it;
+    # NEAR (≤ this) freeze the axis and finish on the centre-tag visual
+    # corrector. Freezing kills the close-range zig-zag (noisy near estimates).
+    freeze_axis_distance: 0.70         # m camera→centre tag
+    # EMA weight for the live axis estimate (FAR regime). A plain cumulative
+    # mean freezes the early off-axis (wrong) estimates; the EMA keeps following
+    # the recent better ones. Higher = more reactive/noisier, lower = smoother.
+    # EMA weight grows as the robot gets closer (weight ∝ predock_distance/depth,
+    # capped), so the samples taken while advancing (nearer = more accurate)
+    # dominate the early far ones. Higher = reacts faster to new estimates
+    # (less smoothing); lower = smoother but slower to update.
+    axis_filter_alpha: 0.40

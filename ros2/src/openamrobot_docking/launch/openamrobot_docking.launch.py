@@ -87,6 +87,19 @@ def generate_launch_description():
             'GZ_SIM_RESOURCE_PATH', docking_models_dir
         ),
 
+        # ── Camera pipeline (how the image becomes tag TFs) ────────────────
+        # 1. Gazebo renders the camera image (sensor declared in the robot URDF,
+        #    openamrobot_description) and publishes it + a camera_info with the
+        #    intrinsics (fx, fy, cx, cy, distortion). The image is RENDERED by
+        #    Gazebo's 3D engine — not OpenCV.
+        # 2. ros_gz_bridge turns the gz topics into ROS topics. The image is
+        #    /rgb_image. camera_info needs the bridge below.
+        # 3. apriltag_ros (started further down) consumes /rgb_image +
+        #    /camera_info. Internally it uses OpenCV (cv_bridge to grayscale,
+        #    cv::solvePnP for the pose) and publishes one TF per tag.
+        # On a real robot only step 1 changes (a real camera driver replaces
+        # Gazebo); steps 2-3 are identical.
+        #
         # Bridge gz /camera_info -> ROS /camera_info.
         # apriltag_ros uses image_transport::CameraSubscriber, which derives
         # the camera_info topic from the image topic name (sibling at the
@@ -105,8 +118,8 @@ def generate_launch_description():
         ),
 
         # apriltag_ros (simulation variant) — subscribes to /rgb_image
-        # and (via the relay above) /camera_info; publishes the
-        # camera_optical_frame -> charging_dock_apriltag TF.
+        # and (via the relay above) /camera_info; publishes one TF per tag:
+        # camera_optical_frame -> charging_dock_tag_{0,1,2}.
         IncludeLaunchDescription(
             AnyLaunchDescriptionSource(
                 PathJoinSubstitution(

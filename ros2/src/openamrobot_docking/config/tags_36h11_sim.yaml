@@ -2,7 +2,11 @@
     ros__parameters:
         image_transport: raw
         family: 36h11
-        size: 0.30              # simulated tag panel size in meters (matches model.sdf box face)
+        # size = side of the BLACK border square, NOT the whole texture. The
+        # 36h11 image is 10 modules wide with a 1-module white quiet zone each
+        # side, so the black square is 8/10 of the panel. This global value is
+        # only a fallback; per-tag edge sizes are set in tag.sizes below.
+        size: 0.16
         max_hamming: 0
 
         detector:
@@ -16,5 +20,7 @@
         pose_estimation_method: "pnp"
 
         tag:
-            ids: [0]
-            frames: [charging_dock_apriltag]
+            ids: [0, 1, 2]
+            frames: [charging_dock_tag_0, charging_dock_tag_1, charging_dock_tag_2]
+            # All three tags are 0.20 m panels → 0.16 m black-square edge, so the
+            # global `size: 0.16` above applies to all (no per-tag sizes needed).
