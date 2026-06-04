@@ -11,21 +11,30 @@ the platform's running simulation:
     Terminal 3 :  ros2 launch openamrobot_docking openamrobot_docking.launch.py
 
 What this launch starts:
-  - apriltag_ros (sim variant)      — detects the AprilTag in `/rgb_image`
-                                       and publishes the
-                                       camera_optical_frame ->
-                                       charging_dock_apriltag TF
-  - detected_dock_pose_publisher    — reads map -> charging_dock_apriltag
+  - apriltag_ros (sim variant)      — detects the 3-tag bundle (IDs 0/1/2)
+                                       in `/rgb_image` and publishes one TF
+                                       per tag:
+                                         camera_optical_frame ->
+                                         charging_dock_tag_{0,1,2}
+  - detected_dock_pose_publisher    — reads map -> charging_dock_tag_1
+                                       (the centre tag, docking target)
                                        and publishes /detected_dock_pose
                                        as PoseStamped at 10 Hz
-  - dock_trigger (Python, 4-phase)  — listens on /dock_trigger; on True,
-                                       runs the 4-phase docking sequence:
+  - dock_trigger (Python, bundle    — listens on /dock_trigger; on True,
+    sequencer)                       runs the bundle docking sequence:
                                          1) NavigateToPose to staging
-                                         2) camera-frame centring scan
-                                            + running-average filter
-                                         3) align spin to perpendicular
-                                         4) line-tracking + straight-line
-                                            final approach
+                                         2) camera-frame centring scan on
+                                            the bundle midpoint
+                                         3) estimate the dock surface
+                                            normal from the outer tags'
+                                            wide baseline (90 cm)
+                                         4) pure-pursuit the normal axis
+                                            in the camera/tag frame, with
+                                            a re-verification step
+                                         5) two-regime final approach:
+                                            EMA-averaged axis far,
+                                            axis-frozen visual servo on
+                                            the centre tag near
 """
 
 import os

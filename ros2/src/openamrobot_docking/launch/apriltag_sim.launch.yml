@@ -10,7 +10,7 @@ launch:
 #   /camera_info        (intrinsics, bridged in openamrobot_docking.launch.py)
 # Publishes:
 #   /apriltag/detections           (apriltag_msgs/AprilTagDetectionArray)
-#   /tf  (camera_optical_frame -> charging_dock_apriltag)
+#   /tf  (camera_optical_frame -> charging_dock_tag_{0,1,2})
 #
 # Detector parameters (family, tag size, IDs, frame names) come from
 # config/tags_36h11_sim.yaml.

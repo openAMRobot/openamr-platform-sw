@@ -1,6 +1,11 @@
 /**:
   ros__parameters:
     parent_frame: map
-    child_frame: charging_dock_apriltag
+    # The 3-tag dock bundle publishes camera_optical_frame -> charging_dock_tag_{0,1,2}.
+    # This publisher tracks the *centre* tag (id 1) because that is the docking target
+    # the robot drives onto. The outer tags (id 0, id 2) are used by dock_trigger.py to
+    # estimate the dock surface normal from their wide baseline; they are not republished
+    # as a PoseStamped here.
+    child_frame: charging_dock_tag_1
     output_topic: detected_dock_pose
     publish_rate: 10.0

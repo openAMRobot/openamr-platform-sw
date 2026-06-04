@@ -17,14 +17,21 @@ back the tag's **full 6-DOF pose** — position *and* orientation.
 
 The steps:
 
-1. The detector finds the **four corners** of the tag in the image, in pixels.
+1. The detector finds the **four corners** of each tag in the image, in pixels.
 2. Given the camera intrinsics (`/camera_info`) **and** the tag's known
-   physical size (0.30 m, in [`config/tags_36h11_sim.yaml`](../config/tags_36h11_sim.yaml)),
+   physical size (the **0.16 m black-square edge** — 8/10 of the 0.20 m panel,
+   the value `apriltag_ros` consumes for PnP — set in
+   [`config/tags_36h11_sim.yaml`](../config/tags_36h11_sim.yaml)),
    it runs **solvePnP**: it solves for the 3D position + orientation that
    reproject those four corners exactly where they appear in the image.
-3. Output: the tag's **position `(x, y, z)` in metres** and its
-   **orientation (quaternion)**, expressed in `camera_optical_frame`, published
-   as the TF `camera_optical_frame → charging_dock_apriltag`.
+3. Output: each detected tag's **position `(x, y, z)` in metres** and its
+   **orientation (quaternion)**, expressed in `camera_optical_frame`. The 3-tag
+   bundle (IDs 0/1/2 mapped to frames `charging_dock_tag_0`, `charging_dock_tag_1`,
+   `charging_dock_tag_2`) is published as three TFs:
+   `camera_optical_frame → charging_dock_tag_{0,1,2}`. The **centre** tag
+   (`charging_dock_tag_1`) is the docking target; the **outer** tags
+   (`charging_dock_tag_0` at `y = −0.45 m` and `charging_dock_tag_2` at
+   `y = +0.45 m`) provide the wide baseline used to estimate the dock normal.
 
 So the raw datum is a pose. Everything else (angle, distance, the tag normal)
 is *derived* from it.
@@ -76,12 +83,22 @@ Depending on the quantity, the reference point differs:
 The **line is not in the image** — it is built in the **`map`** frame from the
 averaged tag pose. Pipeline:
 
-1. **Tag pose → map.** [`detected_dock_pose_publisher.cpp`](../src/detected_dock_pose_publisher.cpp)
-   looks up the chained TF `map → charging_dock_apriltag` and republishes it as
-   `/detected_dock_pose` (PoseStamped, 10 Hz).
-2. **Average it.** `TagRunningAverage` folds 40+ detections (position +
-   quaternion) into a stable tag centre `(avg.x, avg.y)` — a single noisy
-   detection is never trusted on its own.
+1. **Centre tag pose → map.** [`detected_dock_pose_publisher.cpp`](../src/detected_dock_pose_publisher.cpp)
+   looks up the chained TF `map → charging_dock_tag_1` (the centre tag of the
+   bundle) and republishes it as `/detected_dock_pose` (PoseStamped, 10 Hz).
+2. **Estimate the dock normal from the outer tags.** Rather than averaging a
+   single tag's noisy yaw, the current sequencer estimates the dock surface
+   direction from the line through the **outer** tags
+   `charging_dock_tag_0` and `charging_dock_tag_2` (90 cm apart). The
+   perpendicular to that direction is the dock normal — a wide-baseline
+   estimate that is far more stable than any single-tag PnP. The estimate is
+   smoothed with a **proximity-weighted EMA** (closer samples carry more
+   weight) so that the better near-field observations dominate the early
+   far-field ones.
+   *Note:* the older `TagRunningAverage` class (cumulative mean over 40
+   single-tag detections) is still in the codebase for the legacy
+   single-tag fall-back path, but the production bundle sequencer does not
+   use it.
 3. **Tag normal.** `quat_rotate_z(...)` takes the averaged orientation and
    returns the tag's local +Z axis in the `map` frame, projected onto the XY
    plane. For a flat panel, that is (approximately) the **normal to the tag
