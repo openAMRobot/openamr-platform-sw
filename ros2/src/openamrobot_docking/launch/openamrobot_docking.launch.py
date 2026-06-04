@@ -79,7 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'launch_trigger',
             default_value='true',
-            description='Launch the 4-phase dock_trigger node.'
+            description='Launch the bundle dock_trigger node.'
         ),
         DeclareLaunchArgument(
             'trigger_params',
@@ -149,7 +149,9 @@ def generate_launch_description():
             launch_arguments={'use_sim_time': use_sim_time}.items(),
         ),
 
-        # 4-phase docking sequencer. Listens on /dock_trigger.
+        # Bundle docking sequencer (multi-phase: centring scan → normal
+        # estimation from outer tags → goto point on normal + re-verification
+        # → two-regime final approach). Listens on /dock_trigger.
         Node(
             package='openamrobot_docking',
             executable='dock_trigger.py',
