@@ -467,8 +467,8 @@ All speeds, gains and thresholds in the table below are configured in `config/do
 | 2. Centering scan | ~2 m, stationary | ω = 0.2 rad/s | image-frame bearing to bundle | bearing < 2°, all 3 tags visible | `_search_for_tag()`; ω limit = `spin_max_omega`; gain = `spin_kp` |
 | 3. Normal estimation | ~2 m, stationary | v = 0 | EMA on outer-tag map positions | normal σ < 1° over last 1.0 s | `_estimate_dock()`; α = `axis_filter_alpha` |
 | 4. Pure-pursuit on normal | 2.0 m → 0.5 m | v = 0.20 m/s | bundle pose in *camera frame* (no map) | distance to dock ≤ 0.5 m | `_goto_point_on_normal()`; lookahead = `line_lookahead_distance`; yaw gain = `line_yaw_kp` |
-| 5. IBVS final | 0.5 m → 0.05 m | v = 0.05 m/s | image-frame bundle-center error | estimated coil-to-coil distance ≤ **20 mm** (engagement air gap, centered on the WCM-500 / WCM-300 / WiBotic / Wiferion windows simultaneously), derived from bundle pose minus the configured coil-to-bundle mount offset | `_final_visual_approach()`; freeze threshold = `freeze_axis_distance`; servo gain = `visual_servo_kp` |
-| 6. Engagement | contact | v = 0 | charger fault line | OK within 2 s, else retry | `_engagement_gate()`; retreat distance = 80 mm (justified §3.4) |
+| 5. IBVS final | 0.5 m → 0.05 m | v = 0.05 m/s | image-frame bundle-center error | **Current code**: camera→centre-tag depth ≤ `docking_distance` (0.15 m default). **Target architecture**: coil-to-coil distance ≤ **20 mm** (engagement air gap, centered on the WCM-500 / WCM-300 / WiBotic / Wiferion windows simultaneously), derived from bundle pose minus a configured coil-to-bundle mount offset. The offset-subtraction step is not yet wired in (see §6.4 implementation note). | `_final_visual_approach()`; freeze threshold = `freeze_axis_distance`; servo gain = `visual_servo_kp` |
+| 6. Engagement *(target architecture, not yet implemented)* | contact | v = 0 | charger fault line | OK within 2 s, else retreat 80 mm and retry from stage 4 (justified §3.4) | **No dedicated method today.** Today the engagement state is set inside `_final_visual_approach()` on success of stage 5; raising the charger start signal and reading the fault line are integrator-side concerns until a physical charger receiver is mounted on the robot. A future revision would add an `_engagement_gate()` step to close this loop end-to-end. |
 
 ### 6.4 Why each number — derivations
 
@@ -539,6 +539,8 @@ The 20 mm is the *coil-to-coil distance* the controller targets, not a Euclidean
 > coil-to-coil distance = bundle-frame distance − coil-to-bundle mount offset
 
 where the coil-to-bundle mount offset is a static parameter set at integration time (typically ~50–100 mm: the distance from the bundle plane on the dock down to the transmitter coil center, plus the distance from the receiver coil center to the robot's front panel where the bundle was sighted).
+
+> **Implementation note.** The mount-offset subtraction described above is **target architecture**, not yet wired into `_final_visual_approach()`. The current sequencer stops at `docking_distance` (camera→centre-tag depth, **0.15 m default in `config/dock_trigger.yaml`**) without subtracting an offset. This is fine for the simulation rig — the dock model has no physical receiver coil to align — but the 20 mm coil-to-coil target and the mount-offset parameter need to be added when a real charger receiver is mounted on the robot. The 20 mm and 80 mm-retreat figures derive the *requirements* for that integration milestone; the validation plan in §9 assumes they are in place.
 
 #### Retreat distance 80 mm on retry
 
