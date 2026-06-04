@@ -20,7 +20,8 @@ docs/
 ├── 05_parameters.md                every dock_trigger.yaml parameter
 ├── 06_camera_calibration.md        intrinsics + extrinsics (real robot)
 ├── 07_reproduce_results.md         end-to-end reproduction checklist
-├── 08_sequencer_4phase.md          the 4-phase pipeline, phase by phase
+├── 08_sequencer_4phase.md          legacy: notes on the original 4-phase pipeline
+│                                   (superseded by docs 13 + 14 for the bundle stack)
 ├── 09_troubleshooting.md           symptom → cause → fix matrix
 ├── 10_diagrams.md                  block / TF / state diagrams (text)
 ├── 11_changes_from_upstream.md     what this revision changes vs prior pipelines

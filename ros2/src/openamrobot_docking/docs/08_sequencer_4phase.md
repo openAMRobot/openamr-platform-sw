@@ -1,6 +1,17 @@
-# 4-phase docking sequencer
+# 4-phase docking sequencer (legacy — superseded)
 
-Phase-by-phase walkthrough of the docking pipeline implemented in [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).
+> ⚠️ **This document describes the original single-tag 4-phase pipeline.** It is **kept for historical context** but is no longer the production design.
+>
+> The current docking stack uses a **3-tag AprilTag bundle** (IDs 0/1/2, outer tags at `y = ±0.45 m`) and a **camera-centric multi-stage sequencer** that estimates the dock surface normal from the outer tags' wide baseline rather than from a single tag's yaw. See:
+> - [`13_perception_and_line.md`](13_perception_and_line.md) — how the bundle pose produces the perpendicular line, with the proximity-weighted EMA normal estimate
+> - [`14_docking_research.md`](14_docking_research.md) §6 — the current architecture, stage-by-stage with numerical derivations
+> - [`00_overview.md`](00_overview.md) — short summary of the bundle pipeline
+>
+> Some terminology in this document (`TagRunningAverage`, "the 4-phase pipeline", `charging_dock_apriltag` single TF) refers to the earlier design and does not match the live code. The principles below (centring scan, perpendicular-line tracking, visual-servo handover) carry over to the bundle pipeline; the implementation around them has been replaced.
+
+---
+
+Phase-by-phase walkthrough of the (legacy) docking pipeline implemented in earlier revisions of [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).
 
 For the YAML knobs that tune each phase, see [`05_parameters.md`](05_parameters.md).
 

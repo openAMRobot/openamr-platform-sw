@@ -125,7 +125,7 @@ For exact install commands and the launch sequence, see [`01_quickstart.md`](01_
 | Tune parameters | [`05_parameters.md`](05_parameters.md) |
 | Calibrate a real camera | [`06_camera_calibration.md`](06_camera_calibration.md) |
 | Reproduce results | [`07_reproduce_results.md`](07_reproduce_results.md) |
-| Deep-dive the 4-phase sequencer | [`08_sequencer_4phase.md`](08_sequencer_4phase.md) |
+| Read the legacy single-tag 4-phase pipeline notes (superseded — kept for historical context) | [`08_sequencer_4phase.md`](08_sequencer_4phase.md) |
 | Diagnose a failure | [`09_troubleshooting.md`](09_troubleshooting.md) |
 | See block diagrams | [`10_diagrams.md`](10_diagrams.md) |
 | Understand what we changed from upstream | [`11_changes_from_upstream.md`](11_changes_from_upstream.md) |
