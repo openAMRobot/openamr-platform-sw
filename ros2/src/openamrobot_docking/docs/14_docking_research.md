@@ -457,6 +457,8 @@ A single RGB camera, a multi-tag bundle (or in-line markers) on the dock, and an
   Nav2 + map     ω = 0.2 rad/s    v = 0           v = 0.20 m/s   v = 0.05 m/s    v = 0
 ```
 
+> **Note on implementation state.** The diagram above describes the **target** architecture. The current code implements stages 1–5: Phase 5 ends when the camera→centre-tag depth reaches `docking_distance` (0.15 m default), not at the 0.05 m endpoint shown in the diagram. **Phase 6 (engagement gate)** is target architecture — there is no dedicated method in `scripts/dock_trigger.py` today, the engagement state is set inside `_final_visual_approach()` on success of Phase 5, and the charger fault-line interaction will be wired in when a real charger receiver is mounted on the robot. See §6.3 stages 5–6 and the §6.4 implementation note for the exact code-vs-target boundary.
+
 ### 6.3 Stages of the docking sequence (with numbers)
 
 All speeds, gains and thresholds in the table below are configured in `config/dock_trigger.yaml` and consumed by `scripts/dock_trigger.py` in the `openamrobot_docking` package. The parameter names in the YAML are given in the rightmost column for traceability.
