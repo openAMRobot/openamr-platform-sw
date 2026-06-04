@@ -4,9 +4,9 @@ AprilTag-based autodocking pipeline for the **OpenAMRobot** platform.
 
 This package contains the docking logic, the AprilTag detection pipeline, and the docking-specific simulation assets (model + textures). It composes the platform's existing description, simulation, and navigation packages — it does **not** duplicate them.
 
-[![Docking demo — click to play](media/demo_preview.png)](media/demo.mp4)
+![3-tag bundle docking in simulation — green Gazebo marker is the perpendicular line, three small AprilTags above the robot are the bundle (IDs 0/1/2)](media/demo_preview.png)
 
-> 🎬 Click the image to watch the full 4-phase docking sequence in simulation (~72 s).
+> 📸 Gazebo screenshot of the bundle-driven docking approach: the robot has converged onto the perpendicular line through the dock (the bright green cylinder), the centre tag (ID 1, with its red sphere marker) is the docking target, and the outer tags (IDs 0 and 2 at ±0.45 m) provide the wide baseline used to estimate the dock normal.
 
 ---
 
@@ -19,10 +19,10 @@ openamrobot_docking/
 ├── README.md                             ← this file
 │
 ├── scripts/
-│   └── dock_trigger.py                   ← 4-phase docking sequencer (Python)
+│   └── dock_trigger.py                   ← multi-phase bundle docking sequencer (Python)
 │
 ├── src/
-│   └── detected_dock_pose_publisher.cpp  ← TF → /detected_dock_pose @10 Hz (C++)
+│   └── detected_dock_pose_publisher.cpp  ← TF (centre tag) → /detected_dock_pose @10 Hz (C++)
 │
 ├── launch/
 │   ├── bringup_sim.launch.py             ← one command: Gazebo + Nav2 + docking
@@ -31,19 +31,21 @@ openamrobot_docking/
 │   └── detected_dock_pose_publisher.launch.py
 │
 ├── config/
-│   ├── dock_trigger.yaml                 ← 4-phase sequencer parameters
-│   ├── tags_36h11_sim.yaml               ← AprilTag detector (sim, raw image)
+│   ├── dock_trigger.yaml                 ← sequencer + camera-centric parameters
+│   ├── tags_36h11_sim.yaml               ← AprilTag detector: 3-tag bundle IDs 0/1/2, size 0.16 m
 │   └── docking_pose_publisher.yaml       ← detected_dock_pose_publisher params
 │
 ├── models/
 │   └── apriltag_dock/
 │       ├── model.config
-│       ├── model.sdf                     ← 0.30 × 0.30 m static panel
-│       └── materials/textures/apriltag_36h11_id0.png   ← 36h11 ID=0 binary
+│       ├── model.sdf                     ← 3-panel bundle, 0.20×0.20 m each, outer tags at y=±0.45 m
+│       └── materials/textures/
+│           ├── apriltag_36h11_id0.png    ← outer tag, left  (y = −0.45 m)
+│           ├── apriltag_36h11_id1.png    ← centre tag       (y =  0.00 m, docking target)
+│           └── apriltag_36h11_id2.png    ← outer tag, right (y = +0.45 m)
 │
 ├── media/
-│   ├── demo.mp4                          ← 4-phase docking demo in sim
-│   └── demo_preview.png                  ← frame extracted at t=36 s
+│   └── demo_preview.png                  ← Gazebo screenshot of the bundle docking
 │
 └── docs/                                 ← engineering documentation
     ├── README.md                                  index
@@ -55,27 +57,30 @@ openamrobot_docking/
     ├── 05_parameters.md                           every dock_trigger.yaml knob
     ├── 06_camera_calibration.md                   intrinsics flow (real robot)
     ├── 07_reproduce_results.md                    repro checklist
-    ├── 08_sequencer_4phase.md                     the 4-phase pipeline, phase by phase
+    ├── 08_sequencer_4phase.md                     legacy 4-phase pipeline notes
     ├── 09_troubleshooting.md                      symptom → cause → fix
     ├── 10_diagrams.md                             block / TF / state diagrams
     ├── 11_changes_from_upstream.md                what differs from upstream
-    └── 12_lessons_learned.md                      design-decision diary
+    ├── 12_lessons_learned.md                      design-decision diary
+    ├── 13_perception_and_line.md                  perception + how the line is built + RViz/Gazebo markers
+    └── 14_docking_research.md                     vendor-agnostic precision-docking research
 ```
 
 ---
 
 ## What the package does
 
-A standalone Python node (`dock_trigger.py`) implements a **4-phase autodocking sequence** triggered by a `Bool true` published on `/dock_trigger`:
+A standalone Python node (`dock_trigger.py`) implements a **bundle-driven autodocking sequence** triggered by a `Bool true` published on `/dock_trigger`. The dock carries a **3-tag AprilTag bundle** (family 36h11, IDs 0/1/2; outer tags at `y = ±0.45 m`, centre tag at `y = 0`). The 90 cm baseline between the outer tags gives a stable surface normal that is independent of single-tag yaw jitter.
 
-| Phase | Action | Implementation |
+| Stage | Action | Implementation |
 |---|---|---|
 | **1** | `NavigateToPose` action to the staging zone (`dock − staging_distance × approach_dir`) | Nav2 controller |
-| **2** | Open-loop scan to find the tag → camera-frame centring P-controller → collect 40 detections into a `TagRunningAverage` (incremental mean for position, sign-aligned componentwise for quaternion) | `dock_trigger.py` publishing on `/cmd_vel` |
-| **3** | Spin in place to the running-average `perpendicular_yaw` (heading needed to face the tag plane straight-on) | same |
-| **4** | Pure-pursuit line-tracking along the perpendicular line through the averaged tag centre; the average keeps refining while the robot advances; if the tag falls out of FOV the line freezes and the robot continues along it until `docking_distance` | same |
+| **2** | Open-loop scan to find the bundle → camera-frame centring P-controller on the bundle midpoint | `dock_trigger.py` on `/cmd_vel` |
+| **3** | Estimate the dock surface **normal** from the outer tags (the line through `charging_dock_tag_0` and `charging_dock_tag_2`); back off if the robot arrived too close to re-establish a clean far-field bundle view | same |
+| **4** | Drive to a point on the normal axis with pure-pursuit in the camera/tag frame, then re-verify the normal estimate within `normal_tolerance_deg` | same |
+| **5** | Two-regime final approach: at `depth > freeze_axis_distance` follow the proximity-weighted-EMA axis; at `depth ≤ freeze_axis_distance` **freeze the axis** and run a visual corrector on the centre tag (`omega = −visual_servo_kp · atan2(X, Z)` in the camera optical frame) until `docking_distance` | same |
 
-End state: robot stopped ~0.9 m in front of the tag, perpendicular to the tag plane. Typical residual error: a few centimetres laterally, ~1° in yaw.
+End state: robot stopped perpendicular to the dock at the configured engagement distance, the centre tag aligned with the camera centre. Typical residual error in simulation: ~1–2 cm laterally, ~1° in yaw. The longer research arc — vendor-agnostic precision targets, sensing-method catalogue, validation, failure modes — is in [`docs/14_docking_research.md`](docs/14_docking_research.md).
 
 ### Undock and undock-before-navigate
 
@@ -132,9 +137,9 @@ When `openamrobot_docking.launch.py` is started on top of the running Gazebo + N
 
 | Node | Source | Purpose |
 |---|---|---|
-| `/apriltag/apriltag` | `apriltag_ros::apriltag_node` (via `apriltag_sim.launch.yml`) | Detects the tag in `/rgb_image`; publishes the TF `camera_optical_frame → charging_dock_apriltag` |
-| `/detected_dock_pose_publisher` | this package (C++) | Reads the chained TF `map → charging_dock_apriltag` and republishes it as `/detected_dock_pose` (PoseStamped) at 10 Hz |
-| `/dock_trigger` | this package (Python) | On `/dock_trigger` (Bool) runs the 4-phase dock; on `/undock_robot` (Bool) runs the undock maneuver; gates `/goal_pose` → `/goal_pose_nav` for undock-before-navigate |
+| `/apriltag/apriltag` | `apriltag_ros::apriltag_node` (via `apriltag_sim.launch.yml`) | Detects the 3-tag bundle in `/rgb_image`; publishes one TF per tag: `camera_optical_frame → charging_dock_tag_{0,1,2}` |
+| `/detected_dock_pose_publisher` | this package (C++) | Reads the chained TF `map → charging_dock_tag_1` (centre tag) and republishes it as `/detected_dock_pose` (PoseStamped) at 10 Hz |
+| `/dock_trigger` | this package (Python) | On `/dock_trigger` (Bool) runs the bundle docking; on `/undock_robot` (Bool) runs the undock maneuver; gates `/goal_pose` → `/goal_pose_nav` for undock-before-navigate |
 | `/camera_info_bridge` | `ros_gz_bridge` instance | Bridges the gz `/camera_info` topic to ROS (workaround for the upstream bridge that only bridges `/camera/camera_info`) |
 
 ---
@@ -161,7 +166,12 @@ If you only have 5 minutes:
 - [`docs/09_troubleshooting.md`](docs/09_troubleshooting.md) — symptom → fix
 
 If you're tuning the controller or hitting a behavioural issue:
-- [`docs/08_sequencer_4phase.md`](docs/08_sequencer_4phase.md) — the 4-phase pipeline, phase by phase
+- [`docs/13_perception_and_line.md`](docs/13_perception_and_line.md) — how the bundle pose and the perpendicular line are built (and visualised in RViz / Gazebo)
+- [`docs/05_parameters.md`](docs/05_parameters.md) — every `dock_trigger.yaml` knob
+- [`docs/08_sequencer_4phase.md`](docs/08_sequencer_4phase.md) — notes on the legacy 4-phase pipeline (kept for context)
+
+If you're working on the precision / robustness arc:
+- [`docs/14_docking_research.md`](docs/14_docking_research.md) — vendor-agnostic precision-docking research (chargers, sensing methods, validation protocol, failure modes, calibration & commissioning)
 
 If you're migrating to a real robot:
 - [`docs/04_apriltag.md`](docs/04_apriltag.md) — AprilTag setup with `camera_ros` rectification
@@ -172,6 +182,6 @@ If you're migrating to a real robot:
 
 ## Status
 
-The 4-phase pipeline is tested end-to-end against the openamrobot_gazebo simulation. The same Python sequencer is hardware-agnostic — only the camera intrinsics (`camera_ros` calibration), the AprilTag panel size in `config/tags_36h11_sim.yaml`, and the dock pose in `config/dock_trigger.yaml` need to be re-grounded for a real-robot deployment.
+The bundle-driven pipeline is tested end-to-end against the openamrobot_gazebo simulation. The same Python sequencer is hardware-agnostic — only the camera intrinsics (`camera_ros` calibration), the AprilTag panel sizes in `config/tags_36h11_sim.yaml`, and the dock pose in `config/dock_trigger.yaml` need to be re-grounded for a real-robot deployment.
 
 Integration debts inherited from the simulation stack (workarounds that should ideally be resolved in the sibling packages) are documented in [`docs/12_lessons_learned.md`](docs/12_lessons_learned.md).
