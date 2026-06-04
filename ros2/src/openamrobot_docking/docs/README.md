@@ -24,7 +24,10 @@ docs/
 ├── 09_troubleshooting.md           symptom → cause → fix matrix
 ├── 10_diagrams.md                  block / TF / state diagrams (text)
 ├── 11_changes_from_upstream.md     what this revision changes vs prior pipelines
-└── 12_lessons_learned.md           decisions diary with rationale
+├── 12_lessons_learned.md           decisions diary with rationale
+├── 13_perception_and_line.md       what AprilTag gives us + how the line is built + RViz markers
+└── 14_docking_research.md          vendor-agnostic precision-docking research, validation,
+                                    failure modes, calibration, multi-dock
 ```
 
 ---
@@ -40,21 +43,23 @@ docs/
 | **Onboarding a teammate** | `08_sequencer_4phase.md` + `10_diagrams.md` |
 | **Port to real hardware** | `04_apriltag.md` + `06_camera_calibration.md` + `03_tf_frames.md` |
 | **Audit / understand a design choice** | `11_changes_from_upstream.md` + `12_lessons_learned.md` |
+| **Understand perception + the line (and see it in RViz)** | `13_perception_and_line.md` |
+| **Vendor / sensing research, validation plan, failure modes** | `14_docking_research.md` |
 
 ---
 
 ## Conventions used throughout these docs
 
-- **Frames**: `map → odom → base_link → camera_link → camera_optical_frame → charging_dock_apriltag` (the chain produced by SLAM/AMCL + URDF static + apriltag_ros).
+- **Frames**: `map → odom → base_link → camera_link → camera_optical_frame → charging_dock_tag_{0,1,2}` — three tag frames published by `apriltag_ros` (one per detected tag). The centre tag `charging_dock_tag_1` is the docking target; the outer tags `charging_dock_tag_0` / `charging_dock_tag_2` provide the wide baseline used to estimate the dock normal.
 - **Topics**:
   - Image: `/rgb_image` (gz bridge)
   - Camera intrinsics: `/camera_info` (bridged in this package's launch)
   - Tag detections: `/apriltag/detections`
-  - Dock pose in map: `/detected_dock_pose` (PoseStamped, 10 Hz)
-  - Drive commands: `/cmd_vel` (Phase 4 publishes directly; Phase 1 goes through Nav2's action server)
-  - Trigger: `/dock_trigger` (Bool)
+  - Dock pose in map: `/detected_dock_pose` (PoseStamped, 10 Hz — from the centre tag)
+  - Drive commands: `/cmd_vel` (the sequencer publishes directly; Phase 1 goes through Nav2's action server)
+  - Trigger: `/dock_trigger` (Bool), `/undock_robot` (Bool)
 - **World coordinates** (Raj's `walled_world.sdf`):
   - Robot spawn: world `(0, 0, 0)` yaw=0
-  - AprilTag dock: world `(4.899, 0, 0.5)` yaw=π (panel mounted on the +x wall, tag normal facing −x)
+  - AprilTag dock bundle: world `(4.899, 0, 0.5)` yaw=π (panel mounted on the +x wall, tag normals facing −x); outer tags at `y = ±0.45 m` from the centre
   - Map ≡ world (AMCL initialised at map origin = robot spawn position)
-- **Sequencer**: the 4-phase pipeline in [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).
+- **Sequencer**: the multi-phase pipeline in [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).

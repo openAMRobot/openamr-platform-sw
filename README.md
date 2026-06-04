@@ -1,6 +1,6 @@
 # OpenAMR Platform Software
 
-ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot description, Gazebo Harmonic simulation, Nav2 navigation, and AprilTag-based autodocking (dock + undock).
+ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot description, Gazebo Harmonic simulation, Nav2 navigation, and AprilTag-bundle-based autodocking (dock + undock) — three AprilTags (family 36h11, IDs 0/1/2) on the dock give a wide-baseline normal for stable yaw alignment.
 
 📖 **[README](README.md)** &nbsp;·&nbsp;
 🤝 **[Contributing](CONTRIBUTING.md)** &nbsp;·&nbsp;
@@ -107,7 +107,7 @@ ros2 topic pub /dock_trigger  std_msgs/msg/Bool "{data: true}" --once   # dock
 ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock: reverse 1.5 m + spin 180°
 ```
 
-You can also send a navigation goal (RViz **"2D Goal Pose"**, or a `PoseStamped` on `/goal_pose`): if the robot is docked it **undocks first**, then drives to the goal. The robot navigates to a staging zone, scans for the AprilTag, aligns perpendicular to it, then drives onto the dock — ending ~90 cm from the tag, perpendicular.
+You can also send a navigation goal (RViz **"2D Goal Pose"**, or a `PoseStamped` on `/goal_pose`): if the robot is docked it **undocks first**, then drives to the goal. The robot navigates to a staging zone, finds the 3-tag bundle, estimates the dock normal from the outer tags' wide baseline, follows the normal axis on a pure-pursuit, then finishes with an axis-frozen visual servo on the centre tag — ending perpendicular to the dock, aligned for charging.
 
 For a step-by-step walkthrough with diagnostics: [`ros2/src/openamrobot_docking/docs/01_quickstart.md`](ros2/src/openamrobot_docking/docs/01_quickstart.md).
 
@@ -215,7 +215,7 @@ For the docking pipeline specifically, start with [`docs/01_quickstart.md`](ros2
 ## Roadmap / TODO
 
 - [ ] **Obstacle-aware dock & undock.** Today the dock and undock phases bypass Nav2 — `dock_trigger.py` publishes straight to `/cmd_vel`, so the lidar, costmaps and collision monitor are not in the loop during those maneuvers. Bring obstacle awareness back into the dock/undock phases (lidar-based collision checking and/or routing the maneuver through Nav2) so the robot stops or replans if something enters its path while approaching or leaving the dock.
-- [ ] **Higher-precision docking (target ~99.99% reliability).** The current 4-phase approach lands within a few centimetres laterally and ~1° in yaw, which is good but not yet production-grade. Investigate a more reliable approach (e.g. tighter visual-servo final stage, multi-tag or larger-tag geometry, better camera calibration, sensor fusion) so docking succeeds essentially every time across lighting and pose variations.
+- [ ] **Higher-precision docking (target ±10 mm / ±2°, ~99.99 % reliability).** The current 3-tag bundle delivers ~1–2 cm laterally and ~1° in yaw in simulation, which is solid but not yet production-grade across lighting and pose variations. The full research — vendor-agnostic target derivation, sensing-method catalogue, validation protocol, failure modes, calibration & commissioning, multi-dock handling — is in [`ros2/src/openamrobot_docking/docs/14_docking_research.md`](ros2/src/openamrobot_docking/docs/14_docking_research.md). Next concrete step: execute the §9 bench validation matrix once hardware lands.
 
 ---
 
