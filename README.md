@@ -4,6 +4,7 @@ ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot 
 
 📖 **[README](README.md)** &nbsp;·&nbsp;
 🤝 **[Contributing](CONTRIBUTING.md)** &nbsp;·&nbsp;
+🌱 **[Git guide](docs/getting_started/GIT_GUIDE.md)** &nbsp;·&nbsp;
 📜 **[License](LICENSE)** &nbsp;·&nbsp;
 🔒 **[Security](SECURITY.md)** &nbsp;·&nbsp;
 👥 **[Authors](AUTHORS.md)** &nbsp;·&nbsp;
