@@ -48,13 +48,26 @@ You can contribute by:
 
 Do not push directly to `main` of the org repository. All changes go through Pull Requests.
 
+## Helpful Contributor Docs
+
+Use these docs while preparing a contribution:
+
+| Topic | Guide |
+|---|---|
+| Git, forks, branches, and PRs | [`docs/getting_started/GIT_GUIDE.md`](docs/getting_started/GIT_GUIDE.md) |
+| Local development setup | [`docs/getting_started/DEVELOPER_SETUP.md`](docs/getting_started/DEVELOPER_SETUP.md) |
+| Testing checklist | [`docs/getting_started/TESTING_GUIDE.md`](docs/getting_started/TESTING_GUIDE.md) |
+| Troubleshooting | [`docs/getting_started/TROUBLESHOOTING.md`](docs/getting_started/TROUBLESHOOTING.md) |
+| System architecture | [`docs/architecture/ARCHITECTURE_OVERVIEW.md`](docs/architecture/ARCHITECTURE_OVERVIEW.md) |
+
 ## Building and testing locally
 
 Before opening a PR, verify your changes build and run end-to-end:
 
 ```bash
+cd openamr-platform-sw/ros2
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-up-to openamrobot_docking
+colcon build --symlink-install --packages-up-to openamrobot_docking
 source install/setup.bash
 
 # Smoke tests — each in its own terminal:
@@ -72,6 +85,36 @@ ros2 topic pub /dock_trigger std_msgs/msg/Bool "{data: true}" --once
 
 The PR description must include a **Test plan** section recording which of these smoke tests you ran and the outcomes.
 
+For a fuller checklist by change type, see [`docs/getting_started/TESTING_GUIDE.md`](docs/getting_started/TESTING_GUIDE.md).
+
+## Before Opening a Pull Request
+
+Check these before submitting:
+
+- Your branch name is clear, for example `docs/...`, `fix/...`, `feature/...`, `chore/...`, or `test/...`.
+- Your commits are signed off for DCO.
+- The change is focused and does not include unrelated edits.
+- Relevant docs are updated for any changed launch files, topics, parameters, TF frames, or package behavior.
+- Generated files are not staged.
+- The relevant build or smoke test has been run.
+- The PR description includes a summary and test plan.
+
+Recommended PR description shape:
+
+```markdown
+## Summary
+
+- Explain what changed and why.
+
+## Test plan
+
+- List the commands or smoke tests you ran.
+
+## Notes
+
+- Mention limitations, follow-up work, or anything reviewers should know.
+```
+
 ## Developer Certificate of Origin
 
 This repository uses the Developer Certificate of Origin (DCO).
@@ -85,6 +128,15 @@ Each commit must include a sign-off line:
 The easiest way is to commit with `-s`:
 
     git commit -s -m "your commit message"
+
+If GitHub reports a DCO failure on your latest commit, amend it:
+
+```bash
+git commit --amend --signoff --no-edit
+git push --force-with-lease origin your-branch-name
+```
+
+Use `--force-with-lease` only for your own branch after intentionally amending or rebasing commits.
 
 ## Legal Notice for Contributions
 
@@ -149,15 +201,17 @@ Simulation contributions must include:
 - required ROS 2 distribution (Jazzy at time of writing)
 - required Gazebo / Ignition version (Harmonic at time of writing)
 - expected behaviour
-- tested scenario (`walled_world.sdf` / `docking_scenario.sdf` / new world)
+- tested scenario (`walled_world.sdf` / modified world / new world)
 - known limitations
 - required models, worlds, and configuration files
 - screenshots or logs if useful
 
 **Do not commit generated folders.** The repository `.gitignore` already excludes:
 
-- `build/`, `install/`, `log/` (colcon outputs)
+- `ros2/build/`, `ros2/install/`, `ros2/log/` (colcon outputs)
+- root-level `build/`, `install/`, `log/` if accidentally created by building from the wrong directory
 - `__pycache__/`, `*.pyc` (Python caches)
+- `.pytest_cache/`
 - Gazebo runtime caches
 
 If you find any of these tracked in git, remove them with `git rm --cached -r <path>`.
