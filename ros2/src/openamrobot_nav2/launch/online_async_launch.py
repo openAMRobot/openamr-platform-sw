@@ -16,7 +16,7 @@ from lifecycle_msgs.msg import Transition
 
 def generate_launch_description():
     autostart = LaunchConfiguration('autostart')
-    use_lifecycle_manager = LaunchConfiguration("use_lifecycle_manager")
+    use_lifecycle_manager = LaunchConfiguration('use_lifecycle_manager')
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam_params_file = LaunchConfiguration('slam_params_file')
 
@@ -33,7 +33,7 @@ def generate_launch_description():
         description='Use simulation/Gazebo clock')
     declare_slam_params_file_cmd = DeclareLaunchArgument(
         'slam_params_file',
-        default_value=os.path.join(get_package_share_directory("openamrobot_nav2"),
+        default_value=os.path.join(get_package_share_directory('openamrobot_nav2'),
                                    'config', 'slam.yaml'),
         description='Full path to the ROS2 parameters file to use for the slam_toolbox node')
 
@@ -63,10 +63,10 @@ def generate_launch_description():
     activate_event = RegisterEventHandler(
         OnStateTransition(
             target_lifecycle_node=start_async_slam_toolbox_node,
-            start_state="configuring",
-            goal_state="inactive",
+            start_state='configuring',
+            goal_state='inactive',
             entities=[
-                LogInfo(msg="[LifecycleLaunch] Slamtoolbox node is activating."),
+                LogInfo(msg='[LifecycleLaunch] Slamtoolbox node is activating.'),
                 EmitEvent(event=ChangeState(
                     lifecycle_node_matcher=matches_action(start_async_slam_toolbox_node),
                     transition_id=Transition.TRANSITION_ACTIVATE

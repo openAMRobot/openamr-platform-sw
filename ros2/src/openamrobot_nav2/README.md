@@ -76,6 +76,7 @@ sudo apt install \
   ros-jazzy-nav2-amcl \
   ros-jazzy-nav2-map-server \
   ros-jazzy-nav2-lifecycle-manager \
+  ros-jazzy-laser-filters \
   ros-jazzy-opennav-docking
 ```
 
@@ -84,11 +85,15 @@ sudo apt install \
 ## Building
 
 ```bash
-cd /home/raj/openamr-platform-sw/ros2
+cd openamr-platform-sw
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select openamrobot_nav2
 source install/setup.bash
 ```
+
+Do not mix install spaces. If you source `openamr-platform-sw/install`, build
+from `openamr-platform-sw`; if you source `openamr-platform-sw/ros2/install`,
+build from `openamr-platform-sw/ros2`.
 
 ---
 
@@ -136,7 +141,12 @@ ros2 launch openamrobot_nav2 localization_launch.py \
 ros2 launch openamrobot_nav2 navigation_launch.py use_sim_time:=true
 ```
 
-Starts: `controller_server`, `planner_server`, `smoother_server`, `behavior_server`, `bt_navigator`, `waypoint_follower`, `velocity_smoother`, `collision_monitor`, `docking_server`.
+Starts: `controller_server`, `planner_server`, `smoother_server`, `behavior_server`, `bt_navigator`, and `waypoint_follower`.
+
+Current simulation wiring publishes Nav2 velocity commands directly to `/cmd_vel`,
+which is bridged to Gazebo's diff-drive plugin. `velocity_smoother` and
+`collision_monitor` remain configured in `nav2_params.yaml` for future tuning,
+but they are not launched in the current direct-motion setup.
 
 ### 4 — All-in-One Simulation Bringup
 
@@ -148,9 +158,7 @@ ros2 launch openamrobot_nav2 sim_bringup_launch.py
 
 | Argument | Default | Description |
 |---|---|---|
-| `initial_pose_x` | `0.0` | Robot X in map frame |
-| `initial_pose_y` | `0.0` | Robot Y in map frame |
-| `initial_pose_yaw` | `0.0` | Robot yaw in map frame |
+| `use_rviz` | `false` | Start RViz with the bundled navigation view |
 
 ---
 
@@ -172,13 +180,27 @@ ros2 launch openamrobot_nav2 sim_bringup_launch.py
 | Node | Plugin / Key values |
 |---|---|
 | `planner_server` | SmacPlanner2D (A*), tolerance 0.5 m |
-| `controller_server` | DWB local planner, 20 Hz, max 0.5 m/s / 2.0 rad/s |
+| `controller_server` | DWB local planner, 20 Hz, direct `/cmd_vel`, max 0.5 m/s / 2.0 rad/s |
 | `local_costmap` | 3×3 m rolling window, VoxelLayer + InflationLayer (radius 0.30 m), robot radius 0.22 m |
 | `global_costmap` | StaticLayer + ObstacleLayer + InflationLayer (radius 0.55 m) |
 | `amcl` | Differential motion model, 500–2000 particles, likelihood field |
-| `collision_monitor` | FootprintApproach polygon, stop 0.8 s before collision |
-| `velocity_smoother` | Limits matched to `gazebo_control.xacro` (±0.5 m/s², ±1.0 rad/s²) |
-| `docking_server` | SimpleChargingDock with external AprilTag pose detection |
+| `velocity_smoother` | Config present but not launched in the current direct `/cmd_vel` setup |
+| `collision_monitor` | Config present but not launched in the current direct `/cmd_vel` setup |
+| `docking_server` | Parameters present for future Nav2 docking integration; current autodocking uses `openamrobot_docking` |
+
+### Motion Debugging
+
+After launching, verify the command path:
+
+```bash
+ros2 topic info /cmd_vel
+ros2 topic echo /cmd_vel
+ros2 topic echo /odom --once
+```
+
+Expected with the current launch: `/cmd_vel` has a Nav2 publisher and a Gazebo
+bridge subscriber. If `velocity_smoother` or `collision_monitor` appears in the
+launch log, an old install space is being sourced.
 
 ### Pre-built Map (`maps/my_map.yaml`)
 
