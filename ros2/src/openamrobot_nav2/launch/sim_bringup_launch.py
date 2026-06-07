@@ -47,21 +47,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            name='initial_pose_x',
-            default_value='0.0',
-            description='Initial robot X position in map frame'
-        ),
-        DeclareLaunchArgument(
-            name='initial_pose_y',
-            default_value='0.0',
-            description='Initial robot Y position in map frame'
-        ),
-        DeclareLaunchArgument(
-            name='initial_pose_yaw',
-            default_value='0.0',
-            description='Initial robot yaw in map frame'
-        ),
-        DeclareLaunchArgument(
             name='use_rviz',
             default_value='false',
             description='Start RViz. Default false reduces simulation lag.'

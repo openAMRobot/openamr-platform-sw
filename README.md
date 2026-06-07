@@ -23,6 +23,127 @@ ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot 
 
 > This walks you from a fresh install through the full stack: the Gazebo simulation, Nav2 navigation, and the AprilTag dock/undock pipeline. It is what runs end-to-end today — the repo is broader than this (see [Repository layout](#repository-layout)), but everything below works now.
 
+Choose the setup path that suits you:
+
+| | [Option A — Docker](#option-a--docker-recommended) | [Option B — Manual install](#option-b--manual-install-ubuntu-2404) |
+|---|---|---|
+| **Best for** | New contributors, quick onboarding | Native development, hardware work |
+| **Requires** | Docker + Docker Compose | Ubuntu 24.04 + ROS 2 Jazzy |
+| **Effort** | ~5 min | ~30–60 min |
+| **GUI (Gazebo/RViz)** | Yes (X11 passthrough) | Yes |
+
+---
+
+## Option A — Docker (recommended)
+
+### What is Docker?
+
+Docker is a tool that packages software and all its dependencies into a self-contained **container** — like a lightweight virtual machine that shares your kernel. You don't install ROS 2, Gazebo, or Nav2 on your host; Docker does it inside the container automatically. Every contributor runs the exact same environment, so _"it works on my machine"_ stops being a problem.
+
+**You only need two things installed on your host:** Docker and Docker Compose.
+
+### A.1 Install Docker
+
+Follow the official install guide for your OS: <https://docs.docker.com/engine/install/>
+
+Then install the Compose plugin (usually bundled with Docker Desktop; on Linux run):
+
+```bash
+sudo apt install docker-compose-plugin
+```
+
+Verify everything works:
+
+```bash
+docker --version          # Docker version 24.x or later
+docker compose version    # Docker Compose version v2.x or later
+docker info               # confirms your user can talk to the Docker daemon
+```
+
+> **Permission tip:** add yourself to the `docker` group so you don't need `sudo` on every command:
+> ```bash
+> sudo usermod -aG docker $USER
+> newgrp docker
+> ```
+> If `docker info` still says `permission denied`, fully log out and log back in
+> (or reboot) so the new group membership is applied.
+
+### A.2 Clone the repo
+
+```bash
+git clone https://github.com/openAMRobot/openamr-platform-sw.git
+cd openamr-platform-sw
+```
+
+### A.3 Allow Docker to open GUI windows
+
+Gazebo and RViz need access to your host display:
+
+```bash
+xhost +local:docker
+```
+
+Run this once per host session (or add it to your `~/.bashrc`).
+
+### A.4 Build the image
+
+Run Compose commands from the repository root, where `docker-compose.yml` lives:
+
+```bash
+cd openamr-platform-sw
+docker compose build
+```
+
+If you see `no configuration file provided: not found`, you are in the wrong
+directory; `cd` back to the repository root and rerun the command.
+
+This downloads the ROS 2 Jazzy base image and installs every dependency. First build takes **5–10 minutes**; subsequent builds reuse the cached layers and are nearly instant.
+
+### A.5 Launch the full simulation stack
+
+```bash
+docker compose run --rm openamr \
+  ros2 launch openamrobot_docking bringup_sim.launch.py
+```
+
+Gazebo and RViz windows will appear on your host screen. Jump to [Drive the robot](#drive-the-robot) once the stack is up.
+
+### A.6 Open an interactive shell (for development)
+
+```bash
+docker compose run --rm openamr bash
+```
+
+The `ros2/src/` directory is **bind-mounted** into the container — edits you make on the host are immediately visible inside, and vice versa. After changing code, rebuild only the affected package:
+
+```bash
+# inside the container
+colcon build --symlink-install --packages-select openamrobot_docking
+source install/setup.bash
+```
+
+No need to rebuild the Docker image unless you add a new apt dependency to the `Dockerfile`.
+
+### A.7 Run layers separately (optional)
+
+Same as the manual path below — just prefix each command with `docker compose run --rm openamr`:
+
+```bash
+docker compose run --rm openamr ros2 launch openamrobot_gazebo gz_simulator.launch.py
+docker compose run --rm openamr ros2 launch openamrobot_nav2 sim_bringup_launch.py
+docker compose run --rm openamr ros2 launch openamrobot_docking openamrobot_docking.launch.py
+```
+
+All containers use `network_mode: host`, so DDS discovery works between them automatically.
+
+> **CycloneDDS:** `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` is already set in [`docker-compose.yml`](docker-compose.yml) — you don't need to do anything extra. See [Why CycloneDDS](#why-cyclonedds) for the reason.
+
+> **NVIDIA GPU:** If you have an NVIDIA GPU and want hardware-accelerated Gazebo rendering, install [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) and uncomment the `openamr-gpu` service in [`docker-compose.yml`](docker-compose.yml).
+
+---
+
+## Option B — Manual install (Ubuntu 24.04)
+
 ### 1. Prerequisites
 
 - **Ubuntu 24.04 (Noble)**, native install (Gazebo Harmonic needs a Linux display server).
@@ -109,9 +230,13 @@ ros2 launch openamrobot_docking openamrobot_docking.launch.py
 
 > If a launch fails with `package 'openamrobot_...' not found`, you forgot `source install/setup.bash` in that terminal.
 
-### 4. Drive the robot
+---
 
-Wait ~10 s for Nav2 to localize, then from any sourced terminal:
+## 4. Drive the robot
+
+> Both paths (Docker and manual) end up here once the stack is running.
+
+Wait ~10 s for Nav2 to localize, then from any sourced terminal (or `docker compose run --rm openamr bash` if using Docker):
 
 ```bash
 ros2 topic pub /dock_trigger  std_msgs/msg/Bool "{data: true}" --once   # dock
@@ -126,13 +251,16 @@ For a step-by-step walkthrough with diagnostics: [`ros2/src/openamrobot_docking/
 
 ## Why CycloneDDS
 
-The default Jazzy RMW (FastDDS) has a Python-side crash bug that makes the docking sequencer (`dock_trigger.py`) exit silently when sending Nav2 action goals. Always export:
+The default Jazzy RMW (FastDDS) has a Python-side crash bug that makes the docking sequencer (`dock_trigger.py`) exit silently when sending Nav2 action goals. CycloneDDS must be used instead.
+
+**Docker (Option A):** already handled — `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` is set in [`docker-compose.yml`](docker-compose.yml). Nothing to do.
+
+**Manual install (Option B):** add it to your shell profile once:
 
 ```bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+echo 'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp' >> ~/.bashrc
+source ~/.bashrc
 ```
-
-Put it in your `~/.bashrc` once and forget about it.
 
 ---
 
@@ -151,12 +279,17 @@ openamr-platform-sw/
 │       ├── openamrobot_drivers/          (placeholder) hardware drivers (lidar, camera, IMU…)
 │       └── openamrobot_perception/       (placeholder) perception beyond docking
 │
+├── docker/                               Docker support files
+│   └── entrypoint.sh                     Sources ROS 2 + workspace on container start
 ├── config/                               (reserved) product-level config: robot/ nav2/ docking/ simulation/
 ├── simulation/                           (reserved) cross-package assets: models/ worlds/ scenarios/
 ├── docs/                                 (reserved) platform docs: getting_started/ architecture/ navigation/ docking/ simulation/ safety/
 ├── scripts/                              (reserved) operator utilities
 ├── tools/                                (reserved) developer tools
 │
+├── Dockerfile                            Builds the containerised ROS 2 + Gazebo + Nav2 environment
+├── docker-compose.yml                    Runs the container with GUI, GPU, and volume config
+├── .dockerignore                         Keeps build context lean (excludes build/ install/ log/)
 ├── README.md                             you are here
 ├── CONTRIBUTING.md · SECURITY.md · NOTICE.md · AUTHORS.md · CHANGELOG.md
 └── LICENSE                               MIT

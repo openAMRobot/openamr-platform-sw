@@ -1,6 +1,7 @@
-from setuptools import setup
 from glob import glob
 import os
+
+from setuptools import setup
 
 package_name = 'openamrobot_nav2'
 
@@ -21,7 +22,10 @@ setup(
     zip_safe=True,
     maintainer='OpenAMRobot Maintainers',
     maintainer_email='botshare.ai@gmail.com',
-    description='Nav2 bringup, configuration, maps, SLAM, localization, and navigation stack integration for OpenAMRobot.',
+    description=(
+        'Nav2 bringup, configuration, maps, SLAM, localization, and '
+        'navigation stack integration for OpenAMRobot.'
+    ),
     license='MIT',
     tests_require=['pytest'],
     entry_points={'console_scripts': []},
