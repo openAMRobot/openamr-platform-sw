@@ -128,6 +128,7 @@ The sequencer publishes `cmd_vel` straight to the robot, bypassing Nav2's `colli
 | `obstacle_arc_half_width_deg` | `30.0` | deg — half-width of the detection cone (so a full 60° arc). |
 | `obstacle_wait_timeout` | `10.0` | s — max wait for the path to clear before aborting the phase. |
 | `obstacle_check_period` | `0.2` | s — poll period while waiting. |
+| `obstacle_min_range` | `0.30` | m — **range floor**. LIDAR returns shorter than this are discarded as self-reflections from the robot's own body. The OpenAMRobot LIDAR sits on top of the chassis; rays heading rearward (~π in scan frame) hit the enclosure at ~0.2 m and would otherwise read as a permanent obstacle, blocking the undock reverse forever. Set ≈ (robot body half-extent + margin). 0 disables the floor. |
 
 Behaviour:
 

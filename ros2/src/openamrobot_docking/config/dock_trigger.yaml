@@ -221,3 +221,10 @@
     obstacle_arc_half_width_deg: 30.0        # deg — half-width of the detection cone (so a full 60° arc)
     obstacle_wait_timeout: 10.0              # s — max wait before aborting the phase
     obstacle_check_period: 0.2               # s — poll period while waiting for the path to clear
+    # Range floor: LIDAR returns shorter than this are ignored as
+    # self-reflections from the robot's own body. The OpenAMRobot LIDAR sits
+    # centred-ish on top of the chassis; rays heading rearward (≈ π in scan
+    # frame) hit the enclosure and return at ~0.2 m, which would otherwise
+    # be read as a permanent obstacle and block the undock reverse forever.
+    # Set ≈ (robot body half-extent + margin). 0 disables the floor.
+    obstacle_min_range: 0.30                 # m — ignore returns shorter than this

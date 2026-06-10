@@ -342,6 +342,14 @@ class DockTrigger(Node):
         self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
         self.declare_parameter('obstacle_wait_timeout', 10.0)           # s — max wait before aborting
         self.declare_parameter('obstacle_check_period', 0.2)            # s — poll period while waiting
+        # Range floor — LIDAR returns shorter than this are IGNORED as
+        # self-reflections from the robot's own body. The OpenAMRobot LIDAR
+        # sits centred-ish on top of the chassis; rays heading rearward (≈ π
+        # in scan frame) hit the robot's own enclosure and return at ~0.2 m,
+        # which the backward cone of `_min_range_in_arc` would otherwise
+        # read as a permanent obstacle and block the undock phase forever.
+        # Set to 0 to disable (= use the raw scan, no floor).
+        self.declare_parameter('obstacle_min_range', 0.30)              # m — ignore returns shorter than this
 
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value
@@ -401,6 +409,7 @@ class DockTrigger(Node):
             float(self.get_parameter('obstacle_arc_half_width_deg').value))
         self.obstacle_wait_timeout = float(self.get_parameter('obstacle_wait_timeout').value)
         self.obstacle_check_period = float(self.get_parameter('obstacle_check_period').value)
+        self.obstacle_min_range = float(self.get_parameter('obstacle_min_range').value)
 
         # ── Multi-threaded callback group so the long-running sequence can
         #    run while subscriptions and TF still get processed. ────────────
@@ -1365,6 +1374,12 @@ class DockTrigger(Node):
         with half-width `half_width` (radians). Returns +inf if no laser data
         is available or no finite return is inside the cone.
 
+        Returns shorter than `obstacle_min_range` are discarded as
+        self-reflections from the robot's own body (the LIDAR sits on top of
+        the chassis and rays heading rearward in particular hit the
+        enclosure). Without this floor the backward cone always reads ~0.2 m
+        and the undock phase blocks forever.
+
         Note: angles are taken in the scan's frame, not base_link. For a LIDAR
         mounted near the geometric centre of the robot with its forward axis
         aligned with base_link forward, this is a fine approximation. A
@@ -1376,11 +1391,12 @@ class DockTrigger(Node):
         a_lo = normalize_angle(center_angle - half_width)
         a_hi = normalize_angle(center_angle + half_width)
         wrap = a_lo > a_hi  # cone spans the ±π wrap (e.g. backward at π)
+        floor = max(self.obstacle_min_range, scan.range_min)
         min_r = float('inf')
         for i, r in enumerate(scan.ranges):
             if not math.isfinite(r):
                 continue
-            if r < scan.range_min or r > scan.range_max:
+            if r < floor or r > scan.range_max:
                 continue
             a = normalize_angle(scan.angle_min + i * scan.angle_increment)
             inside = (a_lo <= a <= a_hi) if not wrap else (a >= a_lo or a <= a_hi)
