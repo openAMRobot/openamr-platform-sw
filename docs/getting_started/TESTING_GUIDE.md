@@ -188,7 +188,10 @@ cd openamr-platform-sw/ros2
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export QT_QPA_PLATFORM=xcb            # Wayland fix — required on Ubuntu 24.04 default
 ```
+
+> ⚠️ **GUIs are OFF by default** in both `gz_simulator.launch.py` (`gui:=true` to enable) and `sim_bringup_launch.py` (`use_rviz:=true` to enable). Without these flags the simulation still runs (you can verify with `ros2 topic hz /clock`) but no window appears. Use the flags below for the first smoke test so you can see what's happening.
 
 ### One-Command Simulation Smoke Test
 
@@ -224,13 +227,13 @@ Use three sourced terminals.
 Terminal 1:
 
 ```bash
-ros2 launch openamrobot_gazebo gz_simulator.launch.py
+ros2 launch openamrobot_gazebo gz_simulator.launch.py gui:=true
 ```
 
 Terminal 2:
 
 ```bash
-ros2 launch openamrobot_nav2 sim_bringup_launch.py
+ros2 launch openamrobot_nav2 sim_bringup_launch.py use_rviz:=true
 ```
 
 Terminal 3:

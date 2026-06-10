@@ -76,10 +76,22 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 (Or put these in a shell alias: `alias src-amr='source ...'`.)
 
+> ⚠️ **GUIs are OFF by default.** Both Gazebo and RViz launch headless unless you opt in:
+> - Gazebo : `ros2 launch openamrobot_gazebo gz_simulator.launch.py gui:=true`
+> - Nav2 / RViz : `ros2 launch openamrobot_nav2 sim_bringup_launch.py use_rviz:=true`
+>
+> The default keeps the sim timing stable on slow machines; turn them on the first time you bring the stack up so you can see what's happening.
+>
+> ⚠️ **Wayland users (Ubuntu 24.04 default).** Qt-based apps (Gazebo GUI, RViz) need the X11 backend or the window silently never appears:
+> ```bash
+> export QT_QPA_PLATFORM=xcb   # in every terminal that launches a GUI
+> ```
+> Symptom: `wmctrl -l | grep -i gazebo` returns nothing but the simulation is running (you can see `ros2 topic hz /clock` at ~50–1000 Hz). The fix is `xcb` or putting the export in `~/.bashrc`.
+
 ### Terminal 1 — Gazebo + robot + ros↔gz bridge
 
 ```bash
-ros2 launch openamrobot_gazebo gz_simulator.launch.py
+ros2 launch openamrobot_gazebo gz_simulator.launch.py gui:=true
 ```
 
 This brings up Gazebo Harmonic with `walled_world.sdf` (a 10×10 m walled arena containing the AprilTag dock on the +x wall), spawns the robot at world `(0, 0, 0)`, and runs the ros↔gz bridge for `/clock`, `/odom`, `/tf`, `/cmd_vel`, `/scan`, `/rgb_image`, `/camera/camera_info`, `/imu`.
@@ -89,7 +101,7 @@ Wait for the Gazebo GUI window to open and the robot to be visible (~3 s).
 ### Terminal 2 — Nav2 + localization + RViz
 
 ```bash
-ros2 launch openamrobot_nav2 sim_bringup_launch.py
+ros2 launch openamrobot_nav2 sim_bringup_launch.py use_rviz:=true
 ```
 
 This brings up Nav2's planner / controller / behavior server, AMCL on a saved map (`maps/my_map.yaml`), and the RViz layout. AMCL is initialised at map `(0, 0, 0)`, so **map ≡ world**.
