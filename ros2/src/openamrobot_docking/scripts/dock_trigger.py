@@ -342,14 +342,16 @@ class DockTrigger(Node):
         self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
         self.declare_parameter('obstacle_wait_timeout', 10.0)           # s — max wait before aborting
         self.declare_parameter('obstacle_check_period', 0.2)            # s — poll period while waiting
-        # Range floor — LIDAR returns shorter than this are IGNORED as
-        # self-reflections from the robot's own body. The OpenAMRobot LIDAR
-        # sits centred-ish on top of the chassis; rays heading rearward (≈ π
-        # in scan frame) hit the robot's own enclosure and return at ~0.2 m,
-        # which the backward cone of `_min_range_in_arc` would otherwise
-        # read as a permanent obstacle and block the undock phase forever.
-        # Set to 0 to disable (= use the raw scan, no floor).
-        self.declare_parameter('obstacle_min_range', 0.30)              # m — ignore returns shorter than this
+        # Range floor — LIDAR returns shorter than this are IGNORED.
+        # Default 0.0 (disabled): self-reflections from the robot's own body
+        # are removed UPSTREAM by Nav2's scan_body_filter (angle-based), and
+        # we subscribe to /scan_filtered. A >0 floor would silently mask
+        # real obstacles closer than the floor inside the kept angular
+        # sector — angular filtering is the correct primitive.
+        # Set >0 ONLY if /scan_filtered isn't available on your stack and
+        # you must fall back to /scan — and then pick a value clearly
+        # below the closest legitimate obstacle distance.
+        self.declare_parameter('obstacle_min_range', 0.0)               # m — 0 = disabled
 
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value

@@ -122,13 +122,13 @@ The sequencer publishes `cmd_vel` straight to the robot, bypassing Nav2's `colli
 | Parameter | Default | Meaning |
 |---|---|---|
 | `obstacle_check_enabled` | `true` | Master switch. |
-| `obstacle_scan_topic` | `/scan` | LIDAR `LaserScan` topic to read. |
+| `obstacle_scan_topic` | `/scan_filtered` | LIDAR `LaserScan` topic. Default is the angle-filtered scan from Nav2's `scan_body_filter` chain — it chops the angular sector where the LIDAR sees the robot's enclosure, so close returns inside the kept sector are guaranteed to be real obstacles, not self-reflections. Falling back to raw `/scan` is risky: a distance-based floor (`obstacle_min_range` > 0) would mask real near obstacles. |
 | `obstacle_forward_distance` | `0.6` | m — stop if an obstacle is within this distance ahead. |
 | `obstacle_backward_distance` | `0.6` | m — stop if an obstacle is within this distance behind. |
 | `obstacle_arc_half_width_deg` | `30.0` | deg — half-width of the detection cone (so a full 60° arc). |
 | `obstacle_wait_timeout` | `10.0` | s — max wait for the path to clear before aborting the phase. |
 | `obstacle_check_period` | `0.2` | s — poll period while waiting. |
-| `obstacle_min_range` | `0.30` | m — **range floor**. LIDAR returns shorter than this are discarded as self-reflections from the robot's own body. The OpenAMRobot LIDAR sits on top of the chassis; rays heading rearward (~π in scan frame) hit the enclosure at ~0.2 m and would otherwise read as a permanent obstacle, blocking the undock reverse forever. Set ≈ (robot body half-extent + margin). 0 disables the floor. |
+| `obstacle_min_range` | `0.0` | m — **range floor**. Default disabled (`0.0`): self-reflections from the robot's body are removed UPSTREAM by Nav2's `scan_body_filter` (angle-based filter, the correct primitive), and the sequencer subscribes to `/scan_filtered`. A `>0` floor would silently mask real obstacles closer than the floor inside the kept angular sector — unsafe. Set `>0` ONLY as a fallback when `/scan_filtered` isn't available, and then pick a value clearly below the closest legitimate obstacle distance. |
 
 Behaviour:
 

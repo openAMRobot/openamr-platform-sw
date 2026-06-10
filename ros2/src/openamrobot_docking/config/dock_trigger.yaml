@@ -215,16 +215,22 @@
     # is roughly aligned with base_link forward (a small lateral offset
     # does not change the cone meaningfully).
     obstacle_check_enabled: true
-    obstacle_scan_topic: /scan
+    # Use /scan_filtered (Nav2's scan_body_filter chain) — it chops the
+    # angular sector where the LIDAR sees the robot's own enclosure (rear
+    # ±45°), so close-range returns inside the kept sector are GENUINE
+    # obstacles, not self-reflections. This is angle-based filtering, the
+    # correct primitive: a distance-based floor (obstacle_min_range > 0)
+    # would silently ignore a real near obstacle inside the body-filter
+    # sector, which is unsafe.
+    obstacle_scan_topic: /scan_filtered
     obstacle_forward_distance: 0.6           # m — stop if obstacle within this distance ahead
     obstacle_backward_distance: 0.6          # m — stop if obstacle within this distance behind
     obstacle_arc_half_width_deg: 30.0        # deg — half-width of the detection cone (so a full 60° arc)
     obstacle_wait_timeout: 10.0              # s — max wait before aborting the phase
     obstacle_check_period: 0.2               # s — poll period while waiting for the path to clear
-    # Range floor: LIDAR returns shorter than this are ignored as
-    # self-reflections from the robot's own body. The OpenAMRobot LIDAR sits
-    # centred-ish on top of the chassis; rays heading rearward (≈ π in scan
-    # frame) hit the enclosure and return at ~0.2 m, which would otherwise
-    # be read as a permanent obstacle and block the undock reverse forever.
-    # Set ≈ (robot body half-extent + margin). 0 disables the floor.
-    obstacle_min_range: 0.30                 # m — ignore returns shorter than this
+    # Range floor — kept at 0 (disabled) because self-reflections from the
+    # robot's body are already removed by /scan_filtered (angle-based filter
+    # in scan_body_filter). Do NOT raise this above scan.range_min: a >0
+    # floor would silently ignore real obstacles closer than the floor
+    # inside the angular sector kept by the body filter.
+    obstacle_min_range: 0.0                  # m — 0 = disabled (rely on /scan_filtered)
