@@ -4,6 +4,10 @@ ROS 2 Gazebo Harmonic simulation package for the **OpenAMRobot** mobile base.
 
 Contains: world files, ROS–Gazebo bridge configuration, and simulation launch files.
 
+> **Rule:** If a file must be used by `ros2 launch`, keep it inside `openamrobot_gazebo`.
+> 
+> **Rule:** If a file is a project-level scenario, design asset, experimental environment, or documentation/reference asset, keep it in `simulation/`.
+
 ## Contents
 
 ```
@@ -45,9 +49,9 @@ This starts Gazebo Harmonic, spawns the robot, and brings up `robot_state_publis
 | `/tf` | `tf2_msgs/msg/TFMessage` | GZ → ROS |
 | `/cmd_vel` | `geometry_msgs/msg/Twist` | ROS → GZ |
 | `/scan` | `sensor_msgs/msg/LaserScan` | GZ → ROS |
-| `imu` | `sensor_msgs/msg/Imu` | GZ → ROS |
+| `/imu` | `sensor_msgs/msg/Imu` | GZ → ROS |
 | `/rgb_image` | `sensor_msgs/msg/Image` | GZ → ROS |
-| `camera/camera_info` | `sensor_msgs/msg/CameraInfo` | GZ → ROS |
+| `/camera/camera_info` | `sensor_msgs/msg/CameraInfo` | GZ → ROS |
 
 ## Launch Arguments
 
@@ -56,3 +60,4 @@ This starts Gazebo Harmonic, spawns the robot, and brings up `robot_state_publis
 | `use_sim_time` | `True` | All nodes use `/clock` from Gazebo |
 | `use_robot_state_pub` | `True` | Start `robot_state_publisher` |
 | `world` | `worlds/walled_world.sdf` | Full path to any Gazebo world file |
+| `gui` | `false` | Start Gazebo GUI; default `false` keeps simulation timing stable |

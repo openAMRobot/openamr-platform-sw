@@ -121,13 +121,29 @@ def generate_launch_description():
             package='ros_gz_bridge',
             executable='parameter_bridge',
             name='camera_info_bridge',
-            arguments=['/camera_info@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo'],
+            arguments=['/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
             parameters=[{'use_sim_time': use_sim_time}],
             output='screen',
         ),
 
+        # Gazebo image and CameraInfo streams can arrive at different rates.
+        # AprilTag uses exact sync, so provide CameraInfo stamped per image.
+        Node(
+            package='openamrobot_docking',
+            executable='camera_info_sync.py',
+            name='camera_info_sync',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'image_topic': '/rgb_image',
+                'camera_info_topic': '/camera_info',
+                'synced_camera_info_topic': '/camera_info_synced',
+            }],
+            output='screen',
+        ),
+
         # apriltag_ros (simulation variant) — subscribes to /rgb_image
-        # and (via the relay above) /camera_info; publishes one TF per tag:
+        # and synced CameraInfo (via camera_info_sync above); publishes one
+        # TF per tag of the bundle:
         # camera_optical_frame -> charging_dock_tag_{0,1,2}.
         IncludeLaunchDescription(
             AnyLaunchDescriptionSource(

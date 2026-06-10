@@ -7,7 +7,7 @@ launch:
 #
 # Subscribes to:
 #   /rgb_image          (image, remapped from /apriltag/image_rect)
-#   /camera_info        (intrinsics, bridged in openamrobot_docking.launch.py)
+#   /camera_info_synced (intrinsics stamped to match /rgb_image)
 # Publishes:
 #   /apriltag/detections           (apriltag_msgs/AprilTagDetectionArray)
 #   /tf  (camera_optical_frame -> charging_dock_tag_{0,1,2})
@@ -25,3 +25,7 @@ launch:
     remap:
     - from: /apriltag/image_rect
       to: /rgb_image
+    - from: /camera_info
+      to: /camera_info_synced
+    - from: /apriltag/camera_info
+      to: /camera_info_synced

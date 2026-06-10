@@ -1,0 +1,49 @@
+services:
+  openamr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openamr-platform:latest
+    container_name: openamr_dev
+
+    # Pass through the host display so Gazebo and RViz render on screen
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all         # only active when the nvidia runtime is used
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp  # required — FastDDS has a Python crash bug with Nav2 actions
+    volumes:
+      # X11 socket — needed for GUI windows (Gazebo, RViz)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Mount source so you can edit on the host and rebuild inside the container
+      - ./ros2/src:/ros2_ws/src:rw
+      # Persist colcon build & install across container restarts
+      - openamr_build:/ros2_ws/build
+      - openamr_install:/ros2_ws/install
+
+    network_mode: host           # simplest option for ROS 2 DDS discovery
+    ipc: host                    # shared memory transport (CycloneDDS / FastDDS)
+    privileged: false
+    stdin_open: true
+    tty: true
+
+    command: bash
+
+  # Uncomment the block below if you have an NVIDIA GPU.
+  # Requires the nvidia-container-toolkit package on the host.
+  #
+  # openamr-gpu:
+  #   extends:
+  #     service: openamr
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   runtime: nvidia
+
+volumes:
+  openamr_build:
+  openamr_install:

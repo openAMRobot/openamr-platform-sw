@@ -4,6 +4,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
@@ -17,6 +18,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_robot_state_pub = LaunchConfiguration('use_robot_state_pub')
     world = LaunchConfiguration('world')
+    gui = LaunchConfiguration('gui')
 
     xacro_file = os.path.join(description_dir, 'urdf', 'robo_urdf.urdf.xacro')
     robot_desc = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
@@ -46,8 +48,9 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='both',
+        condition=IfCondition(use_robot_state_pub),
         parameters=[
-            {'use_sim_time': True},
+            {'use_sim_time': use_sim_time},
             {'robot_description': robot_desc},
         ])
 
@@ -56,7 +59,7 @@ def generate_launch_description():
         executable='joint_state_publisher',
         name='joint_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
     bridge = Node(
@@ -69,7 +72,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    gz_sim = IncludeLaunchDescription(
+    gz_sim_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
                 get_package_share_directory('ros_gz_sim'),
@@ -77,7 +80,20 @@ def generate_launch_description():
                 'gz_sim.launch.py',
             )
         ),
-        launch_arguments={'gz_args': ['-r -v 4 ', LaunchConfiguration('world')]}.items(),
+        launch_arguments={'gz_args': ['-r -v 2 ', world]}.items(),
+        condition=IfCondition(gui),
+    )
+
+    gz_sim_headless = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('ros_gz_sim'),
+                'launch',
+                'gz_sim.launch.py',
+            )
+        ),
+        launch_arguments={'gz_args': ['-r -s -v 2 ', world]}.items(),
+        condition=UnlessCondition(gui),
     )
 
     spawn_entity = Node(
@@ -104,8 +120,13 @@ def generate_launch_description():
             'world',
             default_value=os.path.join(gazebo_dir, 'worlds', 'walled_world.sdf'),
             description='Full path to the Gazebo world file (.sdf) to load'),
+        DeclareLaunchArgument(
+            'gui',
+            default_value='false',
+            description='Start Gazebo GUI. Default false keeps simulation timing stable.'),
         gz_resource_path,
-        gz_sim,
+        gz_sim_gui,
+        gz_sim_headless,
         bridge,
         spawn_entity,
         start_robot_state_publisher_cmd,

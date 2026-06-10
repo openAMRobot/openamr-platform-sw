@@ -1,15 +1,8 @@
 scan_body_filter:
   ros__parameters:
-    # The FilterChain in scan_to_scan_filter_chain expects parameters under
-    # the namespace `scan_filter_chain.filterN.…` (the chain is instantiated
-    # with the name "scan_filter_chain" in the node's source). Each filter
-    # must be a NAMED KEY (filter1, filter2, …) rather than a YAML sequence —
-    # ROS 2 cannot parse a sequence of dicts here, which is what caused the
-    # original "Sequence should be of same type" parse crash.
-    scan_filter_chain:
-      filter1:
-        name: body_filter
-        type: laser_filters/LaserScanAngularBoundsFilter
-        params:
-          lower_angle: -2.356  # -135 degrees — rear 90 deg sector removed
-          upper_angle:  2.356  # +135 degrees
+    filter1:
+      name: body_filter
+      type: laser_filters/LaserScanAngularBoundsFilter
+      params:
+        lower_angle: -2.356
+        upper_angle: 2.356

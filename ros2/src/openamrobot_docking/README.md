@@ -103,6 +103,12 @@ ros2 launch openamrobot_docking bringup_sim.launch.py
 
 This starts the three layers in order — Gazebo, then Nav2 (+8 s), then the docking layer (+16 s) — so each is up before the next needs it. Slower machine? Bump the delays: `... bringup_sim.launch.py nav2_delay:=10 docking_delay:=22`.
 
+For headless simulation without Gazebo GUI or RViz:
+
+```bash
+ros2 launch openamrobot_docking bringup_sim.launch.py gazebo_gui:=false use_rviz:=false
+```
+
 ### Or the 3 layers separately (for tuning / restarting one at a time)
 
 `bringup_sim.launch.py` is just a convenience wrapper — the docking layer itself (`openamrobot_docking.launch.py`) does **not** start Gazebo or Nav2, it composes on top of them. Running the three separately lets you restart any one without bringing the others down. Each terminal is sourced with `source install/setup.bash` + `export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`:
