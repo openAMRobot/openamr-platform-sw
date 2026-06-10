@@ -11,21 +11,30 @@ the platform's running simulation:
     Terminal 3 :  ros2 launch openamrobot_docking openamrobot_docking.launch.py
 
 What this launch starts:
-  - apriltag_ros (sim variant)      — detects the AprilTag in `/rgb_image`
-                                       and publishes the
-                                       camera_optical_frame ->
-                                       charging_dock_apriltag TF
-  - detected_dock_pose_publisher    — reads map -> charging_dock_apriltag
+  - apriltag_ros (sim variant)      — detects the 3-tag bundle (IDs 0/1/2)
+                                       in `/rgb_image` and publishes one TF
+                                       per tag:
+                                         camera_optical_frame ->
+                                         charging_dock_tag_{0,1,2}
+  - detected_dock_pose_publisher    — reads map -> charging_dock_tag_1
+                                       (the centre tag, docking target)
                                        and publishes /detected_dock_pose
                                        as PoseStamped at 10 Hz
-  - dock_trigger (Python, 4-phase)  — listens on /dock_trigger; on True,
-                                       runs the 4-phase docking sequence:
+  - dock_trigger (Python, bundle    — listens on /dock_trigger; on True,
+    sequencer)                       runs the bundle docking sequence:
                                          1) NavigateToPose to staging
-                                         2) camera-frame centring scan
-                                            + running-average filter
-                                         3) align spin to perpendicular
-                                         4) line-tracking + straight-line
-                                            final approach
+                                         2) camera-frame centring scan on
+                                            the bundle midpoint
+                                         3) estimate the dock surface
+                                            normal from the outer tags'
+                                            wide baseline (90 cm)
+                                         4) pure-pursuit the normal axis
+                                            in the camera/tag frame, with
+                                            a re-verification step
+                                         5) two-regime final approach:
+                                            EMA-averaged axis far,
+                                            axis-frozen visual servo on
+                                            the centre tag near
 """
 
 import os
@@ -70,7 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'launch_trigger',
             default_value='true',
-            description='Launch the 4-phase dock_trigger node.'
+            description='Launch the bundle dock_trigger node.'
         ),
         DeclareLaunchArgument(
             'trigger_params',
@@ -87,6 +96,19 @@ def generate_launch_description():
             'GZ_SIM_RESOURCE_PATH', docking_models_dir
         ),
 
+        # ── Camera pipeline (how the image becomes tag TFs) ────────────────
+        # 1. Gazebo renders the camera image (sensor declared in the robot URDF,
+        #    openamrobot_description) and publishes it + a camera_info with the
+        #    intrinsics (fx, fy, cx, cy, distortion). The image is RENDERED by
+        #    Gazebo's 3D engine — not OpenCV.
+        # 2. ros_gz_bridge turns the gz topics into ROS topics. The image is
+        #    /rgb_image. camera_info needs the bridge below.
+        # 3. apriltag_ros (started further down) consumes /rgb_image +
+        #    /camera_info. Internally it uses OpenCV (cv_bridge to grayscale,
+        #    cv::solvePnP for the pose) and publishes one TF per tag.
+        # On a real robot only step 1 changes (a real camera driver replaces
+        # Gazebo); steps 2-3 are identical.
+        #
         # Bridge gz /camera_info -> ROS /camera_info.
         # apriltag_ros uses image_transport::CameraSubscriber, which derives
         # the camera_info topic from the image topic name (sibling at the
@@ -120,8 +142,9 @@ def generate_launch_description():
         ),
 
         # apriltag_ros (simulation variant) — subscribes to /rgb_image
-        # and synced CameraInfo; publishes the
-        # camera_optical_frame -> charging_dock_apriltag TF.
+        # and synced CameraInfo (via camera_info_sync above); publishes one
+        # TF per tag of the bundle:
+        # camera_optical_frame -> charging_dock_tag_{0,1,2}.
         IncludeLaunchDescription(
             AnyLaunchDescriptionSource(
                 PathJoinSubstitution(
@@ -142,7 +165,9 @@ def generate_launch_description():
             launch_arguments={'use_sim_time': use_sim_time}.items(),
         ),
 
-        # 4-phase docking sequencer. Listens on /dock_trigger.
+        # Bundle docking sequencer (multi-phase: centring scan → normal
+        # estimation from outer tags → goto point on normal + re-verification
+        # → two-regime final approach). Listens on /dock_trigger.
         Node(
             package='openamrobot_docking',
             executable='dock_trigger.py',

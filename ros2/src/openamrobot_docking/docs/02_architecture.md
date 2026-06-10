@@ -1,5 +1,7 @@
 # Docking Pipeline
 
+> ⚠️ **LEGACY — describes the original single-tag 4-phase pipeline.** The current docking stack uses a 3-tag bundle with camera-centric normal estimation; that architecture is described in [`13_perception_and_line.md`](13_perception_and_line.md) and [`14_docking_research.md`](14_docking_research.md). The single-tag flow below (`charging_dock_apriltag` frame, 4 phases) is preserved here for context — every reference to that frame is now produced as `charging_dock_tag_1` (the centre tag of the bundle), and the 4-phase narrative has been superseded by a 5-phase bundle sequence (centring → normal → goto-point + re-verify → two-regime final approach). The Nav2 / opennav_docking integration documented in this file is otherwise current.
+
 This package supports two docking flows that share the same AprilTag
 detection backbone:
 
@@ -9,7 +11,7 @@ detection backbone:
 - **Simulation** — uses a **custom 4-phase sequencer** in `dock_trigger.py`
   that performs `Nav2 → scan/filter → align → line-tracking advance`.
   Bypasses `opennav_docking`'s controller. Detailed in
-  `08_sequencer_4phase.md`.
+  `08_legacy_sequencer.md`.
 
 The current `dock_trigger.py` always runs the 4-phase sequence (it does
 not fall back to the `DockRobot` action). To use `opennav_docking` on
@@ -130,7 +132,7 @@ and `11_changes_from_upstream.md` for why
    4. Line-tracking advance (pure-pursuit) → final align → straight-line
 ```
 
-Read `08_sequencer_4phase.md` for the full implementation rationale and
+Read `08_legacy_sequencer.md` for the full implementation rationale and
 tunables.
 
 The simulation also has `opennav_docking::SimpleChargingDock` configured
@@ -197,7 +199,7 @@ The current `scripts/dock_trigger.py` ALWAYS runs the 4-phase sequence:
 
 ```python
 on /dock_trigger == true:
-    run_docking_sequence()      # phases 1..4, see 08_sequencer_4phase.md
+    run_docking_sequence()      # phases 1..4, see 08_legacy_sequencer.md
 on /dock_trigger == false and undock_on_false:
     DockRobot action UndockRobot goal to opennav_docking
 ```

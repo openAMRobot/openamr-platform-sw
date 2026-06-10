@@ -20,11 +20,15 @@ docs/
 ├── 05_parameters.md                every dock_trigger.yaml parameter
 ├── 06_camera_calibration.md        intrinsics + extrinsics (real robot)
 ├── 07_reproduce_results.md         end-to-end reproduction checklist
-├── 08_sequencer_4phase.md          the 4-phase pipeline, phase by phase
+├── 08_legacy_sequencer.md          legacy: notes on the original 4-phase pipeline
+│                                   (superseded by docs 13 + 14 for the bundle stack)
 ├── 09_troubleshooting.md           symptom → cause → fix matrix
 ├── 10_diagrams.md                  block / TF / state diagrams (text)
 ├── 11_changes_from_upstream.md     what this revision changes vs prior pipelines
-└── 12_lessons_learned.md           decisions diary with rationale
+├── 12_lessons_learned.md           decisions diary with rationale
+├── 13_perception_and_line.md       what AprilTag gives us + how the line is built + RViz markers
+└── 14_docking_research.md          vendor-agnostic precision-docking research, validation,
+                                    failure modes, calibration, multi-dock
 ```
 
 ---
@@ -33,28 +37,31 @@ docs/
 
 | Goal | Read |
 |---|---|
-| **New to the pipeline** | `00_overview.md` → `01_quickstart.md` → `02_architecture.md` |
+| **New to the pipeline** | `00_overview.md` → `01_quickstart.md` → `13_perception_and_line.md` |
 | **Run it on my machine** | `01_quickstart.md` (3-terminal flow) |
-| **Tune the controller** | `05_parameters.md` + `08_sequencer_4phase.md` |
+| **Tune the controller** | `05_parameters.md` + `13_perception_and_line.md` |
+| **Understand the current bundle architecture** | `13_perception_and_line.md` + `14_docking_research.md` |
 | **Something doesn't work** | `09_troubleshooting.md` then `12_lessons_learned.md` for the deeper why |
-| **Onboarding a teammate** | `08_sequencer_4phase.md` + `10_diagrams.md` |
-| **Port to real hardware** | `04_apriltag.md` + `06_camera_calibration.md` + `03_tf_frames.md` |
+| **Onboarding a teammate** | `10_diagrams.md` + `13_perception_and_line.md` |
+| **Port to real hardware** | `04_apriltag.md` + `06_camera_calibration.md` + `03_tf_frames.md` + `14_docking_research.md` §8 |
 | **Audit / understand a design choice** | `11_changes_from_upstream.md` + `12_lessons_learned.md` |
+| **Vendor / sensing research, validation plan, failure modes** | `14_docking_research.md` |
+| **Historical context (legacy single-tag pipeline)** | `08_legacy_sequencer.md` |
 
 ---
 
 ## Conventions used throughout these docs
 
-- **Frames**: `map → odom → base_link → camera_link → camera_optical_frame → charging_dock_apriltag` (the chain produced by SLAM/AMCL + URDF static + apriltag_ros).
+- **Frames**: `map → odom → base_link → camera_link → camera_optical_frame → charging_dock_tag_{0,1,2}` — three tag frames published by `apriltag_ros` (one per detected tag). The centre tag `charging_dock_tag_1` is the docking target; the outer tags `charging_dock_tag_0` / `charging_dock_tag_2` provide the wide baseline used to estimate the dock normal.
 - **Topics**:
   - Image: `/rgb_image` (gz bridge)
   - Camera intrinsics: `/camera_info` (bridged in this package's launch)
   - Tag detections: `/apriltag/detections`
-  - Dock pose in map: `/detected_dock_pose` (PoseStamped, 10 Hz)
-  - Drive commands: `/cmd_vel` (Phase 4 publishes directly; Phase 1 goes through Nav2's action server)
-  - Trigger: `/dock_trigger` (Bool)
+  - Dock pose in map: `/detected_dock_pose` (PoseStamped, 10 Hz — from the centre tag)
+  - Drive commands: `/cmd_vel` (the sequencer publishes directly; Phase 1 goes through Nav2's action server)
+  - Trigger: `/dock_trigger` (Bool), `/undock_robot` (Bool)
 - **World coordinates** (Raj's `walled_world.sdf`):
   - Robot spawn: world `(0, 0, 0)` yaw=0
-  - AprilTag dock: world `(4.899, 0, 0.5)` yaw=π (panel mounted on the +x wall, tag normal facing −x)
+  - AprilTag dock bundle: world `(4.899, 0, 0.5)` yaw=π (panel mounted on the +x wall, tag normals facing −x); outer tags at `y = ±0.45 m` from the centre
   - Map ≡ world (AMCL initialised at map origin = robot spawn position)
-- **Sequencer**: the 4-phase pipeline in [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).
+- **Sequencer**: the multi-phase pipeline in [`scripts/dock_trigger.py`](../scripts/dock_trigger.py).

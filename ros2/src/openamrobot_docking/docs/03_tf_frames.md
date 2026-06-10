@@ -6,22 +6,25 @@ each link comes from, and how to verify it.
 
 ## Required TF chain
 
+The dock carries a **3-tag bundle** (family 36h11, IDs `0`, `1`, `2`). `apriltag_ros` publishes one dynamic TF per detected tag — the same chain prefix, three different leaves:
+
 ```
-map → odom → base_link → base_link → camera_link
-                                    └── camera_optical_frame → charging_dock_apriltag
+map → odom → base_link → camera_link → camera_optical_frame ─┬→ charging_dock_tag_0
+                                                              ├→ charging_dock_tag_1   (centre, docking target)
+                                                              └→ charging_dock_tag_2
 ```
 
 | Link | Source |
 |---|---|
 | `map → odom` | Localization (slam_toolbox in sim, AMCL or another localizer in real) |
 | `odom → base_link` | Wheel odometry (DiffDrive plugin in sim, robot driver in real) |
-| `base_link → base_link` | Static, from URDF (`base_joint`, fixed) — lifts base by 0.053 m so wheel centres sit at z = wheel_radius |
 | `base_link → camera_link` | Static, from URDF (`camera_joint`, fixed) — translation (0.35, 0, 0.22), no rotation |
 | `camera_link → camera_optical_frame` | Static, from URDF (`camera_optical_joint`, fixed) — `rpy = (−π/2, 0, −π/2)` |
-| `camera_optical_frame → charging_dock_apriltag` | Dynamic, from `apriltag_ros` when the tag is visible |
+| `camera_optical_frame → charging_dock_tag_{0,1,2}` | Dynamic, from `apriltag_ros` — one TF per detected bundle tag |
 
-Once the full chain exists, `detected_dock_pose_publisher` can compute
-`map → charging_dock_apriltag` and publish `PoseStamped`.
+Once the full chain exists:
+- `detected_dock_pose_publisher` looks up `map → charging_dock_tag_1` (the **centre** tag, the docking target) and publishes it as a `PoseStamped` on `/detected_dock_pose`.
+- `dock_trigger.py` consumes the **outer tags** (`_tag_0` and `_tag_2`) directly via TF to estimate the dock surface normal from their 0.90 m baseline. See [`13_perception_and_line.md`](13_perception_and_line.md).
 
 ## Optical vs body frames
 
@@ -46,9 +49,9 @@ apriltag at a body-convention frame, the resulting pose is rotated by
 90° in unexpected ways.
 
 The simulation's `dock_trigger.py` also looks up TF
-`camera_optical_frame → charging_dock_apriltag` directly during
-the centring scan and (optionally) during the final visual servo, so
-the rotation must be correct or those steps will mis-aim.
+`camera_optical_frame → charging_dock_tag_{0,1,2}` directly during
+the centring scan, the dock-normal estimation, and the final visual
+servo, so the rotation must be correct or those steps will mis-aim.
 
 ## Where the static transforms come from
 
@@ -103,18 +106,20 @@ ros2 run tf2_tools view_frames
 # Then open frames.pdf
 
 # Specific transforms:
-ros2 run tf2_ros tf2_echo map base_link                        # localization is working
-ros2 run tf2_ros tf2_echo base_link base_link                  # base lift correct
-ros2 run tf2_ros tf2_echo base_link camera_link                     # camera mounted correctly
-ros2 run tf2_ros tf2_echo camera_link camera_optical_frame      # optical rotation
-ros2 run tf2_ros tf2_echo camera_optical_frame charging_dock_apriltag  # tag visible
+ros2 run tf2_ros tf2_echo map base_link                              # localization is working
+ros2 run tf2_ros tf2_echo base_link camera_link                      # camera mounted correctly
+ros2 run tf2_ros tf2_echo camera_link camera_optical_frame           # optical rotation
+ros2 run tf2_ros tf2_echo camera_optical_frame charging_dock_tag_1   # centre tag visible
 
-# End-to-end (the only one that matters for docking):
-ros2 run tf2_ros tf2_echo map charging_dock_apriltag
+# End-to-end (the centre tag is the only one detected_dock_pose_publisher needs):
+ros2 run tf2_ros tf2_echo map charging_dock_tag_1     # centre tag = docking target
+ros2 run tf2_ros tf2_echo map charging_dock_tag_0     # outer-left  (normal estimator)
+ros2 run tf2_ros tf2_echo map charging_dock_tag_2     # outer-right (normal estimator)
 ```
 
-If `map → charging_dock_apriltag` returns a valid pose, the pipeline
-is good.
+If `map → charging_dock_tag_1` returns a valid pose, the pipeline is
+good. The outer-tag transforms must also be valid for the dock-normal
+estimation in Phase 2/3 of the bundle sequencer.
 
 ## Common mistakes
 
@@ -142,12 +147,13 @@ spawn `(0, 0, 0)` yaw = 0:
 | Pose | World | Map |
 |---|---|---|
 | Robot spawn (`base_link`) | `(0, 0, 0)` | `(0, 0, 0)` |
-| `base_link` after `base_joint` | `(-4, -4, 0.053)` | `(0, 0, 0.053)` |
-| AprilTag centre | `(0, 4.9, 0.3)` | `(4.0, 8.9, 0.3)` |
-| Wall (north) | `y = +5` | `y = +9` |
-| Wall (south) | `y = -5` | `y = -1` |
-| Robot at staging (phase 1 Nav2 goal) | `(0, 2.4)` | `(4.0, 6.4)` |
-| Robot final docking position (`d = 0.9`) | `(0, 4.0)` | `(4.0, 8.0)` |
+| Bundle **centre tag** (id 1) | `(4.899, 0, 0.5)` | `(4.899, 0, 0.5)` |
+| Bundle **outer-left tag** (id 0) | `(4.899, -0.45, 0.5)` | `(4.899, -0.45, 0.5)` |
+| Bundle **outer-right tag** (id 2) | `(4.899, +0.45, 0.5)` | `(4.899, +0.45, 0.5)` |
+| Robot at staging (phase 1 Nav2 goal, `staging_distance = 2.0`) | `(2.899, 0)` | `(2.899, 0)` |
+| Robot at end of Phase 5 (camera→tag depth ≈ `docking_distance = 0.15`) | `(4.6, 0)` | `(4.6, 0)` |
+
+(The simulation places AMCL at the robot's spawn pose, so map ≡ world in the default scenario.)
 
 For a non-default spawn `(spawn_x, spawn_y, spawn_yaw)`,
 `simulation.launch.py` re-projects the dock automatically into the new

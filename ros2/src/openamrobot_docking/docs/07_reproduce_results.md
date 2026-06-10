@@ -1,5 +1,7 @@
 # Reproducing Results
 
+> ⚠️ **LEGACY — describes the original single-tag 4-phase pipeline.** The install steps, dependencies, and quick-start commands below remain valid for the current bundle stack. The expected log output, the dock geometry (single 0.40 m panel), and references to `charging_dock_apriltag` reflect the older design. The current pipeline produces three frames `charging_dock_tag_{0,1,2}` and runs a 5-phase bundle sequence (centring → normal → goto-point + re-verify → two-regime final approach); see [`01_quickstart.md`](01_quickstart.md) and [`13_perception_and_line.md`](13_perception_and_line.md) for the up-to-date narrative.
+
 A step-by-step recipe for getting docking to work, both in simulation and on the real robot.
 
 ## Simulation (recommended path for first-time setup)

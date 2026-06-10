@@ -2,6 +2,8 @@
 
 Quick-reference table of common failures, plus detailed diagnostics. Failures specific to the simulation are flagged **[sim]**; those specific to the real robot **[real]**; others apply to both.
 
+> **Note on TF frames** — this doc was written for the original single-tag pipeline (`charging_dock_apriltag`). The current pipeline uses a **3-tag bundle** with frames `charging_dock_tag_0`, `charging_dock_tag_1` (centre, docking target), `charging_dock_tag_2`. The TF-chain diagnostics below have been updated to the centre tag; for the outer-tag lookups consumed by the dock-normal estimator, see [`13_perception_and_line.md`](13_perception_and_line.md). The mitigations apply unchanged to the bundle pipeline.
+
 For the *why* behind each fix (and lessons we learned the hard way), see [`12_lessons_learned.md`](12_lessons_learned.md).
 
 ---
@@ -81,7 +83,7 @@ See [`12_lessons_learned.md`](12_lessons_learned.md) "FastDDS Python crash" for 
 #### No tag detected
 
 - Confirm `family` and `size` in the AprilTag config match your tag.
-  - **[sim]** `simulation/config/tags_36h11_sim.yaml`, `size: 0.40` (matches the panel in `apriltag_dock/model.sdf`).
+  - **[sim]** `config/tags_36h11_sim.yaml`, `size: 0.16` (= 0.20 m panel × 0.8, the 36h11 black-square edge — matches `apriltag_dock/model.sdf`). `ids: [0, 1, 2]`.
   - **[real]** `config/tags_36h11.yaml`, `size: 0.0555` (or whatever you measured).
 - Verify the camera image is reaching `apriltag_ros`:
 
@@ -95,10 +97,10 @@ See [`12_lessons_learned.md`](12_lessons_learned.md) "FastDDS Python crash" for 
 
 #### Tag detected but no pose published in `map`
 
-- Check the TF chain from `map` to `charging_dock_apriltag`:
+- Check the TF chain from `map` to the **centre tag** of the bundle (`charging_dock_tag_1`):
 
   ```bash
-  ros2 run tf2_ros tf2_echo map charging_dock_apriltag
+  ros2 run tf2_ros tf2_echo map charging_dock_tag_1
   ```
 
 - Verify `parent_frame` and `child_frame` in [`../config/docking_pose_publisher.yaml`](../config/docking_pose_publisher.yaml).
@@ -110,7 +112,7 @@ See [`12_lessons_learned.md`](12_lessons_learned.md) "FastDDS Python crash" for 
 
 - Increase the temporal filtering in `dock_trigger.py`: raise `filter_num_samples` to 40–60 in [`../config/dock_trigger.yaml`](../config/dock_trigger.yaml). Make sure `filter_max_collect_time` is correspondingly long enough (≥ N/10 s plus margin).
 - The detector's `decimate` controls accuracy vs speed. Lower `decimate` (1.0 or 0.5) → more accurate but slower.
-- A larger physical tag improves accuracy more than higher camera resolution. The sim uses `size: 0.40` for this reason.
+- A larger physical tag improves accuracy more than higher camera resolution. The bundle uses three 0.20 m panels (0.16 m black edge) at the dock — accuracy comes from the **wide baseline** between the outer tags (0.90 m) rather than from a single huge tag.
 
 ---
 
@@ -118,15 +120,17 @@ See [`12_lessons_learned.md`](12_lessons_learned.md) "FastDDS Python crash" for 
 
 #### `/detected_dock_pose` is silent even though `/apriltag/detections` works
 
-The TF chain `map → odom → base_link → base_link → camera_link → camera_optical_frame → charging_dock_apriltag` must exist end-to-end. If any link is missing, `detected_dock_pose_publisher` silently produces nothing.
+The TF chain `map → odom → base_link → camera_link → camera_optical_frame → charging_dock_tag_{0,1,2}` must exist end-to-end. If any link is missing, `detected_dock_pose_publisher` silently produces nothing. The publisher tracks the **centre tag** (`charging_dock_tag_1`); the outer tags (`_tag_0` / `_tag_2`) are consumed directly by `dock_trigger.py` for the dock-normal estimate.
 
 Diagnose:
 
 ```bash
-ros2 run tf2_ros tf2_echo map charging_dock_apriltag       # full chain
-ros2 run tf2_ros tf2_echo map base_link               # localization OK?
+ros2 run tf2_ros tf2_echo map charging_dock_tag_1          # centre tag, full chain
+ros2 run tf2_ros tf2_echo map charging_dock_tag_0          # outer-left (normal estimator)
+ros2 run tf2_ros tf2_echo map charging_dock_tag_2          # outer-right (normal estimator)
+ros2 run tf2_ros tf2_echo map base_link                    # localization OK?
 ros2 run tf2_ros tf2_echo base_link camera_optical_frame   # static TF OK?
-ros2 run tf2_tools view_frames                              # → frames.pdf
+ros2 run tf2_tools view_frames                             # → frames.pdf
 ```
 
 See [`03_tf_frames.md`](03_tf_frames.md) for the full required chain.
@@ -183,12 +187,12 @@ Common culprit: `collision_monitor`'s polygon checker. We disabled `FootprintApp
 
 #### **[sim]** Robot reaches the docking position but is offset laterally vs the real tag
 
-The 4-phase sequencer drives onto the **detected** dock's perpendicular axis. If `solvePnP` reports the tag a few tens of centimetres away from its true world position (a known sim issue with Gazebo's auto-derived `camera_info`), the robot ends offset relative to the actual tag by the same amount even though `lateral` reads zero.
+The bundle sequencer drives onto the **detected** dock's perpendicular axis. If `solvePnP` reports the centre tag a few tens of centimetres away from its true world position (a known sim issue with Gazebo's auto-derived `camera_info`), the robot ends offset relative to the actual tag by the same amount even though `lateral` reads zero. The bundle pipeline mitigates this by estimating the dock surface **normal** from the outer tags' 0.90 m baseline (rather than from a single tag's noisy yaw); the camera-centric final approach (Phase 5) then locks on the centre tag in pixel space, immune to map-frame solvePnP drift.
 
-The phase-2 camera-frame scan and the running-average filter keep this bias as small as possible, but they cannot remove it completely.
+The phase-2 camera-frame scan and the running-average filter further reduce residual bias, but they cannot remove it completely.
 
 **Mitigation:**
-- Bigger physical tag (already at 0.40 m in sim).
+- Bigger physical tags (current bundle uses 0.20 m panels × 3 with 0.90 m baseline — accuracy comes from the baseline).
 - More samples in the phase-2 filter (`filter_num_samples: 40` is the default; raise to 60 if your machine can keep up with the longer wait at staging).
 - Lower `scan_centring_tolerance` (default 2° → try 1°) so the scan locks the camera closer to centred before the filter starts. solvePnP is less biased when the tag sits near the image centre.
 - Use `decimate: 1.0` in the AprilTag detector (already the default in sim).
@@ -215,9 +219,9 @@ The previous "visual_servo" sub-phase (one-shot align + straight-line) has been 
 
 #### **[sim]** Robot hits the wall during the advance phase
 
-The sequencer stops when distance to the running-average tag ≤ `docking_distance`. With the default `docking_distance: 0.9` and the tag at world `(4.899, 0)` with the panel facing `-x`, the robot stops with its front about 75 cm from the wall. Plenty of margin.
+The bundle sequencer stops when the **camera → centre tag depth** ≤ `docking_distance` (default `0.15` m, set just above the depth where the tag leaves the FOV). With the dock at world `(4.899, 0)` and the panel facing `-x`, the robot stops with its front a few centimetres from the dock face. The obstacle guard (see [`05_parameters.md`](05_parameters.md) "Obstacle guard during drive phases") is intentionally **skipped during Phase 5** — the dock is the target.
 
-If you reduce `docking_distance` close to 0.4 m or below, double-check the robot's footprint length and the wall position before relaunching.
+If you increase `docking_distance`, the robot stops further from the dock and won't reach the charge contacts; if you decrease it below ~0.10 m, the camera→tag distance is dominated by the camera mount offset and the controller becomes ill-conditioned. Double-check the robot's footprint length and the wall position before changing this value.
 
 #### **[sim]** Robot slides instead of driving cleanly
 
@@ -314,7 +318,7 @@ Or apt-install missing `ros-jazzy-<package>` directly (see [`01_quickstart.md`](
 
 - **With a real camera and real robot:** yes, you need the printed tag.
 - **In simulation (Gazebo):** no. The tag is a 3D model in the world; the simulated camera detects it virtually. No printing required.
-- **Testing just node startup and TF wiring:** no tag needed. You can publish a fake `camera → charging_dock_apriltag` TF with a static transform publisher to simulate a detected tag.
+- **Testing just node startup and TF wiring:** no tag needed. You can publish three fake `camera_optical_frame → charging_dock_tag_{0,1,2}` TFs with static transform publishers to simulate a detected bundle.
 
 ### Is camera calibration strictly required (real robot)?
 

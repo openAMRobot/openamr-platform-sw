@@ -1,8 +1,29 @@
+# scan_to_scan_filter_chain config — angle-based body filter for /scan.
+#
+# Empirical calibration (sim, robot in obstacle-free area):
+#   - LIDAR: 360 samples over [-180°, +180°], range_min = 0.40 m
+#   - 53/360 points return body reflections (= 14.7% of the scan):
+#       * rear panel (-180° → -170° and +170° → +180°): ~0.72 m
+#       * side wings (-168° → -150° and +155° → +168°):  0.40–0.50 m
+#       * worst case body return at idx 30: angle = -149.92°
+#   → body angular footprint ≈ ±150° to ±180° (50° total at the rear)
+#
+# Optimal filter with 10° safety margin (covers vibration, calibration drift,
+# manufacturing tolerance, etc.):
+#   - keep angles in [-140°, +140°] = [-2.443 rad, +2.443 rad]
+#   - chops rear ±40° (80° total) — the upstream default chopped ±45° (90°),
+#     this recovers 5° on each side while still leaving a 10° margin from
+#     the worst measured body return.
+#
+# DO NOT raise these beyond ±149° in this URDF — at that point the filter
+# starts letting wing returns through and the obstacle guards in
+# `dock_trigger.py` will see the body as a permanent obstacle. Re-measure
+# if you change the LIDAR mount, robot chassis, or URDF.
 scan_body_filter:
   ros__parameters:
     filter1:
       name: body_filter
       type: laser_filters/LaserScanAngularBoundsFilter
       params:
-        lower_angle: -2.356
-        upper_angle: 2.356
+        lower_angle: -2.443   # rad — keep angles ≥ -140°
+        upper_angle:  2.443   # rad — keep angles ≤ +140°

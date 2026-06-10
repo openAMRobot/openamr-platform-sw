@@ -25,7 +25,7 @@ public:
   : Node("detected_dock_pose_publisher")
   {
     this->declare_parameter<std::string>("parent_frame", "map");
-    this->declare_parameter<std::string>("child_frame", "charging_dock_apriltag");
+    this->declare_parameter<std::string>("child_frame", "charging_dock_tag_1");
     this->declare_parameter<std::string>("output_topic", "detected_dock_pose");
     this->declare_parameter<double>("publish_rate", 10.0);
 

@@ -279,7 +279,7 @@ This is pragmatic — the real wheels are roughly axisymmetric anyway, so a diag
 
 Compensate for the lower pixel count by enlarging the physical AprilTag from 0.25 m to 0.40 m. At 1.5 m distance with focal length ≈ 467 px, the tag image is ~125 px on a side → 12 px per code cell → `solvePnP` is sub-pixel accurate.
 
-**Lesson:** Always verify the effective rate of a topic with `ros2 topic hz` before relying on its configured rate. The configured rate is a *request*, not a guarantee — the actual rate depends on every layer between source and consumer. When two related topics have different rates (image vs camera_info here), the lower one wins for every consumer that needs both. See [`08_sequencer_4phase.md`](08_sequencer_4phase.md) for the tag-size analysis.
+**Lesson:** Always verify the effective rate of a topic with `ros2 topic hz` before relying on its configured rate. The configured rate is a *request*, not a guarantee — the actual rate depends on every layer between source and consumer. When two related topics have different rates (image vs camera_info here), the lower one wins for every consumer that needs both. See [`08_legacy_sequencer.md`](08_legacy_sequencer.md) for the tag-size analysis.
 
 ---
 
@@ -501,7 +501,7 @@ The first hop with no data is where the chain breaks.
 6. Spin in place to face the tag.
 7. **Drive forward in a straight line, auto-calibrating** yaw from the live filtered tag pose. The target yaw depends only on the tag's *orientation* (not position), so the path is straight even with sub-decimetre lateral error.
 
-See [`08_sequencer_4phase.md`](08_sequencer_4phase.md) for the full algorithm and parameters in [`05_parameters.md`](05_parameters.md).
+See [`08_legacy_sequencer.md`](08_legacy_sequencer.md) for the full algorithm and parameters in [`05_parameters.md`](05_parameters.md).
 
 **Lesson:** General-purpose docking frameworks make assumptions (smooth blend of linear and angular velocity, single-shot perception, fixed-frame target) that don't hold for precision AprilTag docking. When the assumptions don't match your problem, replacing the framework with explicit phases is often cleaner than tuning around it. The signs of mismatch were already visible in the upstream config — `use_external_detection_pose: false` was hiding the fact that the detection pipeline wasn't actually being used.
 
@@ -527,7 +527,7 @@ yaw_target = (1 - alpha) * yaw_target + alpha * yaw_from_latest_tag
 
 The target yaw depends only on the tag's *orientation*, not its position, so the robot's straight-line path is preserved.
 
-**Update (current design):** the exponential low-pass auto-calibration was later replaced by the `TagRunningAverage` (true incremental running mean for position; sign-aligned componentwise mean for the quaternion). The running average keeps updating continuously throughout phases 2 and 4, has no arbitrary blend coefficient, and is provably the unbiased estimator for a static tag — see [`08_sequencer_4phase.md`](08_sequencer_4phase.md) and lesson 26 above. The principle of this lesson (re-read the sensor as it improves) still holds; only the filter shape changed.
+**Update (current design):** the exponential low-pass auto-calibration was later replaced by the `TagRunningAverage` (true incremental running mean for position; sign-aligned componentwise mean for the quaternion). The running average keeps updating continuously throughout phases 2 and 4, has no arbitrary blend coefficient, and is provably the unbiased estimator for a static tag — see [`08_legacy_sequencer.md`](08_legacy_sequencer.md) and lesson 26 above. The principle of this lesson (re-read the sensor as it improves) still holds; only the filter shape changed.
 
 **Lesson:** Sensors that improve with proximity should be re-read continuously, not snapshot once. When you have a control loop with a long approach to a precision target, design it so that the *most accurate* measurement (the one closest to the target) has the most influence on the final state. One-shot perception at the worst possible measurement distance is the opposite pattern.
 
@@ -744,7 +744,7 @@ trajectory, a single continuous controller whose fixed point is the
 joint zero of both is usually better than a state machine that
 alternates between optimising each. The state machine is also much
 harder to reason about. See
-[`08_sequencer_4phase.md`](08_sequencer_4phase.md) for the full
+[`08_legacy_sequencer.md`](08_legacy_sequencer.md) for the full
 controller.
 
 ---

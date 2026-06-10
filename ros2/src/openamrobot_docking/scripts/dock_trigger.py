@@ -1,17 +1,43 @@
 #!/usr/bin/env python3
 """
-Custom rotate-then-drive docking trigger.
+Bundle-driven, camera-centric docking trigger.
+
+The dock carries a 3-tag AprilTag bundle (family 36h11, IDs 0/1/2 — outer tags
+at y = ±0.45 m, centre tag at y = 0). The 90 cm baseline between the outer
+tags gives a stable surface normal that is independent of single-tag yaw
+jitter.
 
 Sequence on /dock_trigger=true:
   1. NavigateToPose → staging zone (Nav2/RPP)
-  2. Hold N seconds (robot still)
-  3. Read /detected_dock_pose (or fall back to static dock pose)
-  4. Spin in place until robot heading points at the tag (closed-loop)
-  5. Drive forward in a straight line, continuously correcting heading from
-     live AprilTag detection, until docking_distance from the tag
+  2. Centring scan: rotate in place until the bundle midpoint is centred in
+     the camera image (image-frame P-controller)
+  3. Estimate the dock surface normal from the outer tags' wide baseline
+     (proximity-weighted EMA); back off if the robot arrived too close
+  4. Pure-pursuit the normal axis in the camera/tag frame (independent of
+     map drift and wheel slip), with a re-verification step against
+     normal_tolerance_deg
+  5. Two-regime final approach:
+       FAR  (camera→centre-tag depth > freeze_axis_distance): EMA-average
+            the live axis and pure-pursuit it
+       NEAR (depth ≤ freeze_axis_distance): freeze the averaged axis and
+            finish on a visual corrector on the centre tag
+       — stops when camera→centre-tag depth ≤ docking_distance.
+
+Also supports:
+  - /undock_robot → reverse undock_reverse_distance, then spin 180°
+  - /goal_pose gate → if a navigation goal arrives while docked, the robot
+    undocks first, then republishes the goal on goal_pose_forward_topic
+  - obstacle guard on /scan during forward drive and undock reverse
+    (skipped during the final IBVS approach to the dock itself)
+  - /dock_trigger_status (idle | docking | docked | undocking | failed),
+    with a 2 s heartbeat for UI sync
+
+See docs/14_docking_research.md for the full design rationale and
+docs/13_perception_and_line.md for the perception pipeline.
 """
 
 import math
+import subprocess
 import threading
 import time
 
@@ -23,11 +49,13 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from std_msgs.msg import Bool, String
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import Point, PoseStamped, Twist
+from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import (
     NavigateToPose,
     UndockRobot,
 )
+from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
 
 
@@ -43,93 +71,6 @@ def normalize_angle(a):
     while a < -math.pi:
         a += 2.0 * math.pi
     return a
-
-
-class TagRunningAverage:
-    """Incremental running mean of the tag's pose in the map frame.
-
-    update() is called once per fresh detection. Positions average naturally
-    (true running mean). Quaternions are averaged componentwise after sign
-    alignment to the existing mean, then renormalised — this is the
-    well-known "naive quaternion mean", valid when all samples lie close to
-    each other on the sphere (which is the case here: the tag is static and
-    detections cluster around the true pose).
-    """
-
-    def __init__(self):
-        self.count = 0
-        self.total_weight = 0.0   # sum of weights, for the weighted mean
-        self.x = 0.0
-        self.y = 0.0
-        self.qx = 0.0
-        self.qy = 0.0
-        self.qz = 0.0
-        self.qw = 0.0
-
-    def update(self, x, y, qx, qy, qz, qw, weight=1.0):
-        """Fold a new sample into the running mean with the given weight.
-
-        weight = 1.0 reproduces the original true-mean behaviour (each
-        sample contributes equally). For a distance-weighted mean (used
-        during Phase 4 so noisier near-field detections influence the
-        mean less than the clean far-field ones), pass a weight that
-        increases with the distance at which the sample was taken.
-        """
-        if weight <= 0.0:
-            return
-        self.count += 1
-        new_total = self.total_weight + weight
-        # Sign-align the new quaternion to the existing mean so q and -q
-        # don't cancel each other.
-        if self.count > 1 and (qx * self.qx + qy * self.qy
-                               + qz * self.qz + qw * self.qw) < 0.0:
-            qx, qy, qz, qw = -qx, -qy, -qz, -qw
-        # Weighted incremental mean:
-        # m_new = (W_old * m_old + w * x) / (W_old + w)
-        #       = m_old + (w / W_new) * (x - m_old)
-        k = weight / new_total
-        self.x += k * (x - self.x)
-        self.y += k * (y - self.y)
-        self.qx += k * (qx - self.qx)
-        self.qy += k * (qy - self.qy)
-        self.qz += k * (qz - self.qz)
-        self.qw += k * (qw - self.qw)
-        self.total_weight = new_total
-        # Renormalise the quaternion.
-        norm = math.sqrt(self.qx * self.qx + self.qy * self.qy
-                         + self.qz * self.qz + self.qw * self.qw)
-        if norm > 1e-9:
-            self.qx /= norm
-            self.qy /= norm
-            self.qz /= norm
-            self.qw /= norm
-
-    def perpendicular_yaw(self, rx, ry):
-        """Yaw the robot should have to face the tag perpendicular to its
-        plane, using the current running-average quaternion. Returns None
-        until at least one sample has been collected.
-        """
-        if self.count == 0:
-            return None
-        nx, ny, _ = quat_rotate_z(self.qx, self.qy, self.qz, self.qw)
-        n_norm = math.hypot(nx, ny)
-        if n_norm < 1e-6:
-            return None
-        nx /= n_norm
-        ny /= n_norm
-        if nx * (rx - self.x) + ny * (ry - self.y) < 0.0:
-            nx, ny = -nx, -ny
-        return math.atan2(-ny, -nx)
-
-    def signed_lateral_offset(self, rx, ry, perp_yaw):
-        """Signed perpendicular distance from (rx, ry) to the line passing
-        through the running-average tag centre in direction perp_yaw.
-
-        Positive = robot is to the LEFT of the line (looking along perp_yaw
-        toward the tag). The robot reduces this offset by steering CW.
-        """
-        return (-(rx - self.x) * math.sin(perp_yaw)
-                + (ry - self.y) * math.cos(perp_yaw))
 
 
 def quat_rotate_z(qx, qy, qz, qw):
@@ -213,67 +154,19 @@ class DockTrigger(Node):
         self.declare_parameter('line_yaw_kp', 2.5)
         self.declare_parameter('line_lookahead_distance', 0.4)
 
-        # Distance below which Phase 4 switches from map-frame line-tracking
-        # to camera-frame visual servoing. Above this distance, the
-        # running-average filter and the pure-pursuit on the perpendicular
-        # line do the work (they handle long-range alignment well, with
-        # plenty of clean detections far from the tag). Below it, the
-        # running average is frozen (no more updates) and the heading
-        # controller switches to a direct closed-loop on the image-frame
-        # angle to the tag:
+        # Image-frame visual servo (camera-frame closed-loop on the centre
+        # tag) used by the Phase 5 NEAR regime once the axis is frozen.
         #
         #     omega = -visual_servo_kp · atan2(X_optical, Z_optical)
         #
-        # This works because map-frame solvePnP carries a systematic bias
-        # in the near field (corners at the bottom of the FOV are noisy),
-        # but the image-frame angle is self-consistent: it directly
-        # describes where the tag IS in the camera, not where solvePnP
-        # thinks it is in the map. Keeping the tag centred in the image
-        # = aiming straight at the dock.
-        #
-        # Linear forward speed continues with the taper.
-        # Set to 0 to disable visual servoing (line-tracking all the way).
-        self.declare_parameter('visual_servo_distance', 1.0)
-        self.declare_parameter('visual_servo_kp', 1.0)         # rad/s per rad of image-frame angle
-
-        # Number of refinement samples to accept in Phase 4 before
-        # declaring the line "stabilised" and handing control over to
-        # the visual servo. Once this many fresh detections have been
-        # folded into the running average (the cleanest ones, taken
-        # while the robot is still relatively far from the dock), the
-        # line is locked-in and the robot stops refining it. The visual
-        # servo then handles the final approach using the live camera-
-        # frame angle (which doesn't depend on the noisy near-field
-        # solvePnP outputs).
-        #
-        # Set to 0 to disable the count-based trigger (only the distance
-        # threshold visual_servo_distance will then drive the handover).
-        self.declare_parameter('line_stabilization_samples', 25)
-        # Low-pass smoothing on the image-frame angle to reject noisy
-        # solvePnP spikes near the dock. alpha = 0.2 gives a time
-        # constant of ~5 frames (≈ 0.35 s at 14 Hz detection rate);
-        # alpha = 1.0 disables filtering.
+        # Map-frame solvePnP carries a systematic bias in the near field
+        # (corners hugging the bottom of the FOV), but the image-frame
+        # angle is self-consistent — keeping the tag centred in the
+        # image = aiming straight at the dock. The low-pass filter
+        # alpha rejects single-frame solvePnP spikes (alpha = 0.2 →
+        # time constant ≈ 5 frames; alpha = 1.0 disables filtering).
+        self.declare_parameter('visual_servo_kp', 1.0)            # rad/s per rad
         self.declare_parameter('visual_servo_filter_alpha', 0.2)
-
-        # Outlier rejection on Phase 4 running-average updates.
-        # A new detection that lands more than this many metres from
-        # the current running-average position in the XY plane is almost
-        # certainly a single-frame solvePnP glitch and is SKIPPED (not
-        # folded into the mean). Typical legitimate jitter is ~5 cm; 0.30
-        # m is a generous threshold that still catches the gross outliers.
-        # Set to 0 to disable outlier rejection.
-        self.declare_parameter('refinement_outlier_threshold', 0.30)
-
-        # Distance-based weight floor: how much weight near-field samples
-        # contribute to the running mean relative to far-field ones. With
-        # weight_min = 0.1 and weight_full_distance = 1.5:
-        #   sample at 1.5 m → weight 1.0 (full, like Phase 2)
-        #   sample at 0.75 m → weight 0.5
-        #   sample at <= 0.15 m → weight 0.1 (clamped floor)
-        # This keeps near-field (noisier) detections in the mean but lets
-        # the clean far-field samples dominate.
-        self.declare_parameter('refinement_weight_min', 0.1)
-        self.declare_parameter('refinement_weight_full_distance', 1.5)
 
         # Initial tag-search scan. After Nav2 reaches the staging zone the
         # tag may not be in the camera frame (Nav2 goal yaw tolerance plus
@@ -302,6 +195,80 @@ class DockTrigger(Node):
         self.declare_parameter('filter_num_samples', 20)
         self.declare_parameter('filter_max_collect_time', 1.5) # s
 
+        # Debug visualisation: publish the perpendicular approach line and the
+        # running-average tag centre as RViz markers (visualization_msgs/
+        # MarkerArray) on debug_marker_topic. See docs/13_perception_and_line.md.
+        self.declare_parameter('publish_debug_markers', True)
+        self.declare_parameter('debug_marker_topic', '/docking/debug_markers')
+
+        # Gazebo marker mirror: draw the same line + tag centre INSIDE the
+        # Gazebo GUI. Gazebo does not consume ROS markers, so we push a
+        # gz.msgs.Marker_V to the gz transport service via the `gz` CLI (no
+        # Python gz bindings on this system). The call is throttled and run in
+        # a daemon thread so it never stalls the control loop. Map ≡ world in
+        # this sim, so map coords are world coords. See docs/13.
+        self.declare_parameter('publish_gz_marker', True)
+        self.declare_parameter('gz_marker_service', '/marker_array')
+        self.declare_parameter('gz_marker_period', 0.4)   # s — throttle (subprocess is heavy)
+
+        # ── Camera-centric approach (two-sided normal estimation) ───────────
+        # See docs/13_perception_and_line.md §6. The robot estimates the tag
+        # normal from two sides (cancels solvePnP view-angle bias), goes to a
+        # point on the normal, re-verifies, then does a camera-only final
+        # approach (immune to wheel slip).
+        self.declare_parameter('too_close_distance', 1.0)        # m — back off if closer
+        self.declare_parameter('predock_distance', 1.5)          # m on the normal (P1)
+        self.declare_parameter('refined_predock_distance', 1.30) # m on the normal (P2)
+        self.declare_parameter('normal_tolerance_deg', 5.0)      # deg — N vs N' agreement
+        self.declare_parameter('obs_lateral', 0.5)               # m — side offset for obs B
+        self.declare_parameter('obs_distance', 2.0)              # m from tag for obs B
+        # Phase 5 two regimes: FAR (> freeze_axis_distance) the robot averages
+        # the dock axis from the 3 tags and pure-pursuits it; NEAR (≤ this) the
+        # axis is frozen (no more averaging — close-range estimates are noisy)
+        # and the robot finishes on the centre-tag visual corrector. Camera→tag
+        # depth.
+        self.declare_parameter('freeze_axis_distance', 0.70)     # m camera→tag
+        # EMA weight for the live axis estimate (Phase 5 FAR). A cumulative mean
+        # would freeze the early (off-axis, wrong) estimates; an EMA keeps
+        # following the recent, better ones as the robot centres up. Higher =
+        # more reactive (noisier), lower = smoother (slower).
+        self.declare_parameter('axis_filter_alpha', 0.15)
+
+        # ── Obstacle avoidance during drive phases ─────────────────────────
+        # The sequencer publishes cmd_vel straight to the robot, bypassing
+        # Nav2's collision_monitor. We re-add a simple obstacle guard inside
+        # the forward-drive phase (pure-pursuit onto the dock normal) and
+        # the undock reverse: before and during each of those phases, we
+        # check the LIDAR in a forward or backward cone. If the closest
+        # return inside the cone is closer than the configured threshold,
+        # the robot stops and waits for the path to clear. After
+        # `obstacle_wait_timeout` seconds it aborts the phase.
+        #
+        # Phase 5 (IBVS final approach to the dock) deliberately skips this
+        # check — the dock itself is "an obstacle" we are approaching on
+        # purpose. The centring scan / spin-in-place phases also skip it
+        # (the robot is rotating in place, not translating into anything).
+        self.declare_parameter('obstacle_check_enabled', True)
+        self.declare_parameter('obstacle_scan_topic', '/scan_filtered')
+        self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
+        # No obstacle_backward_distance: scan_body_filter chops the rear ±40°
+        # angular sector, so /scan_filtered is always +inf in the rear cone
+        # and a backward check would be a no-op. See run_undock_sequence
+        # docstring for the rationale and the rear-sensor prerequisite.
+        self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
+        self.declare_parameter('obstacle_wait_timeout', 10.0)           # s — max wait before aborting
+        self.declare_parameter('obstacle_check_period', 0.2)            # s — poll period while waiting
+        # Range floor — LIDAR returns shorter than this are IGNORED.
+        # Default 0.0 (disabled): self-reflections from the robot's own body
+        # are removed UPSTREAM by Nav2's scan_body_filter (angle-based), and
+        # we subscribe to /scan_filtered. A >0 floor would silently mask
+        # real obstacles closer than the floor inside the kept angular
+        # sector — angular filtering is the correct primitive.
+        # Set >0 ONLY if /scan_filtered isn't available on your stack and
+        # you must fall back to /scan — and then pick a value clearly
+        # below the closest legitimate obstacle distance.
+        self.declare_parameter('obstacle_min_range', 0.0)               # m — 0 = disabled
+
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value
         self.dock_type = self.get_parameter('dock_type').value
@@ -321,13 +288,8 @@ class DockTrigger(Node):
         self.drive_yaw_max_omega = float(self.get_parameter('drive_yaw_max_omega').value)
         self.line_yaw_kp = float(self.get_parameter('line_yaw_kp').value)
         self.line_lookahead_distance = float(self.get_parameter('line_lookahead_distance').value)
-        self.visual_servo_distance = float(self.get_parameter('visual_servo_distance').value)
         self.visual_servo_kp = float(self.get_parameter('visual_servo_kp').value)
         self.visual_servo_filter_alpha = float(self.get_parameter('visual_servo_filter_alpha').value)
-        self.line_stabilization_samples = int(self.get_parameter('line_stabilization_samples').value)
-        self.refinement_outlier_threshold = float(self.get_parameter('refinement_outlier_threshold').value)
-        self.refinement_weight_min = float(self.get_parameter('refinement_weight_min').value)
-        self.refinement_weight_full_distance = float(self.get_parameter('refinement_weight_full_distance').value)
         self.scan_rotation_speed = float(self.get_parameter('scan_rotation_speed').value)
         self.scan_consecutive_target = int(self.get_parameter('scan_consecutive_target').value)
         self.scan_centring_tolerance = float(self.get_parameter('scan_centring_tolerance').value)
@@ -341,6 +303,30 @@ class DockTrigger(Node):
         self.detection_max_age = float(self.get_parameter('detection_max_age').value)
         self.filter_num_samples = int(self.get_parameter('filter_num_samples').value)
         self.filter_max_collect_time = float(self.get_parameter('filter_max_collect_time').value)
+        self.publish_debug_markers = bool(self.get_parameter('publish_debug_markers').value)
+        self.debug_marker_topic = self.get_parameter('debug_marker_topic').value
+        self.publish_gz_marker = bool(self.get_parameter('publish_gz_marker').value)
+        self.gz_marker_service = self.get_parameter('gz_marker_service').value
+        self.gz_marker_period = float(self.get_parameter('gz_marker_period').value)
+        self._last_gz_marker_t = 0.0
+        self._gz_marker_inflight = False
+        self.too_close_distance = float(self.get_parameter('too_close_distance').value)
+        self.predock_distance = float(self.get_parameter('predock_distance').value)
+        self.refined_predock_distance = float(self.get_parameter('refined_predock_distance').value)
+        self.normal_tolerance = math.radians(
+            float(self.get_parameter('normal_tolerance_deg').value))
+        self.obs_lateral = float(self.get_parameter('obs_lateral').value)
+        self.obs_distance = float(self.get_parameter('obs_distance').value)
+        self.freeze_axis_distance = float(self.get_parameter('freeze_axis_distance').value)
+        self.axis_filter_alpha = float(self.get_parameter('axis_filter_alpha').value)
+        self.obstacle_check_enabled = bool(self.get_parameter('obstacle_check_enabled').value)
+        self.obstacle_scan_topic = self.get_parameter('obstacle_scan_topic').value
+        self.obstacle_forward_distance = float(self.get_parameter('obstacle_forward_distance').value)
+        self.obstacle_arc_half_width = math.radians(
+            float(self.get_parameter('obstacle_arc_half_width_deg').value))
+        self.obstacle_wait_timeout = float(self.get_parameter('obstacle_wait_timeout').value)
+        self.obstacle_check_period = float(self.get_parameter('obstacle_check_period').value)
+        self.obstacle_min_range = float(self.get_parameter('obstacle_min_range').value)
 
         # ── Multi-threaded callback group so the long-running sequence can
         #    run while subscriptions and TF still get processed. ────────────
@@ -366,6 +352,14 @@ class DockTrigger(Node):
             callback_group=self.cb_group,
         )
 
+        # ── Laser scan subscription (obstacle avoidance) ────────────────────
+        self.latest_scan = None
+        if self.obstacle_check_enabled:
+            self.create_subscription(
+                LaserScan, self.obstacle_scan_topic, self.on_scan, 10,
+                callback_group=self.cb_group,
+            )
+
         # ── State ───────────────────────────────────────────────────────────
         # busy: a long-running maneuver (dock or undock) is in progress; new
         #       triggers are ignored until it finishes.
@@ -378,11 +372,17 @@ class DockTrigger(Node):
         self.goal_pose_pub = self.create_publisher(
             PoseStamped, self.goal_pose_forward_topic, 10)
 
-        # ── Docking status publisher (consumed by the web UI) ────────────────
-        # Publishes one of: idle | docking | docked | undocking | failed
-        self.dock_status_pub = self.create_publisher(String, 'dock_trigger_status', 10)
+        # ── Debug marker publisher (perpendicular line + tag centre) ────────
+        self.marker_pub = self.create_publisher(
+            MarkerArray, self.debug_marker_topic, 10)
 
-        # Heartbeat: re-publish current state every 2 s so the UI syncs on connect.
+        # ── Docking status publisher (consumed by the web UI, from upstream) ─
+        # Publishes one of: idle | docking | docked | undocking | failed
+        # Kept minimal here — the bundle sequencer doesn't yet emit every
+        # transient state; the 2 s heartbeat reports docked/idle and is
+        # enough to keep the UI in sync. Wire fine-grained transitions in a
+        # follow-up.
+        self.dock_status_pub = self.create_publisher(String, 'dock_trigger_status', 10)
         self.create_timer(2.0, self._heartbeat_status, callback_group=self.cb_group)
 
         # ── Triggers ────────────────────────────────────────────────────────
@@ -421,6 +421,9 @@ class DockTrigger(Node):
 
     def on_detection(self, msg: PoseStamped):
         self.detected_pose = msg
+
+    def on_scan(self, msg: LaserScan):
+        self.latest_scan = msg
 
     def on_trigger(self, msg: Bool):
         if msg.data:
@@ -500,66 +503,309 @@ class DockTrigger(Node):
     # Main sequence
     # ──────────────────────────────────────────────────────────────────────
     def run_docking_sequence(self):
-        # ── Phase 1: Nav2 to the canonical staging zone. ──────────────────
-        self.get_logger().info('── Phase 1/4: NavigateToPose → staging zone')
+        # Camera-centric pipeline — see docs/13_perception_and_line.md §6.
+
+        # ── Phase 1: Nav2 coarse approach to the staging zone. ────────────
+        self.get_logger().info('── Phase 1: NavigateToPose → approach zone')
         if not self.navigate_to_staging():
             self.get_logger().error('NavigateToPose failed — aborting')
             return
-
-        # ── Phase 2: scan + initial filter of the tag pose. ───────────────
-        # The scan rotates the robot in place until the tag has been
-        # consistently visible. The filter then averages N samples while
-        # stationary to seed the running-average tag estimate.
-        self.get_logger().info(
-            f'── Phase 2/4: tag search + initial filter ({self.filter_num_samples} samples)'
-        )
         self._publish_cmd_vel(0.0, 0.0)
         time.sleep(self.staging_hold_seconds)
 
+        # See both tags and estimate the dock (centre + normal from baseline).
         if not self._search_for_tag():
-            self.get_logger().error('   tag never detected during scan — aborting')
+            self.get_logger().error('   tags not detected during scan — aborting')
             return
-
-        tag_avg = TagRunningAverage()
-        if not self._collect_initial_samples(tag_avg, self.filter_num_samples):
+        est = self._estimate_dock()
+        if est is None:
+            self.get_logger().error('   could not estimate dock from both tags — aborting')
             return
-
-        self.get_logger().info(
-            f'   tag at ({tag_avg.x:.3f}, {tag_avg.y:.3f}) after {tag_avg.count} samples'
-        )
-
-        # ── Phase 3: spin to the running-average perpendicular yaw. ──────
+        cx, cy, normal_yaw = est
         pose = self.lookup_robot_pose()
         if pose is None:
             return
         rx, ry, _ = pose
-        perp_yaw = tag_avg.perpendicular_yaw(rx, ry)
-        if perp_yaw is None:
-            self.get_logger().error('   could not compute perpendicular yaw — aborting')
+        d0 = math.hypot(cx - rx, cy - ry)
+        self.get_logger().info(
+            f'   dock centre ({cx:.2f}, {cy:.2f}), normal '
+            f'{math.degrees(normal_yaw):.1f}°, distance {d0:.2f}m')
+
+        # ── Phase 1.5: back off if too close. ─────────────────────────────
+        if d0 < self.too_close_distance:
+            self.get_logger().info(
+                f'── Phase 1.5: too close ({d0:.2f}m) — backing off to '
+                f'{self.predock_distance:.2f}m on the normal')
+            if not self._goto_point_on_normal(cx, cy, normal_yaw,
+                                              self.predock_distance):
+                return
+            if not self._search_for_tag():
+                return
+            est = self._estimate_dock()
+            if est is None:
+                return
+            cx, cy, normal_yaw = est
+
+        # ── Phase 3: go to the pre-dock point on the normal. ──────────────
+        self.get_logger().info(
+            f'── Phase 3: pre-dock point ({self.predock_distance:.2f}m on normal)')
+        if not self._goto_point_on_normal(cx, cy, normal_yaw, self.predock_distance):
             return
 
-        self.get_logger().info(
-            f'── Phase 3/4: ALIGN (spin to perpendicular yaw {perp_yaw:.3f})'
-        )
-        if not self._spin_to_yaw(perp_yaw):
-            self.get_logger().error('   alignment spin failed')
+        # ── Phase 4: re-estimate head-on and confirm/refine. ──────────────
+        self.get_logger().info('── Phase 4: re-estimate dock normal')
+        if not self._search_for_tag():
             return
-
-        # ── Phase 4: line-tracking advance. ──────────────────────────────
-        # Drive forward while continuously updating the running average and
-        # steering to stay on the perpendicular line through the averaged
-        # tag. No discrete realign, no separate auto-cal — one continuous
-        # closed loop. Stop when distance to the averaged tag ≤ docking
-        # distance.
+        est = self._estimate_dock()
+        if est is None:
+            return
+        cx2, cy2, normal_yaw2 = est
+        err = abs(normalize_angle(normal_yaw2 - normal_yaw))
         self.get_logger().info(
-            f'── Phase 4/4: line-tracking advance to {self.docking_distance:.2f}m'
-        )
-        if not self._advance_with_line_tracking(tag_avg):
-            self.get_logger().error('   advance failed')
+            f'   re-estimated normal {math.degrees(normal_yaw2):.1f}° '
+            f'(was {math.degrees(normal_yaw):.1f}°, diff {math.degrees(err):.1f}°)')
+        cx, cy, normal_yaw = cx2, cy2, normal_yaw2
+        if err > self.normal_tolerance:
+            self.get_logger().info(
+                f'   disagree (> {math.degrees(self.normal_tolerance):.1f}°) — '
+                f'repositioning to {self.refined_predock_distance:.2f}m')
+            if not self._goto_point_on_normal(cx, cy, normal_yaw,
+                                              self.refined_predock_distance):
+                return
+        else:
+            self.get_logger().info('   normals agree — confirmed')
+
+        # ── Phase 5: final visual approach (camera-only). ─────────────────
+        self.get_logger().info(
+            f'── Phase 5: visual approach to {self.docking_distance:.2f}m (camera depth)')
+        if not self._final_visual_approach(cx, cy, normal_yaw):
+            self.get_logger().error('   final approach failed')
             return
 
         self.is_docked = True
         self.get_logger().info('Docking sequence complete ✓')
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Camera-centric helpers (see docs/13_perception_and_line.md §6)
+    # ──────────────────────────────────────────────────────────────────────
+    def _estimate_dock(self, num_samples=None):
+        """Average num_samples joint observations of the three tags' map
+        positions, then derive the dock target and normal:
+
+          - dock target = the CENTRE tag (id1), the point we drive onto;
+          - dock normal = perpendicular to the wide baseline between the OUTER
+            tags (id0→id2), disambiguated toward the robot.
+
+        Using the outer tag *centres* and their wide baseline gives a far more
+        robust dock orientation than a single-tag solvePnP normal.
+
+        Returns (cx, cy, normal_yaw) or None.
+        """
+        if num_samples is None:
+            num_samples = self.filter_num_samples
+        s = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]   # sums for tag 0,1,2
+        n = 0
+        last_key = None
+        deadline = time.time() + self.filter_max_collect_time
+        while time.time() < deadline and n < num_samples:
+            p0 = self._lookup_tag_map('charging_dock_tag_0')
+            p1 = self._lookup_tag_map('charging_dock_tag_1')
+            p2 = self._lookup_tag_map('charging_dock_tag_2')
+            if p0 is not None and p1 is not None and p2 is not None:
+                key = (round(p0[0], 4), round(p1[0], 4), round(p2[0], 4))
+                if key != last_key:        # don't count an unchanged TF twice
+                    for i, p in enumerate((p0, p1, p2)):
+                        s[i][0] += p[0]
+                        s[i][1] += p[1]
+                    n += 1
+                    last_key = key
+            time.sleep(0.05)
+        if n == 0:
+            self.get_logger().error('   never saw all three tags together')
+            return None
+        c0 = (s[0][0] / n, s[0][1] / n)
+        c1 = (s[1][0] / n, s[1][1] / n)
+        c2 = (s[2][0] / n, s[2][1] / n)
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return None
+        rx, ry, _ = pose
+        return self._dock_pose_from_tags(c0, c1, c2, rx, ry)
+
+    def _dock_pose_from_tags(self, c0, c1, c2, rx, ry):
+        """Dock target + heading-to-dock from the three tag centres.
+
+        Target = midpoint of the OUTER tags (c0+c2)/2. The outer tags are big
+        and well localised, so their midpoint pins the dock centre more
+        precisely than the small centre tag (and equals it geometrically). The
+        normal is perpendicular to the wide baseline c0→c2, disambiguated toward
+        the robot; the returned yaw faces the robot toward the dock.
+        """
+        cx = 0.5 * (c0[0] + c2[0])          # midpoint of the precise outer tags
+        cy = 0.5 * (c0[1] + c2[1])
+        dx, dy = c2[0] - c0[0], c2[1] - c0[1]   # wide baseline
+        L = math.hypot(dx, dy)
+        if L < 1e-6:
+            return None
+        nx, ny = -dy / L, dx / L            # perpendicular to the tag row
+        if nx * (rx - cx) + ny * (ry - cy) < 0.0:
+            nx, ny = -nx, -ny               # point toward the robot
+        return cx, cy, math.atan2(-ny, -nx)
+
+    def _goto_point_on_normal(self, tag_x, tag_y, normal_yaw, dist):
+        """Drive to the point `dist` metres in front of the tag along its
+        normal (robot side), then face the tag. normal_yaw is the heading from
+        that point toward the tag.
+        """
+        px = tag_x - dist * math.cos(normal_yaw)
+        py = tag_y - dist * math.sin(normal_yaw)
+        self.get_logger().info(
+            f'   → ({px:.2f}, {py:.2f}) then face the tag')
+        # Garde-fou: verify the forward path is clear before committing to the
+        # drive. This catches "someone is directly in front of the robot when
+        # the trigger arrives" up front, before the drive loop starts.
+        if not self._wait_for_path_clear(
+            0.0, self.obstacle_forward_distance,
+            self.obstacle_wait_timeout, 'goto-point pre-check'
+        ):
+            return False
+        if not self._drive_to_xy(px, py):
+            return False
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return False
+        rx, ry, _ = pose
+        return self._spin_to_yaw(math.atan2(tag_y - ry, tag_x - rx))
+
+
+    def _final_visual_approach(self, cx, cy, normal_yaw, max_time=90.0):
+        """Two-regime final approach.
+
+        FAR (camera depth > freeze_axis_distance): the axis (dock centre +
+        normal) is re-derived every iteration from the live 3-tag perception and
+        folded into a **running average**, and the robot pure-pursuits that axis
+        — so it converges onto the perpendicular line while still far, where the
+        estimate is clean.
+
+        NEAR (≤ freeze_axis_distance): the averaged axis is **frozen** (close-up
+        estimates are noisy and the outer tags start leaving the FOV — averaging
+        them in caused the end-of-approach zig-zag). The robot finishes on the
+        **centre-tag visual corrector** (keep the centre tag centred in the
+        image), which from an already-aligned pose only trims the residual.
+
+        Stops when camera→centre-tag depth ≤ docking_distance.
+        """
+        period = 1.0 / self.drive_rate_hz
+        deadline = time.time() + max_time
+        camera_forward_offset = 0.35   # camera_link is +0.35 m ahead of base_link (URDF)
+
+        acx, acy = cx, cy
+        asin, acos = math.sin(normal_yaw), math.cos(normal_yaw)
+        n = 1
+        frozen = False
+        filtered_angle = None
+
+        pose0 = self.lookup_robot_pose()
+        if pose0 is None:
+            return False
+        x0, y0, _ = pose0
+        max_travel = math.hypot(cx - x0, cy - y0) + 0.5
+
+        while time.time() < deadline:
+            pose = self.lookup_robot_pose()
+            if pose is None:
+                time.sleep(period)
+                continue
+            rx, ry, ryaw = pose
+
+            c1cam = self._lookup_tag_cam('charging_dock_tag_1')
+            if c1cam is not None and c1cam[2] > 0.05:
+                depth = c1cam[2]
+            else:
+                depth = max(0.0, math.hypot(cx - rx, cy - ry)
+                            - camera_forward_offset)
+            if depth <= self.docking_distance:
+                self._publish_cmd_vel(0.0, 0.0)
+                self.get_logger().info(
+                    f'   docked: depth {depth:.3f}m ≤ {self.docking_distance:.2f}m')
+                return True
+
+            if math.hypot(rx - x0, ry - y0) > max_travel:
+                self._publish_cmd_vel(0.0, 0.0)
+                self.get_logger().error('   exceeded travel safety')
+                return False
+
+            if depth > self.freeze_axis_distance:
+                # FAR: refine the axis with a proximity-weighted EMA. The EMA
+                # weight grows as the robot gets closer, so the samples taken
+                # while advancing (nearer = tags bigger in the image = more
+                # accurate) count MUCH more than the early far ones.
+                est = self._estimate_dock_once()
+                if est is not None:
+                    ecx, ecy, eyaw = est
+                    a = min(0.6, self.axis_filter_alpha
+                            * (self.predock_distance / max(depth, 0.4)))
+                    acx = (1.0 - a) * acx + a * ecx
+                    acy = (1.0 - a) * acy + a * ecy
+                    asin = (1.0 - a) * asin + a * math.sin(eyaw)
+                    acos = (1.0 - a) * acos + a * math.cos(eyaw)
+                    n += 1
+                cx, cy = acx, acy
+                normal_yaw = math.atan2(asin, acos)
+                lateral = (-(rx - cx) * math.sin(normal_yaw)
+                           + (ry - cy) * math.cos(normal_yaw))
+                desired_yaw = normalize_angle(
+                    normal_yaw - math.atan2(lateral, self.line_lookahead_distance))
+                yaw_err = normalize_angle(desired_yaw - ryaw)
+                omega = self.line_yaw_kp * yaw_err
+            else:
+                # NEAR: axis frozen, finish on the centre-tag visual corrector.
+                if not frozen:
+                    frozen = True
+                    self.get_logger().info(
+                        f'   depth {depth:.2f}m ≤ {self.freeze_axis_distance:.2f}m '
+                        f'— freezing axis ({n} samples), visual corrector')
+                if c1cam is not None and c1cam[2] > 0.0:
+                    raw_angle = math.atan2(c1cam[0], c1cam[2])
+                    if filtered_angle is None:
+                        filtered_angle = raw_angle
+                    else:
+                        a = self.visual_servo_filter_alpha
+                        filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
+                    omega = -self.visual_servo_kp * filtered_angle
+                else:
+                    omega = 0.0   # tag out of view in the last cm — go straight
+
+            omega = max(-self.drive_yaw_max_omega,
+                        min(self.drive_yaw_max_omega, omega))
+            v = self.drive_speed
+            taper = 2.0 * self.docking_distance
+            if depth < taper:
+                v = max(0.03, self.drive_speed * depth / taper)
+
+            self._publish_cmd_vel(v, omega)
+            self._publish_line_markers(cx, cy, normal_yaw)
+            self._publish_gz_line_marker(cx, cy, normal_yaw)
+            time.sleep(period)
+
+        self._publish_cmd_vel(0.0, 0.0)
+        self.get_logger().error('   final approach timeout')
+        return False
+
+    def _estimate_dock_once(self):
+        """One-shot dock estimate (cx, cy, normal_yaw) in the map frame from a
+        single read of the three tags, or None if the outer tags aren't both
+        visible. Used to keep the approach axis adapting in real time."""
+        p0 = self._lookup_tag_map('charging_dock_tag_0')
+        p2 = self._lookup_tag_map('charging_dock_tag_2')
+        if p0 is None or p2 is None:
+            return None
+        p1 = self._lookup_tag_map('charging_dock_tag_1')
+        pose = self.lookup_robot_pose()
+        if pose is None:
+            return None
+        rx, ry, _ = pose
+        return self._dock_pose_from_tags(p0, p1, p2, rx, ry)
 
     # ──────────────────────────────────────────────────────────────────────
     # Undock sequence
@@ -567,6 +813,14 @@ class DockTrigger(Node):
     def run_undock_sequence(self) -> bool:
         """Reverse undock_reverse_distance metres in a straight line, then
         spin 180° in place. Clears is_docked on success.
+
+        No rear obstacle guard: the LIDAR sits on top of the chassis and
+        `scan_body_filter` chops the rear ±40° angular sector (where the
+        body would otherwise reflect every ray). Our LIDAR cannot see what
+        is directly behind the robot, so a "rear cone" check on
+        `/scan_filtered` always reads +inf and would give a false sense of
+        safety. Add a real rear sensor (bumper, rear camera, sonar) before
+        re-introducing a guard here.
         """
         self.get_logger().info(
             f'── UNDOCK: reverse {self.undock_reverse_distance:.2f}m, then spin 180°'
@@ -584,7 +838,9 @@ class DockTrigger(Node):
         self.get_logger().info(
             f'   spinning 180° (from {ryaw:.3f} to {target_yaw:.3f})'
         )
-        if not self._spin_to_yaw(target_yaw):
+        # 180° is the longest spin — give it more time than the default 15 s
+        # (a slow spin_max_omega or collision-monitor clamping can stretch it).
+        if not self._spin_to_yaw(target_yaw, max_time=30.0):
             self.get_logger().error('   undock 180° spin failed')
             return False
 
@@ -595,6 +851,13 @@ class DockTrigger(Node):
     def _reverse_distance(self, dist: float, max_extra_time: float = 10.0) -> bool:
         """Drive straight backward until the robot has travelled `dist` metres
         from its starting position (measured in the map frame). No steering.
+
+        No rear obstacle guard during the reverse — the LIDAR cannot see
+        what is behind the robot (`scan_body_filter` chops the rear ±40°
+        angular sector). The reverse is short (default 1.5 m) and on a
+        known piece of floor in the docking scenario; adding a rear
+        sensor is the prerequisite for re-introducing a per-iteration
+        backward check here.
         """
         period = 1.0 / self.drive_rate_hz
         pose0 = self.lookup_robot_pose()
@@ -633,339 +896,59 @@ class DockTrigger(Node):
         return age < self.detection_max_age
 
     def _search_for_tag(self) -> bool:
-        """Rotate in place until the tag has been freshly detected AND
-        centred in the camera image for scan_consecutive_target consecutive
-        frames. Bounded by one full rotation.
+        """Rotate in place until BOTH tags are visible and their midpoint is
+        centred in the image for scan_consecutive_target consecutive frames.
+        Bounded by ~one rotation.
 
-        The centring uses TF camera_optical_frame → charging_dock_apriltag
-        directly: with +X right and +Z forward in the optical frame, the
-        horizontal angular offset to centre is atan2(X, Z). The scan
-        rotates at scan_rotation_speed when no detection is available, then
-        switches to a yaw P-loop (omega = −scan_centring_kp × atan2(X, Z))
-        once the tag is in view. We declare "centred" when |angle| <
-        scan_centring_tolerance for the required consecutive frames.
+        Centring uses the midpoint of the two tags in camera_optical_frame:
+        with +X right and +Z forward, the horizontal offset is atan2(X, Z).
+        If only one tag is visible we steer toward it to bring the other into
+        view; if neither is visible we rotate open-loop.
         """
         period = 1.0 / self.drive_rate_hz
-        timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 10.0
+        timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 15.0
         deadline = time.time() + timeout_s
         centred_count = 0
 
         self.get_logger().info(
-            f'   scanning to centre tag in camera '
-            f'(tolerance ±{math.degrees(self.scan_centring_tolerance):.1f}°, '
+            f'   scanning for BOTH tags (tolerance '
+            f'±{math.degrees(self.scan_centring_tolerance):.1f}°, '
             f'need {self.scan_consecutive_target} consecutive frames)'
         )
 
         while time.time() < deadline:
-            cam_tag = self.lookup_tag_in_camera_optical()
-            if cam_tag is not None and cam_tag[2] > 0.05:
-                tx_cam, _, tz_cam = cam_tag
-                image_angle = math.atan2(tx_cam, tz_cam)
+            both = self._dock_center_cam(require_all=True)
+            if both is not None and both[2] > 0.05:
+                image_angle = math.atan2(both[0], both[2])
                 if abs(image_angle) < self.scan_centring_tolerance:
                     centred_count += 1
                     if centred_count >= self.scan_consecutive_target:
                         self._publish_cmd_vel(0.0, 0.0)
                         self.get_logger().info(
-                            f'   tag centred in camera '
-                            f'(image_angle={math.degrees(image_angle):+.1f}°, '
-                            f'consecutive={centred_count})'
-                        )
+                            f'   both tags centred '
+                            f'(angle={math.degrees(image_angle):+.1f}°)')
                         return True
-                    # Hold (no command this iteration to keep the camera
-                    # steady for the next centring check).
                     self._publish_cmd_vel(0.0, 0.0)
                 else:
                     centred_count = 0
-                    # Yaw P-loop to drive image_angle toward 0.
                     omega = -self.scan_centring_kp * image_angle
                     omega = max(-self.scan_rotation_speed,
                                 min(self.scan_rotation_speed, omega))
                     self._publish_cmd_vel(0.0, omega)
             else:
-                # No detection — open-loop slow rotation until we find it.
                 centred_count = 0
-                self._publish_cmd_vel(0.0, self.scan_rotation_speed)
-            time.sleep(period)
-
-        self._publish_cmd_vel(0.0, 0.0)
-        return False
-
-    def _collect_initial_samples(self, avg: TagRunningAverage,
-                                 num_samples: int) -> bool:
-        """Block while stationary until avg has accumulated num_samples fresh
-        detections, or filter_max_collect_time elapses. Each detection is
-        identified by its header stamp so we never count the same message
-        twice.
-        """
-        period = 0.05
-        deadline = time.time() + self.filter_max_collect_time
-        last_stamp_ns = -1
-
-        while time.time() < deadline and avg.count < num_samples:
-            msg = self.detected_pose
-            if msg is not None:
-                stamp_ns = rclpy.time.Time.from_msg(msg.header.stamp).nanoseconds
-                if stamp_ns != last_stamp_ns:
-                    age = (self.get_clock().now().nanoseconds - stamp_ns) * 1e-9
-                    if age < self.detection_max_age:
-                        avg.update(
-                            msg.pose.position.x, msg.pose.position.y,
-                            msg.pose.orientation.x, msg.pose.orientation.y,
-                            msg.pose.orientation.z, msg.pose.orientation.w,
-                        )
-                    last_stamp_ns = stamp_ns
-            time.sleep(period)
-
-        if avg.count < num_samples:
-            self.get_logger().error(
-                f'   only got {avg.count}/{num_samples} samples in '
-                f'{self.filter_max_collect_time:.1f}s — aborting'
-            )
-            return False
-        return True
-
-    def _advance_with_line_tracking(self, avg: TagRunningAverage,
-                                    max_time: float = 90.0) -> bool:
-        """Drive forward toward the running-average tag while steering to
-        stay on the perpendicular line through the averaged tag centre.
-
-        Each iteration:
-          1) read robot pose;
-          2) if a fresh detection is available, fold it into the running
-             average — this REFINES both the tag centre (avg.x, avg.y) and
-             the perpendicular line that the robot is tracking, even while
-             the robot is in motion;
-          3) compute perpendicular_yaw from the current average and the
-             signed lateral offset from the perpendicular line;
-          4) emit omega = line_yaw_kp × yaw_err, saturated by
-             drive_yaw_max_omega — pure-pursuit on the perpendicular line;
-          5) emit v = drive_speed, with a linear taper inside 2 ×
-             docking_distance so the robot eases into the final stop;
-          6) stop when distance(robot, avg) ≤ docking_distance.
-
-        Detection-lost behaviour:
-          - While fresh detections arrive: keep refining the line (avg
-            gets updated every iteration with new detection data).
-          - When detections stop arriving (tag out of FOV in the near
-            field, occluded, etc.): freeze avg at its last value and KEEP
-            following the line. No corrector kicks in at the end.
-
-        The final visual-servo / one-shot align block from the original
-        4-phase pipeline is intentionally removed — the running-average
-        line is now refined all the way down to docking_distance, so the
-        line itself converges on the true dock axis.
-        """
-        period = 1.0 / self.drive_rate_hz
-        deadline = time.time() + max_time
-
-        pose0 = self.lookup_robot_pose()
-        if pose0 is None:
-            return False
-        x0, y0, _ = pose0
-        d0 = math.hypot(avg.x - x0, avg.y - y0)
-        max_travel = max(0.5, d0 + 0.5)
-
-        last_stamp_ns = -1
-        had_detection = True   # we entered Phase 4 with the 40-sample seed
-        samples_in_phase4 = 0
-        in_visual_servo_logged = False  # log the visual-servo transition once
-        filtered_image_angle = None     # low-pass state for visual servo
-
-        self.get_logger().info(
-            f'   start d_to_tag={d0:.3f}m, forward to travel ≈ '
-            f'{max(0.0, d0 - self.docking_distance):.3f}m'
-            f' (visual servo activates at d ≤ {self.visual_servo_distance:.2f}m)'
-        )
-
-        while time.time() < deadline:
-            pose = self.lookup_robot_pose()
-            if pose is None:
-                time.sleep(period)
-                continue
-            rx, ry, ryaw = pose
-
-            # Distance to the running-average tag, computed BEFORE folding
-            # the new detection. Drives one of the two visual-servo
-            # triggers (the other is the refinement sample count).
-            distance_to_avg = math.hypot(avg.x - rx, avg.y - ry)
-
-            # The line is "stabilised" — and we hand over to the visual
-            # servo — as soon as EITHER of these is true:
-            #   • we've accepted line_stabilization_samples fresh
-            #     detections in Phase 4 (the line is built from clean
-            #     far-field samples, no point refining it further with
-            #     the noisier near-field ones), OR
-            #   • we've crossed the distance threshold (fallback,
-            #     guards against the case where outlier rejection kills
-            #     most samples and we never reach the count).
-            line_stabilised_by_count = (
-                self.line_stabilization_samples > 0
-                and samples_in_phase4 >= self.line_stabilization_samples
-            )
-            line_stabilised_by_distance = (
-                self.visual_servo_distance > 0.0
-                and distance_to_avg <= self.visual_servo_distance
-            )
-            in_visual_servo = line_stabilised_by_count or line_stabilised_by_distance
-
-            if in_visual_servo and not in_visual_servo_logged:
-                in_visual_servo_logged = True
-                trigger = ('count' if line_stabilised_by_count
-                           else 'distance')
-                self.get_logger().info(
-                    f'   line stabilised ({trigger}: '
-                    f'{samples_in_phase4} samples, d={distance_to_avg:.2f}m) '
-                    f'— switching to camera-frame visual servo'
-                )
-
-            # Fold any new detection into the running average ONLY while
-            # we're in the line-tracking regime. After visual-servo
-            # handover, the running average is frozen — the heading
-            # controller uses the live camera-frame angle directly.
-            #
-            # Two safeguards on Phase 4 updates:
-            #   1. OUTLIER REJECTION — if the sample lands too far from
-            #      the current mean, skip it (likely a 1-frame solvePnP
-            #      glitch).
-            #   2. DISTANCE-WEIGHTED MEAN — far-field samples (cleaner,
-            #      tag is well inside the FOV) contribute more weight
-            #      than near-field samples (noisier corner detection at
-            #      the edges of the FOV).
-            msg = self.detected_pose
-            fresh = False
-            outliers_rejected = 0
-            if msg is not None and not in_visual_servo:
-                stamp_ns = rclpy.time.Time.from_msg(msg.header.stamp).nanoseconds
-                if stamp_ns != last_stamp_ns:
-                    age = (self.get_clock().now().nanoseconds - stamp_ns) * 1e-9
-                    if age < self.detection_max_age:
-                        new_x = msg.pose.position.x
-                        new_y = msg.pose.position.y
-                        sample_offset = math.hypot(new_x - avg.x, new_y - avg.y)
-                        is_outlier = (
-                            self.refinement_outlier_threshold > 0.0
-                            and sample_offset > self.refinement_outlier_threshold
-                        )
-                        if is_outlier:
-                            outliers_rejected += 1
-                            self.get_logger().warning(
-                                f'   refinement outlier rejected '
-                                f'(offset={sample_offset*100:.1f}cm > '
-                                f'{self.refinement_outlier_threshold*100:.0f}cm)'
-                            )
-                        else:
-                            # Linear distance weight, clamped to [min, 1.0].
-                            weight = max(
-                                self.refinement_weight_min,
-                                min(1.0, distance_to_avg
-                                    / self.refinement_weight_full_distance),
-                            )
-                            avg.update(
-                                new_x, new_y,
-                                msg.pose.orientation.x, msg.pose.orientation.y,
-                                msg.pose.orientation.z, msg.pose.orientation.w,
-                                weight=weight,
-                            )
-                            fresh = True
-                            samples_in_phase4 += 1
-                    last_stamp_ns = stamp_ns
-
-            if not in_visual_servo:
-                # Detection-tracking state machine only matters in the
-                # line-tracking regime. In visual-servo we use the live
-                # camera lookup instead.
-                if not fresh and had_detection:
-                    had_detection = False
-                    self.get_logger().info(
-                        f'   tag lost — continuing on last-known line '
-                        f'(refined with {samples_in_phase4} extra samples '
-                        f'during Phase 4)'
-                    )
-                elif fresh and not had_detection:
-                    had_detection = True
-                    self.get_logger().info('   tag reacquired — resuming line refinement')
-
-            perp_yaw = avg.perpendicular_yaw(rx, ry)
-            if perp_yaw is None:
-                # Should never happen — avg always has the 40 Phase-2 samples
-                # by the time we get here. Defensive guard only.
-                self.get_logger().warning('   lost tag estimate — holding')
-                self._publish_cmd_vel(0.0, 0.0)
-                time.sleep(period)
-                continue
-
-            lateral = avg.signed_lateral_offset(rx, ry, perp_yaw)
-            distance = math.hypot(avg.x - rx, avg.y - ry)
-
-            if distance <= self.docking_distance:
-                self._publish_cmd_vel(0.0, 0.0)
-                self.get_logger().info(
-                    f'   reached: d_to_tag={distance:.3f}m, lateral='
-                    f'{lateral*100:+.1f}cm ({avg.count} total samples '
-                    f'averaged, {samples_in_phase4} during Phase 4)'
-                )
-                return True
-
-            travelled = math.hypot(rx - x0, ry - y0)
-            if travelled > max_travel:
-                self._publish_cmd_vel(0.0, 0.0)
-                self.get_logger().error(
-                    f'   exceeded travel safety ({travelled:.2f}m > '
-                    f'{max_travel:.2f}m)'
-                )
-                return False
-
-            # Heading control: line-tracking (far) → visual servo (near).
-            if in_visual_servo:
-                # Camera-frame closed-loop. omega keeps the tag centred
-                # in the image. The image_angle is low-pass filtered to
-                # reject single-frame solvePnP noise spikes that would
-                # otherwise produce one bad correction per noisy frame
-                # (and force the robot to "un-correct" the next frame).
-                tag_cam = self.lookup_tag_in_camera_optical()
-                if tag_cam is not None:
-                    tx_cam, _, tz_cam = tag_cam
-                    if tz_cam > 0.0:
-                        raw_angle = math.atan2(tx_cam, tz_cam)
-                        if filtered_image_angle is None:
-                            # First valid sample seeds the filter.
-                            filtered_image_angle = raw_angle
-                        else:
-                            a = self.visual_servo_filter_alpha
-                            filtered_image_angle = (
-                                a * raw_angle
-                                + (1.0 - a) * filtered_image_angle
-                            )
-                        omega = -self.visual_servo_kp * filtered_image_angle
-                    else:
-                        # Tag behind the camera (shouldn't happen here).
-                        omega = 0.0
+                one = self._any_tag_cam()
+                if one is not None and one[2] > 0.05:
+                    # One tag visible — steer toward it to reveal the others.
+                    omega = -self.scan_centring_kp * math.atan2(one[0], one[2])
+                    omega = max(-self.scan_rotation_speed,
+                                min(self.scan_rotation_speed, omega))
+                    self._publish_cmd_vel(0.0, omega)
                 else:
-                    # No fresh TF — drive straight rather than blind-steer.
-                    omega = 0.0
-            else:
-                # Line-tracking pure-pursuit on the perpendicular line
-                # through the running-average tag centre.
-                desired_yaw = normalize_angle(
-                    perp_yaw - math.atan2(lateral, self.line_lookahead_distance))
-                yaw_err = normalize_angle(desired_yaw - ryaw)
-                omega = self.line_yaw_kp * yaw_err
-
-            omega = max(-self.drive_yaw_max_omega,
-                        min(self.drive_yaw_max_omega, omega))
-
-            v = self.drive_speed
-            taper = 2.0 * self.docking_distance
-            if distance < taper:
-                v = max(0.03, self.drive_speed *
-                        (distance - self.docking_distance) /
-                        (taper - self.docking_distance))
-
-            self._publish_cmd_vel(v, omega)
+                    self._publish_cmd_vel(0.0, self.scan_rotation_speed)
             time.sleep(period)
 
         self._publish_cmd_vel(0.0, 0.0)
-        self.get_logger().error('   line-tracking advance timeout')
         return False
 
     def _perpendicular_yaw_from_latest_tag(self, rx: float, ry: float):
@@ -1165,6 +1148,16 @@ class DockTrigger(Node):
         position_tolerance = 0.05
 
         while time.time() < deadline:
+            # Obstacle guard: if the forward cone has a return closer than
+            # obstacle_forward_distance, stop, wait for it to clear, then
+            # resume. If still blocked after obstacle_wait_timeout, abort.
+            if not self._wait_for_path_clear(
+                0.0, self.obstacle_forward_distance,
+                self.obstacle_wait_timeout, 'forward drive'
+            ):
+                self._publish_cmd_vel(0.0, 0.0)
+                return False
+
             pose = self.lookup_robot_pose()
             if pose is None:
                 time.sleep(period)
@@ -1252,11 +1245,202 @@ class DockTrigger(Node):
         target_y = foot_y - self.realign_reverse_distance * sin_y
         return target_x, target_y
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Obstacle avoidance (forward/backward cone in the laser scan)
+    # ──────────────────────────────────────────────────────────────────────
+    def _min_range_in_arc(self, center_angle: float, half_width: float) -> float:
+        """Return the minimum LIDAR range inside the angular cone centred on
+        `center_angle` (radians, in the scan frame: 0 = forward, π = backward)
+        with half-width `half_width` (radians). Returns +inf if no laser data
+        is available or no finite return is inside the cone.
+
+        Returns shorter than `obstacle_min_range` are discarded as
+        self-reflections from the robot's own body (the LIDAR sits on top of
+        the chassis and rays heading rearward in particular hit the
+        enclosure). Without this floor the backward cone always reads ~0.2 m
+        and the undock phase blocks forever.
+
+        Note: angles are taken in the scan's frame, not base_link. For a LIDAR
+        mounted near the geometric centre of the robot with its forward axis
+        aligned with base_link forward, this is a fine approximation. A
+        significantly off-centre LIDAR would need a TF-based projection.
+        """
+        scan = self.latest_scan
+        if scan is None:
+            return float('inf')
+        a_lo = normalize_angle(center_angle - half_width)
+        a_hi = normalize_angle(center_angle + half_width)
+        wrap = a_lo > a_hi  # cone spans the ±π wrap (e.g. backward at π)
+        floor = max(self.obstacle_min_range, scan.range_min)
+        min_r = float('inf')
+        for i, r in enumerate(scan.ranges):
+            if not math.isfinite(r):
+                continue
+            if r < floor or r > scan.range_max:
+                continue
+            a = normalize_angle(scan.angle_min + i * scan.angle_increment)
+            inside = (a_lo <= a <= a_hi) if not wrap else (a >= a_lo or a <= a_hi)
+            if inside and r < min_r:
+                min_r = r
+        return min_r
+
+    def _wait_for_path_clear(self, center_angle: float, distance: float,
+                             max_wait: float, label: str) -> bool:
+        """Stop the robot and poll the laser scan until the path in the given
+        direction is clear (no return closer than `distance` inside the cone),
+        or `max_wait` seconds elapse.
+
+        Returns True if the path became clear (or was already clear, or
+        checking is disabled / no scan available — see fall-back below).
+        Returns False on timeout — the caller should abort the phase.
+        """
+        if not self.obstacle_check_enabled:
+            return True
+        if self.latest_scan is None:
+            # No /scan received yet — proceed but warn. This avoids deadlocking
+            # the docking sequence if the LIDAR pipeline is degraded; the
+            # standard navigation safety layer still applies upstream.
+            self.get_logger().warn(
+                f'   {label}: no /scan received yet; proceeding without check'
+            )
+            return True
+        min_r = self._min_range_in_arc(center_angle, self.obstacle_arc_half_width)
+        if min_r > distance:
+            return True  # path already clear, nothing to do
+        # First contact — stop, log, then poll until clear or timeout
+        self._publish_cmd_vel(0.0, 0.0)
+        self.get_logger().warn(
+            f'   {label}: obstacle at {min_r:.2f} m (threshold {distance:.2f} m), '
+            f'waiting up to {max_wait:.0f} s for it to clear…'
+        )
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            time.sleep(self.obstacle_check_period)
+            min_r = self._min_range_in_arc(center_angle, self.obstacle_arc_half_width)
+            if min_r > distance:
+                self.get_logger().info(
+                    f'   {label}: path cleared (now {min_r:.2f} m), resuming'
+                )
+                return True
+        self.get_logger().error(
+            f'   {label}: still blocked after {max_wait:.0f} s, aborting phase'
+        )
+        return False
+
     def _publish_cmd_vel(self, v: float, omega: float):
         msg = Twist()
         msg.linear.x = float(v)
         msg.angular.z = float(omega)
         self.cmd_vel_pub.publish(msg)
+
+    def _publish_line_markers(self, cx: float, cy: float, perp_yaw: float):
+        """Publish the perpendicular approach line and the dock centre as RViz
+        markers in the map frame. See docs/13_perception_and_line.md.
+        """
+        if not self.publish_debug_markers:
+            return
+        now = self.get_clock().now().to_msg()
+        dirx, diry = math.cos(perp_yaw), math.sin(perp_yaw)
+        arr = MarkerArray()
+
+        # Green line: the perpendicular approach axis through the dock centre.
+        # perp_yaw points from the robot toward the dock, so the robot side of
+        # the line is at centre − dir; draw from there to just past the dock.
+        line = Marker()
+        line.header.frame_id = 'map'
+        line.header.stamp = now
+        line.ns = 'docking_line'
+        line.id = 0
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.scale.x = 0.03
+        line.color.g = 1.0
+        line.color.a = 1.0
+        line.pose.orientation.w = 1.0
+        line.points = [
+            Point(x=cx - 4.0 * dirx, y=cy - 4.0 * diry, z=0.15),
+            Point(x=cx + 0.3 * dirx, y=cy + 0.3 * diry, z=0.15),
+        ]
+        arr.markers.append(line)
+
+        # Red sphere: the dock centre.
+        tag = Marker()
+        tag.header.frame_id = 'map'
+        tag.header.stamp = now
+        tag.ns = 'docking_tag'
+        tag.id = 1
+        tag.type = Marker.SPHERE
+        tag.action = Marker.ADD
+        tag.pose.position.x = cx
+        tag.pose.position.y = cy
+        tag.pose.position.z = 0.30
+        tag.pose.orientation.w = 1.0
+        tag.scale.x = tag.scale.y = tag.scale.z = 0.12
+        tag.color.r = 1.0
+        tag.color.a = 1.0
+        arr.markers.append(tag)
+
+        self.marker_pub.publish(arr)
+
+    def _publish_gz_line_marker(self, cx_in: float, cy_in: float, perp_yaw: float):
+        """Mirror the line + dock centre into the Gazebo GUI via the gz marker
+        service. Throttled and run off-thread so the control loop never blocks.
+        Map ≡ world in this sim, so (cx_in, cy_in) are world coordinates.
+        """
+        if not self.publish_gz_marker or self._gz_marker_inflight:
+            return
+        now = time.time()
+        if now - self._last_gz_marker_t < self.gz_marker_period:
+            return
+        self._last_gz_marker_t = now
+
+        # map ≡ world in this sim (robot spawns at the world origin, AMCL is
+        # initialised there), so the map-frame estimate is also the world pose.
+        wx, wy, wyaw = cx_in, cy_in, perp_yaw
+
+        # A thin CYLINDER (not LINE_STRIP) — gz renders line markers as 1-px
+        # lines that are nearly invisible in the 3D view. A cylinder is a real
+        # mesh: always visible, properly coloured, thickness controllable.
+        dirx, diry = math.cos(wyaw), math.sin(wyaw)
+        x1, y1 = wx - 4.0 * dirx, wy - 4.0 * diry
+        x2, y2 = wx + 0.3 * dirx, wy + 0.3 * diry
+        cx, cy = 0.5 * (x1 + x2), 0.5 * (y1 + y2)
+        length = math.hypot(x2 - x1, y2 - y1)
+        # Quaternion rotating the cylinder's +Z axis onto the (horizontal) line
+        # direction: a 90° rotation about the axis Z × dir = (−sin, cos, 0).
+        qw = 0.70710678
+        qx = -0.70710678 * diry
+        qy = 0.70710678 * dirx
+        req = (
+            'marker { action: ADD_MODIFY ns: "docking_line" id: 1 type: CYLINDER '
+            'material { ambient { r: 0 g: 1 b: 0 a: 1 } diffuse { r: 0 g: 1 b: 0 a: 1 } } '
+            f'pose {{ position {{ x: {cx:.3f} y: {cy:.3f} z: 0.15 }} '
+            f'orientation {{ x: {qx:.5f} y: {qy:.5f} z: 0.0 w: {qw:.5f} }} }} '
+            f'scale {{ x: 0.04 y: 0.04 z: {length:.3f} }} '
+            '} '
+            'marker { action: ADD_MODIFY ns: "docking_tag" id: 2 type: SPHERE '
+            'material { ambient { r: 1 g: 0 b: 0 a: 1 } diffuse { r: 1 g: 0 b: 0 a: 1 } } '
+            f'pose {{ position {{ x: {wx:.3f} y: {wy:.3f} z: 0.30 }} '
+            'orientation { w: 1 } } '
+            'scale { x: 0.08 y: 0.08 z: 0.08 } }'
+        )
+        self._gz_marker_inflight = True
+        threading.Thread(target=self._run_gz_marker, args=(req,), daemon=True).start()
+
+    def _run_gz_marker(self, req: str):
+        try:
+            subprocess.run(
+                ['gz', 'service', '-s', self.gz_marker_service,
+                 '--reqtype', 'gz.msgs.Marker_V',
+                 '--reptype', 'gz.msgs.Boolean',
+                 '--timeout', '1000', '--req', req],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=2.0,
+            )
+        except Exception:
+            pass
+        finally:
+            self._gz_marker_inflight = False
 
     def lookup_robot_pose(self):
         try:
@@ -1272,27 +1456,59 @@ class DockTrigger(Node):
         yaw = quat_to_yaw(t.transform.rotation)
         return x, y, yaw
 
-    def lookup_tag_in_camera_optical(self):
-        """Return the tag's 3D position (x, y, z) in camera_optical_frame,
-        or None if the TF is not available or stale.
-
-        This is the right quantity for true visual centring: in optical
-        frame, +X is image-right and +Z is forward (into the scene). The
-        horizontal angular offset from the image centre is atan2(x, z).
-        Using this bypasses the map-frame solvePnP bias and centres the
-        tag as it actually appears in the camera image.
-        """
+    # ── Multi-tag perception (3 tags: id0/id2 outer, id1 centre) ──────────
+    def _lookup_tag_cam(self, frame):
+        """3D position (x, y, z) of `frame` in camera_optical_frame, or None if
+        the TF is missing or stale."""
         try:
             t = self.tf_buffer.lookup_transform(
-                'camera_optical_frame', 'charging_dock_apriltag',
-                rclpy.time.Time(),
-                timeout=Duration(seconds=0.1)
-            )
+                'camera_optical_frame', frame, rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
         except Exception:
             return None
-        return (t.transform.translation.x,
-                t.transform.translation.y,
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
                 t.transform.translation.z)
+
+    def _lookup_tag_map(self, frame):
+        """(x, y) of `frame` in the map frame, or None if missing/stale."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'map', frame, rclpy.time.Time(), timeout=Duration(seconds=0.2))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y)
+
+    def _dock_center_cam(self, require_all=True):
+        """The CENTRE tag (id1) in camera_optical_frame — the thing we centre
+        on and drive onto. With require_all=True, return it only when all three
+        tags are visible (so the dock can be estimated); with require_all=False
+        return it as soon as the centre tag is visible (near field, where the
+        outer tags leave the FOV first)."""
+        c1 = self._lookup_tag_cam('charging_dock_tag_1')
+        if c1 is None:
+            return None
+        if require_all:
+            if (self._lookup_tag_cam('charging_dock_tag_0') is None or
+                    self._lookup_tag_cam('charging_dock_tag_2') is None):
+                return None
+        return c1
+
+    def _any_tag_cam(self):
+        """Any visible tag in camera_optical_frame (for the search scan)."""
+        for f in ('charging_dock_tag_1', 'charging_dock_tag_0',
+                  'charging_dock_tag_2'):
+            c = self._lookup_tag_cam(f)
+            if c is not None:
+                return c
+        return None
 
     def _send_action_blocking(self, client, goal) -> bool:
         send_future = client.send_goal_async(goal)

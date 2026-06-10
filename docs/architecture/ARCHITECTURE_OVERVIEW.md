@@ -9,7 +9,7 @@ For detailed docking internals, see:
 ```text
 ros2/src/openamrobot_docking/docs/02_architecture.md
 ros2/src/openamrobot_docking/docs/03_tf_frames.md
-ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md
+ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md
 ```
 
 ---
@@ -228,9 +228,9 @@ Important nodes:
 |---|---|
 | `camera_info_bridge` | Bridges Gazebo camera info to root-level ROS `/camera_info` |
 | `camera_info_sync` | Produces `/camera_info_synced` stamped with image time |
-| `apriltag_ros` node | Detects the dock AprilTag from the camera image |
-| `detected_dock_pose_publisher` | Converts tag TF into `/detected_dock_pose` |
-| `dock_trigger.py` | Runs the 4-phase docking and undocking sequence |
+| `apriltag_ros` node | Detects the 3-tag AprilTag bundle (IDs 0/1/2) on the dock |
+| `detected_dock_pose_publisher` | Publishes the centre tag's pose as `/detected_dock_pose` |
+| `dock_trigger.py` | Runs the bundle docking and undocking sequence (camera-centric, normal estimation from the outer tags' wide baseline) |
 
 Important topics:
 
@@ -325,13 +325,13 @@ Gazebo camera
   -> camera_info_sync
   -> /camera_info_synced
   -> apriltag_ros
-  -> TF: camera_optical_frame -> charging_dock_apriltag
-  -> detected_dock_pose_publisher
+  -> TF: camera_optical_frame -> charging_dock_tag_{0,1,2}
+  -> detected_dock_pose_publisher (consumes the centre tag, id 1)
   -> /detected_dock_pose
   -> dock_trigger.py
 ```
 
-`apriltag_ros` publishes the tag transform. `detected_dock_pose_publisher` looks up the tag in the `map` frame and republishes it as a `PoseStamped`.
+`apriltag_ros` publishes one TF per detected tag in the 3-tag bundle (outer tags at `y = ±0.45 m`, centre tag at `y = 0`). `detected_dock_pose_publisher` looks up the **centre tag** `charging_dock_tag_1` in the `map` frame and republishes it as a `PoseStamped`. The outer tags `charging_dock_tag_0` and `charging_dock_tag_2` are consumed directly by the sequencer to estimate the dock surface normal from a wide baseline.
 
 This lets the docking sequencer reason about the dock in the same global frame used by Nav2.
 
@@ -347,7 +347,7 @@ map
   -> base_link
   -> camera_link
   -> camera_optical_frame
-  -> charging_dock_apriltag
+  -> charging_dock_tag_{0,1,2}        (one TF per tag in the bundle)
 ```
 
 Frame ownership:
@@ -358,14 +358,16 @@ Frame ownership:
 | `odom -> base_link` | Gazebo diff-drive odometry through the bridge |
 | `base_link -> camera_link` | `robot_state_publisher` from URDF |
 | `camera_link -> camera_optical_frame` | `robot_state_publisher` from URDF |
-| `camera_optical_frame -> charging_dock_apriltag` | `apriltag_ros` |
+| `camera_optical_frame -> charging_dock_tag_{0,1,2}` | `apriltag_ros` (one TF per detected bundle tag) |
 
 Useful checks:
 
 ```bash
 ros2 run tf2_ros tf2_echo map base_link
 ros2 run tf2_ros tf2_echo base_link camera_optical_frame
-ros2 run tf2_ros tf2_echo map charging_dock_apriltag
+ros2 run tf2_ros tf2_echo map charging_dock_tag_1      # centre tag = docking target
+ros2 run tf2_ros tf2_echo map charging_dock_tag_0      # left outer tag
+ros2 run tf2_ros tf2_echo map charging_dock_tag_2      # right outer tag
 ```
 
 Generate a TF diagram:
@@ -384,11 +386,16 @@ ros2/src/openamrobot_docking/docs/03_tf_frames.md
 
 ## 10. Docking Sequence
 
-The current simulation docking path is a custom 4-phase sequencer in:
+The current simulation docking path is a custom multi-phase, camera-centric bundle sequencer in:
 
 ```text
 ros2/src/openamrobot_docking/scripts/dock_trigger.py
 ```
+
+It estimates the dock surface normal from the outer tags' wide baseline (90 cm),
+follows that normal with a pure-pursuit controller in the camera/tag frame, and
+finishes with an axis-frozen visual servo on the centre tag. See
+`ros2/src/openamrobot_docking/docs/14_docking_research.md` for the full design rationale.
 
 Trigger:
 
@@ -414,7 +421,7 @@ ros2 topic pub /undock_robot std_msgs/msg/Bool "{data: true}" --once
 For phase-level detail:
 
 ```text
-ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md
+ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md
 ```
 
 ---
@@ -472,5 +479,7 @@ Use these rules when changing the architecture:
 | TF frames | `ros2/src/openamrobot_docking/docs/03_tf_frames.md` |
 | AprilTag setup | `ros2/src/openamrobot_docking/docs/04_apriltag.md` |
 | Docking parameters | `ros2/src/openamrobot_docking/docs/05_parameters.md` |
-| 4-phase sequencer | `ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md` |
+| Perception + perpendicular line + RViz/Gazebo markers | `ros2/src/openamrobot_docking/docs/13_perception_and_line.md` |
+| Vendor-agnostic precision-docking research | `ros2/src/openamrobot_docking/docs/14_docking_research.md` |
+| Legacy 4-phase sequencer notes (superseded by the bundle pipeline) | `ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md` |
 | Docking troubleshooting | `ros2/src/openamrobot_docking/docs/09_troubleshooting.md` |

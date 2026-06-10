@@ -2,7 +2,7 @@
 <package format="3">
   <name>openamrobot_docking</name>
   <version>0.1.0</version>
-  <description>AprilTag-based autodocking for the OpenAMRobot platform. Provides the 4-phase docking sequencer (Nav2 staging, camera-frame centring scan + running-average filter, perpendicular alignment spin, line-tracking final approach), the AprilTag detection pipeline, and the docking-specific simulation assets (dock model + textures). Composes openamrobot_description, openamrobot_gazebo, and openamrobot_nav2 via launch composition.</description>
+  <description>AprilTag-bundle autodocking for the OpenAMRobot platform. Provides the multi-phase bundle docking sequencer (Nav2 staging, camera-frame centring scan, dock-normal estimation from the outer tags' wide baseline with re-verification, two-regime axis-frozen visual servo on the centre tag, LIDAR-cone obstacle guard during drive phases), the 3-tag AprilTag detection pipeline (family 36h11, IDs 0/1/2), and the docking-specific simulation assets (dock model + textures). Composes openamrobot_description, openamrobot_gazebo, and openamrobot_nav2 via launch composition.</description>
 
   <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
   <license>MIT</license>
@@ -19,6 +19,7 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
 
   <!-- Launch infrastructure -->
   <exec_depend>launch</exec_depend>
@@ -34,7 +35,7 @@
   <exec_depend>openamrobot_nav2</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
 
-  <!-- Nav2 action interfaces used by the 4-phase sequencer -->
+  <!-- Nav2 action interfaces used by the bundle sequencer -->
   <exec_depend>nav2_msgs</exec_depend>
 
   <export>

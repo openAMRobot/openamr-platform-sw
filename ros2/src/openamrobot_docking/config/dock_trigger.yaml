@@ -48,7 +48,7 @@
     # the distance at which the perpendicular-line tracking begins. With
     # the 0.40 m AprilTag and the 1.047 rad camera FOV (Raj's setup), 1.5 m
     # gives ~120 px of tag in the image — comfortable for sub-pixel solvePnP.
-    staging_distance: 1.5
+    staging_distance: 2.0
     # Hold (s) at staging before the tag search begins, so velocity decays
     # smoothly and the camera image stabilises.
     staging_hold_seconds: 1.0
@@ -83,7 +83,9 @@
 
     # ─── Phase 3 — spin in place to perpendicular yaw ────────────────────────
     spin_kp: 1.5
-    spin_max_omega: 0.3
+    spin_max_omega: 0.5                  # rad/s clamp. 0.3 made the 180° undock
+                                         # spin too slow (timed out); 0.5 keeps
+                                         # precision (P-loop slows near target).
     # Phase 3 exits when |yaw_err| < spin_yaw_tolerance. 0.02 rad ≈ 1.1°.
     spin_yaw_tolerance: 0.02
 
@@ -109,12 +111,11 @@
     #     drive_yaw_max_omega saturation);
     #   - if the robot oscillates near the line, increase lookahead
     #     distance or decrease line_yaw_kp.
-    docking_distance: 0.9               # m — final distance from the averaged tag.
-                                         # Stops the robot before the near-field
-                                         # regime where small lateral motion
-                                         # produces large image-angle changes
-                                         # that any final-approach corrector
-                                         # would over-react to.
+    docking_distance: 0.15              # m — final CAMERA→tag depth at the dock.
+                                         # Camera-centric pipeline (docs §6) stops
+                                         # here. The tag leaves the FOV before this,
+                                         # so the last stretch is a blind straight
+                                         # advance (odometry-measured).
     drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
     line_yaw_kp: 2.5                    # rad/s per rad of (desired_yaw − robot_yaw)
     line_lookahead_distance: 0.3        # m — pure-pursuit lookahead on the perpendicular line.
@@ -124,69 +125,19 @@
     drive_yaw_max_omega: 0.3            # rad/s clamp on omega
     drive_rate_hz: 20.0                 # Hz control loop frequency
 
-    # Distance (m) below which Phase 4 switches from map-frame line
-    # tracking to camera-frame visual servoing.
+    # Image-frame visual servo (used by Phase 5 NEAR regime, once the dock
+    # axis is frozen). The heading controller closes the loop on the
+    # IMAGE-FRAME angle to the centre tag:
     #
-    # Above this distance:
-    #   The robot tracks the perpendicular line through the running-
-    #   average tag (pure-pursuit). The average keeps refining the line.
+    #     omega = -visual_servo_kp · atan2(X_optical, Z_optical)
     #
-    # Below this distance:
-    #   The running average is frozen. The heading controller switches
-    #   to a closed-loop on the IMAGE-FRAME angle to the tag:
-    #
-    #       omega = -visual_servo_kp · atan2(X_optical, Z_optical)
-    #
-    #   This keeps the tag centred in the image even when map-frame
-    #   solvePnP becomes biased in the near field (corners hugging the
-    #   edge of the FOV). "Keep the tag centred in the camera" is
-    #   directly equivalent to "drive straight toward the tag", so this
-    #   produces a clean head-on final approach.
-    #
-    # Set to 0 to disable visual servoing (line tracking all the way).
-    visual_servo_distance: 1.0
+    # Map-frame solvePnP becomes biased in the near field (corners hugging
+    # the edge of the FOV), but the image-frame angle is self-consistent.
+    # Keeping the tag centred in the image = aiming straight at the dock.
+    # The low-pass filter rejects single-frame solvePnP spikes.
     visual_servo_kp: 0.6                # rad/s per rad of image-frame angle
-    # Number of fresh Phase-4 detections accepted before the line is
-    # declared "stabilised" and the visual servo takes over. The first
-    # batch of Phase-4 samples are taken while the robot is still far
-    # from the dock (cleanest detections); once we have enough of them
-    # the line is locked and we don't refine it any further with the
-    # noisier near-field samples. Set to 0 to disable the count-based
-    # trigger (only visual_servo_distance will then drive the handover).
-    line_stabilization_samples: 25
-    # Low-pass smoothing on the image-frame angle. alpha = 0.2 means
-    # each new measurement contributes 20% to the filtered value
-    # (time constant ≈ 5 detection frames ≈ 0.35 s at 14 Hz). Lower
-    # values reject more noise but respond slower; alpha = 1.0
-    # disables filtering entirely.
-    visual_servo_filter_alpha: 0.2
+    visual_servo_filter_alpha: 0.2      # lower = more smoothing, slower response
 
-    # ─── Phase 4 — robust running-average update ─────────────────────────────
-    # Two safeguards keep noisy/outlier detections from corrupting the
-    # running-average line during Phase 4:
-    #
-    # 1) OUTLIER REJECTION. A new detection that lands more than this
-    #    many metres from the current running-average position (in XY)
-    #    is dropped (logged as a warning). Typical legitimate solvePnP
-    #    jitter is ~5 cm, so 0.30 m is a generous cutoff that catches
-    #    the gross single-frame glitches without dropping good samples.
-    #    Set to 0 to disable.
-    refinement_outlier_threshold: 0.30
-    #
-    # 2) DISTANCE-WEIGHTED MEAN. The running mean is a weighted average
-    #    of ALL accepted detections. Far-field samples (cleaner, tag
-    #    well inside the FOV) contribute more weight than near-field
-    #    samples (noisier corners at the FOV edges). Weight is linear
-    #    in distance-to-tag, clamped to [refinement_weight_min, 1.0]:
-    #
-    #       weight = clamp(distance / full_distance, min, 1.0)
-    #
-    #    With min=0.1 and full_distance=1.5:
-    #       sample @ 1.5 m → weight 1.0   (full)
-    #       sample @ 0.75 m → weight 0.5
-    #       sample @ 0.15 m → weight 0.1  (floor)
-    refinement_weight_min: 0.1
-    refinement_weight_full_distance: 1.5
     # Raj's Nav2 stack does NOT run a velocity_smoother that subscribes to
     # /cmd_vel_nav, so publishing there is a dead end (0 subscribers). We
     # publish straight to /cmd_vel which the gz bridge forwards to the
@@ -198,3 +149,93 @@
     detection_topic: /detected_dock_pose
     # Maximum age (s) of a detection message before it is dropped as stale.
     detection_max_age: 1.5
+
+    # ─── Debug visualisation ─────────────────────────────────────────────────
+    # Publish the perpendicular approach line (green LINE_STRIP) and the
+    # running-average tag centre (red SPHERE) as an RViz MarkerArray during
+    # Phase 4. Add a MarkerArray display on debug_marker_topic in RViz to see
+    # it. See docs/13_perception_and_line.md.
+    publish_debug_markers: true
+    debug_marker_topic: /docking/debug_markers
+
+    # Mirror the same line + tag centre INSIDE the Gazebo GUI. Gazebo does not
+    # consume ROS markers, so this pushes a gz.msgs.Marker_V to the gz marker
+    # service via the `gz` CLI (throttled, off-thread). Map ≡ world in this sim.
+    # Set publish_gz_marker false if you only use RViz, or if the gz service
+    # name differs on your Gazebo version (adjust gz_marker_service then).
+    publish_gz_marker: true
+    gz_marker_service: /marker_array
+    gz_marker_period: 0.4               # s — min interval between gz CLI calls
+
+    # ─── Camera-centric approach (two-sided normal estimation) ───────────────
+    # See docs/13_perception_and_line.md §6. Estimate the tag normal from two
+    # sides (cancels solvePnP view-angle bias), go to a point on the normal,
+    # re-verify, then do a camera-only final approach (immune to wheel slip).
+    too_close_distance: 1.0            # m — if closer at arrival, back off first
+    predock_distance: 2.0              # m on the normal (P1) — far enough to see all 3 tags
+    refined_predock_distance: 1.50     # m on the normal (P2, if N' disagrees)
+    normal_tolerance_deg: 5.0          # deg — N vs N' agreement threshold
+    obs_lateral: 0.5                   # m — side offset for the 2nd observation
+    obs_distance: 2.0                  # m from the tag for the 2nd observation
+    # Phase 5 hand-over: FAR (> this) average the 3-tag axis + pure-pursuit it;
+    # NEAR (≤ this) freeze the axis and finish on the centre-tag visual
+    # corrector. Freezing kills the close-range zig-zag (noisy near estimates).
+    freeze_axis_distance: 0.70         # m camera→centre tag
+    # EMA weight for the live axis estimate (FAR regime). A plain cumulative
+    # mean freezes the early off-axis (wrong) estimates; the EMA keeps following
+    # the recent better ones. Higher = more reactive/noisier, lower = smoother.
+    # EMA weight grows as the robot gets closer (weight ∝ predock_distance/depth,
+    # capped), so the samples taken while advancing (nearer = more accurate)
+    # dominate the early far ones. Higher = reacts faster to new estimates
+    # (less smoothing); lower = smoother but slower to update.
+    axis_filter_alpha: 0.40
+
+    # ─── Obstacle avoidance during drive phases ──────────────────────────────
+    # The sequencer publishes cmd_vel straight to the robot, bypassing
+    # Nav2's collision_monitor. We re-add a simple obstacle guard inside
+    # the docking forward-drive phase (pure-pursuit onto the dock normal,
+    # _goto_point_on_normal / _drive_to_xy) and the undock reverse
+    # (run_undock_sequence / _reverse_distance):
+    #
+    #   - BEFORE each guarded phase, a "garde-fou" pre-check verifies the
+    #     path is clear. If blocked, the robot stops and waits up to
+    #     obstacle_wait_timeout seconds for the path to clear; if still
+    #     blocked after the timeout, the phase aborts.
+    #   - DURING the phase, the same check runs every control-loop
+    #     iteration. Same wait-or-abort behaviour.
+    #
+    # Phase 5 (IBVS final approach onto the dock) deliberately skips this
+    # — the dock itself is "an obstacle" we are approaching on purpose.
+    # The centring scan / spin-in-place phases also skip it (no translation
+    # into anything).
+    #
+    # The check is purely angular: a cone centred on the forward axis
+    # (0 rad) or backward axis (π rad), with the configured half-width.
+    # Angles are interpreted in the LIDAR scan frame; assumes the LIDAR
+    # is roughly aligned with base_link forward (a small lateral offset
+    # does not change the cone meaningfully).
+    obstacle_check_enabled: true
+    # Use /scan_filtered (Nav2's scan_body_filter chain) — it chops the
+    # angular sector where the LIDAR sees the robot's own enclosure (rear
+    # ±40°), so close-range returns inside the kept sector are GENUINE
+    # obstacles, not self-reflections. This is angle-based filtering, the
+    # correct primitive: a distance-based floor (obstacle_min_range > 0)
+    # would silently ignore a real near obstacle inside the body-filter
+    # sector, which is unsafe.
+    #
+    # The forward cone is the only direction we guard: the rear ±40° is
+    # blank on /scan_filtered (chopped sector), so a backward check would
+    # be a no-op. Undock therefore proceeds without rear guard — see
+    # `run_undock_sequence` docstring for the rear-sensor prerequisite
+    # before re-introducing one.
+    obstacle_scan_topic: /scan_filtered
+    obstacle_forward_distance: 0.6           # m — stop if obstacle within this distance ahead
+    obstacle_arc_half_width_deg: 30.0        # deg — half-width of the detection cone (so a full 60° arc)
+    obstacle_wait_timeout: 10.0              # s — max wait before aborting the phase
+    obstacle_check_period: 0.2               # s — poll period while waiting for the path to clear
+    # Range floor — kept at 0 (disabled) because self-reflections from the
+    # robot's body are already removed by /scan_filtered (angle-based filter
+    # in scan_body_filter). Do NOT raise this above scan.range_min: a >0
+    # floor would silently ignore real obstacles closer than the floor
+    # inside the angular sector kept by the body filter.
+    obstacle_min_range: 0.0                  # m — 0 = disabled (rely on /scan_filtered)

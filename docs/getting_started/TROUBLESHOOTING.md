@@ -546,10 +546,10 @@ Common causes:
 
 ### Tag Is Detected but Dock Pose Is Missing
 
-Check TF:
+Check TF (the dock has a 3-tag bundle — tag 1 is the centre, the docking target):
 
 ```bash
-ros2 run tf2_ros tf2_echo map charging_dock_apriltag
+ros2 run tf2_ros tf2_echo map charging_dock_tag_1
 ```
 
 If this fails, check the full TF chain:

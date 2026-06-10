@@ -2,12 +2,18 @@
 <sdf version="1.9">
   <model name="apriltag_dock">
     <static>true</static>
+    <!-- Three coplanar AprilTags (36h11 id0/id1/id2) in a row, same height,
+         all 0.20 m panels (0.16 m black-square edge → tags_36h11_sim.yaml size).
+         id1 (centre, y=0) is the dock target the robot drives onto and the tag
+         the final corrector tracks. id0/id2 (outer, y=±0.45) give a wide
+         baseline (0.90 m) whose observed centres yield a precise dock normal. -->
     <link name="link">
-      <visual name="visual">
+      <visual name="visual_tag0">
+        <pose>0 -0.45 0 0 0 0</pose>
         <cast_shadows>false</cast_shadows>
         <geometry>
           <box>
-            <size>0.001 0.30 0.30</size>
+            <size>0.001 0.20 0.20</size>
           </box>
         </geometry>
         <material>
@@ -23,10 +29,52 @@
           </pbr>
         </material>
       </visual>
+      <visual name="visual_tag1">
+        <pose>0 0 0 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <box>
+            <size>0.001 0.20 0.20</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0 0 0 0</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://apriltag_dock/materials/textures/apriltag_36h11_id1.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>1.0</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name="visual_tag2">
+        <pose>0 0.45 0 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <box>
+            <size>0.001 0.20 0.20</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0 0 0 0</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://apriltag_dock/materials/textures/apriltag_36h11_id2.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>1.0</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
       <collision name="collision">
         <geometry>
           <box>
-            <size>0.001 0.30 0.30</size>
+            <size>0.001 1.10 0.20</size>
           </box>
         </geometry>
       </collision>
