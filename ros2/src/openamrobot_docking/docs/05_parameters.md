@@ -81,28 +81,16 @@ Read by `scripts/dock_trigger.py`. Every parameter is also commented in-place in
 | `drive_rate_hz` | `20.0` | Control loop rate for phases 2/3/4/5. |
 | `cmd_vel_topic` | `/cmd_vel` | Topic where dock_trigger publishes `Twist`. Direct to `/cmd_vel` because Raj's Nav2 doesn't run a `velocity_smoother` on `/cmd_vel_nav`. |
 
-### Phase 4 — robust running-average update (legacy filter retained)
+### Image-frame visual servo (used by Phase 5 NEAR regime)
 
-The running-average tag pose is refined during Phase 4 by each fresh detection (the centre tag). Two safeguards make the update **robust against noisy near-field detections**:
-
-| Parameter | Default | Meaning |
-|---|---|---|
-| `refinement_outlier_threshold` | `0.30` | A new detection more than this many metres from the current running-average position is SKIPPED. Typical jitter is ~5 cm; 0.30 m catches gross glitches without dropping good samples. Set to 0 to disable. |
-| `refinement_weight_min` | `0.1` | Lower bound on the per-sample weight in the distance-weighted mean. |
-| `refinement_weight_full_distance` | `1.5` | Distance (m) at which a sample contributes full weight (=1.0). Closer samples have weight = `clamp(distance / full_distance, weight_min, 1.0)`. |
-
-### Phase 4 — visual-servo handover (legacy)
-
-These knobs control the legacy single-tag visual-servo handover (kept for fallback). The current pipeline (Phase 5 below) supersedes this for the bundle approach.
+Once the dock axis is frozen (Phase 5 NEAR), the heading controller closes the loop on the **image-frame angle** to the centre tag. Map-frame solvePnP is biased in the near field, but the image-frame angle is self-consistent — keeping the tag centred in the image = aiming straight at the dock.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `line_stabilization_samples` | `25` | Number of accepted refinements after which the line is "stabilised" and the visual servo takes over. Set to 0 to disable. |
-| `visual_servo_distance` | `1.0` | Distance (m) below which the visual servo takes over regardless of refinement count. Set to 0 to disable. |
 | `visual_servo_kp` | `0.6` | P gain on the image-frame angle: `omega = −visual_servo_kp · atan2(X_optical, Z_optical)`. |
 | `visual_servo_filter_alpha` | `0.2` | Low-pass smoothing on the image-frame angle. `0.0 < alpha ≤ 1.0`. Lower = more smoothing. |
 
-### Camera-centric approach (current bundle path, supersedes the legacy block above)
+### Camera-centric approach (bundle path)
 
 The current path estimates the dock surface **normal** from the outer tags' wide baseline (0/2, 90 cm apart), goes to a point on that normal, re-verifies, then runs a two-regime final approach (axis-averaged FAR → axis-frozen visual-servo NEAR on the centre tag). See [`13_perception_and_line.md`](13_perception_and_line.md) §6 and [`14_docking_research.md`](14_docking_research.md) §6.
 
@@ -114,7 +102,6 @@ The current path estimates the dock surface **normal** from the outer tags' wide
 | `normal_tolerance_deg` | `5.0` | deg — agreement threshold between the first and second normal estimates. |
 | `obs_lateral` | `0.5` | m — side offset for the second observation viewpoint. |
 | `obs_distance` | `2.0` | m from the tag for the second observation. |
-| `visual_servo_min_depth` | `0.18` | m camera→tag (legacy; **unused** by the two-regime Phase 5 — kept until the YAML is pruned). |
 | `freeze_axis_distance` | `0.70` | m camera→centre tag. Phase 5 hand-over: FAR (> this) → average the 3-tag axis + pure-pursuit it; NEAR (≤ this) → freeze the axis, finish on the centre-tag visual corrector. Freezing kills the close-range zig-zag from noisy near estimates. |
 | `axis_filter_alpha` | `0.40` | EMA weight for the live axis estimate (FAR regime). Weight grows as the robot gets closer (weight ∝ predock_distance/depth, capped) so nearer/more-accurate samples dominate the early far ones. Higher = more reactive/noisier. |
 
@@ -153,7 +140,6 @@ Behaviour:
 - **Robot oscillates near the line** → increase `line_lookahead_distance` (smoother heading) or decrease `line_yaw_kp`.
 - **Robot converges too slowly to the line** → decrease `line_lookahead_distance` or increase `line_yaw_kp` (watch `drive_yaw_max_omega` saturation).
 - **Visual servo wobbles near the dock** → lower `visual_servo_kp` (e.g. 0.4) or lower `visual_servo_filter_alpha` (e.g. 0.1).
-- **One bad detection visibly shifts the line** → tighten `refinement_outlier_threshold` (e.g. 0.20 m).
 - **Robot zig-zags in the last 70 cm** → lower `axis_filter_alpha` (more smoothing) or raise `freeze_axis_distance` so the axis-frozen regime kicks in sooner.
 - **Normal estimation disagrees too often (re-verify loop runs)** → check the bundle textures aren't blurry, raise `predock_distance` (cleaner samples), or relax `normal_tolerance_deg`.
 - **Phase 2 timeouts** → either the bundle isn't in the camera, or the detector isn't getting synced `/camera_info_synced` (see [`09_troubleshooting.md`](09_troubleshooting.md)).

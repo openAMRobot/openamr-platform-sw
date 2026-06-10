@@ -115,7 +115,7 @@
                                          # Camera-centric pipeline (docs §6) stops
                                          # here. The tag leaves the FOV before this,
                                          # so the last stretch is a blind straight
-                                         # advance (see visual_servo_min_depth).
+                                         # advance (odometry-measured).
     drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
     line_yaw_kp: 2.5                    # rad/s per rad of (desired_yaw − robot_yaw)
     line_lookahead_distance: 0.3        # m — pure-pursuit lookahead on the perpendicular line.
@@ -125,69 +125,19 @@
     drive_yaw_max_omega: 0.3            # rad/s clamp on omega
     drive_rate_hz: 20.0                 # Hz control loop frequency
 
-    # Distance (m) below which Phase 4 switches from map-frame line
-    # tracking to camera-frame visual servoing.
+    # Image-frame visual servo (used by Phase 5 NEAR regime, once the dock
+    # axis is frozen). The heading controller closes the loop on the
+    # IMAGE-FRAME angle to the centre tag:
     #
-    # Above this distance:
-    #   The robot tracks the perpendicular line through the running-
-    #   average tag (pure-pursuit). The average keeps refining the line.
+    #     omega = -visual_servo_kp · atan2(X_optical, Z_optical)
     #
-    # Below this distance:
-    #   The running average is frozen. The heading controller switches
-    #   to a closed-loop on the IMAGE-FRAME angle to the tag:
-    #
-    #       omega = -visual_servo_kp · atan2(X_optical, Z_optical)
-    #
-    #   This keeps the tag centred in the image even when map-frame
-    #   solvePnP becomes biased in the near field (corners hugging the
-    #   edge of the FOV). "Keep the tag centred in the camera" is
-    #   directly equivalent to "drive straight toward the tag", so this
-    #   produces a clean head-on final approach.
-    #
-    # Set to 0 to disable visual servoing (line tracking all the way).
-    visual_servo_distance: 1.0
+    # Map-frame solvePnP becomes biased in the near field (corners hugging
+    # the edge of the FOV), but the image-frame angle is self-consistent.
+    # Keeping the tag centred in the image = aiming straight at the dock.
+    # The low-pass filter rejects single-frame solvePnP spikes.
     visual_servo_kp: 0.6                # rad/s per rad of image-frame angle
-    # Number of fresh Phase-4 detections accepted before the line is
-    # declared "stabilised" and the visual servo takes over. The first
-    # batch of Phase-4 samples are taken while the robot is still far
-    # from the dock (cleanest detections); once we have enough of them
-    # the line is locked and we don't refine it any further with the
-    # noisier near-field samples. Set to 0 to disable the count-based
-    # trigger (only visual_servo_distance will then drive the handover).
-    line_stabilization_samples: 25
-    # Low-pass smoothing on the image-frame angle. alpha = 0.2 means
-    # each new measurement contributes 20% to the filtered value
-    # (time constant ≈ 5 detection frames ≈ 0.35 s at 14 Hz). Lower
-    # values reject more noise but respond slower; alpha = 1.0
-    # disables filtering entirely.
-    visual_servo_filter_alpha: 0.2
+    visual_servo_filter_alpha: 0.2      # lower = more smoothing, slower response
 
-    # ─── Phase 4 — robust running-average update ─────────────────────────────
-    # Two safeguards keep noisy/outlier detections from corrupting the
-    # running-average line during Phase 4:
-    #
-    # 1) OUTLIER REJECTION. A new detection that lands more than this
-    #    many metres from the current running-average position (in XY)
-    #    is dropped (logged as a warning). Typical legitimate solvePnP
-    #    jitter is ~5 cm, so 0.30 m is a generous cutoff that catches
-    #    the gross single-frame glitches without dropping good samples.
-    #    Set to 0 to disable.
-    refinement_outlier_threshold: 0.30
-    #
-    # 2) DISTANCE-WEIGHTED MEAN. The running mean is a weighted average
-    #    of ALL accepted detections. Far-field samples (cleaner, tag
-    #    well inside the FOV) contribute more weight than near-field
-    #    samples (noisier corners at the FOV edges). Weight is linear
-    #    in distance-to-tag, clamped to [refinement_weight_min, 1.0]:
-    #
-    #       weight = clamp(distance / full_distance, min, 1.0)
-    #
-    #    With min=0.1 and full_distance=1.5:
-    #       sample @ 1.5 m → weight 1.0   (full)
-    #       sample @ 0.75 m → weight 0.5
-    #       sample @ 0.15 m → weight 0.1  (floor)
-    refinement_weight_min: 0.1
-    refinement_weight_full_distance: 1.5
     # Raj's Nav2 stack does NOT run a velocity_smoother that subscribes to
     # /cmd_vel_nav, so publishing there is a dead end (0 subscribers). We
     # publish straight to /cmd_vel which the gz bridge forwards to the
@@ -227,11 +177,6 @@
     normal_tolerance_deg: 5.0          # deg — N vs N' agreement threshold
     obs_lateral: 0.5                   # m — side offset for the 2nd observation
     obs_distance: 2.0                  # m from the tag for the 2nd observation
-    # Final approach: visual-servo down to this camera→tag depth, then a blind
-    # straight advance (odometry-measured) to docking_distance. Set just above
-    # the depth where the 0.30 m tag leaves the camera FOV.
-    visual_servo_min_depth: 0.18       # m camera→tag (legacy; unused by the
-                                        # two-regime Phase 5)
     # Phase 5 hand-over: FAR (> this) average the 3-tag axis + pure-pursuit it;
     # NEAR (≤ this) freeze the axis and finish on the centre-tag visual
     # corrector. Freezing kills the close-range zig-zag (noisy near estimates).
