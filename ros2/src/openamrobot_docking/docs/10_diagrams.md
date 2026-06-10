@@ -72,12 +72,13 @@ graph LR
     DPP -->|/detected_dock_pose| TRIG[dock_trigger.py<br/>bundle sequencer]
     TFTREE -->|3× outer + centre direct lookup| TRIG
 
-    SCAN --> NAV2[Nav2 stack]
+    SCAN --> SBF[scan_body_filter<br/>chops rear ±40°]
+    SBF --> NAV2[Nav2 stack]
     AMCL --> NAV2
     TRIG -->|NavigateToPose phase 1| NAV2
     NAV2 -->|/cmd_vel| BR
     TRIG -->|/cmd_vel direct phases 2-5| BR
-    SCAN -.->|obstacle guard| TRIG
+    SBF -.->|forward-cone obstacle guard| TRIG
   end
 ```
 
@@ -175,7 +176,7 @@ graph LR
   TRIG[dock_trigger.py phases 2-5] -->|/cmd_vel direct| BR
   BR[ros_gz_bridge] -->|gz /cmd_vel| DD[DiffDrive plugin]
   DD -->|wheel torques| GZ[Gazebo physics]
-  SCAN[/scan/] -.->|obstacle guard| TRIG
+  SCAN[/scan_filtered/<br/>= /scan minus rear ±40°<br/>scan_body_filter] -.->|obstacle guard| TRIG
 ```
 
 > Phase 1 uses the Nav2 `NavigateToPose` action (its internal cmd_vel is published by Nav2's controller_server and routed through the Nav2 internals to `/cmd_vel`). Phases 2–5 publish **directly on `/cmd_vel`** because Raj's Nav2 stack does not run a `velocity_smoother` subscribed to `/cmd_vel_nav` — there is no smoothing layer to go through. To compensate for the missing `collision_monitor` on the direct path, the bundle sequencer runs its own LIDAR-cone obstacle guard (see [`05_parameters.md`](05_parameters.md), "Obstacle guard"). The guard is **off during Phase 5** — the dock is the target.

@@ -167,7 +167,7 @@ End state: the robot is **stopped ~0.15 m camera→tag depth in front of the cen
 | `apriltag_node` shows `Synchronized pairs: 0` | The `camera_info_sync` node isn't running, or `/camera_info_synced` isn't being produced. `ros2 topic hz /camera_info_synced` should match `/rgb_image` rate. |
 | Robot moves in RViz but not in Gazebo | `ros2 topic info /cmd_vel` — does the bridge subscribe? |
 | Final approach stops 2 m short | Tag size mismatch — check `config/tags_36h11_sim.yaml` `size: 0.16` (= the 0.20 m panel × 0.8 black-square edge) matches `models/apriltag_dock/model.sdf` |
-| Robot stops mid-approach with "obstacle blocking" | The new LIDAR obstacle guard fired. Check `/scan` for spurious returns, or widen `obstacle_arc_half_width_deg` |
+| Robot stops mid-approach with "obstacle blocking" | The new LIDAR obstacle guard fired. Check `/scan_filtered` for spurious returns (it's `/scan` minus the rear ±40° body-filter sector), or widen `obstacle_arc_half_width_deg` |
 
 Full troubleshooting matrix in [`09_troubleshooting.md`](09_troubleshooting.md).
 

@@ -143,7 +143,7 @@ Behaviour:
 - **Robot zig-zags in the last 70 cm** → lower `axis_filter_alpha` (more smoothing) or raise `freeze_axis_distance` so the axis-frozen regime kicks in sooner.
 - **Normal estimation disagrees too often (re-verify loop runs)** → check the bundle textures aren't blurry, raise `predock_distance` (cleaner samples), or relax `normal_tolerance_deg`.
 - **Phase 2 timeouts** → either the bundle isn't in the camera, or the detector isn't getting synced `/camera_info_synced` (see [`09_troubleshooting.md`](09_troubleshooting.md)).
-- **Robot stops during dock approach with "obstacle blocking"** → check `/scan` for spurious returns; widen `obstacle_arc_half_width_deg` if the cone is too narrow, or raise `obstacle_forward_distance` for a safer stand-off.
+- **Robot stops during dock approach with "obstacle blocking"** → check `/scan_filtered` (the angle-filtered scan the guard reads, not the raw `/scan`) for spurious returns; widen `obstacle_arc_half_width_deg` if the cone is too narrow, or raise `obstacle_forward_distance` for a safer stand-off.
 
 ---
 
