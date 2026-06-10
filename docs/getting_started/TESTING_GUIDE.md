@@ -367,11 +367,12 @@ ros2 topic hz /camera_info_synced
 ros2 topic echo /apriltag/detections --once
 ```
 
-Check dock pose:
+Check dock pose (the dock has a 3-tag bundle — tag 1 is the centre, the docking target;
+`/detected_dock_pose` is the centre tag's pose republished in `map`):
 
 ```bash
 ros2 topic echo /detected_dock_pose --once
-ros2 run tf2_ros tf2_echo map charging_dock_apriltag
+ros2 run tf2_ros tf2_echo map charging_dock_tag_1
 ```
 
 Test undock:
