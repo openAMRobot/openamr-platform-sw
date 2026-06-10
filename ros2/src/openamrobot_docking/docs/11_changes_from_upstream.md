@@ -307,14 +307,14 @@ After the initial fixes documented above, the repository was extended with a **c
 | `launch/apriltag_sim.launch.yml` | apriltag_ros launch for sim (no `camera_ros`) |
 | `scripts/kill_sim.sh` | SIGKILL cleanup helper for zombie sim processes |
 | `docs/12_lessons_learned.md` | Story of every sim issue encountered + fix |
-| `docs/08_sequencer_4phase.md` | Description of the 4-phase sequencer |
+| `docs/08_legacy_sequencer.md` | Description of the 4-phase sequencer |
 | `tag0_big.png` | 200×200 px tag36h11 image, mapped onto the AprilTag panel |
 
 ### Changed files
 
 | File | What changed |
 |---|---|
-| `scripts/dock_trigger.py` | **Completely rewritten** as a 4-phase sequencer (Nav2 to staging → camera-frame centring scan + running-average filter → align spin → line-tracking pure-pursuit then final-align + straight-line). Earlier iterations included a 7-phase pipeline with auto-calibration low-pass and a reverse-and-realign safety loop; both were retired in favour of the continuous pure-pursuit controller. See `08_sequencer_4phase.md`. |
+| `scripts/dock_trigger.py` | **Completely rewritten** as a 4-phase sequencer (Nav2 to staging → camera-frame centring scan + running-average filter → align spin → line-tracking pure-pursuit then final-align + straight-line). Earlier iterations included a 7-phase pipeline with auto-calibration low-pass and a reverse-and-realign safety loop; both were retired in favour of the continuous pure-pursuit controller. See `08_legacy_sequencer.md`. |
 | `config/dock_trigger.yaml` | Now declares: dock pose, staging distance, scan parameters (`scan_rotation_speed`, `scan_consecutive_target`, `scan_centring_tolerance`, `scan_centring_kp`), filter parameters (`filter_num_samples`, `filter_max_collect_time`), spin parameters (`spin_kp`, `spin_max_omega`, `spin_yaw_tolerance`), line-tracking parameters (`drive_speed`, `line_yaw_kp`, `line_lookahead_distance`, `drive_yaw_max_omega`, `docking_distance`). |
 | `CMakeLists.txt` | Installs `simulation/` directory and `dock_trigger.py`/`kill_sim.sh` scripts |
 | `package.xml` | Added `slam_toolbox`, `ros_gz_sim`, `ros_gz_bridge`, `ros_gz_image`, `nav2_msgs`, `tf2_ros`, `openamrobot_description`, `xacro` dependencies |

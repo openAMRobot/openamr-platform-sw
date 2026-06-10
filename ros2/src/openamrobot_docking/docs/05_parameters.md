@@ -11,7 +11,7 @@ config/
 └── docking_pose_publisher.yaml    ← TF → PoseStamped publisher (centre tag)
 ```
 
-> **Note** — the package previously shipped a 4-phase single-tag pipeline; that legacy is preserved in [`08_sequencer_4phase.md`](08_sequencer_4phase.md). The values below describe the **current** bundle (3-tag) pipeline. The newer architectural framing lives in [`13_perception_and_line.md`](13_perception_and_line.md) and [`14_docking_research.md`](14_docking_research.md).
+> **Note** — the package previously shipped a 4-phase single-tag pipeline; that legacy is preserved in [`08_legacy_sequencer.md`](08_legacy_sequencer.md). The values below describe the **current** bundle (3-tag) pipeline. The newer architectural framing lives in [`13_perception_and_line.md`](13_perception_and_line.md) and [`14_docking_research.md`](14_docking_research.md).
 
 ---
 

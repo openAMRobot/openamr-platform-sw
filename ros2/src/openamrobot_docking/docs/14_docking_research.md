@@ -982,11 +982,11 @@ The docking research in this document is part of a larger documentation set insi
 | `03_tf_frames.md` | TF frames used (map, base_link, camera_optical_frame, charging_dock_tag_*) |
 | `04_apriltag.md` | AprilTag configuration and tuning |
 | `05_parameters.md` | All `dock_trigger` parameters explained |
-| `08_sequencer_4phase.md` | **Legacy** notes on the original 4-phase single-tag pipeline. Superseded by the bundle architecture in §6 of this document; kept for historical context only. |
+| `08_legacy_sequencer.md` | **Legacy** notes on the original 4-phase single-tag pipeline. Superseded by the bundle architecture in §6 of this document; kept for historical context only. |
 | `13_perception_and_line.md` | The perception pipeline (camera → AprilTag → bundle pose) and the line/normal estimation. This document supersedes the design discussion there with a vendor-agnostic framing. |
 | **14_docking_research.md** | **(this document)** Research, architectures, validation plan, failure modes, calibration |
 
-The older documents (especially `08_sequencer_4phase.md` and `13_perception_and_line.md`) describe earlier design iterations of the same pipeline. Where they appear to conflict with this document, this one reflects the more recent design framing; the older docs will be reconciled to it in the next implementation cycle so the package documentation stays internally consistent.
+The older documents (especially `08_legacy_sequencer.md` and `13_perception_and_line.md`) describe earlier design iterations of the same pipeline. Where they appear to conflict with this document, this one reflects the more recent design framing; the older docs will be reconciled to it in the next implementation cycle so the package documentation stays internally consistent.
 
 ---
 

@@ -36,7 +36,7 @@ This project follows a simple changelog structure:
 - `dock_trigger.yaml` defaults retuned for the bundle pipeline: `staging_distance: 2.0` (was `2.5`), `docking_distance: 0.15` (was `0.9` — this is now the final **camera→tag depth**, not a map-frame distance), `spin_max_omega: 0.5` (was `0.3` — undock 180° was timing out).
 - `package.xml` — `<exec_depend>visualization_msgs</exec_depend>` added for the debug markers.
 - Beginner docs realigned with the bundle frame: `docs/architecture/ARCHITECTURE_OVERVIEW.md`, `docs/getting_started/TESTING_GUIDE.md`, `docs/getting_started/TROUBLESHOOTING.md`, and the root `README.md`.
-- Package docs realigned with the bundle pipeline: `docs/05_parameters.md` (rewritten), `docs/03_tf_frames.md`, `docs/09_troubleshooting.md`, `docs/10_diagrams.md`, `docs/01_quickstart.md`, `docs/00_overview.md`, `docs/README.md`. The legacy single-tag docs (`02_architecture.md`, `04_apriltag.md`, `06_camera_calibration.md`, `07_reproduce_results.md`, `08_sequencer_4phase.md`) are kept verbatim with a "legacy" banner pointing to docs 13 + 14.
+- Package docs realigned with the bundle pipeline: `docs/05_parameters.md` (rewritten), `docs/03_tf_frames.md`, `docs/09_troubleshooting.md`, `docs/10_diagrams.md`, `docs/01_quickstart.md`, `docs/00_overview.md`, `docs/README.md`. The legacy single-tag docs (`02_architecture.md`, `04_apriltag.md`, `06_camera_calibration.md`, `07_reproduce_results.md`, `08_legacy_sequencer.md`) are kept verbatim with a "legacy" banner pointing to docs 13 + 14.
 
 ### Added — earlier work (original single-tag pipeline)
 
@@ -93,7 +93,7 @@ This project follows a simple changelog structure:
   - `architecture/01_repo_layout.md` — repo + dependency graph + what-goes-where rule
   - per-domain pointers: `docs/docking/`, `docs/simulation/`, `docs/navigation/`, `docs/safety/`
 - **Package docs** under `ros2/src/openamrobot_docking/docs/`:
-  - 13 in-depth engineering documents (00 → 12), including `08_sequencer_4phase.md` (4-phase walkthrough), `09_troubleshooting.md` (symptom → cause → fix matrix), `12_lessons_learned.md` (24-lesson pedagogical write-up)
+  - 13 in-depth engineering documents (00 → 12), including `08_legacy_sequencer.md` (4-phase walkthrough), `09_troubleshooting.md` (symptom → cause → fix matrix), `12_lessons_learned.md` (24-lesson pedagogical write-up)
   - `legacy/` subfolder preserving the 9 original `controlled_approach`-era docs verbatim
 - **AUTHORS.md** — full attribution chain (Brawner → Dhakal → Indulkar → this revision, plus Alex for the platform monorepo scaffolding).
 - **NOTICE.md** — third-party assets and the OpenAMRobot URDF/mesh provenance documented.

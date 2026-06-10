@@ -5,7 +5,7 @@ pose is measured *between*, and how the docking sequencer turns it into the
 **perpendicular approach line** that Phase 4 tracks. Ends with how to
 visualise that line live in RViz.
 
-See also: [`08_sequencer_4phase.md`](08_sequencer_4phase.md) for the phase-by-phase
+See also: [`08_legacy_sequencer.md`](08_legacy_sequencer.md) for the phase-by-phase
 control, [`03_tf_frames.md`](03_tf_frames.md) for the full TF chain.
 
 ---
@@ -128,7 +128,7 @@ offset → steering command.**
   robust to the near-field solvePnP bias because it tracks where the tag *is* in
   the camera, not where map-frame solvePnP thinks it is.
 
-See [`08_sequencer_4phase.md`](08_sequencer_4phase.md) and
+See [`08_legacy_sequencer.md`](08_legacy_sequencer.md) and
 [`05_parameters.md`](05_parameters.md) for the gains and the handover triggers.
 
 ---
@@ -216,7 +216,7 @@ gz service -l | grep marker          # is /marker_array (or /marker) advertised?
 
 > Status: **implemented in `dock_trigger.py`**, replacing the old Phase 4
 > line-tracking. Build passes; behaviour still needs on-robot/sim tuning. The
-> phase-by-phase doc [`08_sequencer_4phase.md`](08_sequencer_4phase.md) describes
+> phase-by-phase doc [`08_legacy_sequencer.md`](08_legacy_sequencer.md) describes
 > the *previous* pipeline and is now partly out of date for the approach stage.
 
 ### Motivation

@@ -11,7 +11,7 @@ detection backbone:
 - **Simulation** — uses a **custom 4-phase sequencer** in `dock_trigger.py`
   that performs `Nav2 → scan/filter → align → line-tracking advance`.
   Bypasses `opennav_docking`'s controller. Detailed in
-  `08_sequencer_4phase.md`.
+  `08_legacy_sequencer.md`.
 
 The current `dock_trigger.py` always runs the 4-phase sequence (it does
 not fall back to the `DockRobot` action). To use `opennav_docking` on
@@ -132,7 +132,7 @@ and `11_changes_from_upstream.md` for why
    4. Line-tracking advance (pure-pursuit) → final align → straight-line
 ```
 
-Read `08_sequencer_4phase.md` for the full implementation rationale and
+Read `08_legacy_sequencer.md` for the full implementation rationale and
 tunables.
 
 The simulation also has `opennav_docking::SimpleChargingDock` configured
@@ -199,7 +199,7 @@ The current `scripts/dock_trigger.py` ALWAYS runs the 4-phase sequence:
 
 ```python
 on /dock_trigger == true:
-    run_docking_sequence()      # phases 1..4, see 08_sequencer_4phase.md
+    run_docking_sequence()      # phases 1..4, see 08_legacy_sequencer.md
 on /dock_trigger == false and undock_on_false:
     DockRobot action UndockRobot goal to opennav_docking
 ```

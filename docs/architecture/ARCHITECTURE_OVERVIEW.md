@@ -9,7 +9,7 @@ For detailed docking internals, see:
 ```text
 ros2/src/openamrobot_docking/docs/02_architecture.md
 ros2/src/openamrobot_docking/docs/03_tf_frames.md
-ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md
+ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md
 ```
 
 ---
@@ -421,7 +421,7 @@ ros2 topic pub /undock_robot std_msgs/msg/Bool "{data: true}" --once
 For phase-level detail:
 
 ```text
-ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md
+ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md
 ```
 
 ---
@@ -481,5 +481,5 @@ Use these rules when changing the architecture:
 | Docking parameters | `ros2/src/openamrobot_docking/docs/05_parameters.md` |
 | Perception + perpendicular line + RViz/Gazebo markers | `ros2/src/openamrobot_docking/docs/13_perception_and_line.md` |
 | Vendor-agnostic precision-docking research | `ros2/src/openamrobot_docking/docs/14_docking_research.md` |
-| Legacy 4-phase sequencer notes (superseded by the bundle pipeline) | `ros2/src/openamrobot_docking/docs/08_sequencer_4phase.md` |
+| Legacy 4-phase sequencer notes (superseded by the bundle pipeline) | `ros2/src/openamrobot_docking/docs/08_legacy_sequencer.md` |
 | Docking troubleshooting | `ros2/src/openamrobot_docking/docs/09_troubleshooting.md` |

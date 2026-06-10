@@ -57,7 +57,7 @@ openamrobot_docking/
     ├── 05_parameters.md                           every dock_trigger.yaml knob
     ├── 06_camera_calibration.md                   intrinsics flow (real robot)
     ├── 07_reproduce_results.md                    repro checklist
-    ├── 08_sequencer_4phase.md                     legacy 4-phase pipeline notes
+    ├── 08_legacy_sequencer.md                     legacy 4-phase pipeline notes
     ├── 09_troubleshooting.md                      symptom → cause → fix
     ├── 10_diagrams.md                             block / TF / state diagrams
     ├── 11_changes_from_upstream.md                what differs from upstream
@@ -174,7 +174,7 @@ If you only have 5 minutes:
 If you're tuning the controller or hitting a behavioural issue:
 - [`docs/13_perception_and_line.md`](docs/13_perception_and_line.md) — how the bundle pose and the perpendicular line are built (and visualised in RViz / Gazebo)
 - [`docs/05_parameters.md`](docs/05_parameters.md) — every `dock_trigger.yaml` knob
-- [`docs/08_sequencer_4phase.md`](docs/08_sequencer_4phase.md) — notes on the legacy 4-phase pipeline (kept for context)
+- [`docs/08_legacy_sequencer.md`](docs/08_legacy_sequencer.md) — notes on the legacy 4-phase pipeline (kept for context)
 
 If you're working on the precision / robustness arc:
 - [`docs/14_docking_research.md`](docs/14_docking_research.md) — vendor-agnostic precision-docking research (chargers, sensing methods, validation protocol, failure modes, calibration & commissioning)

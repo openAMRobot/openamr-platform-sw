@@ -263,4 +263,4 @@ Order of impact, biggest first:
 5. **`pose_estimation_method`** — `pnp` (default) is more accurate than `homography` for non-planar rigs but slightly slower. Keep `pnp`.
 6. **Lighting / contrast** — ensure the tag is well-lit with no glare; matte print surface beats glossy.
 
-Beyond detection-side tuning, the 4-phase sequencer does **closed-loop image centring** in phase 2 (tag must be within 2° of image centre before sampling starts) and **incremental running-average filtering** throughout phase 2 and phase 4 (`filter_num_samples: 40`, then continuous updates) to further reduce noise — see [`08_sequencer_4phase.md`](08_sequencer_4phase.md).
+Beyond detection-side tuning, the 4-phase sequencer does **closed-loop image centring** in phase 2 (tag must be within 2° of image centre before sampling starts) and **incremental running-average filtering** throughout phase 2 and phase 4 (`filter_num_samples: 40`, then continuous updates) to further reduce noise — see [`08_legacy_sequencer.md`](08_legacy_sequencer.md).

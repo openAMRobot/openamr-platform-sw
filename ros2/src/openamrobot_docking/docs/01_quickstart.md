@@ -168,7 +168,7 @@ Full troubleshooting matrix in [`09_troubleshooting.md`](09_troubleshooting.md).
 - [`14_docking_research.md`](14_docking_research.md) — design rationale, validation plan, failure modes
 - [`07_reproduce_results.md`](07_reproduce_results.md) — exact reproduction checklist
 - [`10_diagrams.md`](10_diagrams.md) — block + state diagrams
-- [`08_sequencer_4phase.md`](08_sequencer_4phase.md) — historical context (legacy single-tag pipeline)
+- [`08_legacy_sequencer.md`](08_legacy_sequencer.md) — historical context (legacy single-tag pipeline)
 
 ---
 
