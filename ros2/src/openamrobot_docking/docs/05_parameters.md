@@ -124,7 +124,6 @@ The sequencer publishes `cmd_vel` straight to the robot, bypassing Nav2's `colli
 | `obstacle_check_enabled` | `true` | Master switch. |
 | `obstacle_scan_topic` | `/scan_filtered` | LIDAR `LaserScan` topic. Default is the angle-filtered scan from Nav2's `scan_body_filter` chain — it chops the angular sector where the LIDAR sees the robot's enclosure, so close returns inside the kept sector are guaranteed to be real obstacles, not self-reflections. Falling back to raw `/scan` is risky: a distance-based floor (`obstacle_min_range` > 0) would mask real near obstacles. |
 | `obstacle_forward_distance` | `0.6` | m — stop if an obstacle is within this distance ahead. |
-| `obstacle_backward_distance` | `0.6` | m — stop if an obstacle is within this distance behind. |
 | `obstacle_arc_half_width_deg` | `30.0` | deg — half-width of the detection cone (so a full 60° arc). |
 | `obstacle_wait_timeout` | `10.0` | s — max wait for the path to clear before aborting the phase. |
 | `obstacle_check_period` | `0.2` | s — poll period while waiting. |

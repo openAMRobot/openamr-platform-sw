@@ -251,7 +251,10 @@ class DockTrigger(Node):
         self.declare_parameter('obstacle_check_enabled', True)
         self.declare_parameter('obstacle_scan_topic', '/scan_filtered')
         self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
-        self.declare_parameter('obstacle_backward_distance', 0.6)       # m — stop if obstacle within this distance behind
+        # No obstacle_backward_distance: scan_body_filter chops the rear ±40°
+        # angular sector, so /scan_filtered is always +inf in the rear cone
+        # and a backward check would be a no-op. See run_undock_sequence
+        # docstring for the rationale and the rear-sensor prerequisite.
         self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
         self.declare_parameter('obstacle_wait_timeout', 10.0)           # s — max wait before aborting
         self.declare_parameter('obstacle_check_period', 0.2)            # s — poll period while waiting
@@ -319,7 +322,6 @@ class DockTrigger(Node):
         self.obstacle_check_enabled = bool(self.get_parameter('obstacle_check_enabled').value)
         self.obstacle_scan_topic = self.get_parameter('obstacle_scan_topic').value
         self.obstacle_forward_distance = float(self.get_parameter('obstacle_forward_distance').value)
-        self.obstacle_backward_distance = float(self.get_parameter('obstacle_backward_distance').value)
         self.obstacle_arc_half_width = math.radians(
             float(self.get_parameter('obstacle_arc_half_width_deg').value))
         self.obstacle_wait_timeout = float(self.get_parameter('obstacle_wait_timeout').value)
@@ -811,19 +813,18 @@ class DockTrigger(Node):
     def run_undock_sequence(self) -> bool:
         """Reverse undock_reverse_distance metres in a straight line, then
         spin 180° in place. Clears is_docked on success.
+
+        No rear obstacle guard: the LIDAR sits on top of the chassis and
+        `scan_body_filter` chops the rear ±40° angular sector (where the
+        body would otherwise reflect every ray). Our LIDAR cannot see what
+        is directly behind the robot, so a "rear cone" check on
+        `/scan_filtered` always reads +inf and would give a false sense of
+        safety. Add a real rear sensor (bumper, rear camera, sonar) before
+        re-introducing a guard here.
         """
         self.get_logger().info(
             f'── UNDOCK: reverse {self.undock_reverse_distance:.2f}m, then spin 180°'
         )
-        # Garde-fou: verify the rear path is clear before starting the reverse.
-        # The 180° in-place spin afterwards does not move the chassis through
-        # space and is not guarded here.
-        if not self._wait_for_path_clear(
-            math.pi, self.obstacle_backward_distance,
-            self.obstacle_wait_timeout, 'undock pre-check'
-        ):
-            self.get_logger().error('   undock aborted: rear path blocked')
-            return False
         if not self._reverse_distance(self.undock_reverse_distance):
             self.get_logger().error('   undock reverse failed')
             return False
@@ -850,6 +851,13 @@ class DockTrigger(Node):
     def _reverse_distance(self, dist: float, max_extra_time: float = 10.0) -> bool:
         """Drive straight backward until the robot has travelled `dist` metres
         from its starting position (measured in the map frame). No steering.
+
+        No rear obstacle guard during the reverse — the LIDAR cannot see
+        what is behind the robot (`scan_body_filter` chops the rear ±40°
+        angular sector). The reverse is short (default 1.5 m) and on a
+        known piece of floor in the docking scenario; adding a rear
+        sensor is the prerequisite for re-introducing a per-iteration
+        backward check here.
         """
         period = 1.0 / self.drive_rate_hz
         pose0 = self.lookup_robot_pose()
@@ -860,15 +868,6 @@ class DockTrigger(Node):
         deadline = time.time() + dist / speed + max_extra_time
 
         while time.time() < deadline:
-            # Obstacle guard (backward cone). Important during undock —
-            # someone behind the robot is the prototypical surprise case.
-            if not self._wait_for_path_clear(
-                math.pi, self.obstacle_backward_distance,
-                self.obstacle_wait_timeout, 'undock reverse'
-            ):
-                self._publish_cmd_vel(0.0, 0.0)
-                return False
-
             pose = self.lookup_robot_pose()
             if pose is None:
                 time.sleep(period)
