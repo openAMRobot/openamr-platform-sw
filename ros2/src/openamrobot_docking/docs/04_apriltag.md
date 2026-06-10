@@ -1,5 +1,7 @@
 # AprilTag — Detection and Dock Placement
 
+> ⚠️ **LEGACY single-tag content.** The detection pipeline and `apriltag_ros` configuration below are still correct, but the dock has since been **redesigned as a 3-tag bundle** (IDs 0/1/2, family 36h11, all on 0.20 m panels with a 0.16 m black-square edge). The YAML examples here show the single-tag configuration; the live `config/tags_36h11_sim.yaml` ships `ids: [0, 1, 2]` with frames `charging_dock_tag_{0, 1, 2}`. See [`13_perception_and_line.md`](13_perception_and_line.md) for how the bundle is consumed by the sequencer (centre tag = docking target; outer tags = wide-baseline normal estimator). The detector tuning advice (decimate, blur, sharpening, sub-pixel refinement) carries over unchanged.
+
 Everything about AprilTag setup: the detection pipeline (both real and simulated), tag configuration files, how to place the tag in the map frame, and tuning for accuracy.
 
 This document consolidates what used to be `02_apriltag_ros.md` (detector config) and `05_dock_setup_map.md` (placing the tag in the map).

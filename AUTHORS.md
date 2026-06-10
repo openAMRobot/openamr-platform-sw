@@ -47,30 +47,31 @@ Recognition is given to contributors whose work has materially shaped this repos
 
 - **Matthieu Vinet** — [@SHuttooo](https://github.com/SHuttooo)
   - **End-to-end integration of the docking pipeline into the platform-software repository.** The simulation, navigation, and robot-description packages were developed independently of the docking package; making them compose into a working end-to-end stack required substantial reconciliation work:
-    - Migrated the 4-phase pipeline from the standalone `openamrobot-docking-main` repository into the integrated `openamr-platform-sw` structure.
+    - Migrated the original 4-phase pipeline from the standalone `openamrobot-docking-main` repository into the integrated `openamr-platform-sw` structure, then **redesigned it as a multi-phase 3-tag bundle pipeline** (see below).
     - Reconciled frame and topic naming conventions between the docking package and the description/simulation packages (`camera_optical_frame` vs `camera_rgb_optical_frame`, `/rgb_image` vs `/camera/image_raw`, `base_link` vs `base_footprint`).
-    - Adapted the 4-phase sequencer parameters to the simulation's world coordinates (dock at map `(4.899, 0)`, approach yaw `0`, staging distance `1.5 m`).
+    - Adapted the sequencer parameters to the simulation's world coordinates (centre tag at map `(4.899, 0, 0.5)`, approach yaw `0`, staging distance `2.0 m`).
     - Replaced the inline `apriltag_dock` model in `walled_world.sdf` (which had a hardcoded absolute texture path that did not resolve on any other machine) with a proper Gazebo model directory + `<include>` for portability across machines.
-    - Bridged the gz `/camera_info` topic into ROS so `apriltag_ros::CameraSubscriber` could synchronise image + intrinsics (the upstream bridge only forwarded `/camera/camera_info`, which the detector's derived path could not find).
+    - Bridged the gz `/camera_info` topic into ROS, then added a **`camera_info_sync.py`** node to stamp camera_info with the image time so `apriltag_ros`'s exact-sync sees pairs (Gazebo publishes image and info at different rates).
     - Restored the wheel-collision-cylinder vs DiffDrive-kinematic-radius mismatch required for ODE traction (without the 1 cm penetration the robot could not move under torque).
-    - Extended `GZ_SIM_RESOURCE_PATH` in `gz_simulator.launch.py` so `model://apriltag_dock` resolves at world-load time.
+    - Extended `GZ_SIM_RESOURCE_PATH` in `openamrobot_docking.launch.py` so `model://apriltag_dock` resolves at world-load time.
     - Diagnosed and fixed the CycloneDDS / FastDDS issue that crashes `dock_trigger.py` silently on ROS 2 Jazzy.
-    - Removed three duplicate / dead-code paths inherited from earlier iterations (`visual_servo_distance` parameter, `legacy/` docs, opennav_docking server invocation in the docking launch).
-  - **4-phase docking sequencer** (`ros2/src/openamrobot_docking/scripts/dock_trigger.py`, ~977 lines), iterated from earlier 7-phase / auto-calibration designs to a final 4-phase pipeline:
+    - **Enabled AMCL kidnap-recovery** (`recovery_alpha_fast: 0.1`, `recovery_alpha_slow: 0.001`) so the robot relocalises after Gazebo drag-and-drop / wheel slip / bumps. Was disabled (`0.0`) upstream.
+  - **Bundle docking sequencer** (`ros2/src/openamrobot_docking/scripts/dock_trigger.py`, ~1900 lines), iterated from the earlier 4-phase single-tag design into a multi-phase, **camera-centric 3-tag bundle pipeline**:
     - Phase 1 — Nav2 `NavigateToPose` to the staging zone.
-    - Phase 2 — camera-frame closed-loop centring scan + 40-sample running-average filter (true incremental mean for position, sign-aligned componentwise for the quaternion).
-    - Phase 3 — in-place align spin to the running-average `perpendicular_yaw`.
-    - Phase 4 — pure-pursuit on the perpendicular line through the averaged tag centre, with on-the-fly line refinement on every fresh detection; once detections stop arriving in the near field, the line is frozen and the robot follows it open-loop until `docking_distance`.
+    - Phase 2 — camera-frame closed-loop centring scan on the **midpoint of the outer tags** (id 0 and id 2) + running-average filter on the centre tag (id 1).
+    - Phase 3 — **estimate the dock surface normal from the outer tags' wide baseline (0.90 m)**. Back off if arrived too close (`too_close_distance`).
+    - Phase 4 — drive to a point on the normal (P1 at `predock_distance`), **re-verify the normal from there**, iterate to P2 (`refined_predock_distance`) if `|N − N'| > normal_tolerance_deg`.
+    - Phase 5 — two-regime final approach: FAR — average the 3-tag axis (EMA, depth-weighted) and pure-pursuit it in the camera/tag frame. NEAR (≤ `freeze_axis_distance`) — freeze the axis and finish on the image-frame visual servo on the centre tag, then a blind straight advance (odometry-measured) to `docking_distance` ≈ 0.15 m camera→tag depth.
     - Bypasses `opennav_docking::SimpleChargingDock::controlled_approach` (curved trajectory) for a head-on, predictable approach.
     - Bypasses `nav2_behaviors::Spin` to avoid the costmap-collision false-positive triggered by the lidar glimpsing the robot's own body during fast rotation.
-  - **TF → PoseStamped bridge** (`ros2/src/openamrobot_docking/src/detected_dock_pose_publisher.cpp`) republishing the chained `map → charging_dock_apriltag` TF as a 10 Hz `/detected_dock_pose`.
-  - **Docking-layer launch** (`ros2/src/openamrobot_docking/launch/openamrobot_docking.launch.py`) composing `apriltag_sim.launch.yml` + `detected_dock_pose_publisher` + `dock_trigger.py` on top of an already-running Gazebo + Nav2 stack. Adds a small `ros_gz_bridge` instance for the gz `/camera_info` topic (image_transport's derived camera_info path).
-  - **AprilTag detection assets**:
-    - `launch/apriltag_sim.launch.yml` and `config/tags_36h11_sim.yaml`.
-    - **Proper Gazebo model directory** `models/apriltag_dock/` with `model.config`, `model.sdf` (0.40 × 0.40 m PBR panel), and `materials/textures/apriltag_36h11_id0.png` — resolved via `GZ_SIM_RESOURCE_PATH + model://apriltag_dock`.
-    - Replaced the previous inline AprilTag definition in `walled_world.sdf` (which had a hardcoded absolute path) with `<include><uri>model://apriltag_dock</uri></include>` for portability.
+  - **Obstacle guard during drive phases** — LIDAR-cone collision check inside the forward-drive and reverse phases. Pre-check + per-iteration check; wait up to `obstacle_wait_timeout` for the path to clear, then abort. Skipped during Phase 5 (the dock itself is the target).
+  - **3-tag dock model** — extended `models/apriltag_dock/model.sdf` to three coplanar 0.20 m panels (outer tags at `y = ±0.45 m`, centre at `y = 0`), with PBR `<albedo_map>` per tag. Updated `config/tags_36h11_sim.yaml` to detect IDs `[0, 1, 2]` with frames `charging_dock_tag_{0, 1, 2}`, `size: 0.16` (= 0.20 m panel × 8/10 black-square edge).
+  - **TF → PoseStamped bridge** (`ros2/src/openamrobot_docking/src/detected_dock_pose_publisher.cpp`) republishing the chained `map → charging_dock_tag_1` TF (the **centre tag**, the docking target) as a 10 Hz `/detected_dock_pose`. The outer tags are consumed directly by `dock_trigger.py` for the dock-normal estimate.
+  - **Debug markers** — green LINE_STRIP (perpendicular line) and red SPHERE (running-average centre) published as `MarkerArray` for RViz, mirrored inside the Gazebo GUI via the `gz` CLI marker service.
+  - **Docking-layer launch** (`ros2/src/openamrobot_docking/launch/openamrobot_docking.launch.py`) composing `apriltag_sim.launch.yml` + `camera_info_sync.py` + `detected_dock_pose_publisher` + `dock_trigger.py` on top of an already-running Gazebo + Nav2 stack.
+  - **AprilTag detection assets** — three textures (`apriltag_36h11_id{0,1,2}.png`), refreshed model directory.
   - **CycloneDDS / FastDDS diagnostic** and workaround for the Python action-client crash bug on ROS 2 Jazzy.
-  - **13 in-depth engineering documents** under `ros2/src/openamrobot_docking/docs/` (00 → 12): overview, quickstart, architecture, TF frames, AprilTag, parameters, camera calibration, reproduction checklist, sequencer walkthrough, troubleshooting, diagrams, changes from upstream, and the lessons-learned diary.
+  - **15 in-depth engineering documents** under `ros2/src/openamrobot_docking/docs/` (00 → 14): overview, quickstart, architecture, TF frames, AprilTag, parameters, camera calibration, reproduction checklist, sequencer walkthroughs (legacy 4-phase + current bundle), troubleshooting, diagrams, changes from upstream, lessons-learned diary, perception + perpendicular line + RViz/Gazebo markers, and vendor-agnostic precision-docking research (validation matrix, failure modes, calibration, multi-dock).
 
 ### Robot description — upstream geometry and meshes
 

@@ -37,15 +37,16 @@ docs/
 
 | Goal | Read |
 |---|---|
-| **New to the pipeline** | `00_overview.md` → `01_quickstart.md` → `02_architecture.md` |
+| **New to the pipeline** | `00_overview.md` → `01_quickstart.md` → `13_perception_and_line.md` |
 | **Run it on my machine** | `01_quickstart.md` (3-terminal flow) |
-| **Tune the controller** | `05_parameters.md` + `08_sequencer_4phase.md` |
+| **Tune the controller** | `05_parameters.md` + `13_perception_and_line.md` |
+| **Understand the current bundle architecture** | `13_perception_and_line.md` + `14_docking_research.md` |
 | **Something doesn't work** | `09_troubleshooting.md` then `12_lessons_learned.md` for the deeper why |
-| **Onboarding a teammate** | `08_sequencer_4phase.md` + `10_diagrams.md` |
-| **Port to real hardware** | `04_apriltag.md` + `06_camera_calibration.md` + `03_tf_frames.md` |
+| **Onboarding a teammate** | `10_diagrams.md` + `13_perception_and_line.md` |
+| **Port to real hardware** | `04_apriltag.md` + `06_camera_calibration.md` + `03_tf_frames.md` + `14_docking_research.md` §8 |
 | **Audit / understand a design choice** | `11_changes_from_upstream.md` + `12_lessons_learned.md` |
-| **Understand perception + the line (and see it in RViz)** | `13_perception_and_line.md` |
 | **Vendor / sensing research, validation plan, failure modes** | `14_docking_research.md` |
+| **Historical context (legacy single-tag pipeline)** | `08_sequencer_4phase.md` |
 
 ---
 

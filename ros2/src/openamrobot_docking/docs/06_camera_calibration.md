@@ -1,5 +1,7 @@
 # Camera Setup, Calibration, and AprilTag Detection
 
+> ℹ️ **Note** — This guide pre-dates the 3-tag bundle migration. The camera-calibration procedure (intrinsics, distortion, `camera_info` flow) and the `apriltag_ros` plumbing are **unchanged** by the bundle work and the instructions below remain valid. Where the guide names a single `charging_dock_apriltag` frame, the current pipeline emits three frames `charging_dock_tag_{0, 1, 2}` instead — the centre one (`_tag_1`) is the docking target tracked by `detected_dock_pose_publisher`. See [`13_perception_and_line.md`](13_perception_and_line.md) for how the bundle is consumed and [`14_docking_research.md`](14_docking_research.md) §8 for the precision-docking calibration matrix that goes beyond what this guide covers.
+
 This guide documents the full procedure to go from a fresh ROS2 Jazzy install to a working AprilTag detection pipeline. It covers every problem encountered during the initial setup and how to fix them, so you can reproduce results without losing time on the same issues.
 
 ---
