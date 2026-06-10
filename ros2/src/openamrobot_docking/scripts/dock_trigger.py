@@ -73,93 +73,6 @@ def normalize_angle(a):
     return a
 
 
-class TagRunningAverage:
-    """Incremental running mean of the tag's pose in the map frame.
-
-    update() is called once per fresh detection. Positions average naturally
-    (true running mean). Quaternions are averaged componentwise after sign
-    alignment to the existing mean, then renormalised — this is the
-    well-known "naive quaternion mean", valid when all samples lie close to
-    each other on the sphere (which is the case here: the tag is static and
-    detections cluster around the true pose).
-    """
-
-    def __init__(self):
-        self.count = 0
-        self.total_weight = 0.0   # sum of weights, for the weighted mean
-        self.x = 0.0
-        self.y = 0.0
-        self.qx = 0.0
-        self.qy = 0.0
-        self.qz = 0.0
-        self.qw = 0.0
-
-    def update(self, x, y, qx, qy, qz, qw, weight=1.0):
-        """Fold a new sample into the running mean with the given weight.
-
-        weight = 1.0 reproduces the original true-mean behaviour (each
-        sample contributes equally). For a distance-weighted mean (used
-        during Phase 4 so noisier near-field detections influence the
-        mean less than the clean far-field ones), pass a weight that
-        increases with the distance at which the sample was taken.
-        """
-        if weight <= 0.0:
-            return
-        self.count += 1
-        new_total = self.total_weight + weight
-        # Sign-align the new quaternion to the existing mean so q and -q
-        # don't cancel each other.
-        if self.count > 1 and (qx * self.qx + qy * self.qy
-                               + qz * self.qz + qw * self.qw) < 0.0:
-            qx, qy, qz, qw = -qx, -qy, -qz, -qw
-        # Weighted incremental mean:
-        # m_new = (W_old * m_old + w * x) / (W_old + w)
-        #       = m_old + (w / W_new) * (x - m_old)
-        k = weight / new_total
-        self.x += k * (x - self.x)
-        self.y += k * (y - self.y)
-        self.qx += k * (qx - self.qx)
-        self.qy += k * (qy - self.qy)
-        self.qz += k * (qz - self.qz)
-        self.qw += k * (qw - self.qw)
-        self.total_weight = new_total
-        # Renormalise the quaternion.
-        norm = math.sqrt(self.qx * self.qx + self.qy * self.qy
-                         + self.qz * self.qz + self.qw * self.qw)
-        if norm > 1e-9:
-            self.qx /= norm
-            self.qy /= norm
-            self.qz /= norm
-            self.qw /= norm
-
-    def perpendicular_yaw(self, rx, ry):
-        """Yaw the robot should have to face the tag perpendicular to its
-        plane, using the current running-average quaternion. Returns None
-        until at least one sample has been collected.
-        """
-        if self.count == 0:
-            return None
-        nx, ny, _ = quat_rotate_z(self.qx, self.qy, self.qz, self.qw)
-        n_norm = math.hypot(nx, ny)
-        if n_norm < 1e-6:
-            return None
-        nx /= n_norm
-        ny /= n_norm
-        if nx * (rx - self.x) + ny * (ry - self.y) < 0.0:
-            nx, ny = -nx, -ny
-        return math.atan2(-ny, -nx)
-
-    def signed_lateral_offset(self, rx, ry, perp_yaw):
-        """Signed perpendicular distance from (rx, ry) to the line passing
-        through the running-average tag centre in direction perp_yaw.
-
-        Positive = robot is to the LEFT of the line (looking along perp_yaw
-        toward the tag). The robot reduces this offset by steering CW.
-        """
-        return (-(rx - self.x) * math.sin(perp_yaw)
-                + (ry - self.y) * math.cos(perp_yaw))
-
-
 def quat_rotate_z(qx, qy, qz, qw):
     """Apply quaternion rotation to the unit vector (0, 0, 1).
 
@@ -336,7 +249,7 @@ class DockTrigger(Node):
         # purpose. The centring scan / spin-in-place phases also skip it
         # (the robot is rotating in place, not translating into anything).
         self.declare_parameter('obstacle_check_enabled', True)
-        self.declare_parameter('obstacle_scan_topic', '/scan')
+        self.declare_parameter('obstacle_scan_topic', '/scan_filtered')
         self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
         self.declare_parameter('obstacle_backward_distance', 0.6)       # m — stop if obstacle within this distance behind
         self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
@@ -1038,40 +951,6 @@ class DockTrigger(Node):
 
         self._publish_cmd_vel(0.0, 0.0)
         return False
-
-    def _collect_initial_samples(self, avg: TagRunningAverage,
-                                 num_samples: int) -> bool:
-        """Block while stationary until avg has accumulated num_samples fresh
-        detections, or filter_max_collect_time elapses. Each detection is
-        identified by its header stamp so we never count the same message
-        twice.
-        """
-        period = 0.05
-        deadline = time.time() + self.filter_max_collect_time
-        last_stamp_ns = -1
-
-        while time.time() < deadline and avg.count < num_samples:
-            msg = self.detected_pose
-            if msg is not None:
-                stamp_ns = rclpy.time.Time.from_msg(msg.header.stamp).nanoseconds
-                if stamp_ns != last_stamp_ns:
-                    age = (self.get_clock().now().nanoseconds - stamp_ns) * 1e-9
-                    if age < self.detection_max_age:
-                        avg.update(
-                            msg.pose.position.x, msg.pose.position.y,
-                            msg.pose.orientation.x, msg.pose.orientation.y,
-                            msg.pose.orientation.z, msg.pose.orientation.w,
-                        )
-                    last_stamp_ns = stamp_ns
-            time.sleep(period)
-
-        if avg.count < num_samples:
-            self.get_logger().error(
-                f'   only got {avg.count}/{num_samples} samples in '
-                f'{self.filter_max_collect_time:.1f}s — aborting'
-            )
-            return False
-        return True
 
     def _perpendicular_yaw_from_latest_tag(self, rx: float, ry: float):
         """Read the latest /detected_dock_pose and return the yaw the robot
