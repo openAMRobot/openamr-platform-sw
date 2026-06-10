@@ -1,14 +1,39 @@
 #!/usr/bin/env python3
 """
-Custom rotate-then-drive docking trigger.
+Bundle-driven, camera-centric docking trigger.
+
+The dock carries a 3-tag AprilTag bundle (family 36h11, IDs 0/1/2 — outer tags
+at y = ±0.45 m, centre tag at y = 0). The 90 cm baseline between the outer
+tags gives a stable surface normal that is independent of single-tag yaw
+jitter.
 
 Sequence on /dock_trigger=true:
   1. NavigateToPose → staging zone (Nav2/RPP)
-  2. Hold N seconds (robot still)
-  3. Read /detected_dock_pose (or fall back to static dock pose)
-  4. Spin in place until robot heading points at the tag (closed-loop)
-  5. Drive forward in a straight line, continuously correcting heading from
-     live AprilTag detection, until docking_distance from the tag
+  2. Centring scan: rotate in place until the bundle midpoint is centred in
+     the camera image (image-frame P-controller)
+  3. Estimate the dock surface normal from the outer tags' wide baseline
+     (proximity-weighted EMA); back off if the robot arrived too close
+  4. Pure-pursuit the normal axis in the camera/tag frame (independent of
+     map drift and wheel slip), with a re-verification step against
+     normal_tolerance_deg
+  5. Two-regime final approach:
+       FAR  (camera→centre-tag depth > freeze_axis_distance): EMA-average
+            the live axis and pure-pursuit it
+       NEAR (depth ≤ freeze_axis_distance): freeze the averaged axis and
+            finish on a visual corrector on the centre tag
+       — stops when camera→centre-tag depth ≤ docking_distance.
+
+Also supports:
+  - /undock_robot → reverse undock_reverse_distance, then spin 180°
+  - /goal_pose gate → if a navigation goal arrives while docked, the robot
+    undocks first, then republishes the goal on goal_pose_forward_topic
+  - obstacle guard on /scan during forward drive and undock reverse
+    (skipped during the final IBVS approach to the dock itself)
+  - /dock_trigger_status (idle | docking | docked | undocking | failed),
+    with a 2 s heartbeat for UI sync
+
+See docs/14_docking_research.md for the full design rationale and
+docs/13_perception_and_line.md for the perception pipeline.
 """
 
 import math
@@ -25,6 +50,7 @@ from rclpy.node import Node
 
 from std_msgs.msg import Bool, String
 from geometry_msgs.msg import Point, PoseStamped, Twist
+from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import (
     NavigateToPose,
     UndockRobot,
@@ -349,6 +375,28 @@ class DockTrigger(Node):
         # more reactive (noisier), lower = smoother (slower).
         self.declare_parameter('axis_filter_alpha', 0.15)
 
+        # ── Obstacle avoidance during drive phases ─────────────────────────
+        # The sequencer publishes cmd_vel straight to the robot, bypassing
+        # Nav2's collision_monitor. We re-add a simple obstacle guard inside
+        # the forward-drive phase (pure-pursuit onto the dock normal) and
+        # the undock reverse: before and during each of those phases, we
+        # check the LIDAR in a forward or backward cone. If the closest
+        # return inside the cone is closer than the configured threshold,
+        # the robot stops and waits for the path to clear. After
+        # `obstacle_wait_timeout` seconds it aborts the phase.
+        #
+        # Phase 5 (IBVS final approach to the dock) deliberately skips this
+        # check — the dock itself is "an obstacle" we are approaching on
+        # purpose. The centring scan / spin-in-place phases also skip it
+        # (the robot is rotating in place, not translating into anything).
+        self.declare_parameter('obstacle_check_enabled', True)
+        self.declare_parameter('obstacle_scan_topic', '/scan')
+        self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
+        self.declare_parameter('obstacle_backward_distance', 0.6)       # m — stop if obstacle within this distance behind
+        self.declare_parameter('obstacle_arc_half_width_deg', 30.0)     # deg — half-width of the detection cone
+        self.declare_parameter('obstacle_wait_timeout', 10.0)           # s — max wait before aborting
+        self.declare_parameter('obstacle_check_period', 0.2)            # s — poll period while waiting
+
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value
         self.dock_type = self.get_parameter('dock_type').value
@@ -405,6 +453,14 @@ class DockTrigger(Node):
         self.visual_servo_min_depth = float(self.get_parameter('visual_servo_min_depth').value)
         self.freeze_axis_distance = float(self.get_parameter('freeze_axis_distance').value)
         self.axis_filter_alpha = float(self.get_parameter('axis_filter_alpha').value)
+        self.obstacle_check_enabled = bool(self.get_parameter('obstacle_check_enabled').value)
+        self.obstacle_scan_topic = self.get_parameter('obstacle_scan_topic').value
+        self.obstacle_forward_distance = float(self.get_parameter('obstacle_forward_distance').value)
+        self.obstacle_backward_distance = float(self.get_parameter('obstacle_backward_distance').value)
+        self.obstacle_arc_half_width = math.radians(
+            float(self.get_parameter('obstacle_arc_half_width_deg').value))
+        self.obstacle_wait_timeout = float(self.get_parameter('obstacle_wait_timeout').value)
+        self.obstacle_check_period = float(self.get_parameter('obstacle_check_period').value)
 
         # ── Multi-threaded callback group so the long-running sequence can
         #    run while subscriptions and TF still get processed. ────────────
@@ -429,6 +485,14 @@ class DockTrigger(Node):
             PoseStamped, self.detection_topic, self.on_detection, 10,
             callback_group=self.cb_group,
         )
+
+        # ── Laser scan subscription (obstacle avoidance) ────────────────────
+        self.latest_scan = None
+        if self.obstacle_check_enabled:
+            self.create_subscription(
+                LaserScan, self.obstacle_scan_topic, self.on_scan, 10,
+                callback_group=self.cb_group,
+            )
 
         # ── State ───────────────────────────────────────────────────────────
         # busy: a long-running maneuver (dock or undock) is in progress; new
@@ -491,6 +555,9 @@ class DockTrigger(Node):
 
     def on_detection(self, msg: PoseStamped):
         self.detected_pose = msg
+
+    def on_scan(self, msg: LaserScan):
+        self.latest_scan = msg
 
     def on_trigger(self, msg: Bool):
         if msg.data:
@@ -728,6 +795,14 @@ class DockTrigger(Node):
         py = tag_y - dist * math.sin(normal_yaw)
         self.get_logger().info(
             f'   → ({px:.2f}, {py:.2f}) then face the tag')
+        # Garde-fou: verify the forward path is clear before committing to the
+        # drive. This catches "someone is directly in front of the robot when
+        # the trigger arrives" up front, before the drive loop starts.
+        if not self._wait_for_path_clear(
+            0.0, self.obstacle_forward_distance,
+            self.obstacle_wait_timeout, 'goto-point pre-check'
+        ):
+            return False
         if not self._drive_to_xy(px, py):
             return False
         pose = self.lookup_robot_pose()
@@ -876,6 +951,15 @@ class DockTrigger(Node):
         self.get_logger().info(
             f'── UNDOCK: reverse {self.undock_reverse_distance:.2f}m, then spin 180°'
         )
+        # Garde-fou: verify the rear path is clear before starting the reverse.
+        # The 180° in-place spin afterwards does not move the chassis through
+        # space and is not guarded here.
+        if not self._wait_for_path_clear(
+            math.pi, self.obstacle_backward_distance,
+            self.obstacle_wait_timeout, 'undock pre-check'
+        ):
+            self.get_logger().error('   undock aborted: rear path blocked')
+            return False
         if not self._reverse_distance(self.undock_reverse_distance):
             self.get_logger().error('   undock reverse failed')
             return False
@@ -912,6 +996,15 @@ class DockTrigger(Node):
         deadline = time.time() + dist / speed + max_extra_time
 
         while time.time() < deadline:
+            # Obstacle guard (backward cone). Important during undock —
+            # someone behind the robot is the prototypical surprise case.
+            if not self._wait_for_path_clear(
+                math.pi, self.obstacle_backward_distance,
+                self.obstacle_wait_timeout, 'undock reverse'
+            ):
+                self._publish_cmd_vel(0.0, 0.0)
+                return False
+
             pose = self.lookup_robot_pose()
             if pose is None:
                 time.sleep(period)
@@ -1473,6 +1566,16 @@ class DockTrigger(Node):
         position_tolerance = 0.05
 
         while time.time() < deadline:
+            # Obstacle guard: if the forward cone has a return closer than
+            # obstacle_forward_distance, stop, wait for it to clear, then
+            # resume. If still blocked after obstacle_wait_timeout, abort.
+            if not self._wait_for_path_clear(
+                0.0, self.obstacle_forward_distance,
+                self.obstacle_wait_timeout, 'forward drive'
+            ):
+                self._publish_cmd_vel(0.0, 0.0)
+                return False
+
             pose = self.lookup_robot_pose()
             if pose is None:
                 time.sleep(period)
@@ -1559,6 +1662,81 @@ class DockTrigger(Node):
         target_x = foot_x - self.realign_reverse_distance * cos_y
         target_y = foot_y - self.realign_reverse_distance * sin_y
         return target_x, target_y
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Obstacle avoidance (forward/backward cone in the laser scan)
+    # ──────────────────────────────────────────────────────────────────────
+    def _min_range_in_arc(self, center_angle: float, half_width: float) -> float:
+        """Return the minimum LIDAR range inside the angular cone centred on
+        `center_angle` (radians, in the scan frame: 0 = forward, π = backward)
+        with half-width `half_width` (radians). Returns +inf if no laser data
+        is available or no finite return is inside the cone.
+
+        Note: angles are taken in the scan's frame, not base_link. For a LIDAR
+        mounted near the geometric centre of the robot with its forward axis
+        aligned with base_link forward, this is a fine approximation. A
+        significantly off-centre LIDAR would need a TF-based projection.
+        """
+        scan = self.latest_scan
+        if scan is None:
+            return float('inf')
+        a_lo = normalize_angle(center_angle - half_width)
+        a_hi = normalize_angle(center_angle + half_width)
+        wrap = a_lo > a_hi  # cone spans the ±π wrap (e.g. backward at π)
+        min_r = float('inf')
+        for i, r in enumerate(scan.ranges):
+            if not math.isfinite(r):
+                continue
+            if r < scan.range_min or r > scan.range_max:
+                continue
+            a = normalize_angle(scan.angle_min + i * scan.angle_increment)
+            inside = (a_lo <= a <= a_hi) if not wrap else (a >= a_lo or a <= a_hi)
+            if inside and r < min_r:
+                min_r = r
+        return min_r
+
+    def _wait_for_path_clear(self, center_angle: float, distance: float,
+                             max_wait: float, label: str) -> bool:
+        """Stop the robot and poll the laser scan until the path in the given
+        direction is clear (no return closer than `distance` inside the cone),
+        or `max_wait` seconds elapse.
+
+        Returns True if the path became clear (or was already clear, or
+        checking is disabled / no scan available — see fall-back below).
+        Returns False on timeout — the caller should abort the phase.
+        """
+        if not self.obstacle_check_enabled:
+            return True
+        if self.latest_scan is None:
+            # No /scan received yet — proceed but warn. This avoids deadlocking
+            # the docking sequence if the LIDAR pipeline is degraded; the
+            # standard navigation safety layer still applies upstream.
+            self.get_logger().warn(
+                f'   {label}: no /scan received yet; proceeding without check'
+            )
+            return True
+        min_r = self._min_range_in_arc(center_angle, self.obstacle_arc_half_width)
+        if min_r > distance:
+            return True  # path already clear, nothing to do
+        # First contact — stop, log, then poll until clear or timeout
+        self._publish_cmd_vel(0.0, 0.0)
+        self.get_logger().warn(
+            f'   {label}: obstacle at {min_r:.2f} m (threshold {distance:.2f} m), '
+            f'waiting up to {max_wait:.0f} s for it to clear…'
+        )
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            time.sleep(self.obstacle_check_period)
+            min_r = self._min_range_in_arc(center_angle, self.obstacle_arc_half_width)
+            if min_r > distance:
+                self.get_logger().info(
+                    f'   {label}: path cleared (now {min_r:.2f} m), resuming'
+                )
+                return True
+        self.get_logger().error(
+            f'   {label}: still blocked after {max_wait:.0f} s, aborting phase'
+        )
+        return False
 
     def _publish_cmd_vel(self, v: float, omega: float):
         msg = Twist()
