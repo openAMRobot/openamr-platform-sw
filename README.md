@@ -5,6 +5,7 @@ ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot 
 📖 **[README](README.md)** &nbsp;·&nbsp;
 🤝 **[Contributing](CONTRIBUTING.md)** &nbsp;·&nbsp;
 🏗️ **[Architecture](docs/architecture/ARCHITECTURE_OVERVIEW.md)** &nbsp;·&nbsp;
+🎓 **[ROS 2 course](docs/ROS2_COMPLETE_COURSE.md)** &nbsp;·&nbsp;
 🛠️ **[Developer setup](docs/getting_started/DEVELOPER_SETUP.md)** &nbsp;·&nbsp;
 🧰 **[Troubleshooting](docs/getting_started/TROUBLESHOOTING.md)** &nbsp;·&nbsp;
 ✅ **[Testing](docs/getting_started/TESTING_GUIDE.md)** &nbsp;·&nbsp;
@@ -16,6 +17,12 @@ ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot 
 ℹ️ **[Notice](NOTICE.md)**
 
 > 📦 **Status: experimental.** Tuned end-to-end in the docking simulation. Real-robot bringup (drivers, control, hardware integration) is in progress and will land under the placeholder packages described below.
+
+---
+
+## Learning ROS 2
+
+New to ROS 2, Gazebo, RViz, launch files, TF, URDF/Xacro, actions, lifecycle nodes, or components? Start with the hands-on [Complete ROS 2 Course for Beginners](docs/ROS2_COMPLETE_COURSE.md). It walks from a fresh ROS 2 Jazzy setup through building nodes, interfaces, simulation, visualization, and a complete differential-drive robot project.
 
 ---
 
