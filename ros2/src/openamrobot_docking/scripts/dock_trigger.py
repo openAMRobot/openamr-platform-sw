@@ -996,11 +996,16 @@ class DockTrigger(Node):
                 lateral = bcx * math.sin(byaw) - bcy * math.cos(byaw)
                 # Temporal EMA on the normal (byaw) + lateral, because WHILE MOVING
                 # a single frame jitters (vibration, blur, changing view angle).
-                # Weight GROWS as the robot advances (∝ predock_distance/depth,
-                # capped 0.6), so nearer, more accurate frames dominate the far
-                # early ones. A frame jumping > axis_spike_reject is dropped.
-                a_n = min(0.6, self.axis_filter_alpha
-                          * (self.predock_distance / max(depth, 0.4)))
+                # Weight SHRINKS as the robot gets closer (∝ depth/predock_distance,
+                # capped 0.6, floored 0.05) — 2026-07-07: the wide 2-outer-tag
+                # baseline degrades close up (corners hug the FOV edge, per
+                # docs/12_lessons_learned.md Lesson 28), so most of the trust should
+                # accumulate FAR/MID field, while it's still advancing, not right at
+                # the end. A floor (not 0) keeps a real persistent drift adapting
+                # slowly rather than fully freezing. A frame jumping >
+                # axis_spike_reject is dropped regardless.
+                a_n = max(0.05, min(0.6, self.axis_filter_alpha
+                          * (depth / self.predock_distance)))
                 spike = float(self.get_parameter('axis_spike_reject').value)
                 if bnorm_filt is None:
                     bnorm_filt, blat_filt = byaw, lateral
@@ -1084,7 +1089,13 @@ class DockTrigger(Node):
                     spike2 = 0.15   # m — generous single-frame lateral jump reject
                     if dev2 <= spike2:
                         stability2 = max(0.15, 1.0 - dev2 / spike2)
-                        a2 = 0.3 * stability2
+                        # Same "weight shrinks closer in" idea as tier 1's a_n, scaled
+                        # to tier 2's own window (freeze_axis_distance -> docking_distance,
+                        # already a close-range window, so the taper is gentler than
+                        # tier 1's but still favours the earlier, less noisy tier-2 frames.
+                        depth_span = max(freeze - self.docking_distance, 0.05)
+                        depth_scale2 = max(0.15, min(1.0, (depth - self.docking_distance) / depth_span))
+                        a2 = 0.3 * stability2 * depth_scale2
                         lateral_t2_filt = (1.0 - a2) * lateral_t2_filt + a2 * lateral_raw
                     # else: spike — keep the last filtered lateral this frame
                 lateral = lateral_t2_filt
