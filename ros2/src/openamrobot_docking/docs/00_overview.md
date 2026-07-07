@@ -132,3 +132,4 @@ For exact install commands and the launch sequence, see [`01_quickstart.md`](01_
 | Learn from past mistakes | [`12_lessons_learned.md`](12_lessons_learned.md) |
 | Understand perception + how the line is built (and see it in RViz) | [`13_perception_and_line.md`](13_perception_and_line.md) |
 | Read the docking research: chargers, sensing methods, validation, failure modes, calibration | [`14_docking_research.md`](14_docking_research.md) |
+| Roll back the NEAR-field visual servo to before 2026-07-07 (superseded — kept for rollback) | [`15_legacy_near_approach.md`](15_legacy_near_approach.md) |

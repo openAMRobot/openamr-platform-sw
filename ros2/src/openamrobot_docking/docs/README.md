@@ -27,8 +27,10 @@ docs/
 ├── 11_changes_from_upstream.md     what this revision changes vs prior pipelines
 ├── 12_lessons_learned.md           decisions diary with rationale
 ├── 13_perception_and_line.md       what AprilTag gives us + how the line is built + RViz markers
-└── 14_docking_research.md          vendor-agnostic precision-docking research, validation,
-                                    failure modes, calibration, multi-dock
+├── 14_docking_research.md          vendor-agnostic precision-docking research, validation,
+│                                   failure modes, calibration, multi-dock
+└── 15_legacy_near_approach.md      legacy: the pre-2026-07-07 NEAR-field visual servo
+                                    (superseded by the dt-fix + depth-compensated version)
 ```
 
 ---
@@ -47,6 +49,7 @@ docs/
 | **Audit / understand a design choice** | `11_changes_from_upstream.md` + `12_lessons_learned.md` |
 | **Vendor / sensing research, validation plan, failure modes** | `14_docking_research.md` |
 | **Historical context (legacy single-tag pipeline)** | `08_legacy_sequencer.md` |
+| **Roll back the NEAR-field corrector to before 2026-07-07** | `15_legacy_near_approach.md` (+ git tag `docking-legacy-pre-2026-07-07-near-approach`) |
 
 ---
 
