@@ -924,6 +924,7 @@ class DockTrigger(Node):
         blat_filt = None       # EMA of the lateral offset from the dock axis, tier 1
         carried_norm = None     # freshest bnorm_filt, carried forward for tier 2
         carried_odom_yaw = None  # odom yaw at the moment carried_norm was last set
+        lateral_t2_filt = None   # EMA of tier 2's lateral offset (reset on tier switch)
         lost_frames = 0          # consecutive fully-blind (tier 3) frames
         last_cam_depth = None       # last camera depth to tag 1 (odom dead-reckoning)
         last_odom = None            # odom xy captured with last_cam_depth
@@ -1003,15 +1004,29 @@ class DockTrigger(Node):
                 spike = float(self.get_parameter('axis_spike_reject').value)
                 if bnorm_filt is None:
                     bnorm_filt, blat_filt = byaw, lateral
-                elif abs(normalize_angle(byaw - bnorm_filt)) <= spike:
-                    bnorm_filt = normalize_angle(
-                        bnorm_filt + a_n * normalize_angle(byaw - bnorm_filt))
-                    blat_filt = (1.0 - a_n) * blat_filt + a_n * lateral
-                # else: spike — keep the last filtered normal this frame
+                else:
+                    dev = abs(normalize_angle(byaw - bnorm_filt))
+                    if dev <= spike:
+                        # Stability weighting: a sample close to the CURRENT running
+                        # average (i.e. consistent with recent history) gets close to
+                        # full trust (a_n); one that disagrees more — but not enough to
+                        # be a hard-rejected spike — is damped instead of fully
+                        # incorporated. A single noisy reading can no longer yank the
+                        # axis around on its own: only a RUN of mutually-agreeing
+                        # samples builds real influence (each keeps dev small once the
+                        # filter has moved toward them, so their weight stays high).
+                        # True outliers (dev > spike) are still hard-rejected, unchanged.
+                        stability = max(0.15, 1.0 - dev / spike)
+                        a_eff = a_n * stability
+                        bnorm_filt = normalize_angle(
+                            bnorm_filt + a_eff * normalize_angle(byaw - bnorm_filt))
+                        blat_filt = (1.0 - a_eff) * blat_filt + a_eff * lateral
+                    # else: spike — keep the last filtered normal this frame
                 desired_yaw = normalize_angle(
                     bnorm_filt - math.atan2(blat_filt, lookahead))
                 omega = line_kp * desired_yaw
                 lost_frames = 0
+                lateral_t2_filt = None   # reset tier 2's smoother — see tier 2 below
                 # Keep the carried snapshot fresh for whenever tier 1 drops out
                 # (outer tags leave the FOV) — always the LATEST good axis, not a
                 # one-time freeze, so tier 2 picks up from the best data available.
@@ -1056,7 +1071,23 @@ class DockTrigger(Node):
                     if odom_yaw_now is not None:
                         ref_yaw = normalize_angle(
                             carried_norm - (odom_yaw_now - carried_odom_yaw))
-                lateral = c1cam[0]   # metric lateral offset (m) — solvePnP translation
+                lateral_raw = c1cam[0]   # metric lateral offset (m) — solvePnP translation
+                # Same stability-weighted smoothing idea as tier 1's bnorm_filt, applied
+                # to the lateral offset (tier 2 has no orientation to average, only this).
+                # Reset to None whenever tier 2 wasn't active last loop (see tier 1 and
+                # tier 3), so it always starts fresh on entry rather than risking getting
+                # stuck comparing against a stale value from a much earlier tier-2 spell.
+                if lateral_t2_filt is None:
+                    lateral_t2_filt = lateral_raw
+                else:
+                    dev2 = abs(lateral_raw - lateral_t2_filt)
+                    spike2 = 0.15   # m — generous single-frame lateral jump reject
+                    if dev2 <= spike2:
+                        stability2 = max(0.15, 1.0 - dev2 / spike2)
+                        a2 = 0.3 * stability2
+                        lateral_t2_filt = (1.0 - a2) * lateral_t2_filt + a2 * lateral_raw
+                    # else: spike — keep the last filtered lateral this frame
+                lateral = lateral_t2_filt
                 desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral, lookahead))
                 omega = line_kp * desired_yaw
                 lost_frames = 0
@@ -1067,6 +1098,7 @@ class DockTrigger(Node):
                 # odometry above, so 'docked' still triggers correctly.
                 lost_frames += 1
                 omega = 0.0
+                lateral_t2_filt = None   # reset tier 2's smoother — see tier 2 above
 
             omega = max(-self.drive_yaw_max_omega,
                         min(self.drive_yaw_max_omega, omega))
@@ -1815,7 +1847,7 @@ class DockTrigger(Node):
         arrow = Marker()
         arrow.header.frame_id = 'base_link'
         arrow.header.stamp = now
-        arrow.ns = f'dock_normal_live_{label}'
+        arrow.ns = 'dock_normal_live'
         arrow.id = 0
         arrow.type = Marker.ARROW
         arrow.action = Marker.ADD
@@ -1837,7 +1869,7 @@ class DockTrigger(Node):
         dot = Marker()
         dot.header.frame_id = 'base_link'
         dot.header.stamp = now
-        dot.ns = f'dock_normal_live_{label}'
+        dot.ns = 'dock_normal_live'
         dot.id = 1
         dot.type = Marker.SPHERE
         dot.action = Marker.ADD
