@@ -1044,6 +1044,7 @@ class DockTrigger(Node):
                 desired_yaw = normalize_angle(
                     bnorm_filt - math.atan2(blat_filt, lookahead))
                 omega = line_kp * desired_yaw
+                self._publish_base_link_normal_marker(bnorm_filt, blat_filt, 'FAR-cam avg')
             elif (not use_cam) and pose is not None and depth > freeze:
                 rx, ry, ryaw = pose
                 # LEGACY map-frame FAR leg (use_camera_frame_normal:=false): the
@@ -1158,6 +1159,7 @@ class DockTrigger(Node):
                         else:
                             d_desired = (desired_yaw - prev_desired_yaw) / dt
                         last_valid_t = now_t
+                    self._publish_base_link_normal_marker(ref_yaw, lateral_filt, 'NEAR carried')
                     # Hysteresis deadband: drive straight while aligned, only
                     # commit a correction past the outer band, release at the
                     # inner band. Stops the per-frame left-right hunting; the
@@ -1901,6 +1903,70 @@ class DockTrigger(Node):
         tag.color.r = 1.0
         tag.color.a = 1.0
         arr.markers.append(tag)
+
+        self.marker_pub.publish(arr)
+
+    def _publish_base_link_normal_marker(self, normal_yaw: float, lateral: float, label: str):
+        """Publish the LIVE dock-normal estimate actually driving the controller,
+        as an arrow in base_link frame (robot always has this frame, so it works
+        during camera-frame FAR and NEAR alike, unlike _publish_line_markers'
+        map-frame cx/cy/normal_yaw — which, on the real robot
+        (use_camera_frame_normal:=true), are the STALE Phase-4 estimate, never
+        updated by the live bnorm_filt EMA that's actually steering the robot.
+
+        Added 2026-07-07 after a real-robot test where the final heading was
+        wrong despite converging onto the line ("sur la normale mais pas la
+        bonne orientation") — this lets the operator watch in RViz whether the
+        normal estimate is stable (well-averaged) or noisy in real time, which
+        the old map-frame marker could never show for the camera-frame path.
+
+        normal_yaw: dock normal, base_link frame (0 = robot's current forward).
+        lateral: signed lateral offset (m) at the current lookahead, for the dot.
+        label: 'FAR-cam avg' or 'NEAR carried', kept as the marker ns for clarity.
+        """
+        if not self.publish_debug_markers:
+            return
+        now = self.get_clock().now().to_msg()
+        arr = MarkerArray()
+
+        arrow = Marker()
+        arrow.header.frame_id = 'base_link'
+        arrow.header.stamp = now
+        arrow.ns = f'dock_normal_live_{label}'
+        arrow.id = 0
+        arrow.type = Marker.ARROW
+        arrow.action = Marker.ADD
+        arrow.points = [
+            Point(x=0.0, y=0.0, z=0.25),
+            Point(x=1.0 * math.cos(normal_yaw), y=1.0 * math.sin(normal_yaw), z=0.25),
+        ]
+        arrow.scale.x = 0.04   # shaft diameter
+        arrow.scale.y = 0.08   # head diameter
+        arrow.scale.z = 0.12   # head length
+        arrow.color.b = 1.0
+        arrow.color.g = 1.0    # cyan — distinct from the green map-frame line
+        arrow.color.a = 1.0
+        arrow.pose.orientation.w = 1.0
+        arr.markers.append(arrow)
+
+        # Small magenta dot at the lateral offset, lookahead metres ahead —
+        # the point the pure-pursuit law is actually steering toward.
+        dot = Marker()
+        dot.header.frame_id = 'base_link'
+        dot.header.stamp = now
+        dot.ns = f'dock_normal_live_{label}'
+        dot.id = 1
+        dot.type = Marker.SPHERE
+        dot.action = Marker.ADD
+        dot.pose.position.x = 0.7
+        dot.pose.position.y = -lateral   # camera +X (right) = base_link -Y
+        dot.pose.position.z = 0.25
+        dot.pose.orientation.w = 1.0
+        dot.scale.x = dot.scale.y = dot.scale.z = 0.06
+        dot.color.r = 1.0
+        dot.color.b = 1.0
+        dot.color.a = 1.0
+        arr.markers.append(dot)
 
         self.marker_pub.publish(arr)
 
