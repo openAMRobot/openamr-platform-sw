@@ -167,7 +167,22 @@ class DockTrigger(Node):
         # Image-frame visual servo (camera-frame closed-loop on the centre
         # tag) used by the Phase 5 NEAR regime once the axis is frozen.
         #
-        #     omega = -visual_servo_kp · atan2(X_optical, Z_optical)
+        #     desired_yaw = -atan2(lateral, visual_servo_lookahead)
+        #     omega       = visual_servo_kp · desired_yaw + visual_servo_kd · d(desired_yaw)/dt
+        #
+        # `lateral` = c1cam[0], the tag's metric X translation in
+        # camera_optical_frame (solvePnP, already in metres — NOT a
+        # normalised image coordinate). Using a FIXED lookahead (like FAR's
+        # line_lookahead_distance) instead of the raw bearing atan2(X, Z)
+        # matters: atan2(X, Z) grows mechanically as depth Z shrinks for a
+        # CONSTANT physical lateral offset, so the old bearing-only P-term
+        # intensified purely from getting closer — not from any real
+        # drift — producing the worst corrections right at the end of the
+        # approach (2026-07-07 oscillation audit). Defaulted equal to
+        # freeze_axis_distance so desired_yaw is continuous across the
+        # FAR→NEAR hand-over (depth ≈ freeze_axis_distance right at the
+        # switch, so atan2(lateral, lookahead) ≈ atan2(lateral, depth) at
+        # that instant — no command jump).
         #
         # Map-frame solvePnP carries a systematic bias in the near field
         # (corners hugging the bottom of the FOV), but the image-frame
@@ -176,6 +191,7 @@ class DockTrigger(Node):
         # alpha rejects single-frame solvePnP spikes (alpha = 0.2 →
         # time constant ≈ 5 frames; alpha = 1.0 disables filtering).
         self.declare_parameter('visual_servo_kp', 1.0)            # rad/s per rad
+        self.declare_parameter('visual_servo_lookahead', 0.70)    # m — see rationale above
         self.declare_parameter('visual_servo_filter_alpha', 0.2)
         # PD + robustness terms for the visual corrector (Phase 5 NEAR). kd
         # damps the bearing so a lively kp does not zig-zag; max_step rejects
@@ -911,7 +927,11 @@ class DockTrigger(Node):
         asin, acos = math.sin(normal_yaw), math.cos(normal_yaw)
         n = 1
         frozen = False
-        filtered_angle = None
+        filtered_angle = None    # EMA of raw bearing atan2(X,Z) — kept ONLY as the
+                                  # frame-trustworthiness gate (visual_servo_max_step), not
+                                  # fed into the steering law (see lateral_filt below).
+        lateral_filt = None      # EMA of the metric lateral offset (c1cam[0], m) — the
+                                  # actual NEAR steering signal (depth-independent).
         last_valid_t = None     # wall-clock time filtered_angle was last actually updated
         bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), Phase-5 FAR
         blat_filt = None       # EMA of the lateral offset from the dock axis
@@ -1052,53 +1072,62 @@ class DockTrigger(Node):
                         self._set_lidar_async(False)
                     self.get_logger().info(
                         f'   depth {depth:.2f}m ≤ {freeze:.2f}m — visual corrector '
-                        f'(PD on tag-1 bearing)'
+                        f'(PD on tag-1 lateral offset, fixed lookahead)'
                         + ('; LiDAR off' if self.stop_lidar_in_approach else ''))
                 if c1cam is not None and c1cam[2] > 0.0:
                     lost_frames = 0
                     raw_angle = math.atan2(c1cam[0], c1cam[2])
+                    lateral_raw = c1cam[0]   # metric lateral offset (m) — solvePnP translation,
+                                              # already in metres, not a normalised image coord.
                     kp = float(self.get_parameter('visual_servo_kp').value)
                     kd = float(self.get_parameter('visual_servo_kd').value)
                     a = float(self.get_parameter('visual_servo_filter_alpha').value)
+                    lookahead = float(self.get_parameter('visual_servo_lookahead').value)
                     now_t = time.time()
                     if filtered_angle is None:
                         filtered_angle = raw_angle
-                        d_angle = 0.0
+                        lateral_filt = lateral_raw
+                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        d_desired = 0.0
                         last_valid_t = now_t
                     elif abs(raw_angle - filtered_angle) > self.visual_servo_max_step:
-                        d_angle = 0.0   # solvePnP flicker — reject, coast on last
-                        # last_valid_t NOT refreshed: filtered_angle didn't move, so the
+                        # solvePnP flicker — reject, coast on the last good desired_yaw.
+                        # last_valid_t NOT refreshed: lateral_filt didn't move, so the
                         # next accepted frame's dt correctly spans back to the last real
                         # update, not this rejected one.
+                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        d_desired = 0.0
                     else:
-                        prev_angle = filtered_angle
+                        prev_desired_yaw = -math.atan2(lateral_filt, lookahead)
                         filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
-                        # Real elapsed time since filtered_angle last moved, NOT the nominal
-                        # loop period. Tag 1 flickers near contact (measured: 25% of frames
-                        # see 0 tags right before dock) — while lost, filtered_angle/prev_angle
-                        # sit frozen for several loop iterations, so dividing by the fixed
-                        # `period` on reacquisition inflated d_angle by however many periods
-                        # were skipped, injecting a spurious kd-scaled kick into omega right
-                        # after every reacquisition (2026-07-07 oscillation audit). A gap this
-                        # long (> 2.5 periods, ~125ms @ 20Hz) is reacquisition noise, not a
-                        # trustworthy rate — re-seed without a derivative kick instead.
+                        lateral_filt = a * lateral_raw + (1.0 - a) * lateral_filt
+                        # desired_yaw = -atan2(lateral, FIXED lookahead), not the raw bearing
+                        # atan2(X, Z): Z (depth) shrinks through NEAR, so the raw bearing grows
+                        # mechanically for a CONSTANT physical lateral offset — the P-term used
+                        # to intensify purely from getting closer, worst right at the end
+                        # (2026-07-07 oscillation audit). A fixed lookahead (mirrors FAR's
+                        # line_lookahead_distance pure-pursuit) removes that depth dependence.
+                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        # Real elapsed time since the last update, NOT the nominal loop period —
+                        # see the D-term dt fix above; same gap-handling logic, now applied to
+                        # desired_yaw instead of the raw bearing.
                         dt = now_t - last_valid_t if last_valid_t is not None else period
                         if dt <= 0.0 or dt > 2.5 * period:
-                            d_angle = 0.0
+                            d_desired = 0.0
                         else:
-                            d_angle = (filtered_angle - prev_angle) / dt
+                            d_desired = (desired_yaw - prev_desired_yaw) / dt
                         last_valid_t = now_t
                     # Hysteresis deadband: drive straight while aligned, only
                     # commit a correction past the outer band, release at the
                     # inner band. Stops the per-frame left-right hunting; the
                     # stiction floor below still makes an engaged turn execute.
                     db = float(self.get_parameter('visual_align_deadband').value)
-                    mag = abs(filtered_angle)
+                    mag = abs(desired_yaw)
                     if mag > db:
                         correcting = True
                     elif mag < 0.4 * db:
                         correcting = False
-                    omega = -(kp * filtered_angle + kd * d_angle) if correcting else 0.0
+                    omega = (kp * desired_yaw + kd * d_desired) if correcting else 0.0
                 else:
                     # Tag 1 momentarily lost. We were tracking it (bearing was
                     # small), so COAST STRAIGHT through brief dropouts (IR

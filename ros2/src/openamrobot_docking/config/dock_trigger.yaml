@@ -151,10 +151,19 @@
     # the edge of the FOV), but the image-frame angle is self-consistent.
     # Keeping the tag centred in the image = aiming straight at the dock.
     # The low-pass filter rejects single-frame solvePnP spikes.
-    visual_servo_kp: 1.0                # rad/s per rad of image-frame bearing (P term).
+    visual_servo_kp: 1.0                # rad/s per rad of desired_yaw (P term).
                                          # 0.4 put omega below the 0.15 rad/s floor for
                                          # any error < 21deg -> no reactivity. 1.0 gives
-                                         # 0.15 rad/s already at ~8.6deg.
+                                         # 0.15 rad/s already at ~8.6deg. Tuned against the
+                                         # OLD raw-bearing signal — re-tune against
+                                         # desired_yaw (see visual_servo_lookahead below).
+    visual_servo_lookahead: 0.70        # m — fixed lookahead for desired_yaw = -atan2(lateral,
+                                         # lookahead), replacing the raw bearing atan2(X,Z)
+                                         # (2026-07-07 fix: Z shrinking through NEAR made the old
+                                         # bearing-only P-term intensify purely from getting
+                                         # closer, not from real drift). Defaulted equal to
+                                         # freeze_axis_distance so desired_yaw is continuous at
+                                         # the FAR->NEAR hand-over. Live-tunable.
     visual_servo_kd: 0.2                # rad/s per rad/s — derivative damping so the
                                          # livelier kp does not overshoot near contact.
     visual_servo_filter_alpha: 0.6      # EMA on the bearing; higher = more reactive.
