@@ -942,6 +942,9 @@ class DockTrigger(Node):
         lateral_filt = None      # EMA of the metric lateral offset (c1cam[0], m) — the
                                   # actual NEAR steering signal (depth-independent).
         last_valid_t = None     # wall-clock time filtered_angle was last actually updated
+        bnorm_at_freeze = None   # bnorm_filt snapshotted at the FAR->NEAR hand-over
+        odom_yaw_at_freeze = None  # odom yaw at that same instant — lets NEAR carry the
+                                    # dock normal forward via odometry (see _lookup_odom_yaw)
         bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), Phase-5 FAR
         blat_filt = None       # EMA of the lateral offset from the dock axis
         lost_frames = 0
@@ -1073,6 +1076,19 @@ class DockTrigger(Node):
                 # noisy map-frame line is dropped here on purpose.
                 if not frozen and depth <= freeze:
                     frozen = True
+                    # Snapshot the FAR-derived dock normal (robot-frame, from the wide
+                    # 2-outer-tag baseline) + the odom yaw at this exact instant. NEAR only
+                    # sees the centre tag (translation, not a trustworthy orientation), so
+                    # without this the NEAR steering law has no reference for the DOCK'S
+                    # true perpendicular — it only nulls the camera-frame lateral offset,
+                    # which converges the robot onto the line but does not constrain final
+                    # heading (a robot can keep the tag centred while arriving at an angle,
+                    # confirmed 2026-07-07: "sur la normale mais pas la bonne orientation").
+                    # Carrying bnorm_filt forward + correcting it by the odom yaw delta
+                    # (wheel+IMU EKF, LiDAR-independent) lets NEAR keep aiming at the dock's
+                    # actual normal instead of just "wherever the tag currently is".
+                    bnorm_at_freeze = bnorm_filt
+                    odom_yaw_at_freeze = self._lookup_odom_yaw()
                     # Optionally cut the LiDAR at the FAR->NEAR hand-over. DISABLED
                     # by default (stop_lidar_in_approach): on this unit stopping
                     # the motor kills the AprilTag detection within ~1 s, so the
@@ -1081,7 +1097,10 @@ class DockTrigger(Node):
                         self._set_lidar_async(False)
                     self.get_logger().info(
                         f'   depth {depth:.2f}m ≤ {freeze:.2f}m — visual corrector '
-                        f'(PD on tag-1 lateral offset, fixed lookahead)'
+                        f'(PD on tag-1 lateral offset, fixed lookahead'
+                        + (', dock-normal carried via odometry'
+                           if bnorm_at_freeze is not None and odom_yaw_at_freeze is not None
+                           else ', NO frozen normal — falling back to point-at-tag') + ')'
                         + ('; LiDAR off' if self.stop_lidar_in_approach else ''))
                 if c1cam is not None and c1cam[2] > 0.0:
                     lost_frames = 0
@@ -1093,10 +1112,21 @@ class DockTrigger(Node):
                     a = float(self.get_parameter('visual_servo_filter_alpha').value)
                     lookahead = float(self.get_parameter('visual_servo_lookahead').value)
                     now_t = time.time()
+                    # Reference heading = the dock's true normal, carried forward from the
+                    # FAR->NEAR freeze and corrected for however much the robot has turned
+                    # since (odom yaw delta, LiDAR-independent). Falls back to 0 ("just point
+                    # at the tag", the old behaviour) if FAR never established a normal or
+                    # odom is briefly unavailable — never blocks the approach on this.
+                    ref_yaw = 0.0
+                    if bnorm_at_freeze is not None and odom_yaw_at_freeze is not None:
+                        odom_yaw_now = self._lookup_odom_yaw()
+                        if odom_yaw_now is not None:
+                            ref_yaw = normalize_angle(
+                                bnorm_at_freeze - (odom_yaw_now - odom_yaw_at_freeze))
                     if filtered_angle is None:
                         filtered_angle = raw_angle
                         lateral_filt = lateral_raw
-                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
                         d_desired = 0.0
                         last_valid_t = now_t
                     elif abs(raw_angle - filtered_angle) > self.visual_servo_max_step:
@@ -1104,19 +1134,21 @@ class DockTrigger(Node):
                         # last_valid_t NOT refreshed: lateral_filt didn't move, so the
                         # next accepted frame's dt correctly spans back to the last real
                         # update, not this rejected one.
-                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
                         d_desired = 0.0
                     else:
-                        prev_desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        prev_desired_yaw = normalize_angle(
+                            ref_yaw - math.atan2(lateral_filt, lookahead))
                         filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
                         lateral_filt = a * lateral_raw + (1.0 - a) * lateral_filt
-                        # desired_yaw = -atan2(lateral, FIXED lookahead), not the raw bearing
-                        # atan2(X, Z): Z (depth) shrinks through NEAR, so the raw bearing grows
-                        # mechanically for a CONSTANT physical lateral offset — the P-term used
-                        # to intensify purely from getting closer, worst right at the end
-                        # (2026-07-07 oscillation audit). A fixed lookahead (mirrors FAR's
-                        # line_lookahead_distance pure-pursuit) removes that depth dependence.
-                        desired_yaw = -math.atan2(lateral_filt, lookahead)
+                        # desired_yaw = ref_yaw - atan2(lateral, FIXED lookahead): aim at the
+                        # dock's actual normal (ref_yaw), pure-pursuit-corrected for the
+                        # residual lateral offset — mirrors FAR's formula exactly, just with a
+                        # frozen+odom-corrected normal instead of a continuously re-measured
+                        # one (NEAR only has the centre tag, translation only). A fixed
+                        # lookahead (not the shrinking depth) avoids the old gain blow-up
+                        # (2026-07-07 oscillation audit).
+                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
                         # Real elapsed time since the last update, NOT the nominal loop period —
                         # see the D-term dt fix above; same gap-handling logic, now applied to
                         # desired_yaw instead of the raw bearing.
@@ -1958,6 +1990,21 @@ class DockTrigger(Node):
         except Exception:
             return None
         return t.transform.translation.x, t.transform.translation.y
+
+    def _lookup_odom_yaw(self):
+        """odom->base_link yaw. Same LiDAR-independent source as _lookup_odom_xy
+        (wheel+IMU EKF) — used to carry the FAR-derived dock normal (bnorm_filt)
+        forward through NEAR by tracking how much the robot has turned since the
+        FAR->NEAR freeze, since NEAR's single centre-tag view can't re-measure
+        orientation (only translation) — see the freeze block in
+        _final_visual_approach."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'odom', 'base_link', rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        return quat_to_yaw(t.transform.rotation)
 
     # ── Multi-tag perception (3 tags: id0/id2 outer, id1 centre) ──────────
     def _lookup_tag_cam(self, frame):
