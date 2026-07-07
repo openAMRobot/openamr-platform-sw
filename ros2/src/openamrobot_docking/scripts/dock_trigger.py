@@ -216,9 +216,18 @@ class DockTrigger(Node):
         # False: legacy hard floor. Live-tunable.
         self.declare_parameter('omega_pwm', True)
         # Stop the LiDAR during the NEAR visual approach (its IR dot can drop tag
-        # detections). OFF by default: on this unit stopping the motor ALSO kills
-        # the AprilTag detection within ~1 s (rplidar + apriltag share a component
-        # container — the motor stop disrupts it), so we keep the LiDAR on.
+        # detections — its ~5-6Hz spin period roughly matches the tag-detection
+        # flicker measured near contact, 2026-07-07 docking audit). OFF by default:
+        # a PRIOR observation was that stopping the motor also killed AprilTag
+        # detection within ~1s. That was attributed to apriltag and rplidar sharing
+        # a component container, but this has been VERIFIED FALSE (2026-07-07):
+        # apriltag runs standalone (docking_real.launch.py -> apriltag.launch.yml)
+        # and rplidar_composition runs as its own separate process
+        # (openamrobot_drivers/drivers.launch.py) — they have never shared a
+        # container. The real cause of the earlier observation (if it reproduces)
+        # is unconfirmed (USB bus/power contention on motor toggle? CPU spike?
+        # stale observation?) — worth re-testing on hardware before flipping this
+        # default; see the docking-improvement plan for the A/B test procedure.
         self.declare_parameter('stop_lidar_in_approach', False)
 
         # Initial tag-search scan. After Nav2 reaches the staging zone the
