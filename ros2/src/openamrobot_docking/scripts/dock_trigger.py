@@ -912,6 +912,7 @@ class DockTrigger(Node):
         n = 1
         frozen = False
         filtered_angle = None
+        last_valid_t = None     # wall-clock time filtered_angle was last actually updated
         bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), Phase-5 FAR
         blat_filt = None       # EMA of the lateral offset from the dock axis
         lost_frames = 0
@@ -1059,15 +1060,34 @@ class DockTrigger(Node):
                     kp = float(self.get_parameter('visual_servo_kp').value)
                     kd = float(self.get_parameter('visual_servo_kd').value)
                     a = float(self.get_parameter('visual_servo_filter_alpha').value)
+                    now_t = time.time()
                     if filtered_angle is None:
                         filtered_angle = raw_angle
                         d_angle = 0.0
+                        last_valid_t = now_t
                     elif abs(raw_angle - filtered_angle) > self.visual_servo_max_step:
                         d_angle = 0.0   # solvePnP flicker — reject, coast on last
+                        # last_valid_t NOT refreshed: filtered_angle didn't move, so the
+                        # next accepted frame's dt correctly spans back to the last real
+                        # update, not this rejected one.
                     else:
                         prev_angle = filtered_angle
                         filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
-                        d_angle = (filtered_angle - prev_angle) / period
+                        # Real elapsed time since filtered_angle last moved, NOT the nominal
+                        # loop period. Tag 1 flickers near contact (measured: 25% of frames
+                        # see 0 tags right before dock) — while lost, filtered_angle/prev_angle
+                        # sit frozen for several loop iterations, so dividing by the fixed
+                        # `period` on reacquisition inflated d_angle by however many periods
+                        # were skipped, injecting a spurious kd-scaled kick into omega right
+                        # after every reacquisition (2026-07-07 oscillation audit). A gap this
+                        # long (> 2.5 periods, ~125ms @ 20Hz) is reacquisition noise, not a
+                        # trustworthy rate — re-seed without a derivative kick instead.
+                        dt = now_t - last_valid_t if last_valid_t is not None else period
+                        if dt <= 0.0 or dt > 2.5 * period:
+                            d_angle = 0.0
+                        else:
+                            d_angle = (filtered_angle - prev_angle) / dt
+                        last_valid_t = now_t
                     # Hysteresis deadband: drive straight while aligned, only
                     # commit a correction past the outer band, release at the
                     # inner band. Stops the per-frame left-right hunting; the
