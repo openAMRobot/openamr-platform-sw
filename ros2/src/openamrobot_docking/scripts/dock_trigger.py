@@ -1062,7 +1062,7 @@ class DockTrigger(Node):
                 omega = line_kp * desired_yaw
                 lost_frames = 0
                 lateral_t2_filt = None   # reset tier 2's smoother — see tier 2 below
-                self._publish_base_link_normal_marker(bnorm_filt, blat_filt, 'axis (2+ tags)')
+                self._publish_docking_line_marker(bcx, bcy, bnorm_filt)
             elif (not use_cam) and pose is not None and depth > freeze:
                 rx, ry, ryaw = pose
                 # LEGACY map-frame leg (use_camera_frame_normal:=false): the
@@ -1127,7 +1127,13 @@ class DockTrigger(Node):
                 desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral, lookahead))
                 omega = line_kp * desired_yaw
                 lost_frames = 0
-                self._publish_base_link_normal_marker(ref_yaw, lateral, 'centre-only carried')
+                # Anchor the line marker at the centre tag's own base_link position
+                # (only point still directly measurable in tier 2) rather than at
+                # the robot — skip the publish this loop if that TF is momentarily
+                # unavailable (marker just holds its last position in RViz).
+                p1_base = self._lookup_tag_base('charging_dock_tag_1')
+                if p1_base is not None:
+                    self._publish_docking_line_marker(p1_base[0], p1_base[1], ref_yaw)
             else:
                 # Tier 3 — nothing visible at all: go BLIND. No steering attempt,
                 # just keep advancing straight; depth is dead-reckoned from
@@ -1813,64 +1819,64 @@ class DockTrigger(Node):
         msg.angular.z = float(omega)
         self.cmd_vel_pub.publish(msg)
 
-    def _publish_base_link_normal_marker(self, normal_yaw: float, lateral: float, label: str):
-        """Publish the ONE live dock-normal line actually driving the controller,
-        as an arrow in base_link frame (robot always has this frame, so it works
-        across every tier). There used to ALSO be a map-frame RViz line
-        (_publish_line_markers, removed 2026-07-07) fed by cx/cy/normal_yaw —
-        which, on the real robot (use_camera_frame_normal:=true), was a STALE
-        Phase-4 snapshot, never updated by the live estimate that actually
-        steers the robot. That stale marker + this one being cyan gave two
-        conflicting lines in RViz. Now there is only this one: green.
+    def _publish_docking_line_marker(self, anchor_x: float, anchor_y: float, normal_yaw: float):
+        """Publish the ONE live docking line: the dock's own perpendicular axis
+        (the normal the robot must get onto and follow), anchored at the DOCK's
+        position — not at the robot. Drawn in base_link frame (always available,
+        works across every tier) but anchored at (anchor_x, anchor_y) = the
+        dock/tag position in that frame, exactly like the old map-frame line was
+        anchored at the dock in the map frame — just live now instead of a
+        stale Phase-4 snapshot.
 
-        normal_yaw: dock normal, base_link frame (0 = robot's current forward).
-        lateral: signed lateral offset (m) at the current lookahead, for the dot.
-        label: 'axis (2+ tags)' or 'centre-only carried' — informational only,
-        NOT part of the marker namespace (a namespace-per-label bug briefly
-        caused two simultaneous arrows when the tier flickered; fixed to a
-        single constant namespace so a newer publish always replaces the old).
+        2026-07-07 correction: an earlier version of this drew an ARROW
+        starting from the robot's own origin — wrong concept entirely, that's
+        "which way to turn", not "the line the robot must be on". Fixed to a
+        proper line through the dock's actual position.
+
+        anchor_x, anchor_y: dock/tag position, base_link frame.
+        normal_yaw: dock normal direction, base_link frame (0 = robot's current
+        forward) — the robot is correctly docked when it sits ON this line,
+        facing along it.
         """
         if not self.publish_debug_markers:
             return
         now = self.get_clock().now().to_msg()
+        dirx, diry = math.cos(normal_yaw), math.sin(normal_yaw)
         arr = MarkerArray()
 
-        arrow = Marker()
-        arrow.header.frame_id = 'base_link'
-        arrow.header.stamp = now
-        arrow.ns = 'docking_line'
-        arrow.id = 0
-        arrow.type = Marker.ARROW
-        arrow.action = Marker.ADD
-        arrow.points = [
-            Point(x=0.0, y=0.0, z=0.25),
-            Point(x=1.0 * math.cos(normal_yaw), y=1.0 * math.sin(normal_yaw), z=0.25),
+        line = Marker()
+        line.header.frame_id = 'base_link'
+        line.header.stamp = now
+        line.ns = 'docking_line'
+        line.id = 0
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.scale.x = 0.03
+        line.color.g = 1.0
+        line.color.a = 1.0
+        line.pose.orientation.w = 1.0
+        line.points = [
+            Point(x=anchor_x - 4.0 * dirx, y=anchor_y - 4.0 * diry, z=0.15),
+            Point(x=anchor_x + 0.3 * dirx, y=anchor_y + 0.3 * diry, z=0.15),
         ]
-        arrow.scale.x = 0.04   # shaft diameter
-        arrow.scale.y = 0.08   # head diameter
-        arrow.scale.z = 0.12   # head length
-        arrow.color.g = 1.0    # green — the one and only docking line
-        arrow.color.a = 1.0
-        arrow.pose.orientation.w = 1.0
-        arr.markers.append(arrow)
+        arr.markers.append(line)
 
-        # Small red dot at the lateral offset, lookahead metres ahead — the
-        # point the pure-pursuit law is actually steering toward.
-        dot = Marker()
-        dot.header.frame_id = 'base_link'
-        dot.header.stamp = now
-        dot.ns = 'docking_line'
-        dot.id = 1
-        dot.type = Marker.SPHERE
-        dot.action = Marker.ADD
-        dot.pose.position.x = 0.7
-        dot.pose.position.y = -lateral   # camera +X (right) = base_link -Y
-        dot.pose.position.z = 0.25
-        dot.pose.orientation.w = 1.0
-        dot.scale.x = dot.scale.y = dot.scale.z = 0.06
-        dot.color.r = 1.0
-        dot.color.a = 1.0
-        arr.markers.append(dot)
+        # Red sphere at the dock/tag itself.
+        tag = Marker()
+        tag.header.frame_id = 'base_link'
+        tag.header.stamp = now
+        tag.ns = 'docking_line'
+        tag.id = 1
+        tag.type = Marker.SPHERE
+        tag.action = Marker.ADD
+        tag.pose.position.x = anchor_x
+        tag.pose.position.y = anchor_y
+        tag.pose.position.z = 0.20
+        tag.pose.orientation.w = 1.0
+        tag.scale.x = tag.scale.y = tag.scale.z = 0.10
+        tag.color.r = 1.0
+        tag.color.a = 1.0
+        arr.markers.append(tag)
 
         self.marker_pub.publish(arr)
 
