@@ -16,12 +16,12 @@ Sequence on /dock_trigger=true:
   4. Pure-pursuit the normal axis in the camera/tag frame (independent of
      map drift and wheel slip), with a re-verification step against
      normal_tolerance_deg
-  5. Two-regime final approach:
-       FAR  (camera→centre-tag depth > freeze_axis_distance): EMA-average
-            the live axis and pure-pursuit it
-       NEAR (depth ≤ freeze_axis_distance): freeze the averaged axis and
-            finish on a visual corrector on the centre tag
-       — stops when camera→centre-tag depth ≤ docking_distance.
+  5. Final approach (see _final_visual_approach docstring): follow the best
+     available axis estimate (2+ tags EMA-averaged, or the last good axis
+     carried forward via odometry once only the centre tag is visible),
+     same pure-pursuit law throughout; go blind (no correction, just
+     advance) the moment nothing is visible at all — stops when
+     camera→centre-tag depth ≤ docking_distance.
 
 Also supports:
   - /undock_robot → reverse undock_reverse_distance, then spin 180°
@@ -164,50 +164,24 @@ class DockTrigger(Node):
         self.declare_parameter('line_yaw_kp', 2.5)
         self.declare_parameter('line_lookahead_distance', 0.4)
 
-        # Image-frame visual servo (camera-frame closed-loop on the centre
-        # tag) used by the Phase 5 NEAR regime once the axis is frozen.
-        #
-        #     desired_yaw = -atan2(lateral, visual_servo_lookahead)
-        #     omega       = visual_servo_kp · desired_yaw + visual_servo_kd · d(desired_yaw)/dt
-        #
-        # `lateral` = c1cam[0], the tag's metric X translation in
-        # camera_optical_frame (solvePnP, already in metres — NOT a
-        # normalised image coordinate). Using a FIXED lookahead (like FAR's
-        # line_lookahead_distance) instead of the raw bearing atan2(X, Z)
-        # matters: atan2(X, Z) grows mechanically as depth Z shrinks for a
-        # CONSTANT physical lateral offset, so the old bearing-only P-term
-        # intensified purely from getting closer — not from any real
-        # drift — producing the worst corrections right at the end of the
-        # approach (2026-07-07 oscillation audit). Defaulted equal to
-        # freeze_axis_distance so desired_yaw is continuous across the
-        # FAR→NEAR hand-over (depth ≈ freeze_axis_distance right at the
-        # switch, so atan2(lateral, lookahead) ≈ atan2(lateral, depth) at
-        # that instant — no command jump).
-        #
-        # Map-frame solvePnP carries a systematic bias in the near field
-        # (corners hugging the bottom of the FOV), but the image-frame
-        # angle is self-consistent — keeping the tag centred in the
-        # image = aiming straight at the dock. The low-pass filter
-        # alpha rejects single-frame solvePnP spikes (alpha = 0.2 →
-        # time constant ≈ 5 frames; alpha = 1.0 disables filtering).
-        self.declare_parameter('visual_servo_kp', 1.0)            # rad/s per rad
-        self.declare_parameter('visual_servo_lookahead', 0.70)    # m — see rationale above
+        # ── DEAD PARAMS (kept declared only, unused since 2026-07-07) ──────
+        # These drove the old PD visual-servo corrector in _final_visual_approach
+        # (bearing/lateral P+D, deadband hysteresis, lost-frame abort). Dropped in
+        # favour of a simpler tiered approach: follow the best available axis
+        # estimate (2+ tags, or the carried axis with just the centre tag) with
+        # the SAME pure-pursuit law as the far-range leg (line_yaw_kp,
+        # line_lookahead_distance — no separate gains), and go blind (no
+        # correction, just advance) the moment nothing is visible at all. See
+        # _final_visual_approach's docstring for the current logic. Left declared
+        # (not removed) only so existing yaml configs setting them don't error at
+        # startup — safe to delete here and from config/dock_trigger.yaml later.
+        self.declare_parameter('visual_servo_kp', 1.0)
+        self.declare_parameter('visual_servo_lookahead', 0.70)
         self.declare_parameter('visual_servo_filter_alpha', 0.2)
-        # PD + robustness terms for the visual corrector (Phase 5 NEAR). kd
-        # damps the bearing so a lively kp does not zig-zag; max_step rejects
-        # single-frame solvePnP bearing jumps; lost_max_frames bounds how long
-        # tag 1 may stay undetected before the approach aborts (rather than
-        # driving blind).
-        self.declare_parameter('visual_servo_kd', 0.2)           # rad/s per rad/s — damping
-        self.declare_parameter('visual_servo_max_step', 0.35)    # rad — reject bearing flicker
-        self.declare_parameter('visual_lost_max_frames', 15)     # frames lost before abort
-        # Alignment deadband (hysteresis) for the visual corrector: drive
-        # STRAIGHT while the bearing is within the inner band, only commit a
-        # correction once it exceeds the outer band, release again at the inner
-        # band. This — not a per-frame stiction-floor snap — is what stops the
-        # left-right hunting: corrections become gentle engaged arcs, not a
-        # 20 Hz pulse train. Inner band = 0.4 x outer.
-        self.declare_parameter('visual_align_deadband', 0.10)    # rad (~5.7 deg) outer band
+        self.declare_parameter('visual_servo_kd', 0.2)
+        self.declare_parameter('visual_servo_max_step', 0.35)
+        self.declare_parameter('visual_lost_max_frames', 15)
+        self.declare_parameter('visual_align_deadband', 0.10)
         # Sigma-delta PWM of the yaw command so a SUB-FLOOR correction executes as
         # a gentle pulsed turn instead of snapping to the ±min_turn_omega stiction
         # floor (a hard snap gives the ±0.15 rad/s left-right limit cycle around the
@@ -301,11 +275,10 @@ class DockTrigger(Node):
         self.declare_parameter('normal_tolerance_deg', 5.0)      # deg — N vs N' agreement
         self.declare_parameter('obs_lateral', 0.5)               # m — side offset for obs B
         self.declare_parameter('obs_distance', 2.0)              # m from tag for obs B
-        # Phase 5 two regimes: FAR (> freeze_axis_distance) the robot averages
-        # the dock axis from the 3 tags and pure-pursuits it; NEAR (≤ this) the
-        # axis is frozen (no more averaging — close-range estimates are noisy)
-        # and the robot finishes on the centre-tag visual corrector. Camera→tag
-        # depth.
+        # Only gates the LEGACY map-frame leg of _final_visual_approach
+        # (use_camera_frame_normal:=false, unused on the real robot). The
+        # camera-frame path (default) no longer has a FAR/NEAR distance
+        # hand-over — see _final_visual_approach's docstring (2026-07-07).
         self.declare_parameter('freeze_axis_distance', 0.70)     # m camera→tag
         # EMA weight for the live axis estimate (Phase 5 FAR). A cumulative mean
         # would freeze the early (off-axis, wrong) estimates; an EMA keeps
@@ -912,19 +885,31 @@ class DockTrigger(Node):
 
 
     def _final_visual_approach(self, cx, cy, normal_yaw, max_time=90.0):
-        """Two-regime final approach.
+        """Final approach — simplified 2026-07-07 (drop the PD visual corrector).
 
-        FAR (camera depth > freeze_axis_distance): the axis (dock centre +
-        normal) is re-derived every iteration from the live 3-tag perception and
-        folded into a **running average**, and the robot pure-pursuits that axis
-        — so it converges onto the perpendicular line while still far, where the
-        estimate is clean.
+        Three tiers, degrading gracefully with what's currently visible:
 
-        NEAR (≤ freeze_axis_distance): the averaged axis is **frozen** (close-up
-        estimates are noisy and the outer tags start leaving the FOV — averaging
-        them in caused the end-of-approach zig-zag). The robot finishes on the
-        **centre-tag visual corrector** (keep the centre tag centred in the
-        image), which from an already-aligned pose only trims the residual.
+          1. 2+ tags (both outer, or centre+one outer via
+             _estimate_dock_base_once): full ROBOT-FRAME dock-normal
+             pure-pursuit, EMA-averaged — the most robust axis estimate,
+             used for as much of the approach as it's available ("follow
+             the line to the max").
+          2. Only the centre tag visible: no fresh axis estimate possible
+             (a single point has no orientation), so steer using the LAST
+             good axis from tier 1 ("carried"), corrected for however much
+             the robot has turned since via odometry (wheel+IMU EKF,
+             LiDAR-independent) — same pure-pursuit law, same gain, no
+             separate PD/deadband/derivative machinery.
+          3. Nothing visible at all: go BLIND — no steering correction,
+             just keep advancing straight. Depth is dead-reckoned from
+             odometry so 'docked' (depth ≤ docking_distance) still
+             triggers correctly.
+
+        Previously this had a distance-based FAR/NEAR hand-over with a
+        separate bearing-based PD corrector (kp/kd/deadband/PWM) once close.
+        Dropped in favour of the above — simpler and, per real-hardware
+        testing, more predictable: it either has a real axis estimate to
+        follow or it doesn't; no separate "fine correction" regime to tune.
 
         Stops when camera→centre-tag depth ≤ docking_distance.
         """
@@ -935,20 +920,11 @@ class DockTrigger(Node):
         acx, acy = cx, cy
         asin, acos = math.sin(normal_yaw), math.cos(normal_yaw)
         n = 1
-        frozen = False
-        filtered_angle = None    # EMA of raw bearing atan2(X,Z) — kept ONLY as the
-                                  # frame-trustworthiness gate (visual_servo_max_step), not
-                                  # fed into the steering law (see lateral_filt below).
-        lateral_filt = None      # EMA of the metric lateral offset (c1cam[0], m) — the
-                                  # actual NEAR steering signal (depth-independent).
-        last_valid_t = None     # wall-clock time filtered_angle was last actually updated
-        bnorm_at_freeze = None   # bnorm_filt snapshotted at the FAR->NEAR hand-over
-        odom_yaw_at_freeze = None  # odom yaw at that same instant — lets NEAR carry the
-                                    # dock normal forward via odometry (see _lookup_odom_yaw)
-        bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), Phase-5 FAR
-        blat_filt = None       # EMA of the lateral offset from the dock axis
-        lost_frames = 0
-        correcting = False
+        bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), tier 1
+        blat_filt = None       # EMA of the lateral offset from the dock axis, tier 1
+        carried_norm = None     # freshest bnorm_filt, carried forward for tier 2
+        carried_odom_yaw = None  # odom yaw at the moment carried_norm was last set
+        lost_frames = 0          # consecutive fully-blind (tier 3) frames
         last_cam_depth = None       # last camera depth to tag 1 (odom dead-reckoning)
         last_odom = None            # odom xy captured with last_cam_depth
 
@@ -960,10 +936,11 @@ class DockTrigger(Node):
         last_depth = max(0.0, math.hypot(cx - x0, cy - y0) - camera_forward_offset)
 
         while time.time() < deadline:
-            # Pose is OPTIONAL here (short timeout, quiet): once the LiDAR is cut
-            # at the FAR->NEAR hand-over the map→odom TF ages out, and blocking on
-            # it would stall the advance. NEAR runs on the camera alone; pose only
-            # serves FAR (LiDAR still on) and a fallback.
+            # Pose is OPTIONAL here (short timeout, quiet): once close, map→odom
+            # may age out (AMCL/costmaps not trusted this near the dock anyway),
+            # and blocking on it would stall the advance. The approach runs on
+            # the camera + odometry; pose only serves the legacy map-frame leg
+            # and the travel-safety fallback.
             pose = self.lookup_robot_pose(timeout_sec=0.05, quiet=True)
             c1cam = self._lookup_tag_cam('charging_dock_tag_1')
             odom = self._lookup_odom_xy()
@@ -991,8 +968,7 @@ class DockTrigger(Node):
                     f'   docked: depth {depth:.3f}m ≤ {self.docking_distance:.2f}m')
                 return True
 
-            # Travel-safety bound only when a pose is available (FAR always has
-            # one; NEAR may not once the LiDAR is off).
+            # Travel-safety bound only when a pose is available.
             if pose is not None and math.hypot(pose[0] - x0, pose[1] - y0) > max_travel:
                 self._publish_cmd_vel(0.0, 0.0)
                 self.get_logger().error('   exceeded travel safety')
@@ -1000,37 +976,28 @@ class DockTrigger(Node):
 
             freeze = float(self.get_parameter('freeze_axis_distance').value)
             use_cam = bool(self.get_parameter('use_camera_frame_normal').value)
-            # Live-read the pure-pursuit gains + forward speed so they can be tuned
-            # with `ros2 param set /dock_trigger …` during a run. A LARGER lookahead
-            # and a HIGHER drive_speed both make the correction a gentler curve: with
-            # the 0.15 rad/s motor floor (min_turn_omega), turn radius = v/omega, so
-            # a slow v forces a tight turn that swings the camera off the bundle.
+            # Live-read the pure-pursuit gain + lookahead + forward speed so they
+            # can be tuned with `ros2 param set /dock_trigger …` during a run.
             line_kp = float(self.get_parameter('line_yaw_kp').value)
             lookahead = float(self.get_parameter('line_lookahead_distance').value)
             drive_speed = float(self.get_parameter('drive_speed').value)
-            est_base = (self._estimate_dock_base_once()
-                        if (use_cam and depth > freeze) else None)
+            est_base = self._estimate_dock_base_once() if use_cam else None
+
             if est_base is not None:
-                # FAR — ROBOT-FRAME dock-normal pure-pursuit. The 3-tag axis is
-                # re-derived in base_link (robot at the origin facing +x) every
+                # Tier 1 — ROBOT-FRAME dock-normal pure-pursuit (2+ tags). The axis
+                # is re-derived in base_link (robot at the origin facing +x) every
                 # loop, so it NEVER reads the wobbly map (AMCL relocalisation
                 # jumps) or odometry drift. Pure-pursuit onto the normal corrects
                 # BOTH the lateral offset from the dock axis AND the approach
-                # heading (perpendicular to the dock face) — the centre-tag
-                # bearing alone only corrected heading, which is why the robot
-                # arrived off-axis. This is the alignment-robust leg.
+                # heading (perpendicular to the dock face).
                 bcx, bcy, byaw = est_base
                 # robot is at (0, 0, 0) in base_link: rx = ry = ryaw = 0.
                 lateral = bcx * math.sin(byaw) - bcy * math.cos(byaw)
                 # Temporal EMA on the normal (byaw) + lateral, because WHILE MOVING
                 # a single frame jitters (vibration, blur, changing view angle).
-                # Reuse the SAME depth-weighted weight as the map-frame axis filter:
-                # the weight GROWS as the robot advances (∝ predock_distance/depth,
-                # capped 0.6), so the nearer, more accurate frames dominate the far
-                # early ones. We do NOT need a separate 'stop when too close' rule:
-                # below freeze_axis_distance the FAR pursuit already hands over to
-                # NEAR (outer tags leave the FOV, the estimate degrades). A frame
-                # jumping > axis_spike_reject from the filtered value is dropped.
+                # Weight GROWS as the robot advances (∝ predock_distance/depth,
+                # capped 0.6), so nearer, more accurate frames dominate the far
+                # early ones. A frame jumping > axis_spike_reject is dropped.
                 a_n = min(0.6, self.axis_filter_alpha
                           * (self.predock_distance / max(depth, 0.4)))
                 spike = float(self.get_parameter('axis_spike_reject').value)
@@ -1044,13 +1011,20 @@ class DockTrigger(Node):
                 desired_yaw = normalize_angle(
                     bnorm_filt - math.atan2(blat_filt, lookahead))
                 omega = line_kp * desired_yaw
-                self._publish_base_link_normal_marker(bnorm_filt, blat_filt, 'FAR-cam avg')
+                lost_frames = 0
+                # Keep the carried snapshot fresh for whenever tier 1 drops out
+                # (outer tags leave the FOV) — always the LATEST good axis, not a
+                # one-time freeze, so tier 2 picks up from the best data available.
+                carried_norm = bnorm_filt
+                carried_odom_yaw = self._lookup_odom_yaw()
+                self._publish_base_link_normal_marker(bnorm_filt, blat_filt, 'axis (2+ tags)')
             elif (not use_cam) and pose is not None and depth > freeze:
                 rx, ry, ryaw = pose
-                # LEGACY map-frame FAR leg (use_camera_frame_normal:=false): the
+                # LEGACY map-frame leg (use_camera_frame_normal:=false): the
                 # map-frame 3-tag axis is the noisy link (marginal id2, 52 cm
                 # baseline) and drifts with AMCL, so out here it just gets the
-                # robot roughly onto the perpendicular line.
+                # robot roughly onto the perpendicular line. Unused on the real
+                # robot (use_camera_frame_normal:=true) — kept for the sim path.
                 est = self._estimate_dock_once()
                 if est is not None:
                     ecx, ecy, eyaw = est
@@ -1069,122 +1043,30 @@ class DockTrigger(Node):
                     normal_yaw - math.atan2(lateral, lookahead))
                 yaw_err = normalize_angle(desired_yaw - ryaw)
                 omega = line_kp * yaw_err
+                lost_frames = 0
+            elif c1cam is not None and c1cam[2] > 0.0:
+                # Tier 2 — only the centre tag visible (outer tags out of FOV,
+                # too close). No fresh axis estimate possible from one point, so
+                # steer with the LAST good axis (carried_norm), corrected for
+                # however much the robot has turned since via odometry — same
+                # pure-pursuit law and gain as tier 1, no separate correction pass.
+                ref_yaw = 0.0
+                if carried_norm is not None and carried_odom_yaw is not None:
+                    odom_yaw_now = self._lookup_odom_yaw()
+                    if odom_yaw_now is not None:
+                        ref_yaw = normalize_angle(
+                            carried_norm - (odom_yaw_now - carried_odom_yaw))
+                lateral = c1cam[0]   # metric lateral offset (m) — solvePnP translation
+                desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral, lookahead))
+                omega = line_kp * desired_yaw
+                lost_frames = 0
+                self._publish_base_link_normal_marker(ref_yaw, lateral, 'centre-only carried')
             else:
-                # NEAR (dominant): trust the CAMERA. PD visual corrector on the
-                # image-frame bearing to the centre tag — P aims at the tag
-                # (this also cancels lateral offset: an off-centre robot sees the
-                # tag off-centre), D damps so a lively kp does not zig-zag. The
-                # noisy map-frame line is dropped here on purpose.
-                if not frozen and depth <= freeze:
-                    frozen = True
-                    # Snapshot the FAR-derived dock normal (robot-frame, from the wide
-                    # 2-outer-tag baseline) + the odom yaw at this exact instant. NEAR only
-                    # sees the centre tag (translation, not a trustworthy orientation), so
-                    # without this the NEAR steering law has no reference for the DOCK'S
-                    # true perpendicular — it only nulls the camera-frame lateral offset,
-                    # which converges the robot onto the line but does not constrain final
-                    # heading (a robot can keep the tag centred while arriving at an angle,
-                    # confirmed 2026-07-07: "sur la normale mais pas la bonne orientation").
-                    # Carrying bnorm_filt forward + correcting it by the odom yaw delta
-                    # (wheel+IMU EKF, LiDAR-independent) lets NEAR keep aiming at the dock's
-                    # actual normal instead of just "wherever the tag currently is".
-                    bnorm_at_freeze = bnorm_filt
-                    odom_yaw_at_freeze = self._lookup_odom_yaw()
-                    # Optionally cut the LiDAR at the FAR->NEAR hand-over. DISABLED
-                    # by default (stop_lidar_in_approach): on this unit stopping
-                    # the motor kills the AprilTag detection within ~1 s, so the
-                    # LiDAR stays on through the dock.
-                    if self.stop_lidar_in_approach:
-                        self._set_lidar_async(False)
-                    self.get_logger().info(
-                        f'   depth {depth:.2f}m ≤ {freeze:.2f}m — visual corrector '
-                        f'(PD on tag-1 lateral offset, fixed lookahead'
-                        + (', dock-normal carried via odometry'
-                           if bnorm_at_freeze is not None and odom_yaw_at_freeze is not None
-                           else ', NO frozen normal — falling back to point-at-tag') + ')'
-                        + ('; LiDAR off' if self.stop_lidar_in_approach else ''))
-                if c1cam is not None and c1cam[2] > 0.0:
-                    lost_frames = 0
-                    raw_angle = math.atan2(c1cam[0], c1cam[2])
-                    lateral_raw = c1cam[0]   # metric lateral offset (m) — solvePnP translation,
-                                              # already in metres, not a normalised image coord.
-                    kp = float(self.get_parameter('visual_servo_kp').value)
-                    kd = float(self.get_parameter('visual_servo_kd').value)
-                    a = float(self.get_parameter('visual_servo_filter_alpha').value)
-                    lookahead = float(self.get_parameter('visual_servo_lookahead').value)
-                    now_t = time.time()
-                    # Reference heading = the dock's true normal, carried forward from the
-                    # FAR->NEAR freeze and corrected for however much the robot has turned
-                    # since (odom yaw delta, LiDAR-independent). Falls back to 0 ("just point
-                    # at the tag", the old behaviour) if FAR never established a normal or
-                    # odom is briefly unavailable — never blocks the approach on this.
-                    ref_yaw = 0.0
-                    if bnorm_at_freeze is not None and odom_yaw_at_freeze is not None:
-                        odom_yaw_now = self._lookup_odom_yaw()
-                        if odom_yaw_now is not None:
-                            ref_yaw = normalize_angle(
-                                bnorm_at_freeze - (odom_yaw_now - odom_yaw_at_freeze))
-                    if filtered_angle is None:
-                        filtered_angle = raw_angle
-                        lateral_filt = lateral_raw
-                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
-                        d_desired = 0.0
-                        last_valid_t = now_t
-                    elif abs(raw_angle - filtered_angle) > self.visual_servo_max_step:
-                        # solvePnP flicker — reject, coast on the last good desired_yaw.
-                        # last_valid_t NOT refreshed: lateral_filt didn't move, so the
-                        # next accepted frame's dt correctly spans back to the last real
-                        # update, not this rejected one.
-                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
-                        d_desired = 0.0
-                    else:
-                        prev_desired_yaw = normalize_angle(
-                            ref_yaw - math.atan2(lateral_filt, lookahead))
-                        filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
-                        lateral_filt = a * lateral_raw + (1.0 - a) * lateral_filt
-                        # desired_yaw = ref_yaw - atan2(lateral, FIXED lookahead): aim at the
-                        # dock's actual normal (ref_yaw), pure-pursuit-corrected for the
-                        # residual lateral offset — mirrors FAR's formula exactly, just with a
-                        # frozen+odom-corrected normal instead of a continuously re-measured
-                        # one (NEAR only has the centre tag, translation only). A fixed
-                        # lookahead (not the shrinking depth) avoids the old gain blow-up
-                        # (2026-07-07 oscillation audit).
-                        desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral_filt, lookahead))
-                        # Real elapsed time since the last update, NOT the nominal loop period —
-                        # see the D-term dt fix above; same gap-handling logic, now applied to
-                        # desired_yaw instead of the raw bearing.
-                        dt = now_t - last_valid_t if last_valid_t is not None else period
-                        if dt <= 0.0 or dt > 2.5 * period:
-                            d_desired = 0.0
-                        else:
-                            d_desired = (desired_yaw - prev_desired_yaw) / dt
-                        last_valid_t = now_t
-                    self._publish_base_link_normal_marker(ref_yaw, lateral_filt, 'NEAR carried')
-                    # Hysteresis deadband: drive straight while aligned, only
-                    # commit a correction past the outer band, release at the
-                    # inner band. Stops the per-frame left-right hunting; the
-                    # stiction floor below still makes an engaged turn execute.
-                    db = float(self.get_parameter('visual_align_deadband').value)
-                    mag = abs(desired_yaw)
-                    if mag > db:
-                        correcting = True
-                    elif mag < 0.4 * db:
-                        correcting = False
-                    omega = (kp * desired_yaw + kd * d_desired) if correcting else 0.0
-                else:
-                    # Tag 1 momentarily lost. We were tracking it (bearing was
-                    # small), so COAST STRAIGHT through brief dropouts (IR
-                    # speckle / motion blur) instead of stutter-stopping — the
-                    # stop-go is what wrecked the forward tracking. Straight =
-                    # toward where the aligned tag was (tag 1), never sideways
-                    # into an outer tag. Abort only if it stays lost too long.
-                    lost_frames += 1
-                    if lost_frames > self.visual_lost_max_frames:
-                        self._publish_cmd_vel(0.0, 0.0)
-                        self.get_logger().error(
-                            '   tag 1 lost too long in final approach — aborting')
-                        return False
-                    omega = 0.0   # fall through to the normal v taper + publish
+                # Tier 3 — nothing visible at all: go BLIND. No steering attempt,
+                # just keep advancing straight; depth is dead-reckoned from
+                # odometry above, so 'docked' still triggers correctly.
+                lost_frames += 1
+                omega = 0.0
 
             omega = max(-self.drive_yaw_max_omega,
                         min(self.drive_yaw_max_omega, omega))
@@ -1203,17 +1085,18 @@ class DockTrigger(Node):
                 # lowest clean speed. The old 0.03 floor sat in the judder band.
                 v = max(0.05, drive_speed * depth / taper)
 
-            # DEBUG (throttled ~2 Hz): which regime is actually driving Phase 5.
+            # DEBUG (throttled ~2 Hz): which tier is actually driving the approach.
             now_dbg = time.time()
             if now_dbg - getattr(self, '_p5_dbg', 0.0) > 0.5:
                 self._p5_dbg = now_dbg
-                branch = ('FAR-cam' if est_base is not None
-                          else ('FAR-map' if (not use_cam and pose is not None
-                                              and depth > freeze) else 'NEAR'))
+                tier = ('T1-axis' if est_base is not None
+                        else ('T-legacy-map' if (not use_cam and pose is not None
+                                                 and depth > freeze)
+                              else ('T2-centre' if c1cam is not None else 'T3-BLIND')))
                 norm_s = (f'{math.degrees(bnorm_filt):+.1f}'
                           if bnorm_filt is not None else '  n/a')
                 self.get_logger().info(
-                    f'   [P5] depth={depth:.2f} {branch} norm={norm_s}° '
+                    f'   [P5] depth={depth:.2f} {tier} norm={norm_s}° '
                     f'omega={omega:+.2f} v={v:.2f} '
                     f'c1={"Y" if (c1cam is not None) else "n"} '
                     f'base={"Y" if (est_base is not None) else "n"} lost={lost_frames}')
