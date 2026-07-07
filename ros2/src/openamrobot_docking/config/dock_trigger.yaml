@@ -232,14 +232,16 @@
     # or odometry drift; the dock axis is re-derived from the live camera TF every loop
     # and pure-pursuit corrects lateral offset + approach heading. false = legacy line.
     use_camera_frame_normal: true
-    # EMA weight for the live axis estimate (FAR regime). A plain cumulative
-    # mean freezes the early off-axis (wrong) estimates; the EMA keeps following
-    # the recent better ones. Higher = more reactive/noisier, lower = smoother.
-    # EMA weight grows as the robot gets closer (weight ∝ predock_distance/depth,
-    # capped), so the samples taken while advancing (nearer = more accurate)
-    # dominate the early far ones. Higher = reacts faster to new estimates
-    # (less smoothing); lower = smoother but slower to update.
-    axis_filter_alpha: 0.40
+    # EMA weight for the live axis estimate. A plain cumulative mean freezes
+    # the early off-axis (wrong) estimates; the EMA keeps following the recent
+    # better ones. Higher = more reactive/noisier, lower = smoother/more stable.
+    # Weight ∝ depth/predock_distance (far = more trust, near = less — see
+    # dock_trigger.py, inverted 2026-07-07), capped in code. 0.40 was still
+    # visibly jittery/changing too much mid-course on real hardware
+    # (2026-07-07 user feedback: "la ligne est trop variable... qu'un petit peu
+    # à mi-course") — lowered to 0.12 for a much heavier, more stable average
+    # throughout the approach, not just near the dock.
+    axis_filter_alpha: 0.12
 
     # ─── Obstacle avoidance during drive phases ──────────────────────────────
     # The sequencer publishes cmd_vel straight to the robot, bypassing

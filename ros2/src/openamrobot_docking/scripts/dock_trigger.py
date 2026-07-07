@@ -997,14 +997,17 @@ class DockTrigger(Node):
                 # Temporal EMA on the normal (byaw) + lateral, because WHILE MOVING
                 # a single frame jitters (vibration, blur, changing view angle).
                 # Weight SHRINKS as the robot gets closer (∝ depth/predock_distance,
-                # capped 0.6, floored 0.05) — 2026-07-07: the wide 2-outer-tag
+                # capped 0.20, floored 0.05) — 2026-07-07: the wide 2-outer-tag
                 # baseline degrades close up (corners hug the FOV edge, per
                 # docs/12_lessons_learned.md Lesson 28), so most of the trust should
                 # accumulate FAR/MID field, while it's still advancing, not right at
-                # the end. A floor (not 0) keeps a real persistent drift adapting
-                # slowly rather than fully freezing. A frame jumping >
-                # axis_spike_reject is dropped regardless.
-                a_n = max(0.05, min(0.6, self.axis_filter_alpha
+                # the end. Cap lowered from 0.6 -> 0.20 after real-hardware feedback
+                # that the line still changed too much mid-course even far away
+                # ("qu'elle change qu'un petit peu à mi-course") — a heavy, stable
+                # average throughout, not just near the dock. A floor (not 0) keeps
+                # a real persistent drift adapting slowly rather than fully
+                # freezing. A frame jumping > axis_spike_reject is dropped regardless.
+                a_n = max(0.05, min(0.20, self.axis_filter_alpha
                           * (depth / self.predock_distance)))
                 spike = float(self.get_parameter('axis_spike_reject').value)
                 if bnorm_filt is None:
