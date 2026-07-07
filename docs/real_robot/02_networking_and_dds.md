@@ -12,6 +12,22 @@ Consolidates memory `amr-wifi-guest-flaky`, `amr-pi-ros-commands`, `pi-ssh-acces
 
 ## The configuration
 
+The network + DDS topology is shown below.
+
+> ### 📐 Diagram: Networking & DDS topology
+> *Figure - the operator PC, the robot Pi, and the Teensy, and where the DDS domain must match.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw a networking/DDS topology diagram:
+> - Operator PC (RViz / operator UI) on Wi-Fi.
+> - Robot: Raspberry Pi 5 on Wi-Fi (reach it by mDNS botshare.local, NOT a hard-coded DHCP IP).
+> - Teensy 4.0 <-> Pi over USB (micro-ROS agent).
+> - All ROS 2 nodes must share RMW_IMPLEMENTATION=rmw_cyclonedds_cpp AND ROS_DOMAIN_ID=0.
+> Call out three traps in red: (1) the PC defaulting to FastDDS / domain 42 -> empty panels; (2) the Docker UI using FastDDS while the robot uses CycloneDDS/domain 0 -> panels blank; (3) Wi-Fi Guest degrading -> mDNS fails and topic echo times out (looks like a dead robot).
+> ```
+
+
 | Setting | Value | Why |
 |---|---|---|
 | `RMW_IMPLEMENTATION` | **`rmw_cyclonedds_cpp`** | Whole stack moved to CycloneDDS on 2026-06-18 (required by the Nav2 / docking actions; FastDDS has a Jazzy Python crash that silently breaks `dock_trigger.py` action goals). |

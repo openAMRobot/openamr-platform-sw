@@ -9,6 +9,19 @@ footprint collision from the live scan. All values are quoted from
 
 ## 1. Where it sits
 
+The reactive-safety command chain is shown below.
+
+> ### 📐 Diagram: Reactive-safety velocity chain
+> *Figure - where the collision monitor sits in the /cmd_vel pipeline.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw the Nav2 velocity command chain as a left-to-right pipeline:
+> controller_server (/cmd_vel_nav) -> velocity_smoother (/cmd_vel_smoothed) -> collision_monitor (/cmd_vel, final, to the base).
+> Show the collision_monitor taking /scan_filtered as an observation source and applying a FootprintApproach zone that slows/stops the robot when an obstacle enters the footprint-projected zone. Note that during the docking final approach the sequencer publishes /cmd_vel directly and bypasses this chain.
+> ```
+
+
 ```
 velocity_smoother ──► /cmd_vel_smoothed ──► collision_monitor ──► /cmd_vel ──► base
 ```

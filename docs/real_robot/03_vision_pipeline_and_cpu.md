@@ -81,6 +81,19 @@ full-res frames. That is what produced 35 k ctx/s and 20 % sys time and starved 
 
 ---
 
+The before/after vision pipeline is shown below.
+
+> ### 📐 Diagram: Vision pipeline: 3-process vs intra-process composition
+> *Figure - why the detector starved, and the composed fix.*
+>
+> **Prompt to generate this diagram (paste to Claude):**
+> ```
+> Draw two stacked pipeline diagrams for the docking vision path.
+> TOP (before, slow): camera_node -> (DDS hop) -> apriltag_gate.py (Python republish) -> (DDS hop) -> apriltag_node -> detections. Label it '3 processes, 2 DDS hops, detector starved 5-8 Hz, ~124% CPU'.
+> BOTTOM (after, fixed): a single component_container_mt holding camera + apriltag with INTRA-PROCESS (zero-copy) comms, gated on demand. Label it '1 container, intra-process, 15 Hz, ~55% CPU'.
+> Show the on-demand gate (SetBool /apriltag/set_enabled) enabling detection only during docking.
+> ```
+
 ## The fix — intra-process composition (the root-cause fix)
 
 Put the camera and the detector in **one** `component_container_mt` with
