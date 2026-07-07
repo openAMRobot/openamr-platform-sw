@@ -1009,7 +1009,10 @@ class DockTrigger(Node):
                 spike = float(self.get_parameter('axis_spike_reject').value)
                 if bnorm_filt is None:
                     bnorm_filt, blat_filt = byaw, lateral
-                else:
+                    carried_norm = bnorm_filt
+                    carried_odom_yaw = self._lookup_odom_yaw()
+                elif depth > freeze:
+                    # Still far/mid field: keep refining the normal as usual.
                     dev = abs(normalize_angle(byaw - bnorm_filt))
                     if dev <= spike:
                         # Stability weighting: a sample close to the CURRENT running
@@ -1027,16 +1030,30 @@ class DockTrigger(Node):
                             bnorm_filt + a_eff * normalize_angle(byaw - bnorm_filt))
                         blat_filt = (1.0 - a_eff) * blat_filt + a_eff * lateral
                     # else: spike — keep the last filtered normal this frame
+                    # Keep the carried snapshot fresh while still far/mid field —
+                    # always the LATEST good axis, so tier 2 (if it kicks in) starts
+                    # from the best data available.
+                    carried_norm = bnorm_filt
+                    carried_odom_yaw = self._lookup_odom_yaw()
+                else:
+                    # depth <= freeze: FROZEN normal (2026-07-07, Lesson 28 —
+                    # "the optimal gain in the near-field is zero"). bnorm_filt is
+                    # NOT updated anymore, no matter how many more tier-1 frames
+                    # arrive (even brief flickers back to 2+ tags near the dock,
+                    # where the wide baseline is noisiest, can no longer perturb
+                    # it) — this is what was still letting a small, intermittent
+                    # left-turn bias through even after the inverted weighting.
+                    # `lateral` stays FRESH every loop below (translation is more
+                    # reliable close up than orientation), only the heading
+                    # reference is locked. carried_norm/odom_yaw are correspondingly
+                    # NOT refreshed here — bnorm_filt no longer changes, so the
+                    # existing carried snapshot is already correct and stays valid.
+                    blat_filt = lateral
                 desired_yaw = normalize_angle(
                     bnorm_filt - math.atan2(blat_filt, lookahead))
                 omega = line_kp * desired_yaw
                 lost_frames = 0
                 lateral_t2_filt = None   # reset tier 2's smoother — see tier 2 below
-                # Keep the carried snapshot fresh for whenever tier 1 drops out
-                # (outer tags leave the FOV) — always the LATEST good axis, not a
-                # one-time freeze, so tier 2 picks up from the best data available.
-                carried_norm = bnorm_filt
-                carried_odom_yaw = self._lookup_odom_yaw()
                 self._publish_base_link_normal_marker(bnorm_filt, blat_filt, 'axis (2+ tags)')
             elif (not use_cam) and pose is not None and depth > freeze:
                 rx, ry, ryaw = pose
