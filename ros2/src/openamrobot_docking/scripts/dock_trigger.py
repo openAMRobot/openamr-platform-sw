@@ -1036,18 +1036,26 @@ class DockTrigger(Node):
                     carried_norm = bnorm_filt
                     carried_odom_yaw = self._lookup_odom_yaw()
                 else:
-                    # depth <= freeze: FROZEN normal (2026-07-07, Lesson 28 —
-                    # "the optimal gain in the near-field is zero"). bnorm_filt is
-                    # NOT updated anymore, no matter how many more tier-1 frames
-                    # arrive (even brief flickers back to 2+ tags near the dock,
-                    # where the wide baseline is noisiest, can no longer perturb
-                    # it) — this is what was still letting a small, intermittent
-                    # left-turn bias through even after the inverted weighting.
-                    # `lateral` stays FRESH every loop below (translation is more
-                    # reliable close up than orientation), only the heading
-                    # reference is locked. carried_norm/odom_yaw are correspondingly
-                    # NOT refreshed here — bnorm_filt no longer changes, so the
-                    # existing carried snapshot is already correct and stays valid.
+                    # depth <= freeze: FROZEN normal reference (2026-07-07, Lesson
+                    # 28 — "the optimal gain in the near-field is zero"). The
+                    # world-referenced normal captured at the freeze moment
+                    # (carried_norm/carried_odom_yaw, last set while depth > freeze)
+                    # is NOT held as a stale base_link-frame value — base_link
+                    # rotates WITH the robot, so a value frozen in that frame goes
+                    # wrong the moment the robot turns after the freeze (bug found
+                    # 2026-07-07: "au début c'est ok mais ensuite c'est pas bon").
+                    # Instead, re-derive bnorm_filt from the carried snapshot every
+                    # loop via the odom yaw delta — the exact same mechanism tier
+                    # 2's ref_yaw already uses. carried_norm/carried_odom_yaw
+                    # themselves are NOT refreshed here (they stay at their
+                    # freeze-moment values; only the current-frame projection of
+                    # them changes as the robot turns).
+                    odom_yaw_now = self._lookup_odom_yaw()
+                    if (carried_norm is not None and carried_odom_yaw is not None
+                            and odom_yaw_now is not None):
+                        bnorm_filt = normalize_angle(
+                            carried_norm - (odom_yaw_now - carried_odom_yaw))
+                    # else: odom briefly unavailable — keep last bnorm_filt.
                     blat_filt = lateral
                 desired_yaw = normalize_angle(
                     bnorm_filt - math.atan2(blat_filt, lookahead))
