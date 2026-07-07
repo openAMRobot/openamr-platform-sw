@@ -1,0 +1,33 @@
+/**:
+    ros__parameters:
+        image_transport: raw
+        family: 36h11
+        # size = side of the BLACK border square (NOT the whole printed panel).
+        # A 36h11 tag image is 10 modules wide with a 1-module quiet zone each side,
+        # so the black square is 8/10 of the printed panel width.
+        # ⚠️ REAL ROBOT: MEASURE your printed tag's black-square edge and set it here
+        # (e.g. a 0.10 m printed panel -> 0.08 m black square). Wrong size = wrong dock
+        # distance. Placeholder below assumes a 0.10 m panel.
+        size:  0.131
+        max_hamming: 0
+
+        detector:
+            threads: 3
+            decimate: 2.0       # detect quads on a half-res image (~4x faster) then
+                                # refine=True re-fits corners at full res. Fixes the
+                                # backlog: decimate 1.0 ran the 1280x720 quad detector
+                                # at ~8 Hz < camera 15 Hz -> queue built up -> 0.7 s+
+                                # detection latency (growing past detection_max_age ->
+                                # 'tag 1 lost'). Half-res keeps up -> ~1-frame latency.
+            blur: 0.0
+            refine: True
+            sharpening: 0.25
+            debug: False
+
+        pose_estimation_method: "pnp"
+
+        tag:
+            ids: [0, 1, 2]
+            frames: [charging_dock_tag_0, charging_dock_tag_1, charging_dock_tag_2]
+            # If the three tags differ in size, set per-tag sizes here; otherwise the
+            # global `size` above applies to all three.
