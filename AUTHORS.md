@@ -73,6 +73,19 @@ Recognition is given to contributors whose work has materially shaped this repos
   - **CycloneDDS / FastDDS diagnostic** and workaround for the Python action-client crash bug on ROS 2 Jazzy.
   - **15 in-depth engineering documents** under `ros2/src/openamrobot_docking/docs/` (00 → 14): overview, quickstart, architecture, TF frames, AprilTag, parameters, camera calibration, reproduction checklist, sequencer walkthroughs (legacy 4-phase + current bundle), troubleshooting, diagrams, changes from upstream, lessons-learned diary, perception + perpendicular line + RViz/Gazebo markers, and vendor-agnostic precision-docking research (validation matrix, failure modes, calibration, multi-dock).
 
+### Real-robot bring-up, navigation tuning, and hardware integration
+
+- **Matthieu Vinet** — [@SHuttooo](https://github.com/SHuttooo)
+  - **Real-robot bring-up** (`openamrobot_bringup`, `openamrobot_drivers`, `openamrobot_perception`): micro-ROS agent + RPLIDAR + EKF + measured static TFs, a top-level `bringup.launch.py` (sim/real selector with `use_camera` / `use_docking`), and a `/goal_pose → /goal_pose_nav` relay for nav-only operation. Took the placeholder packages to a working real-robot stack.
+  - **Real-robot Nav2 tuning**: the hardware-tested `nav2_params.yaml` (RotationShimController, costmap/critic tuning) and the **acceleration fix that clears the motor stiction floor** (`acc_lim_theta` 0.5→3.0) which had deadlocked in-place rotation, plus a planner speedup (SmacPlanner2D costmap downsampling, capped planning time).
+  - **Real-robot perception**: the LiDAR self-view **scan body filter** tuned to the chassis, camera bring-up, and a 15 fps sensor cap to cut Pi load.
+  - **On-demand AprilTag gate** — the detector idles during navigation and is enabled only for the dock approach (via a `SetBool` service), freeing the Pi.
+  - **Robot-frame (base_link) dock-normal** final approach — robust to one outer tag dropping out — with **sigma-delta PWM** so sub-stiction yaw corrections still execute, and measured velocity floors.
+  - **NEAR-field corrector rewrite** (hardware-validated): real elapsed-time derivative (was a fixed period → jerk on tag reacquisition), fixed-lookahead depth compensation, and stability-weighted axis averaging; plus **continuous camera autofocus** for the close-range image.
+  - **Intra-process vision composition** launches (camera + AprilTag in one `component_container_mt`) removing the multi-process / DDS-hop pipeline that starved the detector.
+  - **Hardware diagnostics** scripts (`tools/diagnostics/`) and a troubleshooting log.
+  - **Real-robot engineering doc series** under `docs/`: `navigation/`, `safety/`, and `real_robot/` (bring-up, networking/DDS, vision pipeline & CPU, compute/thermal, calibration, operator UI, troubleshooting).
+
 ### Robot description — upstream geometry and meshes
 
 - **Stephen Brawner** — original author of the SolidWorks-to-URDF Exporter ([sw_urdf_exporter](http://wiki.ros.org/sw_urdf_exporter)) used to generate the OpenAMRobot URDF and STL mesh set.
