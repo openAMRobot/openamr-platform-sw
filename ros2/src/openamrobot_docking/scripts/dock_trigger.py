@@ -1153,23 +1153,28 @@ class DockTrigger(Node):
                 # lowest clean speed. The old 0.03 floor sat in the judder band.
                 v = max(0.05, drive_speed * depth / taper)
 
-            # DEBUG (throttled ~2 Hz): which tier is actually driving the approach.
+            # DEBUG (throttled ~2 Hz, clearer wording 2026-07-07): which tier is
+            # actually driving the approach, and whether the normal is frozen.
             now_dbg = time.time()
             if now_dbg - getattr(self, '_p5_dbg', 0.0) > 0.5:
                 self._p5_dbg = now_dbg
-                tier = ('T1-axis' if est_base is not None
-                        else ('T-legacy-map' if (not use_cam and pose is not None
-                                                 and depth > freeze)
-                              else ('T2-centre' if c1cam is not None else 'T3-BLIND')))
-                norm_s = (f'{math.degrees(bnorm_filt):+.1f}'
-                          if bnorm_filt is not None else '  n/a')
+                if est_base is not None:
+                    tier = 'TIER1 (2+ tags)'
+                elif not use_cam and pose is not None and depth > freeze:
+                    tier = 'LEGACY (map-frame)'
+                elif c1cam is not None:
+                    tier = 'TIER2 (centre tag only)'
+                else:
+                    tier = 'TIER3 (BLIND, no tags)'
+                frozen_s = 'FROZEN' if depth <= freeze else 'live'
+                norm_s = (f'{math.degrees(bnorm_filt):+.1f}deg'
+                          if bnorm_filt is not None else 'n/a')
                 self.get_logger().info(
-                    f'   [P5] depth={depth:.2f} {tier} norm={norm_s}° '
-                    f'omega={omega:+.2f} v={v:.2f} '
-                    f'c1={"Y" if (c1cam is not None) else "n"} '
-                    f'base={"Y" if (est_base is not None) else "n"} lost={lost_frames}')
+                    f'   [DOCKING] depth={depth:.2f}m  {tier}  normal={frozen_s} ({norm_s})  '
+                    f'omega={omega:+.2f}rad/s  v={v:.2f}m/s  '
+                    f'tags_visible={"yes" if c1cam is not None else "no"}  '
+                    f'blind_frames={lost_frames}')
             self._publish_cmd_vel(v, omega)
-            self._publish_line_markers(cx, cy, normal_yaw)
             self._publish_gz_line_marker(cx, cy, normal_yaw)
             time.sleep(period)
 
@@ -1808,72 +1813,22 @@ class DockTrigger(Node):
         msg.angular.z = float(omega)
         self.cmd_vel_pub.publish(msg)
 
-    def _publish_line_markers(self, cx: float, cy: float, perp_yaw: float):
-        """Publish the perpendicular approach line and the dock centre as RViz
-        markers in the map frame. See docs/13_perception_and_line.md.
-        """
-        if not self.publish_debug_markers:
-            return
-        now = self.get_clock().now().to_msg()
-        dirx, diry = math.cos(perp_yaw), math.sin(perp_yaw)
-        arr = MarkerArray()
-
-        # Green line: the perpendicular approach axis through the dock centre.
-        # perp_yaw points from the robot toward the dock, so the robot side of
-        # the line is at centre − dir; draw from there to just past the dock.
-        line = Marker()
-        line.header.frame_id = 'map'
-        line.header.stamp = now
-        line.ns = 'docking_line'
-        line.id = 0
-        line.type = Marker.LINE_STRIP
-        line.action = Marker.ADD
-        line.scale.x = 0.03
-        line.color.g = 1.0
-        line.color.a = 1.0
-        line.pose.orientation.w = 1.0
-        line.points = [
-            Point(x=cx - 4.0 * dirx, y=cy - 4.0 * diry, z=0.15),
-            Point(x=cx + 0.3 * dirx, y=cy + 0.3 * diry, z=0.15),
-        ]
-        arr.markers.append(line)
-
-        # Red sphere: the dock centre.
-        tag = Marker()
-        tag.header.frame_id = 'map'
-        tag.header.stamp = now
-        tag.ns = 'docking_tag'
-        tag.id = 1
-        tag.type = Marker.SPHERE
-        tag.action = Marker.ADD
-        tag.pose.position.x = cx
-        tag.pose.position.y = cy
-        tag.pose.position.z = 0.30
-        tag.pose.orientation.w = 1.0
-        tag.scale.x = tag.scale.y = tag.scale.z = 0.12
-        tag.color.r = 1.0
-        tag.color.a = 1.0
-        arr.markers.append(tag)
-
-        self.marker_pub.publish(arr)
-
     def _publish_base_link_normal_marker(self, normal_yaw: float, lateral: float, label: str):
-        """Publish the LIVE dock-normal estimate actually driving the controller,
+        """Publish the ONE live dock-normal line actually driving the controller,
         as an arrow in base_link frame (robot always has this frame, so it works
-        during camera-frame FAR and NEAR alike, unlike _publish_line_markers'
-        map-frame cx/cy/normal_yaw — which, on the real robot
-        (use_camera_frame_normal:=true), are the STALE Phase-4 estimate, never
-        updated by the live bnorm_filt EMA that's actually steering the robot.
-
-        Added 2026-07-07 after a real-robot test where the final heading was
-        wrong despite converging onto the line ("sur la normale mais pas la
-        bonne orientation") — this lets the operator watch in RViz whether the
-        normal estimate is stable (well-averaged) or noisy in real time, which
-        the old map-frame marker could never show for the camera-frame path.
+        across every tier). There used to ALSO be a map-frame RViz line
+        (_publish_line_markers, removed 2026-07-07) fed by cx/cy/normal_yaw —
+        which, on the real robot (use_camera_frame_normal:=true), was a STALE
+        Phase-4 snapshot, never updated by the live estimate that actually
+        steers the robot. That stale marker + this one being cyan gave two
+        conflicting lines in RViz. Now there is only this one: green.
 
         normal_yaw: dock normal, base_link frame (0 = robot's current forward).
         lateral: signed lateral offset (m) at the current lookahead, for the dot.
-        label: 'FAR-cam avg' or 'NEAR carried', kept as the marker ns for clarity.
+        label: 'axis (2+ tags)' or 'centre-only carried' — informational only,
+        NOT part of the marker namespace (a namespace-per-label bug briefly
+        caused two simultaneous arrows when the tier flickered; fixed to a
+        single constant namespace so a newer publish always replaces the old).
         """
         if not self.publish_debug_markers:
             return
@@ -1883,7 +1838,7 @@ class DockTrigger(Node):
         arrow = Marker()
         arrow.header.frame_id = 'base_link'
         arrow.header.stamp = now
-        arrow.ns = 'dock_normal_live'
+        arrow.ns = 'docking_line'
         arrow.id = 0
         arrow.type = Marker.ARROW
         arrow.action = Marker.ADD
@@ -1894,18 +1849,17 @@ class DockTrigger(Node):
         arrow.scale.x = 0.04   # shaft diameter
         arrow.scale.y = 0.08   # head diameter
         arrow.scale.z = 0.12   # head length
-        arrow.color.b = 1.0
-        arrow.color.g = 1.0    # cyan — distinct from the green map-frame line
+        arrow.color.g = 1.0    # green — the one and only docking line
         arrow.color.a = 1.0
         arrow.pose.orientation.w = 1.0
         arr.markers.append(arrow)
 
-        # Small magenta dot at the lateral offset, lookahead metres ahead —
-        # the point the pure-pursuit law is actually steering toward.
+        # Small red dot at the lateral offset, lookahead metres ahead — the
+        # point the pure-pursuit law is actually steering toward.
         dot = Marker()
         dot.header.frame_id = 'base_link'
         dot.header.stamp = now
-        dot.ns = 'dock_normal_live'
+        dot.ns = 'docking_line'
         dot.id = 1
         dot.type = Marker.SPHERE
         dot.action = Marker.ADD
@@ -1915,7 +1869,6 @@ class DockTrigger(Node):
         dot.pose.orientation.w = 1.0
         dot.scale.x = dot.scale.y = dot.scale.z = 0.06
         dot.color.r = 1.0
-        dot.color.b = 1.0
         dot.color.a = 1.0
         arr.markers.append(dot)
 
