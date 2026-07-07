@@ -25,6 +25,14 @@ The network + DDS topology is shown below.
 > - Teensy 4.0 <-> Pi over USB (micro-ROS agent).
 > - All ROS 2 nodes must share RMW_IMPLEMENTATION=rmw_cyclonedds_cpp AND ROS_DOMAIN_ID=0.
 > Call out three traps in red: (1) the PC defaulting to FastDDS / domain 42 -> empty panels; (2) the Docker UI using FastDDS while the robot uses CycloneDDS/domain 0 -> panels blank; (3) Wi-Fi Guest degrading -> mDNS fails and topic echo times out (looks like a dead robot).
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 

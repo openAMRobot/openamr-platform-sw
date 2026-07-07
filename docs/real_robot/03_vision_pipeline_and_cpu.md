@@ -92,6 +92,14 @@ The before/after vision pipeline is shown below.
 > TOP (before, slow): camera_node -> (DDS hop) -> apriltag_gate.py (Python republish) -> (DDS hop) -> apriltag_node -> detections. Label it '3 processes, 2 DDS hops, detector starved 5-8 Hz, ~124% CPU'.
 > BOTTOM (after, fixed): a single component_container_mt holding camera + apriltag with INTRA-PROCESS (zero-copy) comms, gated on demand. Label it '1 container, intra-process, 15 Hz, ~55% CPU'.
 > Show the on-demand gate (SetBool /apriltag/set_enabled) enabling detection only during docking.
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 ## The fix — intra-process composition (the root-cause fix)

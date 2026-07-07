@@ -19,6 +19,14 @@ The reactive-safety command chain is shown below.
 > Draw the Nav2 velocity command chain as a left-to-right pipeline:
 > controller_server (/cmd_vel_nav) -> velocity_smoother (/cmd_vel_smoothed) -> collision_monitor (/cmd_vel, final, to the base).
 > Show the collision_monitor taking /scan_filtered as an observation source and applying a FootprintApproach zone that slows/stops the robot when an obstacle enters the footprint-projected zone. Note that during the docking final approach the sequencer publishes /cmd_vel directly and bypasses this chain.
+> 
+> STYLE (keep ALL diagrams uniform): solid WHITE background — add a full-canvas white
+> rectangle as the first element. Flat, clean, technical look; dark text (#1a1a1a),
+> sans-serif. Use explicit hex colours ONLY — do NOT use CSS variables (var(--...)).
+> Shared palette across every diagram: 24 V / power = red #c0392b; 5 V = orange #e67e22;
+> 3.3 V logic = blue #2c6fbb; data buses = grey #888888; warning / 'NOT FITTED' / danger
+> = red; wired / OK = green #2e8b57. Rounded-rectangle blocks, labelled arrows for
+> direction, English labels only, landscape orientation, no text overflow.
 > ```
 
 
