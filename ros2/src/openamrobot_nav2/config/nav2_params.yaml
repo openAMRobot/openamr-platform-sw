@@ -13,7 +13,7 @@ amcl:
     global_frame_id: "map"
     lambda_short: 0.1
     laser_likelihood_max_dist: 2.0
-    laser_max_range: 100.0
+    laser_max_range: 12.0   # = portee reelle du RPLIDAR A1 (100 inutile -> faisceaux fantomes)
     laser_min_range: -1.0
     laser_model_type: "likelihood_field"
     max_beams: 60
@@ -85,47 +85,68 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.05
-      movement_time_allowance: 30.0
+      # 30 -> 12 s: declare 'no progress' and run recoveries sooner instead of
+      # sitting stuck for 30 s (a big part of the perceived 'thinking' time,
+      # especially when a wheel momentarily stalls (a loose motor cable, or start-up stiction).
+      movement_time_allowance: 12.0
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
+      # COARSE navigation tolerance (Raj review PR4). Docking precision is SEPARATE and much tighter:
+      # docking_server.docking_threshold=0.05 + dock_trigger.yaml (scan_centring_tolerance 0.035 rad,
+      # spin_yaw_tolerance 0.02 rad, docking_distance 0.15 m). The docking sequencer does NOT use this
+      # nav tolerance, so a loose nav goal does not compromise the dock approach.
       xy_goal_tolerance: 0.35
       yaw_goal_tolerance: 0.35
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
+      # RotationShimController: makes the robot ROTATE toward the path before driving (DWB alone
+      # struggles to turn in place to set off in another direction). DWB remains the sub-controller.
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.785       # heading error > 45 deg -> turn in place first
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.5  # <= max_vel_theta
+      max_angular_accel: 3.0              # 0.5->3.0: was below the motor stiction floor at the 0.05s
+                                           # control period (0.5*0.05=0.025 rad/s), deadlocking in-place
+                                           # rotation entirely — see acc_lim_theta below
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: true
       debug_trajectory_details: True
-      min_vel_x: 0.0
+      min_vel_x: -0.05          # small reverse only when stuck (collision_monitor guards the rear ~0.365m)
       min_vel_y: 0.0
-      max_vel_x: 0.5
+      max_vel_x: 0.20          # forward speed (raised 0.12->0.20, the -2.5 braking absorbs the momentum)
       max_vel_y: 0.0
-      max_vel_theta: 2.0
+      max_vel_theta: 0.5       # slow/steady rotation (2.0 was far too much)
       min_speed_xy: 0.0
-      max_speed_xy: 0.5
+      max_speed_xy: 0.20       # aligned with max_vel_x
       min_speed_theta: 0.0
-      acc_lim_x: 0.5
+      acc_lim_x: 1.0            # 0.5->1.0: same stiction-deadlock fix as acc_lim_theta below
       acc_lim_y: 0.0
-      acc_lim_theta: 1.0
-      decel_lim_x: -0.5
-      decel_lim_y: 0.0
-      decel_lim_theta: -1.0
+      acc_lim_theta: 3.0       # 0.5->3.0: 0.5 * 0.05s control period = 0.025 rad/s commanded accel,
+                               # under the motor's stiction floor -> in-place rotation never started
+                               # (measured deadlock 2026-07-06). 3.0 clears the floor.
+      decel_lim_x: -2.5        # stronger braking -0.5->-2.5: slows down much earlier to counter
+      decel_lim_y: 0.0         # the heavy robot's inertia (otherwise it overshoots the target)
+      decel_lim_theta: -3.0    # -2.0->-3.0: matches the raised acc_lim_theta, stops the rotation in time
       vx_samples: 20
-      vy_samples: 5
-      vtheta_samples: 20
+      vy_samples: 1            # differential base, max_vel_y=0 (was 5 — Raj review PR4)
+      vtheta_samples: 30       # rotation samples (lowered 40->30: a touch less angular hesitation)
       sim_time: 1.7
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.6
       xy_goal_tolerance: 0.35
-      trans_stopped_velocity: 0.25
+      trans_stopped_velocity: 0.02   # measured odom noise floor (was 0.25 > max_vel_x 0.20 — Raj review PR4)
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 5.0
-      BaseObstacle.inflate_cost: true
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
+      # BaseObstacle.inflate_cost removed: not a Jazzy BaseObstacleCritic parameter (inert) — Raj review PR4
+      ObstacleFootprint.scale: 10.0
+      PathAlign.scale: 16.0    # 32->16: less aggressive heading-to-path pull (heavy robot was snaking)
+      PathAlign.forward_point_distance: 0.30   # 0.1->0.30: look further ahead -> smoother, less twitchy
+      GoalAlign.scale: 12.0    # 24->12: same, near the goal
+      GoalAlign.forward_point_distance: 0.30
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
@@ -144,12 +165,12 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.22
+      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
-        inflation_radius: 0.30
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.15
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -169,11 +190,14 @@ local_costmap:
           raytrace_max_range: 3.0
           raytrace_min_range: 0.10
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.15
+          obstacle_min_range: 0.0
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
-      always_send_full_costmap: False
+      # True: republishes the FULL grid every cycle (publish_frequency) instead of a single
+      # latched send + deltas. Avoids "No map received" in RViz when connecting after
+      # launch / over WiFi (the transient_local sample is not always delivered to the late-joiner).
+      always_send_full_costmap: True
 
 global_costmap:
   global_costmap:
@@ -183,7 +207,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 0.6
-      robot_radius: 0.22
+      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
       resolution: 0.05
       track_unknown_space: false
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -203,16 +227,18 @@ global_costmap:
           raytrace_max_range: 3.0
           raytrace_min_range: 0.10
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.15
+          obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.0
-        inflation_radius: 0.55
-      always_send_full_costmap: False
+        cost_scaling_factor: 3.5   # 2.5->3.5: cout retombe plus vite -> halo dur plus mince -> moins de "depart en quasi-collision"/recovery
+        inflation_radius: 0.35   # 0.20->0.35: the GLOBAL PLAN keeps further from the walls (path padding)
+      # True: republishes the FULL grid every cycle (cf local_costmap) -> RViz always has it,
+      # no more "No map received" at launch / over WiFi.
+      always_send_full_costmap: True
 
 map_server:
   ros__parameters:
-    yaml_filename: ""  # Overridden at launch time via the 'map' argument in sim_bringup_launch.py
+    yaml_filename: ""  # Overridden at launch time via the 'map' argument (localization_launch.py / bringup.launch.py)
 
 map_saver:
   ros__parameters:
@@ -229,13 +255,18 @@ planner_server:
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
       tolerance: 0.5
-      downsample_costmap: false
-      downsampling_factor: 1
+      # Plan on a 2x-downsampled grid (0.05 -> 0.10 m): ~4x fewer A* nodes, so the
+      # global plan computes far faster (the 'takes too long to think' at 0.05 m
+      # full-res was the main planner cost). Path is a touch coarser but adequate;
+      # the local costmap (0.05 m) still handles fine obstacle avoidance.
+      downsample_costmap: true
+      downsampling_factor: 2
       use_astar: true
       allow_unknown: true
       max_iterations: 1000000
       max_on_approach_iterations: 1000
-      max_planning_time: 2.0
+      # Cap planning time hard so a hard plan cannot stall the robot for 2 s.
+      max_planning_time: 1.0
       cost_travel_multiplier: 2.0
       use_final_approach_orientation: false
       smoother:
@@ -298,10 +329,12 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [1.0, 0.0, 2.0]   # Matches gazebo_control.xacro: max_linear_velocity=1.0, max_angular_velocity=2.0
-    min_velocity: [-1.0, 0.0, -2.0]  # Matches gazebo_control.xacro: min_linear_velocity=-1.0, min_angular_velocity=-2.0
-    max_accel: [0.5, 0.0, 1.0]       # Matches gazebo_control.xacro: max_linear_acceleration=0.5, max_angular_acceleration=1.0
-    max_decel: [-0.5, 0.0, -1.0]     # Matches gazebo_control.xacro: min_linear_acceleration=-0.5, min_angular_acceleration=-1.0
+    # Aligned to the SINGLE approved real-robot limit = the DWB limits below (Raj review PR4):
+    # max_velocity matches max_vel_x / max_vel_theta; accel/decel match acc_lim_* / decel_lim_*.
+    max_velocity: [0.20, 0.0, 0.5]   # = max_vel_x 0.20, max_vel_theta 0.5
+    min_velocity: [-0.20, 0.0, -0.5]
+    max_accel: [1.0, 0.0, 3.0]       # = acc_lim_x 1.0, acc_lim_theta 3.0 (stiction-deadlock fix)
+    max_decel: [-2.5, 0.0, -3.0]     # = decel_lim_x -2.5, decel_lim_theta -3.0
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
