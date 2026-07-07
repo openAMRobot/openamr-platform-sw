@@ -361,6 +361,17 @@ Each package ships its own README. The deep engineering docs live under [`ros2/s
 
 For the docking pipeline specifically, start with [`docs/01_quickstart.md`](ros2/src/openamrobot_docking/docs/01_quickstart.md).
 
+## Engineering deep dives
+
+Beyond per-package READMEs, three doc series record the *why* behind the real-robot work —
+tuned values, what was tried and rejected, and the gaps that remain:
+
+| Series | Covers |
+|---|---|
+| [`docs/navigation/`](docs/navigation/README.md) | The Nav2 stack on real hardware: architecture, costmaps, planner/controller tuning, goal routing, troubleshooting |
+| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet) |
+| [`docs/real_robot/`](docs/real_robot/README.md) | Taking the stack from Gazebo onto real hardware: bring-up, networking/DDS, vision pipeline & CPU budget, thermal limits, calibration, operator UI |
+
 ---
 
 ## Roadmap / TODO
