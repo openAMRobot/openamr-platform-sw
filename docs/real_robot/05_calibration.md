@@ -36,32 +36,39 @@ exists, or the aligner refuses (`REFUSED: no /debug telemetry`). **Wheels in the
 hand on the cut-off.**
 
 ```bash
-# on the PC — the script talks to the firmware over Cyclone/domain 0
-cd ~/Documents/openamr
+# on the PC — the scripts are vendored in the firmware repo and talk to the
+# firmware over Cyclone/domain 0
+cd <openamr-platform-fw>/tools/encoder-calibration
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
-python3 scripts/align_enc_cal.py --arm 250        # fast (~6-8 s)
-# full variant: scripts/calibrate_and_apply.sh
+python3 align_enc_cal.py --arm 250        # fast (~6-8 s)
+# full re-characterization: ./calibrate_and_apply.sh
 ```
 
 Success prints `table placed -> /debug/enc_cal`. Reference shape:
-`scripts/encoder_ref_table.json`.
+`encoder_ref_table.json` (same folder). Full workflow:
+`openamr-platform-fw/tools/encoder-calibration/README.md`.
 
 ### What the table does and does NOT fix (measured)
 
 - The firmware applies the ripple table **before** publishing the debug rpm, so
   `/debug/left|right.y` is the **corrected** rpm (passthrough 1.0 until a table is loaded) —
   `encoder_calib.py` therefore measures the **residual** once a table is loaded.
-- Residual error profile (3 speeds 120/180/250 overlap → speed-independent, geometric):
-  **LEFT ±11 %**, **RIGHT ±6 %**. Left is the known off-centre encoder.
+- Residual error profile (3 speeds 120/180/250 overlap → speed-independent, geometric): the
+  LEFT residual is **boot-dependent** (the per-boot phase lock is never identical). A clean full
+  recalibration lands **under ±5 %**; a fast per-boot alignment can sit higher (**up to ~±11 %**)
+  depending on how well the phase locked that boot. Either way it is far below the **±40 %** raw.
+  Left is the known off-centre encoder.
 - **The profile is normalized to mean 1.000 over a full revolution → the error averages out
   per revolution.** So odometry / position **does not drift**; the only residual is
   **intra-revolution velocity ripple** (the low-speed "oscillation"). It will not stop a
-  Station-4 nav.
-- **The runtime table is a stop-gap, not the real fix.** Because the incremental encoder
-  loses phase at each power-cycle, the accepted long-term fix is a **velocity filter** in
-  firmware, not the RAM table.
+  navigation goal.
+- **The runtime table is a per-boot ritual, not a permanent fix.** The durable fix is a
+  **hardware re-mount** of the AS5040 (centred/untilted magnet), which removes the ripple at the
+  source. A firmware **velocity filter** (averaging over ~half a revolution) was **tried and
+  rejected** — it cancels the ripple but adds ~0.6 s of lag, unacceptable for the closed loop.
+  See `openamr-platform-fw/docs/architecture/encoder-calibration.md`.
 
 > ⚠️ A **Teensy reset erases the ripple table** (and re-calibrates the IMU gyro bias). After
 > any reset — including the one used to fix a large gyro bias — **re-run `align_enc_cal.py`**

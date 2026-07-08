@@ -171,7 +171,7 @@ stays on the Pi; only the browser crosses Wi-Fi, over one lightweight websocket)
 "Localization pose missing"). The prefix is **mandatory**:
 
 ```bash
-cd ~/Documents/openAMRobot/openamrobot-ui
+cd <openamrobot-ui>   # the separate operator-UI repo
 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0 docker compose up   # -> http://localhost:5050/control
 ```
 

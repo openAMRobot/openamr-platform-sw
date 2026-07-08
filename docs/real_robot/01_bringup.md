@@ -86,12 +86,13 @@ agent (§1) up so `/debug/*` exists. Summary here; full detail in
 [`05_calibration.md`](05_calibration.md).
 
 ```bash
-# on the PC — talks to the firmware over Cyclone/domain 0
-cd ~/Documents/openamr
+# on the PC — the scripts are vendored in the firmware repo; they talk to the
+# firmware over Cyclone/domain 0
+cd <openamr-platform-fw>/tools/encoder-calibration
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
-python3 scripts/align_enc_cal.py --arm 250        # ~6-8 s; success: "table placed -> /debug/enc_cal"
+python3 align_enc_cal.py --arm 250        # ~6-8 s; success: "table placed -> /debug/enc_cal"
 ```
 
 ---
@@ -186,7 +187,7 @@ Run RViz on the PC with the working config (never bare `rviz2` — no map panel)
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
-rviz2 -d ~/Documents/openamr/scripts/openamr_nav.rviz
+rviz2 -d <openamr-platform-sw>/ros2/src/openamrobot_nav2/rviz/openamr_nav.rviz
 ```
 
 ---
