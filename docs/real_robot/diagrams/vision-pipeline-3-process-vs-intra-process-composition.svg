@@ -1,0 +1,110 @@
+<svg width="1160" height="600" viewBox="0 0 1160 600" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+
+  <!-- Full-canvas white background (first element) -->
+  <rect x="0" y="0" width="1160" height="600" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="580" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#1a1a1a">Docking Vision Path &#8212; Before vs After</text>
+  <text x="580" y="57" text-anchor="middle" font-size="12.5" fill="#666666">Separate processes with DDS hops vs a single composable container with intra-process comms</text>
+
+  <!-- ============================================================ -->
+  <!-- ==============  PANEL A : BEFORE (slow)  ==================== -->
+  <!-- ============================================================ -->
+
+  <!-- Section label + metrics pill -->
+  <rect x="60" y="82" width="5" height="20" fill="#c0392b"/>
+  <text x="74" y="98" font-size="15" font-weight="700" fill="#c0392b">BEFORE &#8212; separate processes (slow)</text>
+  <rect x="560" y="76" width="560" height="30" rx="15" ry="15" fill="#fdecea" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="840" y="95" text-anchor="middle" font-size="12.5" font-weight="700" fill="#c0392b">3 processes &#183; 2 DDS hops &#183; detector starved 5&#8211;8 Hz &#183; ~124% CPU</text>
+
+  <!-- camera_node -->
+  <rect x="70" y="130" width="150" height="70" rx="12" ry="12" fill="#eaf2fb" stroke="#2c6fbb" stroke-width="2"/>
+  <text x="145" y="162" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">camera_node</text>
+  <text x="145" y="182" text-anchor="middle" font-size="11" fill="#555555">(process)</text>
+
+  <!-- DDS hop 1 -->
+  <line x1="224" y1="165" x2="414" y2="165" stroke="#888888" stroke-width="2" stroke-dasharray="6 4"/>
+  <polygon points="414,159 428,165 414,171" fill="#888888"/>
+  <text x="325" y="151" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888888">DDS hop</text>
+  <text x="325" y="187" text-anchor="middle" font-size="10.5" fill="#999999">copy + serialize</text>
+
+  <!-- apriltag_gate.py -->
+  <rect x="430" y="130" width="200" height="70" rx="12" ry="12" fill="#eaf2fb" stroke="#2c6fbb" stroke-width="2"/>
+  <text x="530" y="160" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">apriltag_gate.py</text>
+  <text x="530" y="180" text-anchor="middle" font-size="11" fill="#555555">Python republish</text>
+
+  <!-- DDS hop 2 -->
+  <line x1="634" y1="165" x2="786" y2="165" stroke="#888888" stroke-width="2" stroke-dasharray="6 4"/>
+  <polygon points="786,159 800,165 786,171" fill="#888888"/>
+  <text x="715" y="151" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888888">DDS hop</text>
+  <text x="715" y="187" text-anchor="middle" font-size="10.5" fill="#999999">copy + serialize</text>
+
+  <!-- apriltag_node -->
+  <rect x="800" y="130" width="165" height="70" rx="12" ry="12" fill="#eaf2fb" stroke="#2c6fbb" stroke-width="2"/>
+  <text x="882" y="162" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">apriltag_node</text>
+  <text x="882" y="182" text-anchor="middle" font-size="11" fill="#555555">(process)</text>
+
+  <!-- detections output -->
+  <line x1="965" y1="165" x2="986" y2="165" stroke="#888888" stroke-width="2"/>
+  <polygon points="986,159 1000,165 986,171" fill="#888888"/>
+  <rect x="1000" y="147" width="130" height="36" rx="10" ry="10" fill="#f2f2f2" stroke="#888888" stroke-width="1.5"/>
+  <text x="1065" y="170" text-anchor="middle" font-size="12.5" fill="#333333" font-family="Consolas, 'Courier New', monospace">/detections</text>
+
+  <!-- Divider -->
+  <line x1="40" y1="248" x2="1120" y2="248" stroke="#e2e2e2" stroke-width="1"/>
+
+  <!-- ============================================================ -->
+  <!-- ==============  PANEL B : AFTER (fixed)  =================== -->
+  <!-- ============================================================ -->
+
+  <!-- Section label + metrics pill -->
+  <rect x="60" y="278" width="5" height="20" fill="#2e8b57"/>
+  <text x="74" y="294" font-size="15" font-weight="700" fill="#2e8b57">AFTER &#8212; single container (fixed)</text>
+  <rect x="560" y="272" width="560" height="30" rx="15" ry="15" fill="#eef7f1" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="840" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2e8b57">1 container &#183; intra-process (zero-copy) &#183; 15 Hz &#183; ~55% CPU</text>
+
+  <!-- Container -->
+  <rect x="180" y="330" width="600" height="130" rx="16" ry="16" fill="#f3faf6" stroke="#2e8b57" stroke-width="2"/>
+  <text x="200" y="353" font-size="14" font-weight="700" fill="#2e8b57" font-family="Consolas, 'Courier New', monospace">component_container_mt<tspan font-family="Arial, Helvetica, sans-serif" font-weight="400" fill="#4a8a68">  &#8212; multi-threaded executor</tspan></text>
+
+  <!-- camera composable -->
+  <rect x="210" y="380" width="230" height="62" rx="10" ry="10" fill="#eaf2fb" stroke="#2c6fbb" stroke-width="2"/>
+  <text x="325" y="408" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">camera</text>
+  <text x="325" y="427" text-anchor="middle" font-size="11" fill="#555555">(composable)</text>
+
+  <!-- intra-process link -->
+  <line x1="442" y1="411" x2="508" y2="411" stroke="#2e8b57" stroke-width="3"/>
+  <polygon points="508,404 520,411 508,418" fill="#2e8b57"/>
+  <text x="480" y="397" text-anchor="middle" font-size="11" font-weight="700" fill="#2e8b57">intra-process</text>
+  <text x="480" y="433" text-anchor="middle" font-size="10" fill="#2e8b57">zero-copy</text>
+
+  <!-- apriltag composable -->
+  <rect x="520" y="380" width="230" height="62" rx="10" ry="10" fill="#eaf2fb" stroke="#2c6fbb" stroke-width="2"/>
+  <text x="635" y="408" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a" font-family="Consolas, 'Courier New', monospace">apriltag</text>
+  <text x="635" y="427" text-anchor="middle" font-size="11" fill="#555555">(composable)</text>
+
+  <!-- detections output -->
+  <line x1="752" y1="411" x2="814" y2="411" stroke="#888888" stroke-width="2"/>
+  <polygon points="814,405 828,411 814,417" fill="#888888"/>
+  <rect x="830" y="393" width="135" height="36" rx="10" ry="10" fill="#f2f2f2" stroke="#888888" stroke-width="1.5"/>
+  <text x="897" y="416" text-anchor="middle" font-size="12.5" fill="#333333" font-family="Consolas, 'Courier New', monospace">/detections</text>
+
+  <!-- On-demand gate -->
+  <line x1="635" y1="505" x2="635" y2="456" stroke="#2e8b57" stroke-width="2"/>
+  <polygon points="628,456 635,444 642,456" fill="#2e8b57"/>
+  <text x="655" y="482" font-size="11" font-weight="600" fill="#2e8b57">enable only during docking</text>
+  <rect x="520" y="505" width="230" height="48" rx="10" ry="10" fill="#eef7f1" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="635" y="525" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2e8b57" font-family="Consolas, 'Courier New', monospace">/apriltag/set_enabled</text>
+  <text x="635" y="542" text-anchor="middle" font-size="11" fill="#444444">SetBool &#183; on-demand gate</text>
+
+  <!-- ===================== LEGEND ===================== -->
+  <rect x="180" y="571" width="15" height="15" rx="3" ry="3" fill="#2c6fbb"/>
+  <text x="202" y="583" font-size="12" fill="#333333">Node / container</text>
+  <rect x="360" y="571" width="15" height="15" rx="3" ry="3" fill="#888888"/>
+  <text x="382" y="583" font-size="12" fill="#333333">Topic / DDS hop</text>
+  <rect x="560" y="571" width="15" height="15" rx="3" ry="3" fill="#c0392b"/>
+  <text x="582" y="583" font-size="12" fill="#333333">Before (slow / starved)</text>
+  <rect x="790" y="571" width="15" height="15" rx="3" ry="3" fill="#2e8b57"/>
+  <text x="812" y="583" font-size="12" fill="#333333">After (fixed / zero-copy)</text>
+
+</svg>
