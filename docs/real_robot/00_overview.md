@@ -26,7 +26,7 @@ or planning — the thing that repeatedly bites us on the Pi (see
 | Part | Detail | Port |
 |---|---|---|
 | Compute | Raspberry Pi 5 Model B Rev 1.1, 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
-| MCU | Teensy 4.0, upstream `linorobot2_hardware` firmware + our overlay | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_16778200-if00`) |
+| MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
 | LiDAR | RPLIDAR A1 (2D, ~5.5–10 Hz), mounted **rotated 180°** | `/dev/ttyUSB0` (CP2102) |
 | Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
 | Drive | 2× BLDC Z4BLD60-24GN-30S (60 W, 30:1), 2× ZBLD.C20-120L2R drivers | — |

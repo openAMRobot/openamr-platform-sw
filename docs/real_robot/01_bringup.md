@@ -48,7 +48,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ```
 
-> An **interactive** SSH login sources jazzy + `linorobot2_ws` via `~/.bashrc`; add the
+> An **interactive** SSH login sources jazzy + the micro-ROS agent workspace (`microros_ws`) via `~/.bashrc`; add the
 > camera and platform overlays yourself. A **non-interactive** SSH command (`ssh host cmd`)
 > sources nothing — always paste the full block.
 
