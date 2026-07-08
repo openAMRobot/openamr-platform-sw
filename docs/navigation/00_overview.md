@@ -98,7 +98,7 @@ trap is described in [`04_real_robot_tuning.md`](04_real_robot_tuning.md).
 
 ```bash
 # Real robot, everything (drivers + localization + Nav2 + docking), your map:
-ros2 launch openamrobot_bringup bringup.launch.py map:=/home/botshare/maps/coin2.yaml
+ros2 launch openamrobot_bringup bringup.launch.py map:=~/maps/coin2.yaml
 
 # Simulation, everything + RViz:
 ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true
