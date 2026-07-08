@@ -52,6 +52,13 @@ def generate_launch_description():
             # work halved, context-switches down, CPU idle 55%->67%. See
             # docs/AUDIT-2026-07-03-cpu-pipeline-optimization.md (B1).
             'FrameDurationLimits': [66667, 66667],
+            # Continuous autofocus (libcamera AfModeEnum: 0=Manual, 1=Auto, 2=Continuous).
+            # Was left at the driver default (Manual, LensPosition fixed at 1.0 diopter =
+            # 1.0 m focus) — sharp around 1 m but out of focus in the docking NEAR regime
+            # (camera->tag depth 0.25-0.70 m), a likely contributor to the AprilTag
+            # detection dropouts seen there (2026-07-07 docking audit). Continuous AF
+            # refocuses across the whole staging->docking range automatically.
+            'AfMode': 2,
         }],
         respawn=True, respawn_delay=3.0,
         output='screen')
