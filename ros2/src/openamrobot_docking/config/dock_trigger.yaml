@@ -19,7 +19,7 @@
     undock_trigger_topic: undock_robot
     goal_pose_topic: goal_pose
     goal_pose_forward_topic: goal_pose_nav
-    undock_reverse_distance: 1.0        # m — straight-line reverse before turning
+    undock_reverse_distance: 0.7        # m — straight-line reverse before turning
     undock_reverse_speed: 0.10          # m/s — reverse speed magnitude
 
     # Legacy fields read by opennav_docking::SimpleChargingDock — kept so the
@@ -35,12 +35,18 @@
     # docked (facing the tag).
     #
     # Sim layout (Raj's walled_world.sdf): robot spawns at world (0, 0) and
-    # AMCL initialises at map (0, 0) → map ≡ world. The AprilTag dock sits
-    # on the inner face of the +x wall at world (4.899, 0) with the tag
-    # normal pointing −x (SDF yaw = π). The robot approaches from the
-    # inside of the room facing +x, so the approach yaw is 0.
-    dock_pose_x: 1.730
-    dock_pose_y: 0.035
+    # Dock pose (tag-bundle CENTRE) in the map frame. MUST match the loaded map:
+    # the staging goal = (dock_pose_x − staging_distance, dock_pose_y) and has to
+    # land INSIDE the map, else the planner aborts ("Goal … was outside bounds").
+    # Measure it with the robot localised + facing the dock (3 tags visible):
+    #   ros2 run tf2_ros tf2_echo map charging_dock_tag_1  → Translation [x, y]
+    # and the tag's +z (matrix col 2) tells the approach yaw (points −x ⇒ yaw 0).
+    #
+    # piece_actuelle.yaml (map x: −6.58→1.97): tag measured at (1.362, 0.222),
+    # tag +z ≈ −x ⇒ robot docks facing +x ⇒ yaw 0. (Sim/old value was 4.899, 0 —
+    # that map spanned further +x; on this small map it fell off the edge.)
+    dock_pose_x: 1.362
+    dock_pose_y: 0.222
     dock_pose_yaw: 0.0
 
     # ─── Phase 1 — Nav2 NavigateToPose to the staging zone ───────────────────
@@ -67,13 +73,7 @@
     # Using the camera-frame angle rather than the running-average map
     # position means the centring is robust to solvePnP map-frame bias:
     # the tag is centred as it ACTUALLY appears in the image.
-    scan_rotation_speed: 0.30            # rad/s — open-loop search spin + clamp on centring.
-                                         # 0.17 (just above the 0.15 floor) was too close to
-                                         # the STATIC-friction limit to reliably START a
-                                         # spin-in-place from rest → the robot juddered in
-                                         # place and never searched ('tags not detected during
-                                         # scan'). 0.30 breaks stiction and sweeps; centring
-                                         # tolerance (±2°) still hit cleanly on the real robot.
+    scan_rotation_speed: 0.3            # rad/s — open-loop scan + clamp on centring
     scan_consecutive_target: 5          # centred frames in a row
     scan_centring_tolerance: 0.035      # rad ≈ 2° — tag must be this close to image centre
     scan_centring_kp: 1.0               # rad/s per rad of image-frame angle
@@ -117,28 +117,36 @@
     #     drive_yaw_max_omega saturation);
     #   - if the robot oscillates near the line, increase lookahead
     #     distance or decrease line_yaw_kp.
-    docking_distance: 0.25              # m — final CAMERA→tag depth at the dock.
-                                         # Camera-centric pipeline (docs §6) stops
-                                         # here. The tag leaves the FOV before this,
-                                         # so the last stretch is a blind straight
-                                         # advance (odometry-measured).
-    drive_speed: 0.12                   # m/s — forward speed (tapered near tag). Live-tunable.
-                                         # Turn radius = v / omega; the 0.15 rad/s motor floor
-                                         # means a slow v forces a tight correction turn that
-                                         # swings the camera off the bundle. 0.12 tuned on the
-                                         # real robot (2026-07-03): smooth curve onto the axis.
-    line_yaw_kp: 1.0                    # rad/s per rad of (desired_yaw − robot_yaw). Live-tunable.
-                                         # 1.0 (from 1.5) tuned on the real robot: less aggressive
-                                         # → no saturation to ±max on a small offset.
-    line_lookahead_distance: 1.0        # m — pure-pursuit lookahead on the dock-normal line.
-                                         # Live-tunable. Larger = gentler desired heading at a
-                                         # given lateral offset = smoother convergence (less
-                                         # zig-zag). 1.0 (from 0.3) tuned on the real robot: a
-                                         # 10 cm offset gives omega ~0.15 (was ~0.30 → oscillation).
-    drive_yaw_max_omega: 0.35           # rad/s clamp on omega. Widened from 0.2 so
-                                         # there is proportional room ABOVE the
-                                         # 0.15 rad/s rotation floor (min_turn_omega):
-                                         # 0.2 left only a 0.15->0.2 near-bang-bang band.
+    # ─── Final stop distance ─────────────────────────────────────────────────
+    # The forward LIDAR is the PRIMARY final stop (front-of-robot → dock): it is
+    # the reliable, depth-independent measurement. The camera depth is only a
+    # failsafe if the lidar misses the (thin) dock. Both default to 0.12 so the
+    # final gap is ~0.12 m whichever trigger fires. All three are live-tunable:
+    #   ros2 param set /dock_trigger stop_lidar_distance 0.12
+    stop_on_lidar: true                 # forward lidar = primary stop
+    stop_lidar_distance: 0.10           # m — FINAL stop: front (lidar) → dock. THE distance.
+    stop_lidar_arc_half_deg: 12.0       # ± half-angle of the forward stop cone
+    docking_distance: 0.10              # m — CAMERA→tag depth FAILSAFE (fires only if the
+                                         # lidar can't see the dock). Kept = stop_lidar_distance
+                                         # so it never pre-empts the lidar with a farther stop.
+    drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
+    final_push_speed: 0.05              # m/s — floor of the near-dock taper = speed of the
+                                         # LAST cm. Raise (e.g. 0.12) to keep momentum over the
+                                         # dock's step/lip on a LOW battery. Live-tunable.
+    # Pure-pursuit gains — CALMED 2026-07-09 after huge near-dock oscillation.
+    # 2.5 / 0.3 (old) was more aggressive than the 2.0 / 0.3 already known to
+    # oscillate: high gain + short lookahead + drive_yaw_max_omega saturation =
+    # bang-bang limit cycle (robot swings → the base_link line swings in RViz →
+    # corrector chases). Both are LIVE-tunable (ros2 param set …) so re-dial at
+    # the field; these are just the stable defaults on relaunch.
+    line_yaw_kp: 1.2                    # rad/s per rad of (desired_yaw − robot_yaw)
+    line_lookahead_distance: 0.5        # m — pure-pursuit lookahead on the perpendicular line.
+                                         # Smaller = steeper desired heading at a
+                                         # given offset = faster (harsher) convergence.
+    turn_deadband: 0.09                 # rad/s — ignore corrections below this near the
+                                         # line (kills the end tremor from the omega floor).
+                                         # NOT live-tunable (read at init) → relaunch to apply.
+    drive_yaw_max_omega: 0.255          # rad/s clamp on omega (−15% from 0.3)
     drive_rate_hz: 20.0                 # Hz control loop frequency
 
     # Image-frame visual servo (used by Phase 5 NEAR regime, once the dock
@@ -151,31 +159,8 @@
     # the edge of the FOV), but the image-frame angle is self-consistent.
     # Keeping the tag centred in the image = aiming straight at the dock.
     # The low-pass filter rejects single-frame solvePnP spikes.
-    visual_servo_kp: 1.0                # rad/s per rad of desired_yaw (P term).
-                                         # 0.4 put omega below the 0.15 rad/s floor for
-                                         # any error < 21deg -> no reactivity. 1.0 gives
-                                         # 0.15 rad/s already at ~8.6deg. Tuned against the
-                                         # OLD raw-bearing signal — re-tune against
-                                         # desired_yaw (see visual_servo_lookahead below).
-    visual_servo_lookahead: 0.70        # m — fixed lookahead for desired_yaw = -atan2(lateral,
-                                         # lookahead), replacing the raw bearing atan2(X,Z)
-                                         # (2026-07-07 fix: Z shrinking through NEAR made the old
-                                         # bearing-only P-term intensify purely from getting
-                                         # closer, not from real drift). Defaulted equal to
-                                         # freeze_axis_distance so desired_yaw is continuous at
-                                         # the FAR->NEAR hand-over. Live-tunable.
-    visual_servo_kd: 0.2                # rad/s per rad/s — derivative damping so the
-                                         # livelier kp does not overshoot near contact.
-    visual_servo_filter_alpha: 0.6      # EMA on the bearing; higher = more reactive.
-    visual_servo_max_step: 0.35         # rad — reject single-frame solvePnP bearing jumps.
-    visual_lost_max_frames: 25          # frames tag-1 may stay lost (~1.25 s @20 Hz)
-                                         # before abort. While lost we COAST STRAIGHT
-                                         # (were aligned), so this is a coast budget,
-                                         # not a stop budget.
-    visual_align_deadband: 0.10         # rad (~5.7 deg). Hysteresis: drive straight
-                                         # when the bearing is within band, only engage
-                                         # a correction past it (release at 0.4x). Kills
-                                         # the left-right per-frame hunting.
+    visual_servo_kp: 0.6                # rad/s per rad of image-frame angle
+    visual_servo_filter_alpha: 0.2      # lower = more smoothing, slower response
 
     # Raj's Nav2 stack does NOT run a velocity_smoother that subscribes to
     # /cmd_vel_nav, so publishing there is a dead end (0 subscribers). We
@@ -186,8 +171,24 @@
 
     # ─── Tag detection topic ─────────────────────────────────────────────────
     detection_topic: /detected_dock_pose
-    # Maximum age (s) of a detection message before it is dropped as stale.
+    # Maximum age (s) of a tag TF before it is dropped as stale. Live-tunable
+    # (ros2 param set /dock_trigger detection_max_age …). Kept SMALL: when the
+    # camera loses a tag in the last centimetres, this is how long the NEAR loop
+    # keeps coasting on the stale, base_link-locked detection (marker + line slide
+    # WITH the robot, no odom re-correction) before it drops to the odom-frozen
+    # line (tier 3) that stays fixed on the dock. Was 1.5 s → ~15 cm of blind
+    # robot-locked drift; 0.5 s tolerates ~2 dropped frames at 4 Hz then hands to odom.
     detection_max_age: 1.5
+
+    # ─── Approach reference frame ────────────────────────────────────────────
+    # true (clean, 2026-07-09): the dock line lives in the ODOM frame at all
+    # times; fresh tags (looked up directly in odom, lag-correct) refine it,
+    # the centre tag alone re-anchors its position, no tag = coast on it via
+    # odometry. ONE frame, same pure-pursuit law throughout → the reference no
+    # longer swings with the robot (base_link) and there is no tier-boundary
+    # jump. false = legacy base_link/odom tier cascade. Live-tunable:
+    #   ros2 param set /dock_trigger unified_odom_line false
+    unified_odom_line: true
 
     # ─── Debug visualisation ─────────────────────────────────────────────────
     # Publish the perpendicular approach line (green LINE_STRIP) and the
@@ -219,29 +220,15 @@
     # Phase 5 hand-over: FAR (> this) average the 3-tag axis + pure-pursuit it;
     # NEAR (≤ this) freeze the axis and finish on the centre-tag visual
     # corrector. Freezing kills the close-range zig-zag (noisy near estimates).
-    freeze_axis_distance: 0.70         # m camera→centre tag. FAR→NEAR hand-over:
-                                         # ABOVE this the robot pure-pursuits the 3-tag
-                                         # dock normal (now in the ROBOT frame — see
-                                         # use_camera_frame_normal — so it aligns both
-                                         # laterally AND perpendicular to the dock);
-                                         # BELOW it the outer tags leave the FOV so it
-                                         # finishes on the centre-tag bearing corrector.
-                                         # Live-tunable (re-read each loop).
-    # Phase-5 FAR normal computed in the ROBOT frame (base_link) not the map frame.
-    # true = the final approach never reads the wobbly map (AMCL relocalisation jumps)
-    # or odometry drift; the dock axis is re-derived from the live camera TF every loop
-    # and pure-pursuit corrects lateral offset + approach heading. false = legacy line.
-    use_camera_frame_normal: true
-    # EMA weight for the live axis estimate. A plain cumulative mean freezes
-    # the early off-axis (wrong) estimates; the EMA keeps following the recent
-    # better ones. Higher = more reactive/noisier, lower = smoother/more stable.
-    # Weight ∝ depth/predock_distance (far = more trust, near = less — see
-    # dock_trigger.py, inverted 2026-07-07), capped in code. 0.40 was still
-    # visibly jittery/changing too much mid-course on real hardware
-    # (2026-07-07 user feedback: "la ligne est trop variable... qu'un petit peu
-    # à mi-course") — lowered to 0.12 for a much heavier, more stable average
-    # throughout the approach, not just near the dock.
-    axis_filter_alpha: 0.12
+    freeze_axis_distance: 0.70         # m camera→centre tag
+    # EMA weight for the live axis estimate (FAR regime). A plain cumulative
+    # mean freezes the early off-axis (wrong) estimates; the EMA keeps following
+    # the recent better ones. Higher = more reactive/noisier, lower = smoother.
+    # EMA weight grows as the robot gets closer (weight ∝ predock_distance/depth,
+    # capped), so the samples taken while advancing (nearer = more accurate)
+    # dominate the early far ones. Higher = reacts faster to new estimates
+    # (less smoothing); lower = smoother but slower to update.
+    axis_filter_alpha: 0.40
 
     # ─── Obstacle avoidance during drive phases ──────────────────────────────
     # The sequencer publishes cmd_vel straight to the robot, bypassing
@@ -267,7 +254,7 @@
     # Angles are interpreted in the LIDAR scan frame; assumes the LIDAR
     # is roughly aligned with base_link forward (a small lateral offset
     # does not change the cone meaningfully).
-    obstacle_check_enabled: false
+    obstacle_check_enabled: true
     # Use /scan_filtered (Nav2's scan_body_filter chain) — it chops the
     # angular sector where the LIDAR sees the robot's own enclosure (rear
     # ±40°), so close-range returns inside the kept sector are GENUINE
