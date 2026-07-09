@@ -52,6 +52,14 @@ export ROS_DOMAIN_ID=0
 > camera and platform overlays yourself. A **non-interactive** SSH command (`ssh host cmd`)
 > sources nothing — always paste the full block.
 
+> ⚠️ **The `camera_ws` line is not optional (it breaks docking silently).** It provides the
+> Raspberry Pi **libcamera fork** — the only one that can enumerate the IMX708 (Cam Module 3). Skip
+> it and the camera component dies at load with **`no cameras available`** → `/camera/image_raw` has
+> **0 publishers** → AprilTag stays silent → **docking aborts with `tags not detected`**. This is
+> **not** a ribbon-cable fault: the kernel still shows `imx708_noir` on `/dev/video0`
+> (`sudo dmesg | grep imx708`). Fix: re-launch with the full block above and confirm
+> `ros2 topic info /camera/image_raw` reports **Publisher count: 1**.
+
 Why this matters, and the Wi-Fi it rides on: [`02_networking_and_dds.md`](02_networking_and_dds.md).
 
 ---
@@ -114,7 +122,7 @@ source ~/openamr-platform-sw/ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ros2 launch openamrobot_bringup bringup.launch.py \
-  map:=~/maps/piece_actuelle.yaml \
+  map:=$HOME/maps/piece_actuelle.yaml \
   use_docking:=true
 ```
 
@@ -134,7 +142,7 @@ source ~/openamr-platform-sw/ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ros2 launch openamrobot_bringup bringup.launch.py \
-  map:=~/maps/piece_actuelle.yaml \
+  map:=$HOME/maps/piece_actuelle.yaml \
   use_camera:=false use_docking:=false
 ```
 
@@ -148,11 +156,28 @@ ros2 launch openamrobot_bringup bringup.launch.py \
 | `use_docking` | `true` | `true` = `dock_trigger` owns `/goal_pose` and forwards it to `/goal_pose_nav` (it **is** the goal forwarder + AprilTag docking). `false` = a plain `topic_tools` relay takes over the forwarding for nav-only debug. **Exactly one forwarder runs — never both.** |
 | `use_rviz` | `false` | Open RViz with the Nav2 view (usually run RViz on the PC instead). |
 
-> **Optimized vision variant.** For the composed (intra-process) camera+AprilTag pipeline
-> there is a dedicated one-command launch,
-> `openamrobot_bringup bringup_composed.launch.py map:=…` — it runs the light bring-up
-> (`use_camera:=false use_docking:=false`) **plus** the composed vision container **plus**
-> the docking nodes. Why it exists and what it fixes: [`03_vision_pipeline_and_cpu.md`](03_vision_pipeline_and_cpu.md).
+### Composed profile — the one-command field default (nav + optimized vision + docking)
+
+**This is the command run day-to-day in the field.** A single launch that starts the light
+bring-up **plus** the composed (intra-process, zero-copy) camera+AprilTag container **plus**
+the docking nodes — the most efficient full stack. It sets `use_camera:=false use_docking:=false`
+on the inner bring-up itself, so you pass **only** `map:=`:
+
+```bash
+# on the Pi — full block, copy-pasteable standalone
+source /opt/ros/jazzy/setup.bash
+source ~/linorobot2_ws/install/setup.bash          # micro-ROS agent
+source ~/camera_ws/install/setup.bash              # RPi libcamera fork + camera_ros
+source ~/openamr-platform-sw/ros2/install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=0
+ros2 launch openamrobot_bringup bringup_composed.launch.py \
+  map:=$HOME/maps/piece_actuelle.yaml
+```
+
+Why the composed pipeline exists and what it fixes: [`03_vision_pipeline_and_cpu.md`](03_vision_pipeline_and_cpu.md).
+Use the **light profile** above instead when you only need navigation (no vision) and want the
+absolute minimum load on the Wi-Fi Guest network.
 
 ### What `use_docking` does to goal routing (important)
 
@@ -189,6 +214,18 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 rviz2 -d <openamr-platform-sw>/ros2/src/openamrobot_nav2/rviz/openamr_nav.rviz
 ```
+
+> **Which RViz config?** Use **`openamr_nav.rviz`** for the real robot — it has the map, the
+> `/scan_filtered` LaserScan, the global (`/plan`) and local (`/local_plan`) **Path** displays, and
+> the footprint **Polygon**. Do **not** use `nav2_view.rviz`: that is the **simulation** layout
+> (wired into `sim_bringup_launch.py`) and has no Path displays.
+>
+> **No robot 3D mesh on the real robot — this is expected.** The `RobotModel` display reads
+> `/robot_description`, published by `robot_state_publisher`. That node runs **only in simulation**
+> (`sim:=true`); the real bring-up does **not** launch it, so `/robot_description` has no publisher
+> and the robot mesh does not appear. It is **cosmetic** — the map, lidar, planned paths, costmaps
+> and footprint all work without it, and it is **not** a Wi-Fi/DDS issue. To get the mesh, run
+> `robot_state_publisher` separately with the robot's URDF.
 
 ---
 
@@ -261,7 +298,7 @@ and memory `amr-docking-bundle-setup`.
 | Symptom | Likely cause | Action |
 |---|---|---|
 | PC sees no topics | wrong DDS (FastDDS/42) | re-export the §0 block; `ros2 daemon stop && ros2 daemon start` |
-| `sim:=false requires an explicit map` | no `map:=` | pass `map:=~/maps/piece_actuelle.yaml` |
+| `sim:=false requires an explicit map` | no `map:=` | pass `map:=$HOME/maps/piece_actuelle.yaml` |
 | Costmaps empty, robot blind | no `map→odom` | do the **2D Pose Estimate** first |
 | Duplicated agents/lidars/EKF, TF chaos | relaunched without clean-kill | clean-kill, then **one** launch |
 | `/scan` silent, node alive | RPLIDAR stuck (`80008000`) | `pkill -f "[r]plidar_composition"`, or unplug/replug the LiDAR USB |

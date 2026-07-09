@@ -61,7 +61,9 @@ ros2/src/
 │   │   └── navigation_launch.py      ← planner/controller/bt/behaviors/smoother/
 │   │                                    velocity_smoother/collision_monitor + its lifecycle mgr
 │   ├── maps/                         ← sim map (real maps live on the robot)
-│   └── rviz/nav2_view.rviz
+│   └── rviz/
+│       ├── openamr_nav.rviz          ← REAL robot preset (Paths + footprint) — see docs/real_robot/01_bringup.md
+│       └── nav2_view.rviz            ← SIM preset (used by sim_bringup_launch.py)
 │
 ├── openamrobot_bringup/
 │   └── launch/
@@ -98,7 +100,7 @@ trap is described in [`04_real_robot_tuning.md`](04_real_robot_tuning.md).
 
 ```bash
 # Real robot, everything (drivers + localization + Nav2 + docking), your map:
-ros2 launch openamrobot_bringup bringup.launch.py map:=~/maps/coin2.yaml
+ros2 launch openamrobot_bringup bringup.launch.py map:=$HOME/maps/coin2.yaml
 
 # Simulation, everything + RViz:
 ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true

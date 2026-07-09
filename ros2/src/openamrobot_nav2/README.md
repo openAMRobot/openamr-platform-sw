@@ -49,7 +49,8 @@ openamrobot_nav2/
 │   ├── my_map.pgm              # Pre-built occupancy grid image
 │   └── my_map.yaml             # Map metadata (resolution 0.05 m/px)
 ├── rviz/
-│   └── nav2_view.rviz          # RViz preset for navigation
+│   ├── openamr_nav.rviz        # RViz preset — REAL robot (map, lidar, /plan + /local_plan Paths, footprint); see docs/real_robot/01_bringup.md
+│   └── nav2_view.rviz          # RViz preset — SIMULATION (used by sim_bringup_launch.py; no Path displays)
 ├── package.xml
 ├── setup.cfg
 └── setup.py
