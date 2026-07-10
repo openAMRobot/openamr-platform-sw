@@ -254,7 +254,10 @@
     # Angles are interpreted in the LIDAR scan frame; assumes the LIDAR
     # is roughly aligned with base_link forward (a small lateral offset
     # does not change the cone meaningfully).
-    obstacle_check_enabled: true
+    # false = ignore obstacles during the drive phases — the dock IS the
+    # "obstacle" we drive onto, and the forward guard (0.6 m) kept aborting the
+    # approach. Now live-tunable: ros2 param set /dock_trigger obstacle_check_enabled …
+    obstacle_check_enabled: false
     # Use /scan_filtered (Nav2's scan_body_filter chain) — it chops the
     # angular sector where the LIDAR sees the robot's own enclosure (rear
     # ±40°), so close-range returns inside the kept sector are GENUINE

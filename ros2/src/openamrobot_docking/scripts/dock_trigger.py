@@ -754,6 +754,12 @@ class DockTrigger(Node):
                     self.unified_odom_line = bool(p.value)
                     self.get_logger().info(
                         f'unified_odom_line -> {self.unified_odom_line} (live)')
+                elif p.name == 'obstacle_check_enabled':
+                    # false = ignore the forward obstacle guard (the dock itself
+                    # trips it at 0.6 m). Live so you can toggle it during a dock.
+                    self.obstacle_check_enabled = bool(p.value)
+                    self.get_logger().info(
+                        f'obstacle_check_enabled -> {self.obstacle_check_enabled} (live)')
             except (TypeError, ValueError):
                 return SetParametersResult(
                     successful=False, reason=f'bad value for {p.name}')
