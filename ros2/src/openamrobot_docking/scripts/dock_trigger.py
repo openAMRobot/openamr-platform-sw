@@ -344,7 +344,7 @@ class DockTrigger(Node):
         # check — the dock itself is "an obstacle" we are approaching on
         # purpose. The centring scan / spin-in-place phases also skip it
         # (the robot is rotating in place, not translating into anything).
-        self.declare_parameter('obstacle_check_enabled', True)
+        self.declare_parameter('obstacle_check_enabled', False)  # off by default — the dock trips it
         self.declare_parameter('obstacle_scan_topic', '/scan_filtered')
         self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
         # No obstacle_backward_distance: scan_body_filter chops the rear ±40°
