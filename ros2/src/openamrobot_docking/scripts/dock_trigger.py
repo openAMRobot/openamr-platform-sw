@@ -1847,8 +1847,16 @@ class DockTrigger(Node):
                 centred_count = 0
                 one = self._any_tag_cam()
                 if one is not None and one[2] > 0.05:
-                    # One tag visible — steer toward it to reveal the others.
+                    # One tag visible but NOT all — steer toward it to reveal the
+                    # others. FLOOR the turn: the proportional omega collapses
+                    # below the stiction floor as the tag nears image centre, so
+                    # the robot used to freeze facing a single tag and never
+                    # revealed the rest ("il ne tourne plus"). Keep it turning at
+                    # least scan speed until require_all succeeds above.
                     omega = -self.scan_centring_kp * math.atan2(one[0], one[2])
+                    if abs(omega) < self.min_turn_omega:
+                        omega = math.copysign(self.scan_rotation_speed,
+                                              omega if omega != 0.0 else 1.0)
                     omega = max(-self.scan_rotation_speed,
                                 min(self.scan_rotation_speed, omega))
                     self._publish_cmd_vel(0.0, omega)

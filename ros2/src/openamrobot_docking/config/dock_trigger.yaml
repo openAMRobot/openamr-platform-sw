@@ -129,7 +129,7 @@
     docking_distance: 0.10              # m — CAMERA→tag depth FAILSAFE (fires only if the
                                          # lidar can't see the dock). Kept = stop_lidar_distance
                                          # so it never pre-empts the lidar with a farther stop.
-    drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
+    drive_speed: 0.07                   # m/s — forward speed (tapered near tag). Live-tunable.
     final_push_speed: 0.05              # m/s — floor of the near-dock taper = speed of the
                                          # LAST cm. Raise (e.g. 0.12) to keep momentum over the
                                          # dock's step/lip on a LOW battery. Live-tunable.
