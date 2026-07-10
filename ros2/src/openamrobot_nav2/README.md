@@ -1,6 +1,6 @@
 # openamrobot_nav2
 
-ROS 2 package for OpenAMRobot Nav2 bringup and navigation configuration — combines **Nav2**, **SLAM Toolbox**, and **AMCL** into a ready-to-run simulation stack.
+ROS 2 package for OpenAMRobot Nav2 bringup and navigation configuration — combines **Nav2**, **SLAM Toolbox**, and **AMCL** into a ready-to-run navigation stack for **both simulation and the real robot** (one `nav2_params.yaml`, switched by `use_sim_time`).
 
 ## Contents
 
@@ -49,8 +49,7 @@ openamrobot_nav2/
 │   ├── my_map.pgm              # Pre-built occupancy grid image
 │   └── my_map.yaml             # Map metadata (resolution 0.05 m/px)
 ├── rviz/
-│   ├── openamr_nav.rviz        # RViz preset — REAL robot (map, lidar, /plan + /local_plan Paths, footprint); see docs/real_robot/01_bringup.md
-│   └── nav2_view.rviz          # RViz preset — SIMULATION (used by sim_bringup_launch.py; no Path displays)
+│   └── nav2_view.rviz          # RViz preset for navigation
 ├── package.xml
 ├── setup.cfg
 └── setup.py
@@ -181,13 +180,21 @@ ros2 launch openamrobot_nav2 sim_bringup_launch.py
 | Node | Plugin / Key values |
 |---|---|
 | `planner_server` | SmacPlanner2D (A*), tolerance 0.5 m |
-| `controller_server` | DWB local planner, 20 Hz, direct `/cmd_vel`, max 0.5 m/s / 2.0 rad/s |
-| `local_costmap` | 3×3 m rolling window, VoxelLayer + InflationLayer (radius 0.30 m), robot radius 0.22 m |
-| `global_costmap` | StaticLayer + ObstacleLayer + InflationLayer (radius 0.55 m) |
+| `controller_server` | DWB local planner, 20 Hz, direct `/cmd_vel`, **max 0.16 m/s** / 2.0 rad/s; critics include **`ObstacleFootprint`** (checks the whole footprint, not just the centre — needed for the large non-circular base) |
+| `local_costmap` | 3×3 m rolling window, VoxelLayer + InflationLayer (**radius 0.15 m**), **real footprint** (0.78×0.58 m octagon, base_link offset, +0.12 m padding) — not `robot_radius`; `obstacle_min_range 0.0` (body already removed by the scan filter) |
+| `global_costmap` | StaticLayer + ObstacleLayer + InflationLayer (**radius 0.40 m**, cost_scaling 2.5 → plan stays centred / clear of walls), same real footprint |
 | `amcl` | Differential motion model, 500–2000 particles, likelihood field |
 | `velocity_smoother` | Config present but not launched in the current direct `/cmd_vel` setup |
 | `collision_monitor` | Config present but not launched in the current direct `/cmd_vel` setup |
 | `docking_server` | Parameters present for future Nav2 docking integration; current autodocking uses `openamrobot_docking` |
+
+> **Shared sim + real profile.** `nav2_params.yaml` is the SAME file for simulation and the
+> real robot — `use_sim_time` is set by the launch, not the file. The values above are the
+> real-robot-validated tuning for the same physical 0.78×0.58 m robot (which Gazebo also
+> simulates). The old sim `robot_radius: 0.22` was a simplification; the real footprint +
+> `ObstacleFootprint` make both profiles accurate. `max_vel_x 0.16` is the real hardware
+> limit (sim runs at the same speed). Switch profiles with
+> `ros2 launch openamrobot_bringup bringup.launch.py sim:=true|false`.
 
 ### Motion Debugging
 
