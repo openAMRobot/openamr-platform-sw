@@ -124,9 +124,9 @@
     # final gap is ~0.12 m whichever trigger fires. All three are live-tunable:
     #   ros2 param set /dock_trigger stop_lidar_distance 0.12
     stop_on_lidar: true                 # forward lidar = primary stop
-    stop_lidar_distance: 0.10           # m — FINAL stop: front (lidar) → dock. THE distance.
+    stop_lidar_distance: 0.13           # m — FINAL stop: front (lidar) → dock. THE distance.
     stop_lidar_arc_half_deg: 12.0       # ± half-angle of the forward stop cone
-    docking_distance: 0.10              # m — CAMERA→tag depth FAILSAFE (fires only if the
+    docking_distance: 0.13              # m — CAMERA→tag depth FAILSAFE (fires only if the
                                          # lidar can't see the dock). Kept = stop_lidar_distance
                                          # so it never pre-empts the lidar with a farther stop.
     drive_speed: 0.10                   # m/s — forward speed (tapered near tag). Live-tunable.
