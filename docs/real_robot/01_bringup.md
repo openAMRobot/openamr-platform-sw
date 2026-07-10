@@ -16,7 +16,7 @@ ROS, and the PC defaults to the wrong DDS (see [`02_networking_and_dds.md`](02_n
 0. DDS env          (every terminal, PC and Pi)
 1. micro-ROS agent  (started by the bring-up; standalone only for bare calibration)
 2. Encoder calib    (per Teensy power-cycle, BEFORE trusting driving)   → 05_calibration.md
-3. Bring-up         ros2 launch openamrobot_bringup bringup.launch.py …
+3. Bring-up         ros2 launch openamrobot_bringup bringup_composed.launch.py …   (composed = camera/docking default)
 4. 2D Pose Estimate (RViz, on the PC)  ← MANDATORY, gives map→odom
 5. Verify           node list · /scan_filtered alive · costmaps non-empty
 6. (optional) UI    → 06_operator_ui.md   (dock/undock → docking docs)
@@ -111,7 +111,19 @@ One command starts the whole stack: data source (agent + LiDAR + EKF + scan filt
 optionally camera) + Nav2 localization + navigation (+ docking with `use_docking:=true`).
 `bringup.launch.py` is the single sim/real selector; `sim:=false` is the default.
 
-### Full profile (nav + camera + docking)
+> ⚠️ **Anything with the camera or docking → use the [composed profile](#composed-profile--the-camera--docking-default) below.**
+> It is **THE default** for real use. The plain `bringup.launch.py` camera path routes every
+> full-res frame through a **Python `apriltag_gate.py`** that eats ~20 % of a core and caps the
+> detector at **~0.4–4 fps** — measured field cause of blind approach, slow-oscillation, and the
+> tag search never completing (the Pi5 saturates: load 8+ on 4 cores). The composed profile drops
+> that gate for an intra-process container at **~15 fps** and half the vision CPU. Only use the
+> `bringup.launch.py` profiles below for **nav-only debug without the camera** (`use_camera:=false`).
+
+### Full profile — bringup.launch.py (⚠️ slow Python gate — prefer composed)
+
+Camera runs through the legacy `apriltag_gate.py` (the ~0.4–4 fps bottleneck). Kept for
+reference / a camera path without the composed container; **for real docking use the composed
+profile below instead.**
 
 ```bash
 # on the Pi — full block, copy-pasteable standalone
@@ -126,7 +138,7 @@ ros2 launch openamrobot_bringup bringup.launch.py \
   use_docking:=true
 ```
 
-### Light profile (nav only — RECOMMENDED default on Wi-Fi Guest)
+### Light profile (nav only — no camera, for Wi-Fi Guest / nav debug)
 
 Drop the camera **and** docking. This is the right default on the fragile guest network and
 when you don't need vision: it removes the camera stream that saturates the link and frees
@@ -156,9 +168,10 @@ ros2 launch openamrobot_bringup bringup.launch.py \
 | `use_docking` | `true` | `true` = `dock_trigger` owns `/goal_pose` and forwards it to `/goal_pose_nav` (it **is** the goal forwarder + AprilTag docking). `false` = a plain `topic_tools` relay takes over the forwarding for nav-only debug. **Exactly one forwarder runs — never both.** |
 | `use_rviz` | `false` | Open RViz with the Nav2 view (usually run RViz on the PC instead). |
 
-### Composed profile — the one-command field default (nav + optimized vision + docking)
+<a id="composed-profile--the-camera--docking-default"></a>
+### Composed profile — THE camera / docking default (nav + optimized vision + docking)
 
-**This is the command run day-to-day in the field.** A single launch that starts the light
+**This is the command to run for anything with the camera or docking.** A single launch that starts the light
 bring-up **plus** the composed (intra-process, zero-copy) camera+AprilTag container **plus**
 the docking nodes — the most efficient full stack. It sets `use_camera:=false use_docking:=false`
 on the inner bring-up itself, so you pass **only** `map:=`:
