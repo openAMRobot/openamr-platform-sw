@@ -97,7 +97,7 @@ apply as for the costmaps — see
 ## 4. The docking self-view false positive
 
 During the final docking approach the robot drives **toward** the dock panel; its own
-close-range geometry / the dock structure appears to the monitor as an imminent footprint
+close-range geometry / the dock structure appears to the docking sequencer's own obstacle guard as an imminent footprint (the Nav2 collision_monitor is itself deactivated and bypassed for the dock approach — see §1)
 collision — a **self-view false positive** that would scale the approach velocity to near zero
 and stall the dock.
 

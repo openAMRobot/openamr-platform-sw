@@ -98,8 +98,11 @@ Everything else — the Nav2 stack, the `nav2_params.yaml`, the docking sequence
 | Compute headroom | a desktop | a Pi 5 that saturates / throttles — the recurring wall |
 | Transport | loopback | **CycloneDDS over Wi-Fi** — a fragile link (see [`02_networking_and_dds.md`](02_networking_and_dds.md)) |
 
-The launch selector is one file — `bringup.launch.py sim:=true|false` — and it enforces
-the real-robot guards above (explicit map, initial-pose off). See
+The real-robot default for anything with camera/docking is the **composed** profile
+(`bringup_composed.launch.py`, intra-process/zero-copy vision); the plain
+`bringup.launch.py sim:=true|false` is for nav-only debug (`use_camera:=false`), since it
+routes the camera through a Python gate that starves the detector. Either enforces the
+real-robot guards above (explicit map, initial-pose off). See
 [`01_bringup.md`](01_bringup.md).
 
 ### What is *harder* on real hardware (the whole reason this series exists)

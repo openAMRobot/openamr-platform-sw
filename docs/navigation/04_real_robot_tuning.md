@@ -40,7 +40,7 @@ to stall while "trying" to satisfy a fine yaw goal.
 
 **Where it is solved today.** The **docking** sequencer hit this first and added an explicit
 floor: `min_turn_omega: 0.15` (snap any non-zero yaw correction up to the 0.15 rad/s floor so it
-actually executes) plus `turn_deadband: 0.04` (zero out corrections small enough to ignore). See
+actually executes) plus `turn_deadband: 0.09` (zero out corrections small enough to ignore). See
 [`../../ros2/src/openamrobot_docking/docs/`](../../ros2/src/openamrobot_docking/docs/README.md)
 and the velocity-floor note in [`../safety/02_limits_and_watchdog.md`](../safety/02_limits_and_watchdog.md).
 

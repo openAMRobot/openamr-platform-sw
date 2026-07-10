@@ -170,14 +170,15 @@ amcl:
 Most of these are settable at runtime (no relaunch) — useful for tuning on the robot:
 
 ```bash
-ros2 param set /controller_server FollowPath.max_vel_x 0.18
-ros2 param set /controller_server FollowPath.max_vel_theta 0.4
+# DWB velocity limits do NOT apply via param set at runtime (the getter lies) — edit nav2_params.yaml + relaunch:
+# ros2 param set /controller_server FollowPath.max_vel_x 0.18
+# ros2 param set /controller_server FollowPath.max_vel_theta 0.4
 ros2 param set /local_costmap/local_costmap inflation_layer.inflation_radius 0.15
 ros2 service call /local_costmap/clear_entirely_local_costmap nav2_msgs/srv/ClearEntireCostmap "{}"
 ```
 
 **Exceptions that require a relaunch of `navigation_launch.py`:** the controller **plugin**
-(RotationShim/DWB) and its **critic list** load only at (re)start. Cursors: too fast in a
+(RotationShim/DWB) and its **critic list** load only at (re)start; likewise the DWB velocity/accel limits (`max_vel_x`, `max_speed_xy`, `max_vel_theta`, `sim_time`) do **not** apply via `param set` — the getter lies, so edit the yaml and relaunch. Cursors: too fast in a
 straight line → lower `max_vel_x`; overshoots in turns → lower `max_vel_theta` / strengthen
 `decel_lim_theta`; snakes → raise `PathAlign`/`PathDist`, lower `vtheta_samples`; planner slow →
 NavFn (§1).

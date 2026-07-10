@@ -247,7 +247,7 @@ Wait ~10 s for Nav2 to localize, then from any sourced terminal (or `docker comp
 
 ```bash
 ros2 topic pub /dock_trigger  std_msgs/msg/Bool "{data: true}" --once   # dock
-ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock: reverse 1.5 m + spin 180°
+ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock: reverse 0.7 m + spin 180°
 ```
 
 You can also send a navigation goal (RViz **"2D Goal Pose"**, or a `PoseStamped` on `/goal_pose`): if the robot is docked it **undocks first**, then drives to the goal. The robot navigates to a staging zone, finds the 3-tag bundle, estimates the dock normal from the outer tags' wide baseline, follows the normal axis on a pure-pursuit, then finishes with an axis-frozen visual servo on the centre tag — ending perpendicular to the dock, aligned for charging.

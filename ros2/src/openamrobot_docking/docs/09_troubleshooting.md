@@ -211,15 +211,15 @@ The final yaw is set by **Phase 3** (the in-place align spin). Its residual erro
 The line-tracking controller in Phase 4 stays active all the way to `docking_distance`. A centimetre of lateral motion near the tag produces a large image-angle change, so the controller can react sharply.
 
 **Mitigations:**
-- Increase `line_lookahead_distance` (default 0.3 m) to soften the steering response. Try 0.5–0.7 m.
-- Decrease `line_yaw_kp` (default 2.5) for less aggressive heading correction.
-- Decrease `drive_speed` (default 0.05 m/s) — slower advance gives more time for the running average to stabilise the line.
+- Increase `line_lookahead_distance` (default 0.5 m) to soften the steering response. Try 0.5–0.7 m.
+- Decrease `line_yaw_kp` (default 1.2) for less aggressive heading correction.
+- Decrease `drive_speed` (default 0.10 m/s) — slower advance gives more time for the running average to stabilise the line.
 
 The previous "visual_servo" sub-phase (one-shot align + straight-line) has been removed — the running-average filter refines the line down to `docking_distance` so a separate near-field mode isn't needed. If the wobble is severe and tuning doesn't help, the tag may be falling out of FOV very early; check `ros2 topic hz /apriltag/detections` during Phase 4.
 
 #### **[sim]** Robot hits the wall during the advance phase
 
-The bundle sequencer stops when the **camera → centre tag depth** ≤ `docking_distance` (default `0.15` m, set just above the depth where the tag leaves the FOV). With the dock at world `(4.899, 0)` and the panel facing `-x`, the robot stops with its front a few centimetres from the dock face. The obstacle guard (see [`05_parameters.md`](05_parameters.md) "Obstacle guard during drive phases") is intentionally **skipped during Phase 5** — the dock is the target.
+The bundle sequencer stops when the **camera → centre tag depth** ≤ `docking_distance` (default `0.13` m, set just above the depth where the tag leaves the FOV). With the dock at world `(4.899, 0)` and the panel facing `-x`, the robot stops with its front a few centimetres from the dock face. The obstacle guard (see [`05_parameters.md`](05_parameters.md) "Obstacle guard during drive phases") is intentionally **skipped during Phase 5** — the dock is the target.
 
 If you increase `docking_distance`, the robot stops further from the dock and won't reach the charge contacts; if you decrease it below ~0.10 m, the camera→tag distance is dominated by the camera mount offset and the controller becomes ill-conditioned. Double-check the robot's footprint length and the wall position before changing this value.
 

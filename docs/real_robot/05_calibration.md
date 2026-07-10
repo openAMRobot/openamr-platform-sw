@@ -121,7 +121,7 @@ arguments; the docking normal estimate is sensitive to a camera-mount yaw bias (
 
 Not a sensor calibration but a per-deployment measurement: `dock_pose_x/y/yaw` in
 `dock_trigger.yaml` is the centre tag's pose in the **map** frame. Capture it by driving the
-robot to the docked spot facing the centre tag and reading `/amcl_pose`; the tag black-square
+robot to the docked spot facing the centre tag and reading the tag TF directly (`ros2 run tf2_ros tf2_echo map charging_dock_tag_1`); the tag black-square
 `size` in `tags_36h11.yaml` must be the measured edge (current bundle: 0.131 m).
 `dock_trigger` reads both **at start-up** → **re-launch** the docking stack after editing the
 yaml (a hot `ros2 param set` is not enough). Full bundle geometry and the capture procedure:

@@ -157,7 +157,7 @@ fight Nav2 — see the teleop gotcha in [`04_real_robot_tuning.md`](04_real_robo
 `navigation_launch.py` and `localization_launch.py` both support a **composed** variant
 (`use_composition:=True`) that loads the nodes into a single `nav2_container` via
 `LoadComposableNodes` — lower IPC overhead, which matters on the Pi 5. The non-composed
-(separate-process) variant is the default and is what the working real-robot recipe uses; the
+(separate-process) variant exists for nav-only debug, while the composed variant (via `bringup_composed.launch.py`) is the default profile the working real-robot recipe uses; the
 composed path exists and mirrors the same remaps and parameters.
 
 ---

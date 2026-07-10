@@ -200,8 +200,8 @@ The current `scripts/dock_trigger.py` ALWAYS runs the 4-phase sequence:
 ```python
 on /dock_trigger == true:
     run_docking_sequence()      # phases 1..4, see 08_legacy_sequencer.md
-on /dock_trigger == false and undock_on_false:
-    DockRobot action UndockRobot goal to opennav_docking
+on /undock_robot == true:
+    reverse undock_reverse_distance 0.7 m in ODOM, then a rough ~180° spin
 ```
 
 The same script is installed by `CMakeLists.txt` and used by both the

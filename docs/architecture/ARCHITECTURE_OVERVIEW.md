@@ -393,7 +393,7 @@ ros2/src/openamrobot_docking/scripts/dock_trigger.py
 ```
 
 It estimates the dock surface normal from the outer tags' wide baseline (90 cm),
-follows that normal with a pure-pursuit controller in the camera/tag frame, and
+follows that normal with a pure-pursuit controller along a dock line held in the odom frame, and
 finishes with an axis-frozen visual servo on the centre tag. See
 `ros2/src/openamrobot_docking/docs/14_docking_research.md` for the full design rationale.
 

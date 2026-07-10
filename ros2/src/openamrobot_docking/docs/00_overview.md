@@ -22,7 +22,7 @@ This package handles:
   - dock-normal estimation from the **outer tags' wide baseline** (gives a stable perpendicular axis independent of single-tag yaw jitter),
   - back-off if the robot arrived too close, then a camera-frame goto-point-on-normal,
   - a re-verification of the normal against the agreed tolerance,
-  - a final approach that pure-pursuits the dock normal, then **freezes the axis** at close range and switches to a **visual corrector on the centre tag** to absorb close-range pose noise.
+  - a final approach that pure-pursuits the dock normal, then pure-pursuits a dock line that lives permanently in the **odom** frame (refined by fresh tags looked up in odom), stopping on the **front lidar** at the dock face.
 - An **undock** maneuver (reverse a configurable distance, then 180° in-place spin) plus an undock-before-navigate gate on `/goal_pose`.
 
 This package does **not** handle:
@@ -41,7 +41,7 @@ The current pipeline addresses this with **three** complementary mechanisms:
 
 1. **3-tag bundle for a wide-baseline normal** — the outer tags (`charging_dock_tag_0` at `y = −0.45 m`, `charging_dock_tag_2` at `y = +0.45 m`) span 90 cm horizontally. The vector between them defines the dock surface direction, and its perpendicular is the dock normal. A 90 cm baseline locks the normal far more tightly than any single-tag PnP — the geometry is what makes the orientation stable, not the filtering.
 2. **Camera-centric closed loop** — the sequencer expresses control in the camera/robot frame (image-frame angle to the centre tag, depth from the bundle pose) rather than in `map`. This makes the result independent of `map → odom` drift: if the wheels slip mid-approach, the next bundle observation corrects in the camera frame immediately, without an odometry-induced steady-state error.
-3. **Two-regime final approach** — at close range (camera→centre-tag depth ≤ `freeze_axis_distance`), the dock normal is **frozen** at its averaged value and the controller switches to a **visual corrector** on the centre tag (`omega = −visual_servo_kp · atan2(X, Z)` in the camera optical frame). Freezing kills the close-range zig-zag caused by noisy near-field PnP, while the visual corrector keeps the centre tag aligned with the image centre — which is geometrically equivalent to driving straight onto the dock.
+3. **Odom-anchored line + lidar stop** — the dock reference line lives permanently in the `odom` frame (`unified_odom_line: true`); fresh tags are looked up lag-correct in odom and refine it (the centre tag alone re-anchors it, no tag → coast on odometry), and the final stop is LIDAR-controlled at the dock face rather than a depth-triggered visual servo (`omega = −visual_servo_kp · atan2(X, Z)` in the camera optical frame). Freezing kills the close-range zig-zag caused by noisy near-field PnP, while the visual corrector keeps the centre tag aligned with the image centre — which is geometrically equivalent to driving straight onto the dock.
 
 In simulation this delivers ~1–2 cm of lateral error and ~1° of yaw error at the dock. The longer research arc — vendor-agnostic precision target, sensing-method catalogue, validation protocol, failure modes, calibration — is in [`14_docking_research.md`](14_docking_research.md).
 

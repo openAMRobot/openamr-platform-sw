@@ -71,7 +71,7 @@ the floor:
 
 - **Docking** applies this explicitly: a linear taper floored at **0.05 m/s**, scan rotation at
   **0.17 rad/s**, and a rotational-stiction floor **`min_turn_omega: 0.15`** (+ `turn_deadband:
-  0.04`) that snaps any sub-floor yaw correction up to 0.15 rad/s or zeroes it. See
+  0.09`) that snaps any sub-floor yaw correction up to 0.15 rad/s or zeroes it. See
   [`../navigation/04_real_robot_tuning.md`](../navigation/04_real_robot_tuning.md) §2 and the
   docking docs.
 - **Navigation** has **no** equivalent yaw floor in the DWB controller (`min_speed_theta: 0.0`);

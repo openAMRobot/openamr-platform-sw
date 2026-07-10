@@ -70,9 +70,10 @@ Everything hard about the real robot is in the gap that principle *doesn't* cove
   and every non-interactive SSH command must export it (an SSH shell sources nothing).
 - **Command blocks are complete** — every one carries its `source` + `export` lines; never a
   bare `ros2 launch` / `rviz2`.
-- **The single entry point** is `ros2 launch openamrobot_bringup bringup.launch.py`
-  (`sim:=false` default). `use_camera:=false use_docking:=false` = the **light** profile
-  (the right default on Wi-Fi Guest).
+- **The default entry point** is `ros2 launch openamrobot_bringup bringup_composed.launch.py`
+  (`sim:=false` default) — the **composed** profile is THE default for camera/docking. Plain
+  `bringup.launch.py` routes the camera through a Python `apriltag_gate.py` (Pi5 load 8+) → use
+  it only for nav-only debug with `use_camera:=false`.
 - **2D Pose Estimate** in RViz is **mandatory** on the real robot before the robot can see or
   navigate (AMCL's auto-initial-pose is off).
 

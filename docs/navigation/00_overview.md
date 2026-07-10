@@ -54,7 +54,7 @@ ros2/src/
 ├── openamrobot_nav2/
 │   ├── config/
 │   │   ├── nav2_params.yaml          ← the whole tuned stack (single source of truth)
-│   │   ├── scan_body_filter.yaml     ← SIM profile laser_filters angular chain
+│   │   ├── scan_body_filter.yaml     ← REAL profile body-reflection scan filter
 │   │   └── slam.yaml                 ← mapping (separate from navigation)
 │   ├── launch/
 │   │   ├── localization_launch.py    ← map_server + amcl + lifecycle_manager_localization
@@ -100,7 +100,7 @@ trap is described in [`04_real_robot_tuning.md`](04_real_robot_tuning.md).
 
 ```bash
 # Real robot, everything (drivers + localization + Nav2 + docking), your map:
-ros2 launch openamrobot_bringup bringup.launch.py map:=$HOME/maps/coin2.yaml
+ros2 launch openamrobot_bringup bringup_composed.launch.py map:=$HOME/maps/piece_actuelle.yaml
 
 # Simulation, everything + RViz:
 ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true
