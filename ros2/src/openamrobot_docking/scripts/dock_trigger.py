@@ -880,7 +880,6 @@ class DockTrigger(Node):
         self._pub_status('docking')
         self._docking_active = True   # timer draws the normal from Phase 2/3 on
         self._pause_amcl()          # freeze map->odom: no relocalisation jumps during the maneuver
-        self._pause_collision_monitor()   # it fights /cmd_vel and stalls the approach ~15 cm out
         try:
             self.run_docking_sequence()
         except Exception as e:
@@ -961,6 +960,14 @@ class DockTrigger(Node):
             return
         self._publish_cmd_vel(0.0, 0.0)
         time.sleep(self.staging_hold_seconds)
+
+        # Nav2 (Phase 1) is DONE. Deactivate the collision_monitor only NOW: from
+        # here dock_trigger drives /cmd_vel directly, and an active monitor would
+        # fight it near the dock (both publish /cmd_vel) → stall ~15 cm out. It MUST
+        # stay active through Phase 1 above, or Nav2's controller→smoother→monitor→
+        # /cmd_vel chain is broken and the robot never reaches staging. Re-activated
+        # in _run_and_release's finally (any outcome).
+        self._pause_collision_monitor()
 
         # AprilTag pipeline ON now — it stayed idle during the Nav2 drive to the
         # staging zone (CPU left free for the planner). Instant: apriltag_node is
