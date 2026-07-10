@@ -49,6 +49,8 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.parameter_client import AsyncParameterClient
+from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import Transition
 
 from std_msgs.msg import Bool, String, Float32
 from std_srvs.srv import SetBool, Empty
@@ -298,6 +300,12 @@ class DockTrigger(Node):
         # folding in scans, so map->odom is propagated on ODOMETRY only (smooth, no relocalisation
         # jumps when nearby objects have moved). Restored on dock end/abort. See docs/13_perception.
         self.declare_parameter('pause_amcl_during_dock', True)
+        # Deactivate Nav2's collision_monitor for the dock: it sees the dock in its
+        # stop zone and publishes zero on /cmd_vel, fighting dock_trigger's forward
+        # command (both publish /cmd_vel) → the robot stalls ~15 cm out. Kept ON for
+        # normal navigation, OFF only during the maneuver.
+        self.declare_parameter('pause_collision_monitor_during_dock', True)
+        self.declare_parameter('collision_monitor_node', '/collision_monitor')
         self.declare_parameter('amcl_pause_min_d', 1000.0)       # m  — huge = AMCL never laser-updates
         self.declare_parameter('amcl_pause_min_a', 1000.0)       # rad
         self.declare_parameter('amcl_resume_min_d', 0.25)        # m  — AMCL default, restored after
@@ -442,6 +450,11 @@ class DockTrigger(Node):
         self.amcl_resume_min_a = float(self.get_parameter('amcl_resume_min_a').value)
         self._amcl_paused = False
         self._amcl_param_cli = AsyncParameterClient(self, 'amcl')
+        self.pause_collision_monitor_during_dock = bool(
+            self.get_parameter('pause_collision_monitor_during_dock').value)
+        colmon = str(self.get_parameter('collision_monitor_node').value).rstrip('/')
+        self._colmon_cli = self.create_client(ChangeState, f'{colmon}/change_state')
+        self._colmon_paused = False
         self.obs_lateral = float(self.get_parameter('obs_lateral').value)
         self.obs_distance = float(self.get_parameter('obs_distance').value)
         self.freeze_axis_distance = float(self.get_parameter('freeze_axis_distance').value)
@@ -804,6 +817,46 @@ class DockTrigger(Node):
         self._amcl_paused = False
         self.get_logger().info('AMCL laser correction RESUMED.')
 
+    def _set_collision_monitor(self, active: bool) -> bool:
+        """Activate/deactivate Nav2's collision_monitor via its lifecycle service.
+        During docking we DEACTIVATE it: it otherwise sees the dock in its stop
+        zone and publishes zero on /cmd_vel, which fights dock_trigger's forward
+        command (both publish /cmd_vel) → the robot judders and stalls ~15 cm from
+        the dock. Fire-and-forget (don't block the sequence on the result)."""
+        if not self.pause_collision_monitor_during_dock:
+            return False
+        try:
+            if not self._colmon_cli.wait_for_service(timeout_sec=2.0):
+                self.get_logger().warn(
+                    'collision_monitor lifecycle service unavailable — skipping '
+                    'its pause (it may stall the final approach).')
+                return False
+            req = ChangeState.Request()
+            req.transition.id = (Transition.TRANSITION_ACTIVATE if active
+                                 else Transition.TRANSITION_DEACTIVATE)
+            self._colmon_cli.call_async(req)
+            return True
+        except Exception as e:
+            self.get_logger().warn(f'collision_monitor state change failed: {e}')
+            return False
+
+    def _pause_collision_monitor(self):
+        """Deactivate the collision_monitor for the dock (it fights /cmd_vel and
+        stalls the approach ~15 cm out)."""
+        if self._set_collision_monitor(False):
+            self._colmon_paused = True
+            self.get_logger().info(
+                'collision_monitor DEACTIVATED for the dock (it was stopping the '
+                'approach ~15 cm out).')
+
+    def _resume_collision_monitor(self):
+        """Re-activate the collision_monitor after the dock (idempotent)."""
+        if not self._colmon_paused:
+            return
+        self._set_collision_monitor(True)
+        self._colmon_paused = False
+        self.get_logger().info('collision_monitor RE-ACTIVATED.')
+
     def _marker_tick(self):
         """While docking (but OUTSIDE the NEAR loop, which draws its own marker),
         publish the live dock normal as soon as the 3 tags are visible — so the
@@ -827,6 +880,7 @@ class DockTrigger(Node):
         self._pub_status('docking')
         self._docking_active = True   # timer draws the normal from Phase 2/3 on
         self._pause_amcl()          # freeze map->odom: no relocalisation jumps during the maneuver
+        self._pause_collision_monitor()   # it fights /cmd_vel and stalls the approach ~15 cm out
         try:
             self.run_docking_sequence()
         except Exception as e:
@@ -834,6 +888,7 @@ class DockTrigger(Node):
         finally:
             self._docking_active = False   # stop the Phase 2/3 marker timer
             self._resume_amcl()     # AMCL laser correction back on (success, abort, or exception)
+            self._resume_collision_monitor()   # collision_monitor back on for normal nav
             self._set_apriltag(False)   # apriltag back to ~0% CPU
             if self.stop_lidar_in_approach:
                 self._set_lidar(True)   # LiDAR back on (only if we stopped it)
