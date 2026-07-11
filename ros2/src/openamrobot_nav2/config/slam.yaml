@@ -10,7 +10,7 @@ slam_toolbox:
     odom_frame: odom
     map_frame: map
     base_frame: base_link 
-    scan_topic: /scan
+    scan_topic: /scan_filtered   # body-filtered scan (was /scan) so chassis reflections don't enter the map — Raj review PR1
     mode: mapping
 
     debug_logging: false

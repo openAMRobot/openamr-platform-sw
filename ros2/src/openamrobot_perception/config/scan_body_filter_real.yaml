@@ -1,0 +1,25 @@
+# Real-robot LiDAR body filter — parameters for the openamrobot_perception
+# scan_body_filter node. Angles are in DEGREES, in the LiDAR frame.
+#
+# Calibrated for THIS unit (2026-06): the RPLIDAR A1 is mounted ROTATED 180 deg,
+# so 0 deg = robot REAR, +/-180 deg = robot FRONT, -90 = left, +90 = right.
+# Empirical body-return profile:
+#   - rear shell blocks everything  -> full mask
+#   - thin side posts (~0.17-0.18 m) -> close-only mask (real walls kept)
+# Re-measure (watch /scan in RViz) if the LiDAR mount, chassis, or URDF changes.
+#
+# NOTE: this is the REAL profile. In simulation the body filter is the
+# laser_filters angular chain in openamrobot_nav2/config/scan_body_filter.yaml.
+scan_body_filter:
+  ros__parameters:
+    scan_in: /scan
+    scan_out: /scan_filtered
+    # Publish RELIABLE so the Nav2 costmaps (RELIABLE subscribers) receive the
+    # scan. A best-effort publisher leaves the costmaps empty -> no obstacles.
+    reliable_qos: true
+    # In "close" sectors, only remove returns nearer than this (metres).
+    close_max: 0.40
+    # Sectors removed at ALL distances (flat [lo1, hi1, lo2, hi2, ...] degrees).
+    full_mask_sectors_deg: [-45.0, 49.0]
+    # Sectors where only close (< close_max) returns are removed.
+    close_mask_sectors_deg: [-108.0, -73.0, 73.0, 96.0]

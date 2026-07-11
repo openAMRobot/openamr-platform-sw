@@ -33,6 +33,14 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Scan filter for this (legacy / per-terminal) sim flow, now that navigation_launch no longer
+    # runs it (filtering is a data-source responsibility — Raj review PR1). One /scan_filtered.
+    scan_filter = Node(
+        package='laser_filters', executable='scan_to_scan_filter_chain', name='scan_body_filter',
+        parameters=[os.path.join(pkg, 'config', 'scan_body_filter.yaml'), {'use_sim_time': True}],
+        remappings=[('scan', '/scan'), ('scan_filtered', '/scan_filtered')],
+    )
+
     rviz_config = os.path.join(pkg, 'rviz', 'nav2_view.rviz')
 
     rviz = Node(
@@ -53,5 +61,6 @@ def generate_launch_description():
         ),
         localization,
         navigation,
+        scan_filter,
         rviz,
     ])

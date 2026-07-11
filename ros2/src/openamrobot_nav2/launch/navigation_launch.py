@@ -47,6 +47,8 @@ def generate_launch_description():
         'behavior_server',
         'bt_navigator',
         'waypoint_follower',
+        'velocity_smoother',
+        'collision_monitor',
     ]
 
     # Map fully qualified names to relative ones so the node's namespace can be prepended.
@@ -118,19 +120,14 @@ def generate_launch_description():
         'log_level', default_value='info', description='log level'
     )
 
-    scan_filter_config = os.path.join(bringup_dir, 'config', 'scan_body_filter.yaml')
-
     load_nodes = GroupAction(
         condition=IfCondition(PythonExpression(['not ', use_composition])),
         actions=[
             SetParameter('use_sim_time', use_sim_time),
-            Node(
-                package='laser_filters',
-                executable='scan_to_scan_filter_chain',
-                name='scan_body_filter',
-                parameters=[scan_filter_config],
-                remappings=[('scan', '/scan'), ('scan_filtered', '/scan_filtered')],
-            ),
+            # NOTE: the scan body filter is NOT launched here. Filtering is a DATA-SOURCE
+            # responsibility (Raj review PR1): the sim profile starts the laser_filters chain in
+            # bringup.launch.py; the real profile starts openamrobot_perception. This launch only
+            # CONSUMES /scan_filtered, guaranteeing exactly one publisher per profile.
             Node(
                 package='nav2_controller',
                 executable='controller_server',
@@ -139,7 +136,9 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                # Reactive-safety chain: controller -> cmd_vel_nav -> velocity_smoother
+                # -> cmd_vel_smoothed -> collision_monitor -> cmd_vel (final, to the base).
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
             ),
             Node(
                 package='nav2_smoother',
@@ -201,12 +200,36 @@ def generate_launch_description():
                 remappings=remappings,
             ),
             Node(
+                package='nav2_velocity_smoother',
+                executable='velocity_smoother',
+                name='velocity_smoother',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params],
+                arguments=['--ros-args', '--log-level', log_level],
+                # input remapped to the controller's cmd_vel_nav; output stays cmd_vel_smoothed.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+            ),
+            Node(
+                package='nav2_collision_monitor',
+                executable='collision_monitor',
+                name='collision_monitor',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params],
+                arguments=['--ros-args', '--log-level', log_level],
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                remappings=remappings,
+            ),
+            Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}],
+                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
             ),
         ],
     )
@@ -223,7 +246,8 @@ def generate_launch_description():
                         plugin='nav2_controller::ControllerServer',
                         name='controller_server',
                         parameters=[configured_params],
-                        remappings=remappings,
+                        # Reactive-safety chain (see non-composed controller above).
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
                     ),
                     ComposableNode(
                         package='nav2_smoother',
@@ -263,11 +287,25 @@ def generate_launch_description():
                         remappings=remappings,
                     ),
                     ComposableNode(
+                        package='nav2_velocity_smoother',
+                        plugin='nav2_velocity_smoother::VelocitySmoother',
+                        name='velocity_smoother',
+                        parameters=[configured_params],
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                    ),
+                    ComposableNode(
+                        package='nav2_collision_monitor',
+                        plugin='nav2_collision_monitor::CollisionMonitor',
+                        name='collision_monitor',
+                        parameters=[configured_params],
+                        remappings=remappings,
+                    ),
+                    ComposableNode(
                         package='nav2_lifecycle_manager',
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes}
+                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
                         ],
                     ),
                 ],

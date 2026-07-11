@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openamrobot_drivers</name>
+  <version>0.1.0</version>
+  <description>Host-side hardware drivers for the real OpenAMRobot: micro-ROS agent
+    (Teensy bridge) and LiDAR driver launch. Thin layer; control runs in firmware.</description>
+
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>micro_ros_agent</exec_depend>
+  <exec_depend>rplidar_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
