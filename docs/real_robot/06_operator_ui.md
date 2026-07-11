@@ -61,7 +61,7 @@ alternative: put the **PC on wired Ethernet**.
 ## Operator notes
 
 - After a DHCP move, update the UI's rosbridge IP: `openamrobot-ui/.env`
-  `REACT_APP_ROSBRIDGE_IP` (and `web/src/shared/constants/index.js`) — prefer `botshare.local`.
+  `REACT_APP_ROSBRIDGE_IP` (and `web/src/shared/constants/index.js`) — prefer `<robot>.local`.
 - Named locations (e.g. "Station 4") in `blockDefinitions.js` / `flask_app.py` may carry
   **placeholder coordinates** — recalibrate them against the real map before a real drive.
 - The AprilTag on-demand gate does **not** touch `/camera/image_raw`, so the UI camera panel

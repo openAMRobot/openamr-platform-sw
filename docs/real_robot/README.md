@@ -64,8 +64,8 @@ Everything hard about the real robot is in the gap that principle *doesn't* cove
 
 ## Conventions used throughout
 
-- **Reach the robot** by mDNS: `ssh botshare@botshare.local` — never a hard-coded IP (DHCP
-  moves; 2026-07-06 → `172.17.17.64`).
+- **Reach the robot** by mDNS: `ssh <user>@<robot>.local` — never a hard-coded IP (DHCP
+  moves; e.g. it changed after the 2026-07-06 hardware swap).
 - **DDS**: CycloneDDS (`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`), **domain 0**. Every terminal
   and every non-interactive SSH command must export it (an SSH shell sources nothing).
 - **Command blocks are complete** — every one carries its `source` + `export` lines; never a

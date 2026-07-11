@@ -42,13 +42,13 @@ The Pi is **headless** (Ubuntu Server). Everything is done over SSH from an Ubun
 dev PC, and RViz runs on the PC.
 
 ```bash
-ssh botshare@botshare.local
+ssh <user>@<robot>.local
 ```
 
-> ⚠️ **Always use the mDNS name `botshare.local`, never a hard-coded IP.** The Pi's
+> ⚠️ **Always use the mDNS name `<robot>.local`, never a hard-coded IP.** The Pi's
 > address is DHCP and *changes*. On 2026-07-06 the Pi board was swapped (same SSD) → new
-> MAC → old `172.17.201.29` went dead, current is `172.17.17.64`. The mDNS name follows
-> the SSD. Find the current IP with `getent hosts botshare.local`. Full SSH recipe:
+> MAC → the old DHCP lease went dead and a new one was assigned. The mDNS name follows
+> the SSD. Find the current IP with `getent hosts <robot>.local`. Full SSH recipe:
 > memory `amr-pi-ros-commands` / `pi-ssh-access`.
 
 ---

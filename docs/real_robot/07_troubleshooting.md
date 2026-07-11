@@ -16,7 +16,7 @@ sub-stiction yaw, footprint/inflation, obstacle avoidance) live in
 
 Most lost hours trace to skipping one of these:
 
-1. **Network before robot.** Before blaming lidar/nav/DDS: `getent hosts botshare.local` +
+1. **Network before robot.** Before blaming lidar/nav/DDS: `getent hosts <robot>.local` +
    `ping`. If they fail, it's Wi-Fi — stop debugging ROS.
 2. **Ping before software.** A frozen terminal / lost SSH at launch is very often a **power
    brown-out**, not a hang. Confirm the Pi is *alive* (`ping`) before touching the code.
@@ -32,7 +32,7 @@ Most lost hours trace to skipping one of these:
 | Symptom | Cause | Fix |
 |---|---|---|
 | PC `ros2 topic list` empty | PC on FastDDS / domain 42 | export CycloneDDS + domain 0; `ros2 daemon stop && start` ([`02`](02_networking_and_dds.md) Trap 1) |
-| `botshare.local` won't resolve; 100 % ping loss; "lidar/robot dead" | Wi-Fi Guest degraded (or Pi rebooted — see power) | network reflex; verify sensors **on the Pi**; check PC didn't roam SSID |
+| `<robot>.local` won't resolve; 100 % ping loss; "lidar/robot dead" | Wi-Fi Guest degraded (or Pi rebooted — see power) | network reflex; verify sensors **on the Pi**; check PC didn't roam SSID |
 | Can ping, no robot topics | different subnet / RMW / domain | same `172.17.x.x/16` subnet, `rmw_cyclonedds_cpp`, domain 0 |
 | Link collapses when camera / "Start Camera" used | 1280×720 RELIABLE image floods a degraded link (retransmit storm) | light bring-up `use_camera:=false`; Ethernet for real camera use ([`02`](02_networking_and_dds.md) Trap 4a) |
 | Nav goals stop reaching the Pi while UI is up | UI Docker **on the PC** pulling big RELIABLE topics | `docker compose down`; run UI **on the Pi** ([`02`](02_networking_and_dds.md) Trap 4b) |
@@ -87,7 +87,7 @@ uptime                                          # load average (want ≤ ~4)
 vmstat 1 3                                       # %idle, context-switches (the churn KPI), swap
 vcgencmd measure_temp; vcgencmd get_throttled    # thermal (want <60 °C, 0x0)
 python3 ~/apriltag_latency.py                    # detector rate + latency (~0 CPU; target <120 ms)
-getent hosts botshare.local; ping -c3 botshare.local   # network reachability
+getent hosts <robot>.local; ping -c3 <robot>.local   # network reachability
 nmcli -t -f ACTIVE,SSID dev wifi | grep '^yes'   # did the PC roam SSID?
 ```
 

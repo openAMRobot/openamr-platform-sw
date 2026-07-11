@@ -14,7 +14,7 @@ Consolidates memory `amr-wifi-guest-flaky`, `amr-pi-ros-commands`, `pi-ssh-acces
 
 The network + DDS topology is shown below.
 
-![Networking/DDS topology: operator PC + Raspberry Pi 5 (reached by mDNS botshare.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
+![Networking/DDS topology: operator PC + Raspberry Pi 5 (reached by mDNS <robot>.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
 
 
 | Setting | Value | Why |
@@ -22,7 +22,7 @@ The network + DDS topology is shown below.
 | `RMW_IMPLEMENTATION` | **`rmw_cyclonedds_cpp`** | Whole stack moved to CycloneDDS on 2026-06-18 (required by the Nav2 / docking actions; FastDDS has a Jazzy Python crash that silently breaks `dock_trigger.py` action goals). |
 | `ROS_DOMAIN_ID` | **0** | The Pi sets nothing → domain 0. The dev PC defaults to **42**. |
 | Discovery | multicast | DDS discovery is multicast → it does **not** cross a router. PC and Pi must be on the **same subnet** (both `172.17.x.x/16`). |
-| Reach | `botshare.local` (mDNS) | DHCP IP changes; the mDNS name follows the SSD. |
+| Reach | `<robot>.local` (mDNS) | DHCP IP changes; the mDNS name follows the SSD. |
 
 Every terminal — PC and Pi — must export the first two or it sees nothing:
 
@@ -54,12 +54,12 @@ where the env is already correct.
 ## Trap 2 — the DHCP IP changes; use mDNS
 
 The Pi's address is DHCP and **moves**. On 2026-07-06 a hardware swap (same SSD, new MAC)
-took it from `172.17.201.29` (now dead) to `172.17.17.64`. **Never hard-code the IP.** Use
-`botshare.local` (mDNS), which follows the SSD:
+moved it to a new DHCP address. **Never hard-code the IP.** Use
+`<robot>.local` (mDNS), which follows the SSD:
 
 ```bash
-ssh botshare@botshare.local
-getent hosts botshare.local          # resolve the current IP when you actually need it
+ssh <user>@<robot>.local
+getent hosts <robot>.local          # resolve the current IP when you actually need it
 ```
 
 Anything that stores an IP must be updated after a move — notably the operator UI's
@@ -74,8 +74,8 @@ The robot is on **`Motionlab-Guest`**, an isolated and unstable guest network. W
 degrades, the symptoms **mimic a hardware fault** but are pure network:
 
 - `ros2 topic echo` timeouts from the PC,
-- `getent hosts botshare.local` fails (mDNS gone),
-- `ping botshare.local` = 100 % loss,
+- `getent hosts <robot>.local` fails (mDNS gone),
+- `ping <robot>.local` = 100 % loss,
 - "the lidar stopped", "the robot won't move".
 
 On 2026-07-06 all of the above happened while the **lidar was fine the whole time** (`/scan`
@@ -85,14 +85,14 @@ On 2026-07-06 all of the above happened while the **lidar was fine the whole tim
 
 ```bash
 # 1. can we even resolve + reach the Pi?
-getent hosts botshare.local
-ping -c 3 botshare.local
+getent hosts <robot>.local
+ping -c 3 <robot>.local
 
 # 2. did the PC roam onto a different SSID? (must be the SAME network as the Pi = Guest)
 nmcli -t -f ACTIVE,SSID dev wifi | grep '^yes'
 
 # 3. check the sensor DIRECTLY ON THE PI, not through the flaky Wi-Fi
-ssh botshare@botshare.local
+ssh <user>@<robot>.local
 #   (on the Pi, env sourced)
 ros2 topic hz /scan          # ~5.5–10 Hz on an A1 = healthy
 ```
@@ -163,7 +163,7 @@ Same class as Trap 1. (And on this Wi-Fi, prefer running it on the Pi anyway —
 | Symptom | Real cause | Check / fix |
 |---|---|---|
 | PC `ros2 topic list` empty | FastDDS/42 default | export the CycloneDDS/0 block; `ros2 daemon stop && start` |
-| `botshare.local` won't resolve / 100 % ping loss | Wi-Fi Guest degraded (or Pi rebooted/brown-out) | `getent hosts` + `ping`; check sensors **on the Pi**; check PC didn't roam SSID |
+| `<robot>.local` won't resolve / 100 % ping loss | Wi-Fi Guest degraded (or Pi rebooted/brown-out) | `getent hosts` + `ping`; check sensors **on the Pi**; check PC didn't roam SSID |
 | Can ping but no robot topics | different subnet / RMW / domain | same subnet, `rmw_cyclonedds_cpp`, domain 0 |
 | Link collapses when camera starts | RELIABLE image flood on degraded Wi-Fi | light bring-up (`use_camera:=false`); Ethernet for real camera use |
 | Nav goals don't reach the Pi while UI up | UI-on-PC pulling big RELIABLE topics | `docker compose down`; run UI on the Pi |
