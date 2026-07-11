@@ -19,7 +19,7 @@
     undock_trigger_topic: undock_robot
     goal_pose_topic: goal_pose
     goal_pose_forward_topic: goal_pose_nav
-    undock_reverse_distance: 1.5        # m — straight-line reverse before turning
+    undock_reverse_distance: 0.7        # m — straight-line reverse before turning
     undock_reverse_speed: 0.10          # m/s — reverse speed magnitude
 
     # Legacy fields read by opennav_docking::SimpleChargingDock — kept so the
@@ -35,12 +35,18 @@
     # docked (facing the tag).
     #
     # Sim layout (Raj's walled_world.sdf): robot spawns at world (0, 0) and
-    # AMCL initialises at map (0, 0) → map ≡ world. The AprilTag dock sits
-    # on the inner face of the +x wall at world (4.899, 0) with the tag
-    # normal pointing −x (SDF yaw = π). The robot approaches from the
-    # inside of the room facing +x, so the approach yaw is 0.
-    dock_pose_x: 4.899
-    dock_pose_y: 0.0
+    # Dock pose (tag-bundle CENTRE) in the map frame. MUST match the loaded map:
+    # the staging goal = (dock_pose_x − staging_distance, dock_pose_y) and has to
+    # land INSIDE the map, else the planner aborts ("Goal … was outside bounds").
+    # Measure it with the robot localised + facing the dock (3 tags visible):
+    #   ros2 run tf2_ros tf2_echo map charging_dock_tag_1  → Translation [x, y]
+    # and the tag's +z (matrix col 2) tells the approach yaw (points −x ⇒ yaw 0).
+    #
+    # piece_actuelle.yaml (map x: −6.58→1.97): tag measured at (1.362, 0.222),
+    # tag +z ≈ −x ⇒ robot docks facing +x ⇒ yaw 0. (Sim/old value was 4.899, 0 —
+    # that map spanned further +x; on this small map it fell off the edge.)
+    dock_pose_x: 1.362
+    dock_pose_y: 0.222
     dock_pose_yaw: 0.0
 
     # ─── Phase 1 — Nav2 NavigateToPose to the staging zone ───────────────────
@@ -111,18 +117,36 @@
     #     drive_yaw_max_omega saturation);
     #   - if the robot oscillates near the line, increase lookahead
     #     distance or decrease line_yaw_kp.
-    docking_distance: 0.15              # m — final CAMERA→tag depth at the dock.
-                                         # Camera-centric pipeline (docs §6) stops
-                                         # here. The tag leaves the FOV before this,
-                                         # so the last stretch is a blind straight
-                                         # advance (odometry-measured).
-    drive_speed: 0.05                   # m/s — forward speed (tapered near tag)
-    line_yaw_kp: 2.5                    # rad/s per rad of (desired_yaw − robot_yaw)
-    line_lookahead_distance: 0.3        # m — pure-pursuit lookahead on the perpendicular line.
-                                         # Smaller = steeper desired heading at
-                                         # a given offset = faster lateral
-                                         # convergence onto the line.
-    drive_yaw_max_omega: 0.3            # rad/s clamp on omega
+    # ─── Final stop distance ─────────────────────────────────────────────────
+    # The forward LIDAR is the PRIMARY final stop (front-of-robot → dock): it is
+    # the reliable, depth-independent measurement. The camera depth is only a
+    # failsafe if the lidar misses the (thin) dock. Both default to 0.12 so the
+    # final gap is ~0.12 m whichever trigger fires. All three are live-tunable:
+    #   ros2 param set /dock_trigger stop_lidar_distance 0.12
+    stop_on_lidar: true                 # forward lidar = primary stop
+    stop_lidar_distance: 0.13           # m — FINAL stop: front (lidar) → dock. THE distance.
+    stop_lidar_arc_half_deg: 12.0       # ± half-angle of the forward stop cone
+    docking_distance: 0.13              # m — CAMERA→tag depth FAILSAFE (fires only if the
+                                         # lidar can't see the dock). Kept = stop_lidar_distance
+                                         # so it never pre-empts the lidar with a farther stop.
+    drive_speed: 0.10                   # m/s — forward speed (tapered near tag). Live-tunable.
+    final_push_speed: 0.05              # m/s — floor of the near-dock taper = speed of the
+                                         # LAST cm. Raise (e.g. 0.12) to keep momentum over the
+                                         # dock's step/lip on a LOW battery. Live-tunable.
+    # Pure-pursuit gains — CALMED 2026-07-09 after huge near-dock oscillation.
+    # 2.5 / 0.3 (old) was more aggressive than the 2.0 / 0.3 already known to
+    # oscillate: high gain + short lookahead + drive_yaw_max_omega saturation =
+    # bang-bang limit cycle (robot swings → the base_link line swings in RViz →
+    # corrector chases). Both are LIVE-tunable (ros2 param set …) so re-dial at
+    # the field; these are just the stable defaults on relaunch.
+    line_yaw_kp: 1.2                    # rad/s per rad of (desired_yaw − robot_yaw)
+    line_lookahead_distance: 0.5        # m — pure-pursuit lookahead on the perpendicular line.
+                                         # Smaller = steeper desired heading at a
+                                         # given offset = faster (harsher) convergence.
+    turn_deadband: 0.09                 # rad/s — ignore corrections below this near the
+                                         # line (kills the end tremor from the omega floor).
+                                         # NOT live-tunable (read at init) → relaunch to apply.
+    drive_yaw_max_omega: 0.255          # rad/s clamp on omega (−15% from 0.3)
     drive_rate_hz: 20.0                 # Hz control loop frequency
 
     # Image-frame visual servo (used by Phase 5 NEAR regime, once the dock
@@ -147,8 +171,24 @@
 
     # ─── Tag detection topic ─────────────────────────────────────────────────
     detection_topic: /detected_dock_pose
-    # Maximum age (s) of a detection message before it is dropped as stale.
+    # Maximum age (s) of a tag TF before it is dropped as stale. Live-tunable
+    # (ros2 param set /dock_trigger detection_max_age …). Kept SMALL: when the
+    # camera loses a tag in the last centimetres, this is how long the NEAR loop
+    # keeps coasting on the stale, base_link-locked detection (marker + line slide
+    # WITH the robot, no odom re-correction) before it drops to the odom-frozen
+    # line (tier 3) that stays fixed on the dock. Was 1.5 s → ~15 cm of blind
+    # robot-locked drift; 0.5 s tolerates ~2 dropped frames at 4 Hz then hands to odom.
     detection_max_age: 1.5
+
+    # ─── Approach reference frame ────────────────────────────────────────────
+    # true (clean, 2026-07-09): the dock line lives in the ODOM frame at all
+    # times; fresh tags (looked up directly in odom, lag-correct) refine it,
+    # the centre tag alone re-anchors its position, no tag = coast on it via
+    # odometry. ONE frame, same pure-pursuit law throughout → the reference no
+    # longer swings with the robot (base_link) and there is no tier-boundary
+    # jump. false = legacy base_link/odom tier cascade. Live-tunable:
+    #   ros2 param set /dock_trigger unified_odom_line false
+    unified_odom_line: true
 
     # ─── Debug visualisation ─────────────────────────────────────────────────
     # Publish the perpendicular approach line (green LINE_STRIP) and the
@@ -214,7 +254,10 @@
     # Angles are interpreted in the LIDAR scan frame; assumes the LIDAR
     # is roughly aligned with base_link forward (a small lateral offset
     # does not change the cone meaningfully).
-    obstacle_check_enabled: true
+    # false = ignore obstacles during the drive phases — the dock IS the
+    # "obstacle" we drive onto, and the forward guard (0.6 m) kept aborting the
+    # approach. Now live-tunable: ros2 param set /dock_trigger obstacle_check_enabled …
+    obstacle_check_enabled: false
     # Use /scan_filtered (Nav2's scan_body_filter chain) — it chops the
     # angular sector where the LIDAR sees the robot's own enclosure (rear
     # ±40°), so close-range returns inside the kept sector are GENUINE

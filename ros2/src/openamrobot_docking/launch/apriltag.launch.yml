@@ -1,0 +1,56 @@
+launch:
+# AprilTag detection on the REAL robot.
+#
+# Does NOT start a camera — the real camera (camera_ros / IMX708) is already
+# started by openamrobot_bringup/real_bringup.launch.py and publishes:
+#   /camera/image_raw      (raw image)
+#   /camera/camera_info    (this unit's calibrated intrinsics)
+#
+# We feed the RAW image straight to AprilTagNode together with the calibrated
+# camera_info (PnP uses the distortion model from camera_info). For maximum
+# accuracy you may insert an image_proc::RectifyNode and point apriltag at the
+# rectified image instead; raw is simpler and adequate for a centred dock tag.
+#
+# Publishes:
+#   /apriltag/detections  (apriltag_msgs/AprilTagDetectionArray)
+#   /tf  (camera_optical_frame -> charging_dock_tag_{0,1,2})
+#
+# Detector parameters (family, tag size, IDs, frame names) come from
+# config/tags_36h11.yaml  (set the printed tag size there!).
+
+# On-demand image gate: forwards /camera/image_raw -> /apriltag/image_in ONLY
+# when enabled (std_srvs/SetBool on /apriltag/set_enabled). Starts DISABLED so
+# apriltag_node receives nothing and idles at ~0% CPU until docking asks for it
+# (dock_trigger enables it at the staging zone, disables it when the sequence
+# ends). apriltag_node stays alive the whole time -> toggling is ~instant.
+# For standalone apriltag testing without dock_trigger, set start_enabled:=true
+# here or call the service by hand.
+- node:
+    pkg: openamrobot_docking
+    exec: apriltag_gate.py
+    name: apriltag_gate
+    namespace: apriltag
+    param:
+    - name: input_topic
+      value: /camera/image_raw
+    - name: output_topic
+      value: /apriltag/image_in
+    - name: start_enabled
+      value: false
+
+- node:
+    pkg: apriltag_ros
+    exec: apriltag_node
+    name: apriltag
+    namespace: apriltag
+    param:
+    - from: $(find-pkg-share openamrobot_docking)/config/tags_36h11.yaml
+    remap:
+    # Fed by the gate (was /camera/image_raw). No frames arrive until the gate
+    # is enabled -> apriltag does no work during navigation.
+    - from: /apriltag/image_rect
+      to: /apriltag/image_in
+    - from: /camera_info
+      to: /camera/camera_info
+    - from: /apriltag/camera_info
+      to: /camera/camera_info

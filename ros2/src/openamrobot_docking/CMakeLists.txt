@@ -26,6 +26,7 @@ install(TARGETS detected_dock_pose_publisher
 install(PROGRAMS
   scripts/camera_info_sync.py
   scripts/dock_trigger.py
+  scripts/apriltag_gate.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

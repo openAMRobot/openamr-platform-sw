@@ -16,12 +16,12 @@ Sequence on /dock_trigger=true:
   4. Pure-pursuit the normal axis in the camera/tag frame (independent of
      map drift and wheel slip), with a re-verification step against
      normal_tolerance_deg
-  5. Two-regime final approach:
-       FAR  (camera→centre-tag depth > freeze_axis_distance): EMA-average
-            the live axis and pure-pursuit it
-       NEAR (depth ≤ freeze_axis_distance): freeze the averaged axis and
-            finish on a visual corrector on the centre tag
-       — stops when camera→centre-tag depth ≤ docking_distance.
+  5. Final approach (see _final_visual_approach docstring): follow the best
+     available axis estimate (2+ tags EMA-averaged, or the last good axis
+     carried forward via odometry once only the centre tag is visible),
+     same pure-pursuit law throughout; go blind (no correction, just
+     advance) the moment nothing is visible at all — stops when
+     camera→centre-tag depth ≤ docking_distance.
 
 Also supports:
   - /undock_robot → reverse undock_reverse_distance, then spin 180°
@@ -47,8 +47,14 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.parameter_client import AsyncParameterClient
+from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import Transition
 
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, String, Float32
+from std_srvs.srv import SetBool, Empty
+from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import Point, PoseStamped, Twist
 from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import (
@@ -113,20 +119,40 @@ class DockTrigger(Node):
         self.declare_parameter('undock_reverse_distance', 1.5)   # m straight back
         self.declare_parameter('undock_reverse_speed', 0.10)     # m/s (magnitude)
 
-        # Dock pose in map frame (must match nav2_sim_full.yaml docks/home_dock)
-        self.declare_parameter('dock_pose_x', 0.0)
-        self.declare_parameter('dock_pose_y', 4.9)
-        self.declare_parameter('dock_pose_yaw', 1.5707)
+        # Dock pose in map frame. Defaults ALIGNED with config/dock_trigger.yaml (sim dock at the
+        # +X wall) so a stray standalone launch can't drive to a contradictory hard-coded pose.
+        # The REAL dock pose MUST be measured in your real map and set in dock_trigger.yaml (B2).
+        self.declare_parameter('dock_pose_x', 4.899)
+        self.declare_parameter('dock_pose_y', 0.0)
+        self.declare_parameter('dock_pose_yaw', 0.0)
 
         # Staging
         self.declare_parameter('staging_distance', 1.5)        # m in front of dock
         self.declare_parameter('staging_hold_seconds', 1.0)    # robot stationary
 
         # Docking
-        self.declare_parameter('docking_distance', 0.6)        # final distance from tag (m)
+        self.declare_parameter('docking_distance', 0.6)        # final CAMERA→tag depth (m) — fallback stop
+        # Preferred stop: the FORWARD LiDAR distance to the dock (physical, robust — the camera→tag
+        # depth can drift close up). Stop when the min range in a narrow forward cone ≤ stop_lidar_distance.
+        # Camera depth is the fallback when the LiDAR has no valid forward return.
+        self.declare_parameter('stop_on_lidar', True)
+        self.declare_parameter('stop_lidar_distance', 0.25)    # m — LiDAR→dock at the final stop
+        self.declare_parameter('stop_lidar_arc_half_deg', 12.0) # deg — half-width of the forward stop cone (live-tunable)
         self.declare_parameter('drive_speed', 0.10)            # m/s forward
+        # Floor of the near-dock taper = the speed of the LAST centimetres. Raise
+        # it (e.g. 0.12) to keep MOMENTUM through the dock's little step/lip so the
+        # robot climbs it even on a LOW battery (docking happens at low charge by
+        # definition). 0.05 = the gentle clean-stop floor (no step). Live-tunable.
+        self.declare_parameter('final_push_speed', 0.05)       # m/s
         self.declare_parameter('drive_yaw_kp', 1.5)            # angular P gain during drive
         self.declare_parameter('drive_yaw_max_omega', 0.5)     # rad/s clamp on correction
+        # Rotation stiction floor. Measured on this robot
+        # (scripts/min_velocity_sweep.py, 2026-07-02): below ~0.15 rad/s the
+        # wheels stick-slip and an angular correction never executes. Snap
+        # corrections in (turn_deadband, min_turn_omega) up to the floor, and
+        # command 0 inside the deadband to avoid hunting around zero.
+        self.declare_parameter('min_turn_omega', 0.15)         # rad/s rotation floor
+        self.declare_parameter('turn_deadband', 0.04)          # rad/s: below -> omega 0
 
         # Line-tracking advance — pure-pursuit-style controller. Each iteration
         # we compute a desired heading
@@ -154,19 +180,45 @@ class DockTrigger(Node):
         self.declare_parameter('line_yaw_kp', 2.5)
         self.declare_parameter('line_lookahead_distance', 0.4)
 
-        # Image-frame visual servo (camera-frame closed-loop on the centre
-        # tag) used by the Phase 5 NEAR regime once the axis is frozen.
-        #
-        #     omega = -visual_servo_kp · atan2(X_optical, Z_optical)
-        #
-        # Map-frame solvePnP carries a systematic bias in the near field
-        # (corners hugging the bottom of the FOV), but the image-frame
-        # angle is self-consistent — keeping the tag centred in the
-        # image = aiming straight at the dock. The low-pass filter
-        # alpha rejects single-frame solvePnP spikes (alpha = 0.2 →
-        # time constant ≈ 5 frames; alpha = 1.0 disables filtering).
-        self.declare_parameter('visual_servo_kp', 1.0)            # rad/s per rad
+        # ── DEAD PARAMS (kept declared only, unused since 2026-07-07) ──────
+        # These drove the old PD visual-servo corrector in _final_visual_approach
+        # (bearing/lateral P+D, deadband hysteresis, lost-frame abort). Dropped in
+        # favour of a simpler tiered approach: follow the best available axis
+        # estimate (2+ tags, or the carried axis with just the centre tag) with
+        # the SAME pure-pursuit law as the far-range leg (line_yaw_kp,
+        # line_lookahead_distance — no separate gains), and go blind (no
+        # correction, just advance) the moment nothing is visible at all. See
+        # _final_visual_approach's docstring for the current logic. Left declared
+        # (not removed) only so existing yaml configs setting them don't error at
+        # startup — safe to delete here and from config/dock_trigger.yaml later.
+        self.declare_parameter('visual_servo_kp', 1.0)
+        self.declare_parameter('visual_servo_lookahead', 0.70)
         self.declare_parameter('visual_servo_filter_alpha', 0.2)
+        self.declare_parameter('visual_servo_kd', 0.2)
+        self.declare_parameter('visual_servo_max_step', 0.35)
+        self.declare_parameter('visual_lost_max_frames', 15)
+        self.declare_parameter('visual_align_deadband', 0.10)
+        # Sigma-delta PWM of the yaw command so a SUB-FLOOR correction executes as
+        # a gentle pulsed turn instead of snapping to the ±min_turn_omega stiction
+        # floor (a hard snap gives the ±0.15 rad/s left-right limit cycle around the
+        # line). True: below the floor emit ±min_turn_omega pulses whose TIME AVERAGE
+        # equals the desired rate → effective gentle turn; above it pass through.
+        # False: legacy hard floor. Live-tunable.
+        self.declare_parameter('omega_pwm', True)
+        # Stop the LiDAR during the NEAR visual approach (its IR dot can drop tag
+        # detections — its ~5-6Hz spin period roughly matches the tag-detection
+        # flicker measured near contact, 2026-07-07 docking audit). OFF by default:
+        # a PRIOR observation was that stopping the motor also killed AprilTag
+        # detection within ~1s. That was attributed to apriltag and rplidar sharing
+        # a component container, but this has been VERIFIED FALSE (2026-07-07):
+        # apriltag runs standalone (docking_real.launch.py -> apriltag.launch.yml)
+        # and rplidar_composition runs as its own separate process
+        # (openamrobot_drivers/drivers.launch.py) — they have never shared a
+        # container. The real cause of the earlier observation (if it reproduces)
+        # is unconfirmed (USB bus/power contention on motor toggle? CPU spike?
+        # stale observation?) — worth re-testing on hardware before flipping this
+        # default; see the docking-improvement plan for the A/B test procedure.
+        self.declare_parameter('stop_lidar_in_approach', False)
 
         # Initial tag-search scan. After Nav2 reaches the staging zone the
         # tag may not be in the camera frame (Nav2 goal yaw tolerance plus
@@ -186,10 +238,33 @@ class DockTrigger(Node):
         self.declare_parameter('spin_kp', 2.0)
         self.declare_parameter('spin_max_omega', 0.6)
         self.declare_parameter('spin_yaw_tolerance', 0.02)     # ~1.1°
+        # Spin-in-place floor: a P-controlled spin near its target commands a tiny
+        # omega that falls below the STATIC-friction limit → the robot judders in
+        # place without turning ('does not rotate on itself'). Starting a spin from
+        # rest needs more than the ~0.15 rad/s continuous floor, so snap any small
+        # non-zero spin command up to this. Above spin_yaw_tolerance it always turns.
+        self.declare_parameter('spin_min_omega', 0.25)         # rad/s spin-from-rest floor
 
         # Tag detection
         self.declare_parameter('detection_topic', '/detected_dock_pose')
-        self.declare_parameter('detection_max_age', 1.5)       # s — drop stale msgs
+        self.declare_parameter('detection_max_age', 1.5)       # s — drop stale tag TFs (live)
+        # Clean approach (2026-07-09): keep the dock line in the ODOM frame at all
+        # times, refined by tags looked up directly in odom (lag-correct), same
+        # pure-pursuit law whether 3 tags / 1 tag / none are fresh — no base_link↔
+        # odom tier switch, so the reference never swings with the robot and there
+        # is no tier-boundary jump. False = legacy tier cascade. Live-tunable.
+        self.declare_parameter('unified_odom_line', True)
+
+        # ── On-demand AprilTag image gate (real robot) ─────────────────────
+        # apriltag_node is CPU-heavy (~1.6 cores on the Pi) and only needed for
+        # the final dock approach. The gate (openamrobot_docking/apriltag_gate.py)
+        # (un)subscribes the camera feed to apriltag via this SetBool service, so
+        # apriltag idles at ~0% CPU during navigation and toggles instantly (it
+        # stays alive). We ENABLE it once at the staging zone and DISABLE it when
+        # the sequence ends. Disabled by default (sim has apriltag always-on and
+        # no gate service); docking_real.launch.py opts in with use_apriltag_gate.
+        self.declare_parameter('use_apriltag_gate', False)
+        self.declare_parameter('apriltag_gate_service', '/apriltag/set_enabled')
 
         # Temporal filtering of tag pose: collect N samples, average them
         self.declare_parameter('filter_num_samples', 20)
@@ -220,19 +295,48 @@ class DockTrigger(Node):
         self.declare_parameter('predock_distance', 1.5)          # m on the normal (P1)
         self.declare_parameter('refined_predock_distance', 1.30) # m on the normal (P2)
         self.declare_parameter('normal_tolerance_deg', 5.0)      # deg — N vs N' agreement
+        self.declare_parameter('normal_agreement_tol_deg', 8.0)  # deg — geom vs orientation normal must agree (3-tag gate)
+        # Pause AMCL's laser correction during the dock maneuver: high update_min_d/a make AMCL stop
+        # folding in scans, so map->odom is propagated on ODOMETRY only (smooth, no relocalisation
+        # jumps when nearby objects have moved). Restored on dock end/abort. See docs/13_perception.
+        self.declare_parameter('pause_amcl_during_dock', True)
+        # Deactivate Nav2's collision_monitor for the dock: it sees the dock in its
+        # stop zone and publishes zero on /cmd_vel, fighting dock_trigger's forward
+        # command (both publish /cmd_vel) → the robot stalls ~15 cm out. Kept ON for
+        # normal navigation, OFF only during the maneuver.
+        self.declare_parameter('pause_collision_monitor_during_dock', True)
+        self.declare_parameter('collision_monitor_node', '/collision_monitor')
+        self.declare_parameter('amcl_pause_min_d', 1000.0)       # m  — huge = AMCL never laser-updates
+        self.declare_parameter('amcl_pause_min_a', 1000.0)       # rad
+        self.declare_parameter('amcl_resume_min_d', 0.25)        # m  — AMCL default, restored after
+        self.declare_parameter('amcl_resume_min_a', 0.2)         # rad
         self.declare_parameter('obs_lateral', 0.5)               # m — side offset for obs B
         self.declare_parameter('obs_distance', 2.0)              # m from tag for obs B
-        # Phase 5 two regimes: FAR (> freeze_axis_distance) the robot averages
-        # the dock axis from the 3 tags and pure-pursuits it; NEAR (≤ this) the
-        # axis is frozen (no more averaging — close-range estimates are noisy)
-        # and the robot finishes on the centre-tag visual corrector. Camera→tag
-        # depth.
+        # Only gates the LEGACY map-frame leg of _final_visual_approach
+        # (use_camera_frame_normal:=false, unused on the real robot). The
+        # camera-frame path (default) no longer has a FAR/NEAR distance
+        # hand-over — see _final_visual_approach's docstring (2026-07-07).
         self.declare_parameter('freeze_axis_distance', 0.70)     # m camera→tag
         # EMA weight for the live axis estimate (Phase 5 FAR). A cumulative mean
         # would freeze the early (off-axis, wrong) estimates; an EMA keeps
         # following the recent, better ones as the robot centres up. Higher =
         # more reactive (noisier), lower = smoother (slower).
         self.declare_parameter('axis_filter_alpha', 0.15)
+        # Compute the Phase-5 FAR dock centre + normal in the ROBOT frame
+        # (base_link, from the live camera TF) instead of the map frame. True =
+        # the final approach NEVER reads the wobbly map (AMCL relocalisation
+        # jumps) or odometry drift: the 3-tag axis is re-derived every loop
+        # relative to the robot, so pure-pursuit corrects BOTH the lateral offset
+        # from the dock normal AND the approach heading (perpendicular to the
+        # dock face). False = legacy map-frame line. See
+        # docs/AUDIT-2026-07-03-cpu-pipeline-optimization.md follow-up.
+        self.declare_parameter('use_camera_frame_normal', True)
+        # Spike-reject gate for the ROBOT-frame normal EMA (Phase-5 FAR): a frame
+        # whose normal jumps more than this from the filtered value is a bad
+        # detection → dropped, not averaged in. The EMA *weight* itself is NOT a new
+        # knob — it reuses the existing depth-weighted axis_filter_alpha (weight
+        # grows as the robot advances). Live-tunable.
+        self.declare_parameter('axis_spike_reject', 0.35)       # rad (~20°) outlier gate
 
         # ── Obstacle avoidance during drive phases ─────────────────────────
         # The sequencer publishes cmd_vel straight to the robot, bypassing
@@ -248,7 +352,7 @@ class DockTrigger(Node):
         # check — the dock itself is "an obstacle" we are approaching on
         # purpose. The centring scan / spin-in-place phases also skip it
         # (the robot is rotating in place, not translating into anything).
-        self.declare_parameter('obstacle_check_enabled', True)
+        self.declare_parameter('obstacle_check_enabled', False)  # off by default — the dock trips it
         self.declare_parameter('obstacle_scan_topic', '/scan_filtered')
         self.declare_parameter('obstacle_forward_distance', 0.6)        # m — stop if obstacle within this distance ahead
         # No obstacle_backward_distance: scan_body_filter chops the rear ±40°
@@ -268,6 +372,11 @@ class DockTrigger(Node):
         # you must fall back to /scan — and then pick a value clearly
         # below the closest legitimate obstacle distance.
         self.declare_parameter('obstacle_min_range', 0.0)               # m — 0 = disabled
+        # Scan-frame angle that points to the robot's FORWARD. 0.0 in sim (lidar aligned with
+        # base_link). On THIS real robot the RPLIDAR is mounted rotated 180° (yaw=π), so scan
+        # angle 0 points BACKWARD — set this to 3.14159 in the real dock_trigger.yaml, otherwise
+        # the forward obstacle cone watches the rear and the robot drives in blind.
+        self.declare_parameter('obstacle_scan_forward_angle', 0.0)      # rad (real robot: 3.14159)
 
         self.trigger_topic = self.get_parameter('trigger_topic').value
         self.undock_on_false = self.get_parameter('undock_on_false').value
@@ -280,16 +389,38 @@ class DockTrigger(Node):
         self.dock_x = float(self.get_parameter('dock_pose_x').value)
         self.dock_y = float(self.get_parameter('dock_pose_y').value)
         self.dock_yaw = float(self.get_parameter('dock_pose_yaw').value)
+        # The shipped dock_trigger.yaml calibrates dock_pose to THIS reference room's
+        # map. On a new deployment those coordinates point Phase 1 at the wrong staging
+        # goal, so warn loudly if they were left at the reference values.
+        if abs(self.dock_x - 1.362) < 1e-3 and abs(self.dock_y - 0.222) < 1e-3:
+            self.get_logger().warn(
+                'dock_pose is at the REFERENCE-ROOM calibration (x=1.362, y=0.222). '
+                'Recalibrate dock_pose_x/y/yaw for YOUR map — measure the dock tag with '
+                '`ros2 run tf2_ros tf2_echo map charging_dock_tag_1` — or Phase 1 will '
+                'navigate to the wrong staging pose.')
         self.staging_distance = float(self.get_parameter('staging_distance').value)
         self.staging_hold_seconds = float(self.get_parameter('staging_hold_seconds').value)
         self.docking_distance = float(self.get_parameter('docking_distance').value)
+        self.stop_on_lidar = bool(self.get_parameter('stop_on_lidar').value)
+        self.stop_lidar_distance = float(self.get_parameter('stop_lidar_distance').value)
+        self.stop_lidar_arc_half = math.radians(
+            float(self.get_parameter('stop_lidar_arc_half_deg').value))
+        # Live-tunable stop distances: `ros2 param set /dock_trigger stop_lidar_distance X`
+        # (or docking_distance / stop_on_lidar) takes effect on the NEXT dock, no relaunch
+        # (handy while tuning the final gap). See _on_set_params.
+        self.add_on_set_parameters_callback(self._on_set_params)
         self.drive_speed = float(self.get_parameter('drive_speed').value)
         self.drive_yaw_kp = float(self.get_parameter('drive_yaw_kp').value)
         self.drive_yaw_max_omega = float(self.get_parameter('drive_yaw_max_omega').value)
+        self.min_turn_omega = float(self.get_parameter('min_turn_omega').value)
+        self.turn_deadband = float(self.get_parameter('turn_deadband').value)
         self.line_yaw_kp = float(self.get_parameter('line_yaw_kp').value)
         self.line_lookahead_distance = float(self.get_parameter('line_lookahead_distance').value)
         self.visual_servo_kp = float(self.get_parameter('visual_servo_kp').value)
         self.visual_servo_filter_alpha = float(self.get_parameter('visual_servo_filter_alpha').value)
+        self.visual_servo_max_step = float(self.get_parameter('visual_servo_max_step').value)
+        self.visual_lost_max_frames = int(self.get_parameter('visual_lost_max_frames').value)
+        self.stop_lidar_in_approach = bool(self.get_parameter('stop_lidar_in_approach').value)
         self.scan_rotation_speed = float(self.get_parameter('scan_rotation_speed').value)
         self.scan_consecutive_target = int(self.get_parameter('scan_consecutive_target').value)
         self.scan_centring_tolerance = float(self.get_parameter('scan_centring_tolerance').value)
@@ -299,8 +430,12 @@ class DockTrigger(Node):
         self.spin_kp = float(self.get_parameter('spin_kp').value)
         self.spin_max_omega = float(self.get_parameter('spin_max_omega').value)
         self.spin_yaw_tolerance = float(self.get_parameter('spin_yaw_tolerance').value)
+        self.spin_min_omega = float(self.get_parameter('spin_min_omega').value)
         self.detection_topic = self.get_parameter('detection_topic').value
         self.detection_max_age = float(self.get_parameter('detection_max_age').value)
+        self.unified_odom_line = bool(self.get_parameter('unified_odom_line').value)
+        self.use_apriltag_gate = bool(self.get_parameter('use_apriltag_gate').value)
+        self.apriltag_gate_service = self.get_parameter('apriltag_gate_service').value
         self.filter_num_samples = int(self.get_parameter('filter_num_samples').value)
         self.filter_max_collect_time = float(self.get_parameter('filter_max_collect_time').value)
         self.publish_debug_markers = bool(self.get_parameter('publish_debug_markers').value)
@@ -315,6 +450,20 @@ class DockTrigger(Node):
         self.refined_predock_distance = float(self.get_parameter('refined_predock_distance').value)
         self.normal_tolerance = math.radians(
             float(self.get_parameter('normal_tolerance_deg').value))
+        self.normal_agreement_tol = math.radians(
+            float(self.get_parameter('normal_agreement_tol_deg').value))
+        self.pause_amcl_during_dock = bool(self.get_parameter('pause_amcl_during_dock').value)
+        self.amcl_pause_min_d = float(self.get_parameter('amcl_pause_min_d').value)
+        self.amcl_pause_min_a = float(self.get_parameter('amcl_pause_min_a').value)
+        self.amcl_resume_min_d = float(self.get_parameter('amcl_resume_min_d').value)
+        self.amcl_resume_min_a = float(self.get_parameter('amcl_resume_min_a').value)
+        self._amcl_paused = False
+        self._amcl_param_cli = AsyncParameterClient(self, 'amcl')
+        self.pause_collision_monitor_during_dock = bool(
+            self.get_parameter('pause_collision_monitor_during_dock').value)
+        colmon = str(self.get_parameter('collision_monitor_node').value).rstrip('/')
+        self._colmon_cli = self.create_client(ChangeState, f'{colmon}/change_state')
+        self._colmon_paused = False
         self.obs_lateral = float(self.get_parameter('obs_lateral').value)
         self.obs_distance = float(self.get_parameter('obs_distance').value)
         self.freeze_axis_distance = float(self.get_parameter('freeze_axis_distance').value)
@@ -327,6 +476,8 @@ class DockTrigger(Node):
         self.obstacle_wait_timeout = float(self.get_parameter('obstacle_wait_timeout').value)
         self.obstacle_check_period = float(self.get_parameter('obstacle_check_period').value)
         self.obstacle_min_range = float(self.get_parameter('obstacle_min_range').value)
+        self.obstacle_scan_forward_angle = float(
+            self.get_parameter('obstacle_scan_forward_angle').value)
 
         # ── Multi-threaded callback group so the long-running sequence can
         #    run while subscriptions and TF still get processed. ────────────
@@ -337,6 +488,17 @@ class DockTrigger(Node):
                                        callback_group=self.cb_group)
         self.undock_client = ActionClient(self, UndockRobot, 'undock_robot',
                                           callback_group=self.cb_group)
+
+        # ── On-demand AprilTag gate client (real robot; see _set_apriltag) ──
+        self._apriltag_gate_cli = self.create_client(
+            SetBool, self.apriltag_gate_service, callback_group=self.cb_group)
+
+        # ── LiDAR motor clients: stop it during the camera phases so its IR
+        #    laser dot doesn't sweep across the tags (see _set_lidar). ────────
+        self._lidar_stop_cli = self.create_client(
+            Empty, '/stop_motor', callback_group=self.cb_group)
+        self._lidar_start_cli = self.create_client(
+            Empty, '/start_motor', callback_group=self.cb_group)
 
         # ── cmd_vel publisher (closed-loop drive phase) ────────────────────
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
@@ -354,7 +516,18 @@ class DockTrigger(Node):
 
         # ── Laser scan subscription (obstacle avoidance) ────────────────────
         self.latest_scan = None
-        if self.obstacle_check_enabled:
+        # Republish ONLY the forward stop-cone on its own topic, so it can be shown as
+        # a dedicated LaserScan display in RViz (exactly what the lidar-stop looks at).
+        self._scan_fwd_pub = self.create_publisher(LaserScan, '/scan_forward', 10)
+        # Robot's signed perpendicular error from the reference line (m) — echo/plot
+        # /docking/lateral_error to SEE how far off the line the robot is, live.
+        self._lateral_pub = self.create_publisher(Float32, '/docking/lateral_error', 10)
+        # The scan now feeds THREE things: the obstacle check, the lidar-STOP, and the
+        # /scan_forward debug topic. Subscribe whenever ANY of them needs it — the old
+        # gate was obstacle_check_enabled ALONE, which (being off) starved the lidar-stop
+        # of data (latest_scan stayed None → _min_range_in_arc always inf → the robot
+        # drove into the dock). This one line is the fix.
+        if self.obstacle_check_enabled or self.stop_on_lidar:
             self.create_subscription(
                 LaserScan, self.obstacle_scan_topic, self.on_scan, 10,
                 callback_group=self.cb_group,
@@ -372,9 +545,24 @@ class DockTrigger(Node):
         self.goal_pose_pub = self.create_publisher(
             PoseStamped, self.goal_pose_forward_topic, 10)
 
+        # A6 guard: there must be exactly ONE forwarder on the Nav2 goal topic. If another node
+        # also publishes there (a leftover topic_tools goal relay, or an orphaned dock_trigger from
+        # an incomplete shutdown), every RViz "2D Goal Pose" is published TWICE -> Nav2 receives a
+        # duplicate goal. We can't kill the other node, but we warn loudly so the operator fixes it.
+        # Checked once a few seconds after startup (lets other nodes register first).
+        self._fwd_guard_timer = self.create_timer(
+            4.0, self._check_single_forwarder, callback_group=self.cb_group)
+
         # ── Debug marker publisher (perpendicular line + tag centre) ────────
         self.marker_pub = self.create_publisher(
             MarkerArray, self.debug_marker_topic, 10)
+        # Show the dock normal from the moment the tags are visible (Phase 2/3), not
+        # only during the NEAR loop. A timer publishes the marker while docking is
+        # active but OUTSIDE the NEAR loop (which publishes its own, richer marker).
+        self._docking_active = False
+        self._in_near_loop = False
+        self._odom_line = None
+        self._marker_timer = self.create_timer(0.15, self._marker_tick)
 
         # ── Docking status publisher (consumed by the web UI, from upstream) ─
         # Publishes one of: idle | docking | docked | undocking | failed
@@ -419,11 +607,127 @@ class DockTrigger(Node):
         if not self.busy:
             self._pub_status('docked' if self.is_docked else 'idle')
 
+    def _check_single_forwarder(self) -> None:
+        """One-shot A6 guard: warn if more than one node publishes the Nav2 goal topic."""
+        self._fwd_guard_timer.cancel()  # run once only
+        topic = self.goal_pose_pub.topic_name
+        try:
+            n = self.count_publishers(topic)
+        except Exception:
+            return
+        if n > 1:
+            self.get_logger().error(
+                f'DOUBLE FORWARDER: {n} publishers on {topic} (expected 1 = this dock_trigger). '
+                'A leftover goal relay or an orphaned dock_trigger is running -> every goal is sent '
+                'twice. Stop the extra forwarder (only ONE of relay / dock_trigger may run).')
+        else:
+            self.get_logger().info(f'Goal forwarder OK: sole publisher on {topic}.')
+
+    def _set_apriltag(self, enabled: bool) -> None:
+        """Enable/disable the on-demand AprilTag image gate (real robot).
+
+        apriltag_node stays alive; the gate just (un)subscribes the camera feed,
+        so toggling is instant and apriltag burns ~0% CPU while disabled (during
+        navigation). No-op (with a warning) if the gate service is absent — e.g.
+        in simulation, where apriltag is always on and there is no gate.
+        """
+        if not self.use_apriltag_gate:
+            return
+        cli = self._apriltag_gate_cli
+        if not cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn(
+                f"AprilTag gate service '{self.apriltag_gate_service}' unavailable — "
+                f"leaving apriltag as-is (always-on?). "
+                f"Skipping {'enable' if enabled else 'disable'}.")
+            return
+        req = SetBool.Request()
+        req.data = enabled
+        future = cli.call_async(req)
+        # Don't block the sequence on the response — the gate toggles within one
+        # frame regardless. A short wait just confirms the call was accepted (the
+        # MultiThreadedExecutor resolves the future on another thread).
+        t0 = time.time()
+        while not future.done() and time.time() - t0 < 1.0:
+            time.sleep(0.02)
+        self.get_logger().info(
+            f"AprilTag gate -> {'ENABLED' if enabled else 'disabled'}")
+
+    def _set_lidar(self, running: bool) -> None:
+        """Start/stop the RPLIDAR motor during the camera phases.
+
+        The LiDAR's IR laser sweeps a bright dot across the tags and drops
+        apriltag detections. The visual approach doesn't use the LiDAR
+        (obstacle guard off, we drive cmd_vel directly), so stop it at the
+        staging zone and restart it in the finally. Gated on use_apriltag_gate
+        (real robot); no-op (with a warning) if the motor service is absent.
+
+        Blocking (waits for the service) — used for the RESTART in the finally,
+        where a short wait is fine. The in-loop STOP uses _set_lidar_async so it
+        never stalls the drive. Re-enabled 2026-07-02: the LiDAR is cut only at
+        the FAR->NEAR hand-over (NEAR is camera-only), so localisation stays alive
+        through FAR and is always restarted in _run_and_release's finally.
+        """
+        if not self.use_apriltag_gate:
+            return
+        cli = self._lidar_start_cli if running else self._lidar_stop_cli
+        if not cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn(
+                "LiDAR motor service unavailable — leaving LiDAR as-is. "
+                f"Skipping {'start' if running else 'stop'}.")
+            return
+        future = cli.call_async(Empty.Request())
+        t0 = time.time()
+        while not future.done() and time.time() - t0 < 1.0:
+            time.sleep(0.02)
+        self.get_logger().info(
+            f"LiDAR motor -> {'STARTED' if running else 'stopped'}")
+
+    def _set_lidar_async(self, running: bool) -> None:
+        """Fire-and-forget LiDAR motor start/stop — safe to call from the control
+        loop: no wait_for_service, no future wait, so it never stalls the drive.
+        The request is transmitted by the spinning executor; we don't need the
+        reply."""
+        if not self.use_apriltag_gate:
+            return
+        cli = self._lidar_start_cli if running else self._lidar_stop_cli
+        if not cli.service_is_ready():
+            self.get_logger().warn(
+                f"LiDAR motor service not ready — skipping async "
+                f"{'start' if running else 'stop'}.")
+            return
+        cli.call_async(Empty.Request())
+        self.get_logger().info(
+            f"LiDAR motor -> {'START' if running else 'STOP'} (async)")
+
     def on_detection(self, msg: PoseStamped):
         self.detected_pose = msg
 
     def on_scan(self, msg: LaserScan):
         self.latest_scan = msg
+        self._publish_forward_scan(msg)
+
+    def _publish_forward_scan(self, msg: LaserScan):
+        """Republish ONLY the forward stop-cone of the scan on /scan_forward (rays
+        outside ±stop_lidar_arc_half around obstacle_scan_forward_angle → inf), so it
+        shows as its own LaserScan display = exactly what the lidar-stop reads."""
+        out = LaserScan()
+        out.header = msg.header
+        out.angle_min = msg.angle_min
+        out.angle_max = msg.angle_max
+        out.angle_increment = msg.angle_increment
+        out.time_increment = msg.time_increment
+        out.scan_time = msg.scan_time
+        out.range_min = msg.range_min
+        out.range_max = msg.range_max
+        center, half = self.obstacle_scan_forward_angle, self.stop_lidar_arc_half
+        ranges = list(msg.ranges)
+        for i in range(len(ranges)):
+            a = msg.angle_min + i * msg.angle_increment
+            if abs(normalize_angle(a - center)) > half:
+                ranges[i] = float('inf')
+        out.ranges = ranges
+        out.intensities = []
+        self._scan_fwd_pub.publish(out)
 
     def on_trigger(self, msg: Bool):
         if msg.data:
@@ -436,13 +740,198 @@ class DockTrigger(Node):
         elif self.undock_on_false:
             self._send_undock()
 
+    def _on_set_params(self, params):
+        """Apply live parameter changes (used on the NEXT loop/dock, no relaunch):
+        docking_distance, stop_lidar_distance, stop_on_lidar, detection_max_age — so
+        the final stop / tag-loss handoff can be tuned with `ros2 param set
+        /dock_trigger …` while iterating."""
+        for p in params:
+            try:
+                if p.name == 'docking_distance':
+                    self.docking_distance = float(p.value)
+                    self.get_logger().info(
+                        f'docking_distance -> {self.docking_distance:.2f} m (live)')
+                elif p.name == 'stop_lidar_distance':
+                    self.stop_lidar_distance = float(p.value)
+                    self.get_logger().info(
+                        f'stop_lidar_distance -> {self.stop_lidar_distance:.2f} m (live)')
+                elif p.name == 'stop_on_lidar':
+                    self.stop_on_lidar = bool(p.value)
+                    self.get_logger().info(f'stop_on_lidar -> {self.stop_on_lidar} (live)')
+                elif p.name == 'stop_lidar_arc_half_deg':
+                    self.stop_lidar_arc_half = math.radians(float(p.value))
+                    self.get_logger().info(
+                        f'stop_lidar_arc_half -> ±{float(p.value):.0f}° (live)')
+                elif p.name == 'detection_max_age':
+                    # How long a tag TF stays 'valid' after the camera last saw it.
+                    # SMALL = drop a lost tag fast so the NEAR loop falls to the
+                    # odom-frozen line (tier 3) instead of coasting on the stale,
+                    # base_link-locked detection (which slides WITH the robot and
+                    # never re-corrects). Must stay above the inter-detection gap
+                    # (~0.25 s at 4 Hz) or a single dropped frame flips to odom.
+                    self.detection_max_age = float(p.value)
+                    self.get_logger().info(
+                        f'detection_max_age -> {self.detection_max_age:.2f} s (live)')
+                elif p.name == 'unified_odom_line':
+                    self.unified_odom_line = bool(p.value)
+                    self.get_logger().info(
+                        f'unified_odom_line -> {self.unified_odom_line} (live)')
+                elif p.name == 'obstacle_check_enabled':
+                    # false = ignore the forward obstacle guard (the dock itself
+                    # trips it at 0.6 m). Live so you can toggle it during a dock.
+                    self.obstacle_check_enabled = bool(p.value)
+                    self.get_logger().info(
+                        f'obstacle_check_enabled -> {self.obstacle_check_enabled} (live)')
+            except (TypeError, ValueError):
+                return SetParametersResult(
+                    successful=False, reason=f'bad value for {p.name}')
+        return SetParametersResult(successful=True)
+
+    def _set_amcl_updates(self, min_d, min_a) -> bool:
+        """Set AMCL's update_min_d/update_min_a (target node 'amcl') via its parameter
+        service. Huge values PAUSE the laser correction: AMCL stops folding scans into
+        the filter and just propagates map->odom on odometry (smooth, no relocalisation
+        jumps). Returns True if the set was dispatched."""
+        if not self.pause_amcl_during_dock:
+            return False
+        try:
+            if not self._amcl_param_cli.wait_for_services(timeout_sec=2.0):
+                self.get_logger().warn(
+                    'AMCL param service unavailable — skipping AMCL pause/resume '
+                    '(map->odom jumps may perturb the dock if AMCL relocalises).')
+                return False
+            self._amcl_param_cli.set_parameters([
+                Parameter('update_min_d', Parameter.Type.DOUBLE, float(min_d)),
+                Parameter('update_min_a', Parameter.Type.DOUBLE, float(min_a)),
+            ])
+            return True
+        except Exception as e:
+            self.get_logger().warn(f'AMCL param set failed: {e}')
+            return False
+
+    def _pause_amcl(self):
+        """Freeze AMCL's laser correction for the dock maneuver — map->odom then rides
+        on odometry only (smooth), so the tag-referenced targets stop jumping."""
+        if self._set_amcl_updates(self.amcl_pause_min_d, self.amcl_pause_min_a):
+            self._amcl_paused = True
+            self.get_logger().info(
+                f'AMCL laser correction PAUSED (update_min_d={self.amcl_pause_min_d:.0f}) '
+                '— map->odom frozen on odometry for the dock.')
+
+    def _resume_amcl(self):
+        """Restore AMCL's normal laser correction (idempotent)."""
+        if not self._amcl_paused:
+            return
+        self._set_amcl_updates(self.amcl_resume_min_d, self.amcl_resume_min_a)
+        self._amcl_paused = False
+        self.get_logger().info('AMCL laser correction RESUMED.')
+
+    def _set_collision_monitor(self, active: bool, verify: bool = False,
+                               timeout_sec: float = 3.0) -> bool:
+        """Activate/deactivate Nav2's collision_monitor via its lifecycle service.
+        During docking we DEACTIVATE it: it otherwise sees the dock in its stop
+        zone and publishes zero on /cmd_vel, which fights dock_trigger's forward
+        command (both publish /cmd_vel) → the robot judders and stalls ~15 cm from
+        the dock. Deactivation stays fire-and-forget (its failure is fail-SAFE).
+        Re-activation is fail-DANGEROUS (the robot would navigate with no reactive
+        collision layer), so callers pass verify=True to wait on the transition,
+        bounded, and confirm it actually succeeded."""
+        if not self.pause_collision_monitor_during_dock:
+            return False
+        try:
+            if not self._colmon_cli.wait_for_service(timeout_sec=2.0):
+                self.get_logger().warn(
+                    'collision_monitor lifecycle service unavailable — skipping '
+                    'its pause (it may stall the final approach).')
+                return False
+            req = ChangeState.Request()
+            req.transition.id = (Transition.TRANSITION_ACTIVATE if active
+                                 else Transition.TRANSITION_DEACTIVATE)
+            future = self._colmon_cli.call_async(req)
+            if not verify:
+                return True   # deactivation: fire-and-forget (failing is fail-safe)
+            # Verified path (re-activation): wait on the result and confirm success.
+            deadline = time.monotonic() + timeout_sec
+            while not future.done():
+                if time.monotonic() > deadline:
+                    self.get_logger().warn(
+                        'collision_monitor ChangeState timed out (no response).')
+                    return False
+                time.sleep(0.02)
+            resp = future.result()
+            return bool(resp is not None and resp.success)
+        except Exception as e:
+            self.get_logger().warn(f'collision_monitor state change failed: {e}')
+            return False
+
+    def _pause_collision_monitor(self):
+        """Deactivate the collision_monitor for the dock (it fights /cmd_vel and
+        stalls the approach ~15 cm out)."""
+        if self._set_collision_monitor(False):
+            self._colmon_paused = True
+            self.get_logger().info(
+                'collision_monitor DEACTIVATED for the dock (it was stopping the '
+                'approach ~15 cm out).')
+
+    def _resume_collision_monitor(self):
+        """Re-activate the collision_monitor after the dock. Unlike the pause, this is
+        safety-critical: a dropped or rejected resume would return the robot to normal
+        navigation with NO reactive collision layer while the log claims otherwise. So
+        we verify the transition, retry a few times, and if it still will not come back
+        we log at ERROR and publish a distinct status instead of claiming success."""
+        if not self._colmon_paused:
+            return
+        for attempt in range(1, 4):
+            if self._set_collision_monitor(True, verify=True):
+                self._colmon_paused = False
+                self.get_logger().info('collision_monitor RE-ACTIVATED (confirmed).')
+                return
+            self.get_logger().warn(
+                f'collision_monitor re-activation not confirmed '
+                f'(attempt {attempt}/3), retrying…')
+            time.sleep(0.3)
+        # Still down after retries — fail-dangerous. Keep _colmon_paused=True (do not
+        # pretend it is back), shout at ERROR, and flag the operator via a distinct status.
+        self.get_logger().error(
+            'collision_monitor RE-ACTIVATION FAILED after 3 attempts — the robot is '
+            'navigating WITHOUT its reactive collision layer. Restore it manually: '
+            'ros2 lifecycle set /collision_monitor activate')
+        self._pub_status('collision_monitor_down')
+
+    def _marker_tick(self):
+        """While docking (but OUTSIDE the NEAR loop, which draws its own marker),
+        publish the live dock normal as soon as the 3 tags are visible — so the
+        line appears from Phase 2/3 onward, not only at the final approach. In these
+        early phases there is no filtered reference yet, so green ≈ blue (both the
+        current estimate)."""
+        # Draw whenever the NEAR loop isn't (it draws its own richer marker). NOT gated
+        # on _docking_active anymore, so the normal shows as soon as the robot sees the
+        # 3 tags — even at rest — handy to check line-following before/without a dock.
+        if self._in_near_loop:
+            return
+        self._publish_forward_lidar_points()   # RED: forward lidar points
+        est = self._estimate_dock_base_once()
+        if est is not None:
+            # Phase 2/3: one normal only (no filtered-reference vs raw-current split
+            # yet) → publish it GREEN (the reference line, from its creation). The
+            # blue raw-current line appears in the NEAR loop, where the two diverge.
+            self._publish_docking_line_marker(est[0], est[1], est[2])
+
     def _run_and_release(self):
         self._pub_status('docking')
+        self._docking_active = True   # timer draws the normal from Phase 2/3 on
+        self._pause_amcl()          # freeze map->odom: no relocalisation jumps during the maneuver
         try:
             self.run_docking_sequence()
         except Exception as e:
             self.get_logger().error(f'Docking sequence error: {e}')
         finally:
+            self._docking_active = False   # stop the Phase 2/3 marker timer
+            self._resume_amcl()     # AMCL laser correction back on (success, abort, or exception)
+            self._resume_collision_monitor()   # collision_monitor back on for normal nav
+            self._set_apriltag(False)   # apriltag back to ~0% CPU
+            if self.stop_lidar_in_approach:
+                self._set_lidar(True)   # LiDAR back on (only if we stopped it)
             self._pub_status('docked' if self.is_docked else 'failed')
             self.busy = False
 
@@ -513,6 +1002,20 @@ class DockTrigger(Node):
         self._publish_cmd_vel(0.0, 0.0)
         time.sleep(self.staging_hold_seconds)
 
+        # Nav2 (Phase 1) is DONE. Deactivate the collision_monitor only NOW: from
+        # here dock_trigger drives /cmd_vel directly, and an active monitor would
+        # fight it near the dock (both publish /cmd_vel) → stall ~15 cm out. It MUST
+        # stay active through Phase 1 above, or Nav2's controller→smoother→monitor→
+        # /cmd_vel chain is broken and the robot never reaches staging. Re-activated
+        # in _run_and_release's finally (any outcome).
+        self._pause_collision_monitor()
+
+        # AprilTag pipeline ON now — it stayed idle during the Nav2 drive to the
+        # staging zone (CPU left free for the planner). Instant: apriltag_node is
+        # already up; the gate just starts forwarding frames. Disabled again in
+        # _run_and_release's finally, whatever the outcome.
+        self._set_apriltag(True)
+
         # See both tags and estimate the dock (centre + normal from baseline).
         if not self._search_for_tag():
             self.get_logger().error('   tags not detected during scan — aborting')
@@ -576,9 +1079,18 @@ class DockTrigger(Node):
             self.get_logger().info('   normals agree — confirmed')
 
         # ── Phase 5: final visual approach (camera-only). ─────────────────
+        # The LiDAR is NOT stopped here: the FAR leg still uses the map-frame
+        # line (AMCL), so the LiDAR is cut later, exactly at the FAR->NEAR
+        # hand-over inside _final_visual_approach (async), and restarted in the
+        # _run_and_release finally.
         self.get_logger().info(
             f'── Phase 5: visual approach to {self.docking_distance:.2f}m (camera depth)')
-        if not self._final_visual_approach(cx, cy, normal_yaw):
+        self._in_near_loop = True    # NEAR loop draws its own marker; pause the timer
+        try:
+            near_ok = self._final_visual_approach(cx, cy, normal_yaw)
+        finally:
+            self._in_near_loop = False
+        if not near_ok:
             self.get_logger().error('   final approach failed')
             return
 
@@ -589,68 +1101,112 @@ class DockTrigger(Node):
     # Camera-centric helpers (see docs/13_perception_and_line.md §6)
     # ──────────────────────────────────────────────────────────────────────
     def _estimate_dock(self, num_samples=None):
-        """Average num_samples joint observations of the three tags' map
-        positions, then derive the dock target and normal:
+        """Average num_samples joint observations of the three tags' map poses
+        (position AND facing), then derive the dock target + normal via
+        _dock_pose_from_tags (geometry + orientation, agreement-gated).
 
-          - dock target = the CENTRE tag (id1), the point we drive onto;
-          - dock normal = perpendicular to the wide baseline between the OUTER
-            tags (id0→id2), disambiguated toward the robot.
-
-        Using the outer tag *centres* and their wide baseline gives a far more
-        robust dock orientation than a single-tag solvePnP normal.
-
-        Returns (cx, cy, normal_yaw) or None.
+        Requires ALL THREE tags together — no partial-view fallback. Returns
+        (cx, cy, normal_yaw) or None.
         """
         if num_samples is None:
             num_samples = self.filter_num_samples
-        s = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]   # sums for tag 0,1,2
+        # per-tag running sums: [x, y, sin(yaw), cos(yaw)] (circular mean of yaw)
+        s = [[0.0, 0.0, 0.0, 0.0] for _ in range(3)]
         n = 0
         last_key = None
         deadline = time.time() + self.filter_max_collect_time
         while time.time() < deadline and n < num_samples:
-            p0 = self._lookup_tag_map('charging_dock_tag_0')
-            p1 = self._lookup_tag_map('charging_dock_tag_1')
-            p2 = self._lookup_tag_map('charging_dock_tag_2')
+            p0 = self._lookup_tag_map3('charging_dock_tag_0')
+            p1 = self._lookup_tag_map3('charging_dock_tag_1')
+            p2 = self._lookup_tag_map3('charging_dock_tag_2')
             if p0 is not None and p1 is not None and p2 is not None:
                 key = (round(p0[0], 4), round(p1[0], 4), round(p2[0], 4))
                 if key != last_key:        # don't count an unchanged TF twice
                     for i, p in enumerate((p0, p1, p2)):
                         s[i][0] += p[0]
                         s[i][1] += p[1]
+                        s[i][2] += math.sin(p[2])
+                        s[i][3] += math.cos(p[2])
                     n += 1
                     last_key = key
             time.sleep(0.05)
         if n == 0:
             self.get_logger().error('   never saw all three tags together')
             return None
-        c0 = (s[0][0] / n, s[0][1] / n)
-        c1 = (s[1][0] / n, s[1][1] / n)
-        c2 = (s[2][0] / n, s[2][1] / n)
+        c = [(s[i][0] / n, s[i][1] / n, math.atan2(s[i][2], s[i][3]))
+             for i in range(3)]
         pose = self.lookup_robot_pose()
         if pose is None:
             return None
         rx, ry, _ = pose
-        return self._dock_pose_from_tags(c0, c1, c2, rx, ry)
+        return self._dock_pose_from_tags(c[0], c[1], c[2], rx, ry)
 
     def _dock_pose_from_tags(self, c0, c1, c2, rx, ry):
-        """Dock target + heading-to-dock from the three tag centres.
+        """Dock target + heading-to-dock from the THREE tags (position + orientation).
 
-        Target = midpoint of the OUTER tags (c0+c2)/2. The outer tags are big
-        and well localised, so their midpoint pins the dock centre more
-        precisely than the small centre tag (and equals it geometrically). The
-        normal is perpendicular to the wide baseline c0→c2, disambiguated toward
-        the robot; the returned yaw faces the robot toward the dock.
+        Each ci = (x, y, yaw_tag), where yaw_tag is the tag's own facing direction
+        (its +Z axis projected to the ground). Two INDEPENDENT normal estimates
+        are computed and cross-checked:
+
+          1. GEOMETRIC — total-least-squares line fit through the three tag
+             centres (the dock face is a horizontal tag row); the dock normal is
+             that fitted line's perpendicular. Using all three centres (not just
+             the outer pair) rejects a single mis-localised tag.
+          2. ORIENTATION — circular mean of the three tags' facing yaws.
+
+        If the two disagree by more than `normal_agreement_tol`, the frame is a
+        bad measurement → return None (this is what keeps the normal *exact*).
+        Otherwise the two are fused (circular mean).
+
+        The dock target/anchor is the CENTRE tag c1 — the normal passes through
+        tag 1, the point we drive onto. The returned yaw faces the robot TOWARD
+        the dock. Returns (cx, cy, normal_yaw) or None.
         """
-        cx = 0.5 * (c0[0] + c2[0])          # midpoint of the precise outer tags
-        cy = 0.5 * (c0[1] + c2[1])
-        dx, dy = c2[0] - c0[0], c2[1] - c0[1]   # wide baseline
-        L = math.hypot(dx, dy)
-        if L < 1e-6:
+        pts = (c0, c1, c2)
+        # anchor = the centre tag (tag 1) — the normal passes through it.
+        cx, cy = c1[0], c1[1]
+
+        # (1) GEOMETRIC normal: total-least-squares line through the 3 centres.
+        mx = (c0[0] + c1[0] + c2[0]) / 3.0
+        my = (c0[1] + c1[1] + c2[1]) / 3.0
+        sxx = sxy = syy = 0.0
+        for p in pts:
+            ex, ey = p[0] - mx, p[1] - my
+            sxx += ex * ex
+            sxy += ex * ey
+            syy += ey * ey
+        if (sxx + syy) < 1e-9:               # tags coincident → degenerate
             return None
-        nx, ny = -dy / L, dx / L            # perpendicular to the tag row
-        if nx * (rx - cx) + ny * (ry - cy) < 0.0:
-            nx, ny = -nx, -ny               # point toward the robot
-        return cx, cy, math.atan2(-ny, -nx)
+        theta = 0.5 * math.atan2(2.0 * sxy, sxx - syy)   # principal (line) axis
+        gnx, gny = -math.sin(theta), math.cos(theta)     # perpendicular = normal
+        if gnx * (rx - cx) + gny * (ry - cy) < 0.0:
+            gnx, gny = -gnx, -gny            # point toward the robot
+        n_geom = math.atan2(gny, gnx)
+
+        # (2) ORIENTATION normal: circular mean of the tags' facing yaws.
+        sc = sum(math.sin(p[2]) for p in pts)
+        cc = sum(math.cos(p[2]) for p in pts)
+        if abs(sc) < 1e-9 and abs(cc) < 1e-9:
+            return None
+        n_orient = math.atan2(sc, cc)
+        onx, ony = math.cos(n_orient), math.sin(n_orient)
+        if onx * (rx - cx) + ony * (ry - cy) < 0.0:      # same convention: toward robot
+            n_orient = normalize_angle(n_orient + math.pi)
+
+        # (3) AGREEMENT GATE — reject a noisy frame outright.
+        disagree = abs(normalize_angle(n_geom - n_orient))
+        if disagree > self.normal_agreement_tol:
+            self.get_logger().warn(
+                f'   normal rejected: geom {math.degrees(n_geom):.1f}° vs orient '
+                f'{math.degrees(n_orient):.1f}° disagree {math.degrees(disagree):.1f}° '
+                f'> {math.degrees(self.normal_agreement_tol):.1f}°')
+            return None
+
+        # (4) FUSE the two agreeing normals (circular mean, both point toward robot).
+        fx = math.cos(n_geom) + math.cos(n_orient)
+        fy = math.sin(n_geom) + math.sin(n_orient)
+        toward_robot = math.atan2(fy, fx)
+        return cx, cy, normalize_angle(toward_robot + math.pi)   # face toward dock
 
     def _goto_point_on_normal(self, tag_x, tag_y, normal_yaw, dist):
         """Drive to the point `dist` metres in front of the tag along its
@@ -665,7 +1221,7 @@ class DockTrigger(Node):
         # drive. This catches "someone is directly in front of the robot when
         # the trigger arrives" up front, before the drive loop starts.
         if not self._wait_for_path_clear(
-            0.0, self.obstacle_forward_distance,
+            self.obstacle_scan_forward_angle, self.obstacle_forward_distance,
             self.obstacle_wait_timeout, 'goto-point pre-check'
         ):
             return False
@@ -679,19 +1235,31 @@ class DockTrigger(Node):
 
 
     def _final_visual_approach(self, cx, cy, normal_yaw, max_time=90.0):
-        """Two-regime final approach.
+        """Final approach — simplified 2026-07-07 (drop the PD visual corrector).
 
-        FAR (camera depth > freeze_axis_distance): the axis (dock centre +
-        normal) is re-derived every iteration from the live 3-tag perception and
-        folded into a **running average**, and the robot pure-pursuits that axis
-        — so it converges onto the perpendicular line while still far, where the
-        estimate is clean.
+        Three tiers, degrading gracefully with what's currently visible:
 
-        NEAR (≤ freeze_axis_distance): the averaged axis is **frozen** (close-up
-        estimates are noisy and the outer tags start leaving the FOV — averaging
-        them in caused the end-of-approach zig-zag). The robot finishes on the
-        **centre-tag visual corrector** (keep the centre tag centred in the
-        image), which from an already-aligned pose only trims the residual.
+          1. 2+ tags (both outer, or centre+one outer via
+             _estimate_dock_base_once): full ROBOT-FRAME dock-normal
+             pure-pursuit, EMA-averaged — the most robust axis estimate,
+             used for as much of the approach as it's available ("follow
+             the line to the max").
+          2. Only the centre tag visible: no fresh axis estimate possible
+             (a single point has no orientation), so steer using the LAST
+             good axis from tier 1 ("carried"), corrected for however much
+             the robot has turned since via odometry (wheel+IMU EKF,
+             LiDAR-independent) — same pure-pursuit law, same gain, no
+             separate PD/deadband/derivative machinery.
+          3. Nothing visible at all: go BLIND — no steering correction,
+             just keep advancing straight. Depth is dead-reckoned from
+             odometry so 'docked' (depth ≤ docking_distance) still
+             triggers correctly.
+
+        Previously this had a distance-based FAR/NEAR hand-over with a
+        separate bearing-based PD corrector (kp/kd/deadband/PWM) once close.
+        Dropped in favour of the above — simpler and, per real-hardware
+        testing, more predictable: it either has a real axis estimate to
+        follow or it doesn't; no separate "fine correction" regime to tune.
 
         Stops when camera→centre-tag depth ≤ docking_distance.
         """
@@ -702,44 +1270,260 @@ class DockTrigger(Node):
         acx, acy = cx, cy
         asin, acos = math.sin(normal_yaw), math.cos(normal_yaw)
         n = 1
-        frozen = False
-        filtered_angle = None
+        bnorm_filt = None      # EMA of the ROBOT-frame dock normal (byaw), tier 1
+        blat_filt = None       # EMA of the lateral offset from the dock axis, tier 1
+        carried_norm = None     # freshest bnorm_filt, carried forward for tier 2
+        carried_odom_yaw = None  # odom yaw at the moment carried_norm was last set
+        lateral_t2_filt = None   # EMA of tier 2's lateral offset (reset on tier switch)
+        lost_frames = 0          # consecutive fully-blind (tier 3) frames
+        last_cam_depth = None       # last camera depth to tag 1 (odom dead-reckoning)
+        last_odom = None            # odom xy captured with last_cam_depth
+        last_lidar_dist = None      # last valid forward LiDAR range (odom dead-reckoning)
+        last_lidar_odom = None      # odom xy captured with last_lidar_dist
+        self._odom_line = None      # dock line frozen in the ODOM frame (tier-3 steering)
+        lateral = 0.0               # robot's signed perpendicular error from the line (m)
 
         pose0 = self.lookup_robot_pose()
         if pose0 is None:
             return False
         x0, y0, _ = pose0
         max_travel = math.hypot(cx - x0, cy - y0) + 0.5
+        last_depth = max(0.0, math.hypot(cx - x0, cy - y0) - camera_forward_offset)
 
         while time.time() < deadline:
-            pose = self.lookup_robot_pose()
-            if pose is None:
-                time.sleep(period)
-                continue
-            rx, ry, ryaw = pose
-
+            # Pose is OPTIONAL here (short timeout, quiet): once close, map→odom
+            # may age out (AMCL/costmaps not trusted this near the dock anyway),
+            # and blocking on it would stall the advance. The approach runs on
+            # the camera + odometry; pose only serves the legacy map-frame leg
+            # and the travel-safety fallback.
+            pose = self.lookup_robot_pose(timeout_sec=0.05, quiet=True)
             c1cam = self._lookup_tag_cam('charging_dock_tag_1')
+            odom = self._lookup_odom_xy()
+
             if c1cam is not None and c1cam[2] > 0.05:
-                depth = c1cam[2]
-            else:
-                depth = max(0.0, math.hypot(cx - rx, cy - ry)
+                depth = c1cam[2]                       # camera depth (LiDAR-independent)
+                if odom is not None:
+                    last_cam_depth, last_odom = depth, odom
+            elif last_cam_depth is not None and last_odom is not None and odom is not None:
+                # Tag not in view — dead-reckon depth from odometry (always live,
+                # LiDAR-independent). Lets the last blind centimetres still detect
+                # 'docked' with the LiDAR off.
+                travelled = math.hypot(odom[0] - last_odom[0], odom[1] - last_odom[1])
+                depth = max(0.0, last_cam_depth - travelled)
+            elif pose is not None:
+                depth = max(0.0, math.hypot(cx - pose[0], cy - pose[1])
                             - camera_forward_offset)
-            if depth <= self.docking_distance:
+            else:
+                depth = last_depth
+            last_depth = depth
+
+            # Forward LiDAR distance (with odom dead-reckon when it loses the dock).
+            # NOTE: _min_range_in_arc returns the CLOSEST return in the cone — a thin
+            # dock the lidar can't see cleanly lets a FARTHER wall dominate the min, so
+            # the lidar alone can fail to ever reach the threshold. Hence the failsafe.
+            lidar_dist, lidar_src = None, 'lidar'
+            if self.stop_on_lidar:
+                lidar_raw = self._min_range_in_arc(self.obstacle_scan_forward_angle,
+                                                   self.stop_lidar_arc_half)
+                if math.isfinite(lidar_raw):
+                    lidar_dist = lidar_raw
+                    if odom is not None:
+                        last_lidar_dist, last_lidar_odom = lidar_raw, odom
+                elif (last_lidar_dist is not None and last_lidar_odom is not None
+                      and odom is not None):
+                    lidar_dist = max(0.0, last_lidar_dist - math.hypot(
+                        odom[0] - last_lidar_odom[0], odom[1] - last_lidar_odom[1]))
+                    lidar_src = 'lidar-dr'
+
+            # STOP on whichever sensor says 'close' FIRST (failsafe). The camera depth
+            # (odom-dead-reckoned above) is the proven trigger — it stopped fine before
+            # the lidar was added — so the robot never charges into the dock even when
+            # the lidar misses it. The lidar is an additional earlier trigger when it
+            # DOES see the dock. Both readings are logged to tune/debug the lidar.
+            cam_close = depth <= self.docking_distance
+            lidar_close = lidar_dist is not None and lidar_dist <= self.stop_lidar_distance
+            if cam_close or lidar_close:
                 self._publish_cmd_vel(0.0, 0.0)
+                src = lidar_src if lidar_close else 'camera'
                 self.get_logger().info(
-                    f'   docked: depth {depth:.3f}m ≤ {self.docking_distance:.2f}m')
+                    f'   docked ({src}) — cam depth {depth:.3f}m (≤{self.docking_distance:.2f}), '
+                    f'lidar {("%.3f" % lidar_dist) if lidar_dist is not None else "n/a"}m '
+                    f'(≤{self.stop_lidar_distance:.2f})')
                 return True
 
-            if math.hypot(rx - x0, ry - y0) > max_travel:
+            # Travel-safety bound only when a pose is available.
+            if pose is not None and math.hypot(pose[0] - x0, pose[1] - y0) > max_travel:
                 self._publish_cmd_vel(0.0, 0.0)
                 self.get_logger().error('   exceeded travel safety')
                 return False
 
-            if depth > self.freeze_axis_distance:
-                # FAR: refine the axis with a proximity-weighted EMA. The EMA
-                # weight grows as the robot gets closer, so the samples taken
-                # while advancing (nearer = tags bigger in the image = more
-                # accurate) count MUCH more than the early far ones.
+            freeze = float(self.get_parameter('freeze_axis_distance').value)
+            use_cam = bool(self.get_parameter('use_camera_frame_normal').value)
+            # Live-read the pure-pursuit gain + lookahead + forward speed so they
+            # can be tuned with `ros2 param set /dock_trigger …` during a run.
+            line_kp = float(self.get_parameter('line_yaw_kp').value)
+            lookahead = float(self.get_parameter('line_lookahead_distance').value)
+            drive_speed = float(self.get_parameter('drive_speed').value)
+            est_base = self._estimate_dock_base_once() if use_cam else None
+
+            if self.unified_odom_line:
+                # ===== UNIFIED ODOM-LINE (clean, 2026-07-09) =================
+                # ONE reference frame: the dock line lives in odom. Fresh tags
+                # (looked up DIRECTLY in odom, lag-correct) EMA-refine it; only
+                # the centre tag → re-anchor POSITION (hold normal); no tag →
+                # the line stays put and the robot coasts onto it via odometry.
+                # No base_link↔odom switch → the reference never swings with the
+                # robot and there is no tier-boundary jump. Same pure-pursuit law.
+                op = self._lookup_odom_pose()
+                est_odom = self._estimate_dock_odom_once()
+                c1_odom = self._lookup_tag_odom3('charging_dock_tag_1')
+                refined = False
+                if op is not None and est_odom is not None:
+                    ecx, ecy, enorm = est_odom
+                    if self._odom_line is None:
+                        self._odom_line = (ecx, ecy, enorm)          # first lock
+                    elif depth > freeze:
+                        ax, ay, norm = self._odom_line
+                        spike = float(self.get_parameter('axis_spike_reject').value)
+                        a_n = max(0.05, min(0.20, self.axis_filter_alpha
+                                  * (depth / self.predock_distance)))
+                        dev = abs(normalize_angle(enorm - norm))
+                        if dev <= spike:
+                            stability = max(0.15, 1.0 - dev / spike)
+                            ae = a_n * stability
+                            norm = normalize_angle(
+                                norm + ae * normalize_angle(enorm - norm))
+                            ax = (1.0 - ae) * ax + ae * ecx
+                            ay = (1.0 - ae) * ay + ae * ecy
+                        else:
+                            # normal spike rejected — hold it, nudge position only
+                            ax = 0.9 * ax + 0.1 * ecx
+                            ay = 0.9 * ay + 0.1 * ecy
+                        self._odom_line = (ax, ay, norm)
+                    else:
+                        # depth <= freeze: hold the normal, re-anchor POSITION from
+                        # the fresh centre tag to shed accumulated odom drift.
+                        ax, ay, norm = self._odom_line
+                        self._odom_line = (0.9 * ax + 0.1 * ecx,
+                                           0.9 * ay + 0.1 * ecy, norm)
+                    refined = True
+                elif (op is not None and c1_odom is not None
+                        and self._odom_line is not None):
+                    # Only the centre tag: re-anchor position, hold the normal.
+                    ax, ay, norm = self._odom_line
+                    self._odom_line = (0.9 * ax + 0.1 * c1_odom[0],
+                                       0.9 * ay + 0.1 * c1_odom[1], norm)
+                    refined = True
+
+                if op is not None and self._odom_line is not None:
+                    rx_u, ry_u, ryaw_u = op
+                    ax, ay, norm = self._odom_line
+                    dx, dy = ax - rx_u, ay - ry_u
+                    lateral = dx * math.sin(norm) - dy * math.cos(norm)
+                    desired_yaw_odom = normalize_angle(
+                        norm - math.atan2(lateral, lookahead))
+                    omega = line_kp * normalize_angle(desired_yaw_odom - ryaw_u)
+                    bnorm_filt = normalize_angle(norm - ryaw_u)   # for log/marker
+                    cc_u, ss_u = math.cos(ryaw_u), math.sin(ryaw_u)
+                    self._publish_docking_line_marker(
+                        dx * cc_u + dy * ss_u, -dx * ss_u + dy * cc_u, bnorm_filt,
+                        current_yaw=(normalize_angle(est_odom[2] - ryaw_u)
+                                     if est_odom is not None else None))
+                    lost_frames = 0 if refined else lost_frames + 1
+                else:
+                    omega = 0.0
+                    lateral = 0.0
+                    lost_frames += 1
+            elif est_base is not None:
+                # Tier 1 — ROBOT-FRAME dock-normal pure-pursuit (2+ tags). The axis
+                # is re-derived in base_link (robot at the origin facing +x) every
+                # loop, so it NEVER reads the wobbly map (AMCL relocalisation
+                # jumps) or odometry drift. Pure-pursuit onto the normal corrects
+                # BOTH the lateral offset from the dock axis AND the approach
+                # heading (perpendicular to the dock face).
+                bcx, bcy, byaw = est_base
+                # robot is at (0, 0, 0) in base_link: rx = ry = ryaw = 0.
+                lateral = bcx * math.sin(byaw) - bcy * math.cos(byaw)
+                # Temporal EMA on the normal (byaw) + lateral, because WHILE MOVING
+                # a single frame jitters (vibration, blur, changing view angle).
+                # Weight SHRINKS as the robot gets closer (∝ depth/predock_distance,
+                # capped 0.20, floored 0.05) — 2026-07-07: the wide 2-outer-tag
+                # baseline degrades close up (corners hug the FOV edge, per
+                # docs/12_lessons_learned.md Lesson 28), so most of the trust should
+                # accumulate FAR/MID field, while it's still advancing, not right at
+                # the end. Cap lowered from 0.6 -> 0.20 after real-hardware feedback
+                # that the line still changed too much mid-course even far away
+                # ("qu'elle change qu'un petit peu à mi-course") — a heavy, stable
+                # average throughout, not just near the dock. A floor (not 0) keeps
+                # a real persistent drift adapting slowly rather than fully
+                # freezing. A frame jumping > axis_spike_reject is dropped regardless.
+                a_n = max(0.05, min(0.20, self.axis_filter_alpha
+                          * (depth / self.predock_distance)))
+                spike = float(self.get_parameter('axis_spike_reject').value)
+                if bnorm_filt is None:
+                    bnorm_filt, blat_filt = byaw, lateral
+                    carried_norm = bnorm_filt
+                    carried_odom_yaw = self._lookup_odom_yaw()
+                elif depth > freeze:
+                    # Still far/mid field: keep refining the normal as usual.
+                    dev = abs(normalize_angle(byaw - bnorm_filt))
+                    if dev <= spike:
+                        # Stability weighting: a sample close to the CURRENT running
+                        # average (i.e. consistent with recent history) gets close to
+                        # full trust (a_n); one that disagrees more — but not enough to
+                        # be a hard-rejected spike — is damped instead of fully
+                        # incorporated. A single noisy reading can no longer yank the
+                        # axis around on its own: only a RUN of mutually-agreeing
+                        # samples builds real influence (each keeps dev small once the
+                        # filter has moved toward them, so their weight stays high).
+                        # True outliers (dev > spike) are still hard-rejected, unchanged.
+                        stability = max(0.15, 1.0 - dev / spike)
+                        a_eff = a_n * stability
+                        bnorm_filt = normalize_angle(
+                            bnorm_filt + a_eff * normalize_angle(byaw - bnorm_filt))
+                        blat_filt = (1.0 - a_eff) * blat_filt + a_eff * lateral
+                    # else: spike — keep the last filtered normal this frame
+                    # Keep the carried snapshot fresh while still far/mid field —
+                    # always the LATEST good axis, so tier 2 (if it kicks in) starts
+                    # from the best data available.
+                    carried_norm = bnorm_filt
+                    carried_odom_yaw = self._lookup_odom_yaw()
+                else:
+                    # depth <= freeze: FROZEN normal reference (2026-07-07, Lesson
+                    # 28 — "the optimal gain in the near-field is zero"). The
+                    # world-referenced normal captured at the freeze moment
+                    # (carried_norm/carried_odom_yaw, last set while depth > freeze)
+                    # is NOT held as a stale base_link-frame value — base_link
+                    # rotates WITH the robot, so a value frozen in that frame goes
+                    # wrong the moment the robot turns after the freeze (bug found
+                    # 2026-07-07: "au début c'est ok mais ensuite c'est pas bon").
+                    # Instead, re-derive bnorm_filt from the carried snapshot every
+                    # loop via the odom yaw delta — the exact same mechanism tier
+                    # 2's ref_yaw already uses. carried_norm/carried_odom_yaw
+                    # themselves are NOT refreshed here (they stay at their
+                    # freeze-moment values; only the current-frame projection of
+                    # them changes as the robot turns).
+                    odom_yaw_now = self._lookup_odom_yaw()
+                    if (carried_norm is not None and carried_odom_yaw is not None
+                            and odom_yaw_now is not None):
+                        bnorm_filt = normalize_angle(
+                            carried_norm - (odom_yaw_now - carried_odom_yaw))
+                    # else: odom briefly unavailable — keep last bnorm_filt.
+                    blat_filt = lateral
+                desired_yaw = normalize_angle(
+                    bnorm_filt - math.atan2(blat_filt, lookahead))
+                omega = line_kp * desired_yaw
+                lost_frames = 0
+                lateral_t2_filt = None   # reset tier 2's smoother — see tier 2 below
+                self._publish_docking_line_marker(bcx, bcy, bnorm_filt, current_yaw=byaw)
+                self._snapshot_odom_line(bcx, bcy, bnorm_filt)   # freeze on the dock (odom)
+            elif (not use_cam) and pose is not None and depth > freeze:
+                rx, ry, ryaw = pose
+                # LEGACY map-frame leg (use_camera_frame_normal:=false): the
+                # map-frame 3-tag axis is the noisy link (marginal id2, 52 cm
+                # baseline) and drifts with AMCL, so out here it just gets the
+                # robot roughly onto the perpendicular line. Unused on the real
+                # robot (use_camera_frame_normal:=true) — kept for the sim path.
                 est = self._estimate_dock_once()
                 if est is not None:
                     ecx, ecy, eyaw = est
@@ -755,37 +1539,133 @@ class DockTrigger(Node):
                 lateral = (-(rx - cx) * math.sin(normal_yaw)
                            + (ry - cy) * math.cos(normal_yaw))
                 desired_yaw = normalize_angle(
-                    normal_yaw - math.atan2(lateral, self.line_lookahead_distance))
+                    normal_yaw - math.atan2(lateral, lookahead))
                 yaw_err = normalize_angle(desired_yaw - ryaw)
-                omega = self.line_yaw_kp * yaw_err
-            else:
-                # NEAR: axis frozen, finish on the centre-tag visual corrector.
-                if not frozen:
-                    frozen = True
-                    self.get_logger().info(
-                        f'   depth {depth:.2f}m ≤ {self.freeze_axis_distance:.2f}m '
-                        f'— freezing axis ({n} samples), visual corrector')
-                if c1cam is not None and c1cam[2] > 0.0:
-                    raw_angle = math.atan2(c1cam[0], c1cam[2])
-                    if filtered_angle is None:
-                        filtered_angle = raw_angle
-                    else:
-                        a = self.visual_servo_filter_alpha
-                        filtered_angle = a * raw_angle + (1.0 - a) * filtered_angle
-                    omega = -self.visual_servo_kp * filtered_angle
+                omega = line_kp * yaw_err
+                lost_frames = 0
+            elif c1cam is not None and c1cam[2] > 0.0:
+                # Tier 2 — only the centre tag visible (outer tags out of FOV,
+                # too close). No fresh axis estimate possible from one point, so
+                # steer with the LAST good axis (carried_norm), corrected for
+                # however much the robot has turned since via odometry — same
+                # pure-pursuit law and gain as tier 1, no separate correction pass.
+                ref_yaw = 0.0
+                if carried_norm is not None and carried_odom_yaw is not None:
+                    odom_yaw_now = self._lookup_odom_yaw()
+                    if odom_yaw_now is not None:
+                        ref_yaw = normalize_angle(
+                            carried_norm - (odom_yaw_now - carried_odom_yaw))
+                lateral_raw = c1cam[0]   # metric lateral offset (m) — solvePnP translation
+                # Same stability-weighted smoothing idea as tier 1's bnorm_filt, applied
+                # to the lateral offset (tier 2 has no orientation to average, only this).
+                # Reset to None whenever tier 2 wasn't active last loop (see tier 1 and
+                # tier 3), so it always starts fresh on entry rather than risking getting
+                # stuck comparing against a stale value from a much earlier tier-2 spell.
+                if lateral_t2_filt is None:
+                    lateral_t2_filt = lateral_raw
                 else:
-                    omega = 0.0   # tag out of view in the last cm — go straight
+                    dev2 = abs(lateral_raw - lateral_t2_filt)
+                    spike2 = 0.15   # m — generous single-frame lateral jump reject
+                    if dev2 <= spike2:
+                        stability2 = max(0.15, 1.0 - dev2 / spike2)
+                        # Same "weight shrinks closer in" idea as tier 1's a_n, scaled
+                        # to tier 2's own window (freeze_axis_distance -> docking_distance,
+                        # already a close-range window, so the taper is gentler than
+                        # tier 1's but still favours the earlier, less noisy tier-2 frames.
+                        depth_span = max(freeze - self.docking_distance, 0.05)
+                        depth_scale2 = max(0.15, min(1.0, (depth - self.docking_distance) / depth_span))
+                        a2 = 0.3 * stability2 * depth_scale2
+                        lateral_t2_filt = (1.0 - a2) * lateral_t2_filt + a2 * lateral_raw
+                    # else: spike — keep the last filtered lateral this frame
+                lateral = lateral_t2_filt
+                desired_yaw = normalize_angle(ref_yaw - math.atan2(lateral, lookahead))
+                omega = line_kp * desired_yaw
+                lost_frames = 0
+                # Anchor the line marker at the centre tag's own base_link position
+                # (only point still directly measurable in tier 2) rather than at
+                # the robot — skip the publish this loop if that TF is momentarily
+                # unavailable (marker just holds its last position in RViz).
+                p1_base = self._lookup_tag_base('charging_dock_tag_1')
+                if p1_base is not None:
+                    self._publish_docking_line_marker(p1_base[0], p1_base[1], ref_yaw)
+                    self._snapshot_odom_line(p1_base[0], p1_base[1], ref_yaw)  # keep odom line fresh
+            else:
+                # Tier 3 — no tags at all. Instead of going blind-straight, steer on
+                # the ODOM-frozen dock line (captured in tier 1/2): it stays fixed on
+                # the dock in the world, so we dead-reckon the robot's LATERAL offset
+                # from it via odometry and keep correcting — the last blind centimetres
+                # arrive STRAIGHT, and the marker stays on the dock instead of sliding
+                # with the robot. Same pure-pursuit law/gain as tier 1 (consistent).
+                lost_frames += 1
+                lateral_t2_filt = None
+                op = self._lookup_odom_pose()
+                if self._odom_line is not None and op is not None:
+                    rx_o, ry_o, ryaw_o = op
+                    ax_o, ay_o, norm_o = self._odom_line
+                    dxl, dyl = ax_o - rx_o, ay_o - ry_o
+                    lateral = dxl * math.sin(norm_o) - dyl * math.cos(norm_o)
+                    desired_yaw_odom = normalize_angle(
+                        norm_o - math.atan2(lateral, lookahead))
+                    omega = line_kp * normalize_angle(desired_yaw_odom - ryaw_o)
+                    # Marker: project the odom line back into base_link so it stays
+                    # anchored on the dock (green reference, no fresh blue).
+                    cc, ss = math.cos(ryaw_o), math.sin(ryaw_o)
+                    self._publish_docking_line_marker(
+                        dxl * cc + dyl * ss, -dxl * ss + dyl * cc,
+                        normalize_angle(norm_o - ryaw_o))
+                else:
+                    omega = 0.0   # no odom line captured yet — fall back to straight
 
             omega = max(-self.drive_yaw_max_omega,
                         min(self.drive_yaw_max_omega, omega))
-            v = self.drive_speed
-            taper = 2.0 * self.docking_distance
-            if depth < taper:
-                v = max(0.03, self.drive_speed * depth / taper)
+            # Actuation floor: the motor cannot turn below min_turn_omega. Sigma-delta
+            # PWM (omega_pwm) turns a sub-floor correction into a gentle pulsed turn
+            # instead of the ±0.15 hard-snap limit cycle; a small correction pulses
+            # rarely → drives essentially straight. Live-tunable (omega_pwm on/off).
+            omega = self._floor_omega(
+                omega, period, bool(self.get_parameter('omega_pwm').value))
+            v = drive_speed
+            # Slow down as EITHER sensor approaches its stop threshold (closest wins).
+            eff = depth if lidar_dist is None else min(depth, lidar_dist)
+            eff_thresh = max(self.docking_distance, self.stop_lidar_distance)
+            taper = 2.0 * eff_thresh
+            if eff < taper:
+                # Floor the taper at final_push_speed. 0.05 = clean stick-slip floor
+                # (measured min_velocity_sweep 2026-07-02: 0.02 stalls, 0.03 judders,
+                # 0.05 lowest clean). Raise it to carry momentum over the dock step at
+                # low battery. Live-read so it can be tuned mid-dock.
+                v = max(float(self.get_parameter('final_push_speed').value),
+                        drive_speed * eff / taper)
 
+            # DEBUG (throttled ~2 Hz, clearer wording 2026-07-07): which tier is
+            # actually driving the approach, and whether the normal is frozen.
+            now_dbg = time.time()
+            if now_dbg - getattr(self, '_p5_dbg', 0.0) > 0.5:
+                self._p5_dbg = now_dbg
+                if self.unified_odom_line:
+                    tier = ('UNIFIED (odom-line, 3 tags)' if est_base is not None
+                            else 'UNIFIED (odom-line, centre)' if c1cam is not None
+                            else 'UNIFIED (odom-line, coast)')
+                elif est_base is not None:
+                    tier = 'TIER1 (2+ tags)'
+                elif not use_cam and pose is not None and depth > freeze:
+                    tier = 'LEGACY (map-frame)'
+                elif c1cam is not None:
+                    tier = 'TIER2 (centre tag only)'
+                else:
+                    tier = 'TIER3 (BLIND, no tags)'
+                frozen_s = 'FROZEN' if depth <= freeze else 'live'
+                norm_s = (f'{math.degrees(bnorm_filt):+.1f}deg'
+                          if bnorm_filt is not None else 'n/a')
+                self.get_logger().info(
+                    f'   [DOCKING] depth={depth:.2f}m  {tier}  normal={frozen_s} ({norm_s})  '
+                    f'lateral={lateral:+.3f}m  omega={omega:+.2f}rad/s  v={v:.2f}m/s  '
+                    f'tags_visible={"yes" if c1cam is not None else "no"}  '
+                    f'blind_frames={lost_frames}')
             self._publish_cmd_vel(v, omega)
-            self._publish_line_markers(cx, cy, normal_yaw)
+            self._lateral_pub.publish(Float32(data=float(lateral)))   # robot↔line error, live
             self._publish_gz_line_marker(cx, cy, normal_yaw)
+            self._publish_forward_lidar_points()   # RED: the lidar points the stop looks at
             time.sleep(period)
 
         self._publish_cmd_vel(0.0, 0.0)
@@ -793,19 +1673,91 @@ class DockTrigger(Node):
         return False
 
     def _estimate_dock_once(self):
-        """One-shot dock estimate (cx, cy, normal_yaw) in the map frame from a
-        single read of the three tags, or None if the outer tags aren't both
-        visible. Used to keep the approach axis adapting in real time."""
-        p0 = self._lookup_tag_map('charging_dock_tag_0')
-        p2 = self._lookup_tag_map('charging_dock_tag_2')
-        if p0 is None or p2 is None:
+        """One-shot dock estimate (cx, cy, normal_yaw) in the MAP frame from a
+        single read of ALL THREE tags (position + facing). Returns None unless the
+        three tags are visible together. Keeps the approach axis adapting in real
+        time."""
+        p0 = self._lookup_tag_map3('charging_dock_tag_0')
+        p1 = self._lookup_tag_map3('charging_dock_tag_1')
+        p2 = self._lookup_tag_map3('charging_dock_tag_2')
+        if p0 is None or p1 is None or p2 is None:
             return None
-        p1 = self._lookup_tag_map('charging_dock_tag_1')
         pose = self.lookup_robot_pose()
         if pose is None:
             return None
         rx, ry, _ = pose
         return self._dock_pose_from_tags(p0, p1, p2, rx, ry)
+
+    def _estimate_dock_base_once(self):
+        """One-shot dock estimate (cx, cy, normal_yaw) in the ROBOT frame
+        (base_link). Carries NO map (AMCL) or odometry error — the axis is
+        expressed relative to the robot, which sits at the origin facing +x.
+
+        Requires ALL THREE tags (position + facing): the geometry+orientation
+        normal (see _dock_pose_from_tags) is only trusted from a full three-tag
+        view. If any tag is missing this yields no normal (None) and the caller
+        holds the last valid one — there is deliberately NO half-baseline two-tag
+        fallback (that noisy estimate was a source of the final-approach
+        oscillation)."""
+        p0 = self._lookup_tag_base3('charging_dock_tag_0')
+        p1 = self._lookup_tag_base3('charging_dock_tag_1')
+        p2 = self._lookup_tag_base3('charging_dock_tag_2')
+        if p0 is None or p1 is None or p2 is None:
+            return None
+        # Robot is at the origin of base_link → rx = ry = 0.
+        return self._dock_pose_from_tags(p0, p1, p2, 0.0, 0.0)
+
+    def _estimate_dock_odom_once(self):
+        """3-tag dock estimate (cx, cy, normal_yaw) directly in the ODOM frame —
+        the native frame for the unified dock line. Each tag is looked up in odom
+        LAG-CORRECT (placed where it was at its own detection time), so the fitted
+        line lives world-fixed with no base_link→odom transform through the
+        possibly-lagged current robot pose. Requires all three tags. None if any
+        tag is missing/stale, odom is unavailable, or the agreement gate rejects."""
+        p0 = self._lookup_tag_odom3('charging_dock_tag_0')
+        p1 = self._lookup_tag_odom3('charging_dock_tag_1')
+        p2 = self._lookup_tag_odom3('charging_dock_tag_2')
+        if p0 is None or p1 is None or p2 is None:
+            return None
+        op = self._lookup_odom_pose()
+        if op is None:
+            return None
+        # reference (rx, ry) = robot odom position so the normal points toward it.
+        return self._dock_pose_from_tags(p0, p1, p2, op[0], op[1])
+
+    def _floor_omega(self, desired, period, pwm):
+        """Map a desired yaw rate to what the geared BLDC can actually execute.
+
+        The motor cannot turn below min_turn_omega (~0.15 rad/s stick-slip). A
+        plain floor snaps EVERY small correction up to ±min_turn_omega → a ±0.15
+        rad/s limit cycle (left-right hunting) around the line. With pwm=True we
+        sigma-delta modulate instead: above the floor the value passes through;
+        below it we emit ±min_turn_omega pulses at a duty cycle whose TIME AVERAGE
+        equals `desired`, so the effective turn rate is gentle and continuous. A
+        tiny |desired| accumulates slowly → pulses rarely → the robot drives
+        essentially straight (the 'straight when aligned' behaviour, for free)."""
+        accum = getattr(self, '_omega_accum', 0.0)
+        if abs(desired) < self.turn_deadband:
+            self._omega_accum = 0.0
+            return 0.0
+        if not pwm:                                   # legacy hard floor
+            if abs(desired) < self.min_turn_omega:
+                return math.copysign(self.min_turn_omega, desired)
+            return desired
+        if abs(desired) >= self.min_turn_omega:       # above floor: pass through
+            self._omega_accum = 0.0
+            return desired
+        # sub-floor: first-order sigma-delta to {−floor, 0, +floor}.
+        step = self.min_turn_omega * period
+        accum += desired * period
+        if accum >= step:
+            self._omega_accum = accum - step
+            return self.min_turn_omega
+        if accum <= -step:
+            self._omega_accum = accum + step
+            return -self.min_turn_omega
+        self._omega_accum = accum
+        return 0.0
 
     # ──────────────────────────────────────────────────────────────────────
     # Undock sequence
@@ -829,18 +1781,11 @@ class DockTrigger(Node):
             self.get_logger().error('   undock reverse failed')
             return False
 
-        pose = self.lookup_robot_pose()
-        if pose is None:
-            self.get_logger().error('   could not read robot pose for 180° spin')
-            return False
-        _, _, ryaw = pose
-        target_yaw = normalize_angle(ryaw + math.pi)
-        self.get_logger().info(
-            f'   spinning 180° (from {ryaw:.3f} to {target_yaw:.3f})'
-        )
-        # 180° is the longest spin — give it more time than the default 15 s
-        # (a slow spin_max_omega or collision-monitor clamping can stretch it).
-        if not self._spin_to_yaw(target_yaw, max_time=30.0):
+        # Rough ~180° turn, measured in ODOM (smooth, immune to the AMCL
+        # relocalise jump when the laser correction resumes at undock). Precision
+        # doesn't matter — just get roughly turned around.
+        self.get_logger().info('   spinning ~180° (rough, odom-measured)')
+        if not self._spin_angle_odom(math.pi, max_time=30.0):
             self.get_logger().error('   undock 180° spin failed')
             return False
 
@@ -860,7 +1805,10 @@ class DockTrigger(Node):
         backward check here.
         """
         period = 1.0 / self.drive_rate_hz
-        pose0 = self.lookup_robot_pose()
+        # Measure travel in ODOM, not map: the map pose JUMPS when AMCL's laser
+        # correction resumes at undock (relocalise), which would spike `travelled`
+        # and cut the reverse short ("doesn't back up 0.7 m"). Odom is smooth.
+        pose0 = self._lookup_odom_pose()
         if pose0 is None:
             return False
         x0, y0, _ = pose0
@@ -868,7 +1816,7 @@ class DockTrigger(Node):
         deadline = time.time() + dist / speed + max_extra_time
 
         while time.time() < deadline:
-            pose = self.lookup_robot_pose()
+            pose = self._lookup_odom_pose()
             if pose is None:
                 time.sleep(period)
                 continue
@@ -905,6 +1853,7 @@ class DockTrigger(Node):
         If only one tag is visible we steer toward it to bring the other into
         view; if neither is visible we rotate open-loop.
         """
+        self.scan_rotation_speed = float(self.get_parameter('scan_rotation_speed').value)
         period = 1.0 / self.drive_rate_hz
         timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 15.0
         deadline = time.time() + timeout_s
@@ -939,8 +1888,16 @@ class DockTrigger(Node):
                 centred_count = 0
                 one = self._any_tag_cam()
                 if one is not None and one[2] > 0.05:
-                    # One tag visible — steer toward it to reveal the others.
+                    # One tag visible but NOT all — steer toward it to reveal the
+                    # others. FLOOR the turn: the proportional omega collapses
+                    # below the stiction floor as the tag nears image centre, so
+                    # the robot used to freeze facing a single tag and never
+                    # revealed the rest ("il ne tourne plus"). Keep it turning at
+                    # least scan speed until require_all succeeds above.
                     omega = -self.scan_centring_kp * math.atan2(one[0], one[2])
+                    if abs(omega) < self.min_turn_omega:
+                        omega = math.copysign(self.scan_rotation_speed,
+                                              omega if omega != 0.0 else 1.0)
                     omega = max(-self.scan_rotation_speed,
                                 min(self.scan_rotation_speed, omega))
                     self._publish_cmd_vel(0.0, omega)
@@ -1128,11 +2085,52 @@ class DockTrigger(Node):
             stable_count = 0
             omega = self.spin_kp * err
             omega = max(-self.spin_max_omega, min(self.spin_max_omega, omega))
+            # Stiction floor: below spin_min_omega a spin-in-place never breaks
+            # static friction (judders without turning). We are past the tolerance
+            # band here (err ≥ spin_yaw_tolerance), so snap up to actually rotate.
+            if abs(omega) < self.spin_min_omega:
+                omega = math.copysign(self.spin_min_omega, omega)
             self._publish_cmd_vel(0.0, omega)
             time.sleep(period)
 
         self._publish_cmd_vel(0.0, 0.0)
         self.get_logger().error('   _spin_to_yaw timeout')
+        return False
+
+    def _spin_angle_odom(self, delta_yaw: float, tol: float = 0.15,
+                         max_time: float = 30.0) -> bool:
+        """ROUGH in-place turn by `delta_yaw` rad, measured in ODOM (smooth, no
+        AMCL relocalise jump). Deliberately crude: spin at a fixed firm rate and
+        INTEGRATE the odom yaw change until the total turned reaches |delta_yaw|
+        within a loose tolerance — no precise target heading, no settle band.
+        Used for the undock 180° where precision doesn't matter and robustness
+        (low battery, poor localisation) does."""
+        period = 1.0 / self.drive_rate_hz
+        prev = self._lookup_odom_yaw()
+        if prev is None:
+            return False
+        direction = 1.0 if delta_yaw >= 0.0 else -1.0
+        omega = direction * max(self.spin_min_omega, self.spin_max_omega)
+        target = abs(delta_yaw)
+        turned = 0.0
+        deadline = time.time() + target / max(0.1, abs(omega)) + max_time
+        while time.time() < deadline:
+            yaw = self._lookup_odom_yaw()
+            if yaw is None:
+                time.sleep(period)
+                continue
+            turned += abs(normalize_angle(yaw - prev))   # wrap-safe increment
+            prev = yaw
+            if turned >= target - tol:
+                self._publish_cmd_vel(0.0, 0.0)
+                self.get_logger().info(
+                    f'   rough spin done: turned ~{math.degrees(turned):.0f}°')
+                return True
+            self._publish_cmd_vel(0.0, omega)
+            time.sleep(period)
+        self._publish_cmd_vel(0.0, 0.0)
+        self.get_logger().warn(
+            f'   rough spin timeout (turned ~{math.degrees(turned):.0f}°)')
         return False
 
     def _drive_to_xy(self, tx: float, ty: float, max_time: float = 60.0) -> bool:
@@ -1152,7 +2150,7 @@ class DockTrigger(Node):
             # obstacle_forward_distance, stop, wait for it to clear, then
             # resume. If still blocked after obstacle_wait_timeout, abort.
             if not self._wait_for_path_clear(
-                0.0, self.obstacle_forward_distance,
+                self.obstacle_scan_forward_angle, self.obstacle_forward_distance,
                 self.obstacle_wait_timeout, 'forward drive'
             ):
                 self._publish_cmd_vel(0.0, 0.0)
@@ -1178,12 +2176,19 @@ class DockTrigger(Node):
             yaw_err = normalize_angle(target_yaw - ryaw)
             omega = self.drive_yaw_kp * yaw_err
             omega = max(-self.drive_yaw_max_omega, min(self.drive_yaw_max_omega, omega))
+            # Rotation stiction floor (see min_turn_omega): sub-0.15 rad/s
+            # corrections stick-slip, so snap small ones up and zero the deadband.
+            if abs(omega) < self.turn_deadband:
+                omega = 0.0
+            elif abs(omega) < self.min_turn_omega:
+                omega = math.copysign(self.min_turn_omega, omega)
 
             # Taper near goal
             taper = 5.0 * position_tolerance
             v = self.drive_speed
             if distance < taper:
-                v = max(0.03, self.drive_speed * (distance / taper))
+                # Floor at the 0.05 m/s clean stick-slip floor (measured).
+                v = max(0.05, self.drive_speed * (distance / taper))
             # If yaw way off, slow down to rotate first
             if abs(yaw_err) > 0.3:
                 v *= 0.3
@@ -1333,53 +2338,104 @@ class DockTrigger(Node):
         msg.angular.z = float(omega)
         self.cmd_vel_pub.publish(msg)
 
-    def _publish_line_markers(self, cx: float, cy: float, perp_yaw: float):
-        """Publish the perpendicular approach line and the dock centre as RViz
-        markers in the map frame. See docs/13_perception_and_line.md.
+    def _publish_docking_line_marker(self, anchor_x: float, anchor_y: float,
+                                     normal_yaw: float, current_yaw=None):
+        """Publish the docking normal line(s), anchored at the dock (anchor_x,
+        anchor_y) in base_link:
+
+          - GREEN (id 0) = the REFERENCE normal (normal_yaw) — the filtered/frozen
+            axis the pure-pursuit actually steers onto;
+          - BLUE (id 2) = the CURRENT raw normal (current_yaw) this frame, when a
+            fresh 3-tag detection exists — so you SEE the live detection wobble
+            against the stable green reference (deleted when no fresh detection);
+          - RED sphere (id 1) = the dock/tag (tag 1) itself.
         """
         if not self.publish_debug_markers:
             return
         now = self.get_clock().now().to_msg()
-        dirx, diry = math.cos(perp_yaw), math.sin(perp_yaw)
         arr = MarkerArray()
 
-        # Green line: the perpendicular approach axis through the dock centre.
-        # perp_yaw points from the robot toward the dock, so the robot side of
-        # the line is at centre − dir; draw from there to just past the dock.
-        line = Marker()
-        line.header.frame_id = 'map'
-        line.header.stamp = now
-        line.ns = 'docking_line'
-        line.id = 0
-        line.type = Marker.LINE_STRIP
-        line.action = Marker.ADD
-        line.scale.x = 0.03
-        line.color.g = 1.0
-        line.color.a = 1.0
-        line.pose.orientation.w = 1.0
-        line.points = [
-            Point(x=cx - 4.0 * dirx, y=cy - 4.0 * diry, z=0.15),
-            Point(x=cx + 0.3 * dirx, y=cy + 0.3 * diry, z=0.15),
-        ]
-        arr.markers.append(line)
+        def _line(mid, yaw, r, g, b, z):
+            dirx, diry = math.cos(yaw), math.sin(yaw)
+            m = Marker()
+            m.header.frame_id = 'base_link'
+            m.header.stamp = now
+            m.ns = 'docking_line'
+            m.id = mid
+            m.type = Marker.LINE_STRIP
+            m.action = Marker.ADD
+            m.scale.x = 0.03
+            m.color.r, m.color.g, m.color.b, m.color.a = r, g, b, 1.0
+            m.pose.orientation.w = 1.0
+            m.points = [
+                Point(x=anchor_x - 4.0 * dirx, y=anchor_y - 4.0 * diry, z=z),
+                Point(x=anchor_x + 0.3 * dirx, y=anchor_y + 0.3 * diry, z=z),
+            ]
+            return m
 
-        # Red sphere: the dock centre.
+        # BLUE = current raw detection (drawn first / lower so green stays visible).
+        if current_yaw is not None:
+            arr.markers.append(_line(2, current_yaw, 0.0, 0.0, 1.0, 0.15))
+        else:
+            gone = Marker()
+            gone.header.frame_id = 'base_link'
+            gone.ns = 'docking_line'
+            gone.id = 2
+            gone.action = Marker.DELETE
+            arr.markers.append(gone)
+        # GREEN = reference normal (what the robot steers onto) — drawn ON TOP (after
+        # the blue) so it is always visible, even when it coincides with the blue.
+        arr.markers.append(_line(0, normal_yaw, 0.0, 1.0, 0.0, 0.16))
+
+        # Red sphere at the dock/tag itself.
         tag = Marker()
-        tag.header.frame_id = 'map'
+        tag.header.frame_id = 'base_link'
         tag.header.stamp = now
-        tag.ns = 'docking_tag'
+        tag.ns = 'docking_line'
         tag.id = 1
         tag.type = Marker.SPHERE
         tag.action = Marker.ADD
-        tag.pose.position.x = cx
-        tag.pose.position.y = cy
-        tag.pose.position.z = 0.30
+        tag.pose.position.x = anchor_x
+        tag.pose.position.y = anchor_y
+        tag.pose.position.z = 0.20
         tag.pose.orientation.w = 1.0
-        tag.scale.x = tag.scale.y = tag.scale.z = 0.12
+        tag.scale.x = tag.scale.y = tag.scale.z = 0.10
         tag.color.r = 1.0
         tag.color.a = 1.0
         arr.markers.append(tag)
 
+        self.marker_pub.publish(arr)
+
+    def _publish_forward_lidar_points(self):
+        """Show, in RED on /docking/debug_markers (id 3), the LiDAR returns inside
+        the FORWARD stop cone — the exact points the lidar-stop looks at, so you can
+        see whether the lidar actually catches the dock."""
+        if not self.publish_debug_markers:
+            return
+        scan = self.latest_scan
+        m = Marker()
+        m.header.frame_id = scan.header.frame_id if scan is not None else 'base_link'
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns = 'docking_line'
+        m.id = 3
+        m.type = Marker.POINTS
+        m.scale.x = m.scale.y = 0.04
+        m.color.r = 1.0
+        m.color.a = 1.0
+        m.pose.orientation.w = 1.0
+        if scan is not None:
+            center = self.obstacle_scan_forward_angle
+            half = self.stop_lidar_arc_half
+            floor = max(self.obstacle_min_range, scan.range_min)
+            for i, r in enumerate(scan.ranges):
+                if not math.isfinite(r) or r < floor or r > scan.range_max:
+                    continue
+                a = scan.angle_min + i * scan.angle_increment
+                if abs(math.atan2(math.sin(a - center), math.cos(a - center))) <= half:
+                    m.points.append(Point(x=r * math.cos(a), y=r * math.sin(a), z=0.05))
+        m.action = Marker.ADD if m.points else Marker.DELETE
+        arr = MarkerArray()
+        arr.markers.append(m)
         self.marker_pub.publish(arr)
 
     def _publish_gz_line_marker(self, cx_in: float, cy_in: float, perp_yaw: float):
@@ -1442,19 +2498,74 @@ class DockTrigger(Node):
         finally:
             self._gz_marker_inflight = False
 
-    def lookup_robot_pose(self):
+    def lookup_robot_pose(self, timeout_sec=1.0, quiet=False):
         try:
             t = self.tf_buffer.lookup_transform(
                 'map', 'base_link', rclpy.time.Time(),
-                timeout=Duration(seconds=1.0)
+                timeout=Duration(seconds=timeout_sec)
             )
         except Exception as e:
-            self.get_logger().warn(f'TF lookup failed: {e}')
+            if not quiet:
+                self.get_logger().warn(f'TF lookup failed: {e}')
             return None
         x = t.transform.translation.x
         y = t.transform.translation.y
         yaw = quat_to_yaw(t.transform.rotation)
         return x, y, yaw
+
+    def _lookup_odom_xy(self):
+        """odom->base_link translation (x, y). Always live (wheel+IMU EKF), so
+        LiDAR-independent — used to dead-reckon the last blind centimetres of the
+        approach once the tag leaves the FOV and the LiDAR (hence map) is off."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'odom', 'base_link', rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        return t.transform.translation.x, t.transform.translation.y
+
+    def _lookup_odom_yaw(self):
+        """odom->base_link yaw. Same LiDAR-independent source as _lookup_odom_xy
+        (wheel+IMU EKF) — used to carry the FAR-derived dock normal (bnorm_filt)
+        forward through NEAR by tracking how much the robot has turned since the
+        FAR->NEAR freeze, since NEAR's single centre-tag view can't re-measure
+        orientation (only translation) — see the freeze block in
+        _final_visual_approach."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'odom', 'base_link', rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        return quat_to_yaw(t.transform.rotation)
+
+    def _lookup_odom_pose(self):
+        """odom->base_link (x, y, yaw) in ONE lookup — the robot pose in the
+        smooth, LiDAR-independent odom frame. Used to freeze the dock line in odom
+        and dead-reckon the robot's offset from it once the tag is lost."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'odom', 'base_link', rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
+                quat_to_yaw(t.transform.rotation))
+
+    def _snapshot_odom_line(self, bax, bay, bnorm):
+        """Freeze the current base_link dock line (anchor bax,bay + normal bnorm)
+        into the ODOM frame, so it stays world-fixed on the dock when the tag is
+        later lost — tier 3 then steers on it via odometry (arrives straight) and
+        the marker stays put instead of sliding with the robot."""
+        op = self._lookup_odom_pose()
+        if op is None:
+            return
+        rx_o, ry_o, ryaw_o = op
+        c, s = math.cos(ryaw_o), math.sin(ryaw_o)
+        self._odom_line = (rx_o + bax * c - bay * s,
+                           ry_o + bax * s + bay * c,
+                           normalize_angle(bnorm + ryaw_o))
 
     # ── Multi-tag perception (3 tags: id0/id2 outer, id1 centre) ──────────
     def _lookup_tag_cam(self, frame):
@@ -1473,6 +2584,23 @@ class DockTrigger(Node):
         return (t.transform.translation.x, t.transform.translation.y,
                 t.transform.translation.z)
 
+    def _lookup_tag_base(self, frame):
+        """(x, y) of `frame` in base_link (x forward, y left), or None if the TF
+        is missing/stale. base_link←camera_optical_frame is a STATIC transform and
+        camera←tag comes straight from AprilTag, so this is the tag position
+        RELATIVE TO THE ROBOT with no map (AMCL) and no odometry in the chain."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'base_link', frame, rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y)
+
     def _lookup_tag_map(self, frame):
         """(x, y) of `frame` in the map frame, or None if missing/stale."""
         try:
@@ -1485,6 +2613,64 @@ class DockTrigger(Node):
         if age > self.detection_max_age:
             return None
         return (t.transform.translation.x, t.transform.translation.y)
+
+    @staticmethod
+    def _tf_tag_yaw(t):
+        """Ground-plane yaw of a tag's facing direction (its +Z axis) from a
+        looked-up transform, expressed in that transform's target frame."""
+        q = t.transform.rotation
+        nx, ny, _ = quat_rotate_z(q.x, q.y, q.z, q.w)
+        return math.atan2(ny, nx)
+
+    def _lookup_tag_base3(self, frame):
+        """(x, y, yaw) of `frame` in base_link — position AND facing yaw (the tag
+        +Z axis projected to the ground). None if the TF is missing/stale."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'base_link', frame, rclpy.time.Time(),
+                timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
+                self._tf_tag_yaw(t))
+
+    def _lookup_tag_odom3(self, frame):
+        """(x, y, yaw) of `frame` in the ODOM frame — LAG-CORRECT: tf2 resolves
+        odom←base_link at the tag's OWN detection timestamp (Time(0) = latest
+        common time = the tag stamp), so the tag is placed where it actually was
+        when the camera saw it, not dragged along by the robot that moved during
+        the camera latency. None if the TF is missing/stale (or odom lacks that
+        timestamp)."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'odom', frame, rclpy.time.Time(), timeout=Duration(seconds=0.1))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
+                self._tf_tag_yaw(t))
+
+    def _lookup_tag_map3(self, frame):
+        """(x, y, yaw) of `frame` in the map frame — position AND facing yaw.
+        None if the TF is missing/stale."""
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'map', frame, rclpy.time.Time(), timeout=Duration(seconds=0.2))
+        except Exception:
+            return None
+        age = (self.get_clock().now()
+               - rclpy.time.Time.from_msg(t.header.stamp)).nanoseconds * 1e-9
+        if age > self.detection_max_age:
+            return None
+        return (t.transform.translation.x, t.transform.translation.y,
+                self._tf_tag_yaw(t))
 
     def _dock_center_cam(self, require_all=True):
         """The CENTRE tag (id1) in camera_optical_frame — the thing we centre
@@ -1510,16 +2696,33 @@ class DockTrigger(Node):
                 return c
         return None
 
-    def _send_action_blocking(self, client, goal) -> bool:
+    def _send_action_blocking(self, client, goal, accept_timeout: float = 10.0,
+                              result_timeout: float = 120.0) -> bool:
+        # Bounded waits: without a deadline a never-returning action (Nav2 stuck, lifecycle
+        # inactive, BT that never finishes) would block the sequence forever, leaving busy=True
+        # permanently so the node ignores every trigger/undock/goal until killed.
         send_future = client.send_goal_async(goal)
+        deadline = time.monotonic() + accept_timeout
         while not send_future.done():
+            if time.monotonic() > deadline:
+                self.get_logger().error('Goal acceptance timed out')
+                return False
             time.sleep(0.05)
         gh = send_future.result()
         if gh is None or not gh.accepted:
             self.get_logger().error('Goal rejected')
             return False
         result_future = gh.get_result_async()
+        deadline = time.monotonic() + result_timeout
         while not result_future.done():
+            if time.monotonic() > deadline:
+                self.get_logger().error(
+                    f'Action result timed out after {result_timeout}s; cancelling')
+                try:
+                    gh.cancel_goal_async()
+                except Exception:
+                    pass
+                return False
             time.sleep(0.05)
         result = result_future.result()
         if result is None:
