@@ -72,7 +72,7 @@ Most lost hours trace to skipping one of these:
 | `/scan` silent, node alive; or lidar hangs after "RPLIDAR running… SDK 1.12.0" (`80008000`) | RPLIDAR firmware stuck; `respawn` just hammers it | `pkill -f "[r]plidar_composition"`, or **unplug/replug the LiDAR USB**; a battery power-cycle also resets it |
 | Two "double goal forwarder" warnings | a stray relay **and** `dock_trigger` both forwarding `/goal_pose` | `pkill -f "topic_tools/relay.*goal_pose"` (exactly one forwarder must run) |
 | Costmaps empty after launch → robot blind | nav came up before `map→odom`, or lifecycle nodes hand-activated | do the **2D Pose Estimate** first; if still empty **re-launch** nav — never hand-activate ([`01`](01_bringup.md) §5, and [`../navigation/`](../navigation/)) |
-| `sim:=false requires an explicit map` | no `map:=` passed | pass `map:=$HOME/maps/piece_actuelle.yaml` |
+| `sim:=false requires an explicit map` | no `map:=` passed | pass `map:=$HOME/maps/<your_map>.yaml` |
 | Camera `no cameras available`; `/camera/image_raw` **0 publishers**; AprilTag silent; **docking aborts `tags not detected`** | forgot to source `~/camera_ws` → camera_ros binds the **system** libcamera, which can't enumerate the IMX708. **Not** the ribbon (kernel still shows `imx708_noir` / `/dev/video0` via `sudo dmesg \| grep imx708`) | re-launch with `~/camera_ws/install/setup.bash` in the block; verify `ros2 topic info /camera/image_raw` → **Publisher count: 1** ([`01`](01_bringup.md) §0) |
 | Large IMU gyro bias at rest → yaw drifts → can't localize | gyro not zeroed at boot | reset the Teensy **while the robot is still**; then **re-run encoder calibration** ([`05`](05_calibration.md)) |
 

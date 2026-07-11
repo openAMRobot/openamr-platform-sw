@@ -134,7 +134,7 @@ source ~/openamr-platform-sw/ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ros2 launch openamrobot_bringup bringup.launch.py \
-  map:=$HOME/maps/piece_actuelle.yaml \
+  map:=$HOME/maps/<your_map>.yaml \
   use_docking:=true
 ```
 
@@ -154,7 +154,7 @@ source ~/openamr-platform-sw/ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ros2 launch openamrobot_bringup bringup.launch.py \
-  map:=$HOME/maps/piece_actuelle.yaml \
+  map:=$HOME/maps/<your_map>.yaml \
   use_camera:=false use_docking:=false
 ```
 
@@ -185,7 +185,7 @@ source ~/openamr-platform-sw/ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=0
 ros2 launch openamrobot_bringup bringup_composed.launch.py \
-  map:=$HOME/maps/piece_actuelle.yaml
+  map:=$HOME/maps/<your_map>.yaml
 ```
 
 Why the composed pipeline exists and what it fixes: [`03_vision_pipeline_and_cpu.md`](03_vision_pipeline_and_cpu.md).
@@ -311,7 +311,7 @@ and memory `amr-docking-bundle-setup`.
 | Symptom | Likely cause | Action |
 |---|---|---|
 | PC sees no topics | wrong DDS (FastDDS/42) | re-export the §0 block; `ros2 daemon stop && ros2 daemon start` |
-| `sim:=false requires an explicit map` | no `map:=` | pass `map:=$HOME/maps/piece_actuelle.yaml` |
+| `sim:=false requires an explicit map` | no `map:=` | pass `map:=$HOME/maps/<your_map>.yaml` |
 | Costmaps empty, robot blind | no `map→odom` | do the **2D Pose Estimate** first |
 | Duplicated agents/lidars/EKF, TF chaos | relaunched without clean-kill | clean-kill, then **one** launch |
 | `/scan` silent, node alive | RPLIDAR stuck (`80008000`) | `pkill -f "[r]plidar_composition"`, or unplug/replug the LiDAR USB |

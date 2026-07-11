@@ -366,4 +366,4 @@ If you hit a failure not covered here:
 2. Run `ros2 doctor` and copy the output.
 3. Note the build state: `git rev-parse HEAD` and `colcon list --packages-select openamrobot_docking`.
 4. For runtime failures, attach the relevant launch logs.
-5. Open an issue on the upstream repository following [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md).
+5. Open an issue on the upstream repository following [`../../../../CONTRIBUTING.md`](../../../../CONTRIBUTING.md).

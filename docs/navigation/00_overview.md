@@ -100,7 +100,7 @@ trap is described in [`04_real_robot_tuning.md`](04_real_robot_tuning.md).
 
 ```bash
 # Real robot, everything (drivers + localization + Nav2 + docking), your map:
-ros2 launch openamrobot_bringup bringup_composed.launch.py map:=$HOME/maps/piece_actuelle.yaml
+ros2 launch openamrobot_bringup bringup_composed.launch.py map:=$HOME/maps/<your_map>.yaml
 
 # Simulation, everything + RViz:
 ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true
