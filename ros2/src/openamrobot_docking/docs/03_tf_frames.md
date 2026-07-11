@@ -72,7 +72,7 @@ base_link                  ← URDF root, ground projection (z = 0)
     └── (4 caster + 4 caster-wheel links)
 ```
 
-`base_link` is the URDF's root, NOT `base_link`. This matters for
+`base_footprint` is the URDF's root, NOT `base_link`. This matters for
 the spawn z: `simulation.launch.py` spawns `base_link` at world
 `z = 0`, and `base_joint` then puts `base_link` 5.3 cm higher so the
 wheel centres are at world z = `wheel_radius` = 0.1 m. Spawning the
@@ -151,9 +151,9 @@ spawn `(0, 0, 0)` yaw = 0:
 | Bundle **outer-left tag** (id 0) | `(4.899, -0.45, 0.5)` | `(4.899, -0.45, 0.5)` |
 | Bundle **outer-right tag** (id 2) | `(4.899, +0.45, 0.5)` | `(4.899, +0.45, 0.5)` |
 | Robot at staging (phase 1 Nav2 goal, `staging_distance = 2.0`) | `(2.899, 0)` | `(2.899, 0)` |
-| Robot at end of Phase 5 (camera→tag depth ≈ `docking_distance = 0.15`) | `(4.6, 0)` | `(4.6, 0)` |
+| Robot at end of Phase 5 (camera→tag depth ≈ `docking_distance = 0.13`) | `(4.6, 0)` | `(4.6, 0)` |
 
-(The simulation places AMCL at the robot's spawn pose, so map ≡ world in the default scenario.)
+(The simulation places slam_toolbox at the robot's spawn pose, so map ≡ world in the default scenario.)
 
 For a non-default spawn `(spawn_x, spawn_y, spawn_yaw)`,
 `simulation.launch.py` re-projects the dock automatically into the new

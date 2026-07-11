@@ -149,12 +149,12 @@ Watch the **Terminal 3** logs. The bundle pipeline runs roughly:
    N vs N' agreement: Δ = X.X° (≤ tol)  → proceed
 ── Phase 5: final approach (two-regime)
    FAR:  averaging 3-tag axis (EMA), pure-pursuit
-   NEAR: axis frozen at depth ≤ 0.70 m, image-frame visual servo on centre tag
-   blind final advance (tag out of FOV) → stop at depth ≈ 0.15 m
+   NEAR: the dock line stays anchored in the odom frame (pure-pursuit); if the tag drops out of FOV, coast along the odom line via odometry (no base_link/odom tier switch)
+   final advance → LIDAR-controlled stop at 0.13 m (front lidar → dock; camera→tag depth 0.13 m is only a failsafe)
    Phase 5 done.
 ```
 
-End state: the robot is **stopped ~0.15 m camera→tag depth in front of the centre tag, perpendicular to the dock face**. The exact log lines may differ from the snapshot above as the pipeline evolves — the phase order is what matters.
+End state: the robot is **stopped ~0.13 m from the dock (LIDAR-controlled) in front of the centre tag, perpendicular to the dock face**. The exact log lines may differ from the snapshot above as the pipeline evolves — the phase order is what matters.
 
 ---
 

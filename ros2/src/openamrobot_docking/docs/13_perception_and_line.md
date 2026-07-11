@@ -304,7 +304,7 @@ perpendicular). Instead the robot does **pure-pursuit on the dock normal**:
   in caused an end-of-approach zig-zag) and the robot finishes on the
   **centre-tag visual corrector** (keep the centre tag centred). From an
   already-aligned pose this only trims the residual, so no zig-zag.
-- Stops when the camera→centre-tag depth ≤ `docking_distance` (e.g. 0.15 m).
+- Stops on the front lidar (`stop_on_lidar` true, `stop_lidar_distance` 0.13 m — lidar → dock); the camera→centre-tag depth ≤ `docking_distance` (0.13 m) is only a FAILSAFE used if the lidar misses the dock.
 
 ### Frames — what runs in map vs camera, and why the Gazebo line looks off
 
@@ -337,7 +337,7 @@ Gazebo line looks crooked — it is an *display* artefact, not a control error.
 | Too-close threshold (Phase 1.5) | 1.0 m (`too_close_distance`) |
 | Axis freeze depth (FAR → corrector) | 0.70 m (`freeze_axis_distance`) |
 | Axis EMA weight (proximity-scaled) | 0.40 (`axis_filter_alpha`) |
-| Final dock depth (camera→tag) | 0.15 m (`docking_distance`) |
+| Final dock depth (camera→tag, FAILSAFE) | 0.13 m (`docking_distance`; primary stop is lidar `stop_lidar_distance` 0.13) |
 
 > Note: `obs_lateral` / `obs_distance` (two-sided approach) and
 > `visual_servo_min_depth` (old blind-advance handover) are now unused.
@@ -393,7 +393,7 @@ ros2 launch openamrobot_docking openamrobot_docking.launch.py  # 3. docking
 
 ```bash
 ros2 topic pub /dock_trigger std_msgs/msg/Bool "{data: true}" --once    # dock
-ros2 topic pub /undock_robot std_msgs/msg/Bool "{data: true}" --once    # undock (reverse 1.5 m + 180°)
+ros2 topic pub /undock_robot std_msgs/msg/Bool "{data: true}" --once    # undock (reverse 0.7 m in odom + ~180°)
 
 # Navigation goal (RViz "2D Goal Pose", or by hand). If docked, it undocks first:
 ros2 topic pub /goal_pose geometry_msgs/msg/PoseStamped \

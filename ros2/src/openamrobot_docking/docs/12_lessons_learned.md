@@ -527,7 +527,7 @@ yaw_target = (1 - alpha) * yaw_target + alpha * yaw_from_latest_tag
 
 The target yaw depends only on the tag's *orientation*, not its position, so the robot's straight-line path is preserved.
 
-**Update (current design):** the exponential low-pass auto-calibration was later replaced by the `TagRunningAverage` (true incremental running mean for position; sign-aligned componentwise mean for the quaternion). The running average keeps updating continuously throughout phases 2 and 4, has no arbitrary blend coefficient, and is provably the unbiased estimator for a static tag — see [`08_legacy_sequencer.md`](08_legacy_sequencer.md) and lesson 26 above. The principle of this lesson (re-read the sensor as it improves) still holds; only the filter shape changed.
+**Update (current design):** the exponential low-pass auto-calibration was later replaced by the `TagRunningAverage` (true incremental running mean for position; sign-aligned componentwise mean for the quaternion). The running average keeps updating continuously throughout phases 2 and 4, has no arbitrary blend coefficient, and is provably the unbiased estimator for a static tag — see [`08_legacy_sequencer.md`](08_legacy_sequencer.md) and lesson 26 below. The principle of this lesson (re-read the sensor as it improves) still holds; only the filter shape changed.
 
 **Lesson:** Sensors that improve with proximity should be re-read continuously, not snapshot once. When you have a control loop with a long approach to a precision target, design it so that the *most accurate* measurement (the one closest to the target) has the most influence on the final state. One-shot perception at the worst possible measurement distance is the opposite pattern.
 

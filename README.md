@@ -247,7 +247,7 @@ Wait ~10 s for Nav2 to localize, then from any sourced terminal (or `docker comp
 
 ```bash
 ros2 topic pub /dock_trigger  std_msgs/msg/Bool "{data: true}" --once   # dock
-ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock: reverse 1.5 m + spin 180°
+ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock: reverse 0.7 m + spin 180°
 ```
 
 You can also send a navigation goal (RViz **"2D Goal Pose"**, or a `PoseStamped` on `/goal_pose`): if the robot is docked it **undocks first**, then drives to the goal. The robot navigates to a staging zone, finds the 3-tag bundle, estimates the dock normal from the outer tags' wide baseline, follows the normal axis on a pure-pursuit, then finishes with an axis-frozen visual servo on the centre tag — ending perpendicular to the dock, aligned for charging.
@@ -360,6 +360,17 @@ Each package ships its own README. The deep engineering docs live under [`ros2/s
 | `openamrobot_docking` | [`ros2/src/openamrobot_docking/README.md`](ros2/src/openamrobot_docking/README.md) |
 
 For the docking pipeline specifically, start with [`docs/01_quickstart.md`](ros2/src/openamrobot_docking/docs/01_quickstart.md).
+
+## Engineering deep dives
+
+Beyond per-package READMEs, three doc series record the *why* behind the real-robot work —
+tuned values, what was tried and rejected, and the gaps that remain:
+
+| Series | Covers |
+|---|---|
+| [`docs/navigation/`](docs/navigation/README.md) | The Nav2 stack on real hardware: architecture, costmaps, planner/controller tuning, goal routing, troubleshooting |
+| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet) |
+| [`docs/real_robot/`](docs/real_robot/README.md) | Taking the stack from Gazebo onto real hardware: bring-up, networking/DDS, vision pipeline & CPU budget, thermal limits, calibration, operator UI |
 
 ---
 

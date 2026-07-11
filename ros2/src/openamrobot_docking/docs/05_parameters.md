@@ -28,7 +28,7 @@ Read by `scripts/dock_trigger.py`. Every parameter is also commented in-place in
 | `undock_trigger_topic` | `undock_robot` | Bool topic that fires the undock sequence. |
 | `goal_pose_topic` | `goal_pose` | Nav2 goal-pose intercept (undock-before-navigate). |
 | `goal_pose_forward_topic` | `goal_pose_nav` | Where `dock_trigger.py` forwards the goal once it's safe (`bt_navigator` is remapped to this). |
-| `undock_reverse_distance` | `1.5` | m — straight-line reverse before the 180° turn. |
+| `undock_reverse_distance` | `0.7` | m — straight-line reverse before the 180° turn. |
 | `undock_reverse_speed` | `0.10` | m/s — reverse speed magnitude. |
 
 ### Dock pose in the `map` frame
@@ -73,11 +73,11 @@ Read by `scripts/dock_trigger.py`. Every parameter is also commented in-place in
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `docking_distance` | `0.15` | Final **camera→tag depth** (m) at which Phase 5 stops. The tag leaves the FOV before this, so the last stretch is a blind straight advance (odometry-measured). |
-| `drive_speed` | `0.05` | Forward speed (m/s), linearly tapered inside `2 × docking_distance`. |
-| `line_yaw_kp` | `2.5` | Yaw P gain: `omega = line_yaw_kp · (desired_yaw − robot_yaw)`. |
-| `line_lookahead_distance` | `0.3` | Pure-pursuit lookahead. Smaller = more aggressive lateral convergence. |
-| `drive_yaw_max_omega` | `0.3` | Clamp on omega during Phase 4 (rad/s). |
+| `docking_distance` | `0.13` | Final **camera→tag depth** (m) at which Phase 5 stops. The tag leaves the FOV before this, so the last stretch is a blind straight advance (odometry-measured). |
+| `drive_speed` | `0.10` | Forward speed (m/s), linearly tapered inside `2 × docking_distance`. |
+| `line_yaw_kp` | `1.2` | Yaw P gain: `omega = line_yaw_kp · (desired_yaw − robot_yaw)`. |
+| `line_lookahead_distance` | `0.5` | Pure-pursuit lookahead. Smaller = more aggressive lateral convergence. |
+| `drive_yaw_max_omega` | `0.255` | Clamp on omega during Phase 4 (rad/s). |
 | `drive_rate_hz` | `20.0` | Control loop rate for phases 2/3/4/5. |
 | `cmd_vel_topic` | `/cmd_vel` | Topic where dock_trigger publishes `Twist`. Direct to `/cmd_vel` because Raj's Nav2 doesn't run a `velocity_smoother` on `/cmd_vel_nav`. |
 
@@ -121,7 +121,7 @@ The sequencer publishes `cmd_vel` straight to the robot, bypassing Nav2's `colli
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `obstacle_check_enabled` | `true` | Master switch. |
+| `obstacle_check_enabled` | `false` | Master switch. Off by default — the forward guard trips on the dock itself (approached on purpose); live-tunable. |
 | `obstacle_scan_topic` | `/scan_filtered` | LIDAR `LaserScan` topic. Default is the angle-filtered scan from Nav2's `scan_body_filter` chain — it chops the angular sector where the LIDAR sees the robot's enclosure, so close returns inside the kept sector are guaranteed to be real obstacles, not self-reflections. Falling back to raw `/scan` is risky: a distance-based floor (`obstacle_min_range` > 0) would mask real near obstacles. |
 | `obstacle_forward_distance` | `0.6` | m — stop if an obstacle is within this distance ahead. |
 | `obstacle_arc_half_width_deg` | `30.0` | deg — half-width of the detection cone (so a full 60° arc). |

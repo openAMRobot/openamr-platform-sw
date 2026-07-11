@@ -86,7 +86,7 @@ End state: robot stopped perpendicular to the dock at the configured engagement 
 
 The same node also handles leaving the dock:
 
-- **`/undock_robot`** (`std_msgs/Bool` `true`) runs the undock maneuver: reverse `undock_reverse_distance` (1.5 m) in a straight line, then spin 180° in place so the robot ends up facing away from the dock, free to navigate.
+- **`/undock_robot`** (`std_msgs/Bool` `true`) runs the undock maneuver: reverse `undock_reverse_distance` (0.7 m) in a straight line, then spin 180° in place so the robot ends up facing away from the dock, free to navigate.
 - **Undock-before-navigate**: while docked, a navigation goal must not drive the robot straight off the dock. The node owns `/goal_pose` (Nav2's `bt_navigator` is remapped to `/goal_pose_nav`), so when a goal arrives while docked it undocks first, then republishes the goal on `/goal_pose_nav` for Nav2. When the robot is *not* docked the goal passes straight through with no delay.
 
 The node tracks an internal `is_docked` flag (set when a docking sequence completes, cleared after undock) that drives this gate.
@@ -130,7 +130,7 @@ Whichever way you launched, drive the sequence over topics (from anywhere, or th
 
 ```bash
 ros2 topic pub /dock_trigger  std_msgs/msg/Bool "{data: true}" --once   # dock
-ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock (reverse 1.5 m + 180°)
+ros2 topic pub /undock_robot  std_msgs/msg/Bool "{data: true}" --once   # undock (reverse 0.7 m + 180°)
 ```
 
 Or send a navigation goal (RViz "2D Goal Pose", or a `PoseStamped` on `/goal_pose`): if docked, the robot undocks first, then drives to the goal. Watch the `dock_trigger` logs to follow the phase transitions.
