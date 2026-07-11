@@ -62,6 +62,10 @@ def generate_launch_description():
                     'frame_id': LaunchConfiguration('frame_id'),
                     'camera_info_url': LaunchConfiguration('camera_info_url'),
                     'FrameDurationLimits': [66667, 66667],   # ~15 fps cap (precision-neutral)
+                    # Continuous autofocus (libcamera AfModeEnum 2). MUST match camera.launch.py:
+                    # the driver default (Manual, LensPosition = 1.0 m) is sharp at ~1 m but out of
+                    # focus in the docking NEAR regime (camera->tag 0.25-0.70 m) -> AprilTag dropouts.
+                    'AfMode': 2,
                 }],
                 extra_arguments=[{'use_intra_process_comms': True}]),
             ComposableNode(
