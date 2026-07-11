@@ -389,6 +389,15 @@ class DockTrigger(Node):
         self.dock_x = float(self.get_parameter('dock_pose_x').value)
         self.dock_y = float(self.get_parameter('dock_pose_y').value)
         self.dock_yaw = float(self.get_parameter('dock_pose_yaw').value)
+        # The shipped dock_trigger.yaml calibrates dock_pose to THIS reference room's
+        # map. On a new deployment those coordinates point Phase 1 at the wrong staging
+        # goal, so warn loudly if they were left at the reference values.
+        if abs(self.dock_x - 1.362) < 1e-3 and abs(self.dock_y - 0.222) < 1e-3:
+            self.get_logger().warn(
+                'dock_pose is at the REFERENCE-ROOM calibration (x=1.362, y=0.222). '
+                'Recalibrate dock_pose_x/y/yaw for YOUR map — measure the dock tag with '
+                '`ros2 run tf2_ros tf2_echo map charging_dock_tag_1` — or Phase 1 will '
+                'navigate to the wrong staging pose.')
         self.staging_distance = float(self.get_parameter('staging_distance').value)
         self.staging_hold_seconds = float(self.get_parameter('staging_hold_seconds').value)
         self.docking_distance = float(self.get_parameter('docking_distance').value)
@@ -817,12 +826,16 @@ class DockTrigger(Node):
         self._amcl_paused = False
         self.get_logger().info('AMCL laser correction RESUMED.')
 
-    def _set_collision_monitor(self, active: bool) -> bool:
+    def _set_collision_monitor(self, active: bool, verify: bool = False,
+                               timeout_sec: float = 3.0) -> bool:
         """Activate/deactivate Nav2's collision_monitor via its lifecycle service.
         During docking we DEACTIVATE it: it otherwise sees the dock in its stop
         zone and publishes zero on /cmd_vel, which fights dock_trigger's forward
         command (both publish /cmd_vel) → the robot judders and stalls ~15 cm from
-        the dock. Fire-and-forget (don't block the sequence on the result)."""
+        the dock. Deactivation stays fire-and-forget (its failure is fail-SAFE).
+        Re-activation is fail-DANGEROUS (the robot would navigate with no reactive
+        collision layer), so callers pass verify=True to wait on the transition,
+        bounded, and confirm it actually succeeded."""
         if not self.pause_collision_monitor_during_dock:
             return False
         try:
@@ -834,8 +847,19 @@ class DockTrigger(Node):
             req = ChangeState.Request()
             req.transition.id = (Transition.TRANSITION_ACTIVATE if active
                                  else Transition.TRANSITION_DEACTIVATE)
-            self._colmon_cli.call_async(req)
-            return True
+            future = self._colmon_cli.call_async(req)
+            if not verify:
+                return True   # deactivation: fire-and-forget (failing is fail-safe)
+            # Verified path (re-activation): wait on the result and confirm success.
+            deadline = time.monotonic() + timeout_sec
+            while not future.done():
+                if time.monotonic() > deadline:
+                    self.get_logger().warn(
+                        'collision_monitor ChangeState timed out (no response).')
+                    return False
+                time.sleep(0.02)
+            resp = future.result()
+            return bool(resp is not None and resp.success)
         except Exception as e:
             self.get_logger().warn(f'collision_monitor state change failed: {e}')
             return False
@@ -850,12 +874,29 @@ class DockTrigger(Node):
                 'approach ~15 cm out).')
 
     def _resume_collision_monitor(self):
-        """Re-activate the collision_monitor after the dock (idempotent)."""
+        """Re-activate the collision_monitor after the dock. Unlike the pause, this is
+        safety-critical: a dropped or rejected resume would return the robot to normal
+        navigation with NO reactive collision layer while the log claims otherwise. So
+        we verify the transition, retry a few times, and if it still will not come back
+        we log at ERROR and publish a distinct status instead of claiming success."""
         if not self._colmon_paused:
             return
-        self._set_collision_monitor(True)
-        self._colmon_paused = False
-        self.get_logger().info('collision_monitor RE-ACTIVATED.')
+        for attempt in range(1, 4):
+            if self._set_collision_monitor(True, verify=True):
+                self._colmon_paused = False
+                self.get_logger().info('collision_monitor RE-ACTIVATED (confirmed).')
+                return
+            self.get_logger().warn(
+                f'collision_monitor re-activation not confirmed '
+                f'(attempt {attempt}/3), retrying…')
+            time.sleep(0.3)
+        # Still down after retries — fail-dangerous. Keep _colmon_paused=True (do not
+        # pretend it is back), shout at ERROR, and flag the operator via a distinct status.
+        self.get_logger().error(
+            'collision_monitor RE-ACTIVATION FAILED after 3 attempts — the robot is '
+            'navigating WITHOUT its reactive collision layer. Restore it manually: '
+            'ros2 lifecycle set /collision_monitor activate')
+        self._pub_status('collision_monitor_down')
 
     def _marker_tick(self):
         """While docking (but OUTSIDE the NEAR loop, which draws its own marker),

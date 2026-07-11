@@ -250,6 +250,20 @@ This depends on your `apriltag_ros` version's solvePnP convention. Verify by ech
   ros2 node list | grep dock_trigger
   ```
 
+#### **[real]** After a docking crash, the robot navigates with no collision layer
+
+During a dock, `dock_trigger` deactivates Nav2's `collision_monitor` (it otherwise
+fights `/cmd_vel`) and re-activates it — with retries and verification — when the
+maneuver ends. But if `dock_trigger` itself is **killed or crashes mid-dock**, nothing
+runs that restore, so the monitor stays **deactivated** and the robot keeps navigating
+with no reactive collision layer. Symptom: `dock_trigger` published the status
+`collision_monitor_down`, or it simply died. Restore it manually:
+
+```bash
+ros2 lifecycle set /collision_monitor activate
+ros2 lifecycle get /collision_monitor   # expect: active
+```
+
 ---
 
 ### 2.6 Simulation-specific
