@@ -33,9 +33,7 @@ def generate_launch_description():
         DeclareLaunchArgument('frame_id', default_value='camera_optical_frame',
                               description='Camera optical frame id.'),
         DeclareLaunchArgument('camera_name', default_value='camera',
-                              description=(
-                                  'Node name / camera name '
-                                  '(kept aligned with the device).')),
+                              description='Node name / camera name (kept aligned with the device).'),
     ]
 
     node = Node(

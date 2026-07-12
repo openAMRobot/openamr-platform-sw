@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y \
     # Build tools
     python3-colcon-common-extensions \
     python3-rosdep \
-    python3-pytest-cov \
     python3-vcstool \
     git \
     wget \
@@ -41,8 +40,6 @@ RUN apt-get update && apt-get install -y \
     # Core ROS interfaces
     ros-jazzy-rclcpp \
     ros-jazzy-rclpy \
-    ros-jazzy-ament-cmake-pytest \
-    ros-jazzy-ament-lint-common \
     ros-jazzy-geometry-msgs \
     ros-jazzy-sensor-msgs \
     ros-jazzy-std-msgs \
