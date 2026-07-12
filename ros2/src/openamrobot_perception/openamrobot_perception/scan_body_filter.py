@@ -30,7 +30,8 @@ from sensor_msgs.msg import LaserScan
 
 
 def _pairs_rad(flat, name='sectors'):
-    """Validate a flat ``[lo1,hi1,lo2,hi2,...]`` degree list and return ``[(lo,hi),...]`` radians.
+    """
+    Validate degree pairs and return them as radian pairs.
 
     Rejects malformed input (Raj review PR1): odd length, non-finite values, and reversed/wrapped
     pairs (``lo > hi``). Wrap-around sectors are explicitly NOT supported — split them in two.

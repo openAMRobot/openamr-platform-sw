@@ -34,4 +34,10 @@ install(DIRECTORY launch config docs models media
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_docking_helpers test/test_docking_helpers.py)
+  ament_add_pytest_test(test_package_resources test/test_package_resources.py)
+endif()
+
 ament_package()
