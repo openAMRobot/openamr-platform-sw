@@ -13,38 +13,6 @@ The project is a ROS 2 robotics stack, so testing has several levels:
 
 Use the smallest test set that matches your change, but always record what you ran in the pull request.
 
-## Automated Docker Check
-
-The pull-request workflow builds the ROS 2 Jazzy image, builds the complete
-workspace, runs the focused docking and perception package tests, and enforces
-at least 70% line coverage for `openamrobot_perception.scan_body_filter`.
-
-Run the same fast gate locally from the repository root:
-
-```bash
-docker build --tag openamr-platform:test .
-docker run --rm openamr-platform:test bash -lc '
-  cd /ros2_ws &&
-  colcon build --symlink-install &&
-  colcon test --packages-select openamrobot_docking openamrobot_perception \
-    --event-handlers console_direct+ &&
-  colcon test-result --verbose &&
-  python3 -m pytest src/openamrobot_perception/test/test_scan_body_filter.py \
-    --cov=openamrobot_perception.scan_body_filter \
-    --cov-report=term-missing \
-    --cov-fail-under=70
-'
-```
-
-The coverage threshold deliberately applies only to the perception filter in
-this first test foundation. Docking geometry helpers and package resources are
-tested, but the full stateful docking node is not represented as having 70%
-coverage.
-
-Passing automation reduces routine hardware work; it does not replace the
-simulation and hardware checks later in this guide for changes affecting robot
-motion, sensors, calibration, timing, or safety.
-
 ---
 
 ## 1. Before You Start
@@ -548,3 +516,4 @@ Avoid these:
 - testing only the package build but not the launch file that uses it
 - committing generated folders such as `ros2/build/`, `ros2/install/`, or `ros2/log/`
 - opening a PR without a test plan
+
