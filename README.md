@@ -18,6 +18,17 @@ ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot 
 
 > 📦 **Status: experimental.** Tuned end-to-end in the docking simulation. Real-robot bringup (drivers, control, hardware integration) is in progress and will land under the placeholder packages described below.
 
+> [!NOTE]
+> **OpenAMRobot v0.0.1 — First Public Release**
+>
+> This repository is part of the **OpenAMRobot v0.0.1** platform release.
+>
+> The complete product—including hardware, software, firmware, user interface, documentation, and manufacturing files—is distributed as a single versioned release package:
+>
+> **https://github.com/openAMRobot/openamrobot-release/releases/latest**
+>
+> The release provides a frozen snapshot of all repositories required to build, study, reproduce, and extend the platform.
+
 ---
 
 ## Learning ROS 2
