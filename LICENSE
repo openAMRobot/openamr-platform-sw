@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 OpenAMRobot
+Copyright (c) 2021-2026 OpenAMRobot (Botshare LTD)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -14,53 +14,8 @@ copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS, CONTRIBUTORS, OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES,
-OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
---------------------------------------------------------------------
-
-OpenAMRobot Platform Software
-
-This repository is part of the OpenAMRobot open-source robotics ecosystem.
-
-Project:
-OpenAMRobot — Affordable Open Autonomous Mobile Robot Platform
-
-Organization:
-https://github.com/openAMRobot
-
-Website:
-https://botshare.ai
-
-Purpose:
-This repository contains ROS 2 software, simulation, navigation,
-autodocking, control, drivers, tooling, and related infrastructure for
-the OpenAMRobot platform.
-
-The project aims to support:
-- affordable robotics development
-- robotics education
-- research and prototyping
-- SME automation
-- open-source collaboration
-- modular robotics ecosystems
-
-Important notice:
-This repository may include experimental robotics software and simulation
-components. Users are responsible for validating safety, reliability,
-and compliance before deploying software on physical robotic systems.
-
-The software is provided for educational, research, prototyping,
-and development purposes.
-
-Contributors:
-See AUTHORS.md for contributor information.
-
-Contribution guidelines:
-See CONTRIBUTING.md
-
-Security policy:
-See SECURITY.md
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -32,8 +32,10 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 #### OpenAMRobot URDF / xacro / STL meshes
 
 - **Files:** `ros2/src/openamrobot_description/urdf/robo_urdf.urdf.xacro`, `ros2/src/openamrobot_description/urdf/gazebo_control.xacro`, `ros2/src/openamrobot_description/urdf/robot.sdf`, and the full mesh set under `ros2/src/openamrobot_description/meshes/{collision,visual}/`.
-- **Source:** the URDF/xacro and STL mesh set originate from a SolidWorks-exported URDF (sw_urdf_exporter, **Stephen Brawner**) of the OpenAMRobot mobile platform by **Niraj Dhakal**. First packaged for ROS 2 by **Raj Indulkar** in [`rajindulkar22/openamrobot-simulation`](https://github.com/rajindulkar22/openamrobot-simulation); imported into the present `openamrobot_description` package by the OpenAMRobot organization.
-- **License:** the underlying CAD and meshes are OpenAMRobot mobile-platform assets; presumed to be the OpenAMRobot organization's intellectual property. To be confirmed with a formal license declaration in `package.xml`.
+- **Original creator and CAD author:** **Alex (Oleksii) Reznichenko**, OpenAMRobot project, 12 January 2021.
+- **Rights history:** the relevant original CAD and project rights were assigned to **Botshare LTD** on 12 January 2025. Botshare LTD maintains the supporting chain-of-title records and can provide appropriate confirmation where reasonably required.
+- **URDF contributors:** **Niraj Dhakal** contributed to creation of the URDF/xacro and STL mesh set from the original OpenAMRobot CAD files using the SolidWorks URDF Exporter (`sw_urdf_exporter`, Stephen Brawner). **Raj Indulkar** contributed to ROS 2 packaging based on those CAD-derived files, initially through [`rajindulkar22/openamrobot-simulation`](https://github.com/rajindulkar22/openamrobot-simulation). Contributor authorship and attribution are preserved; the files and transferable economic rights are owned by or validly assigned to **OpenAMRobot (Botshare LTD)**.
+- **Current outbound licence for the CAD-derived URDF/xacro and mesh source:** **CERN-OHL-P-2.0**, subject to authentic third-party notices and rights. Software surrounding and consuming those assets remains MIT; documentation remains CC BY 4.0. See [`LICENSING.md`](LICENSING.md).
 - **Modifications applied in this repository (see `AUTHORS.md` for credit):**
   - added a `base_footprint` link plus `base_joint` for Nav2-conventional TF
   - symmetrised the left/right wheel inertials (off-diagonals zeroed and the two wheels made identical) to fix the "robot curves when commanded straight" failure caused by tiny (1e-8-level) asymmetries in the SolidWorks export
@@ -52,6 +54,6 @@ Use of these names should not imply official endorsement, certification, or part
 
 ## Botshare LTD and project ownership
 
-OpenAMRobot is a project initiated, operated, and controlled by **Botshare LTD**, Company ID HE479056, Chrysanthou Mylona 1, Panayides Building, Office 1, 3030 Limassol, Cyprus (alex@botshare.ai; https://botshare.ai).
+OpenAMRobot is a project initiated, operated, and controlled by **Botshare LTD**, Company ID HE479056, Chrysanthou Mylona 1, Panayides Building, Office 1, 3030 Limassol, Cyprus (info@botshare.ai; https://botshare.ai).
 
 Copyright and transferable economic rights in original OpenAMRobot material are owned by Botshare LTD or used by it under applicable agreements. Accepted external contributions are governed by the OpenAMRobot Contributor Agreement. Botshare LTD does not claim ownership of third-party material; all authentic upstream ownership, licence, patent, attribution, and modification notices remain effective.
