@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Robot description package for OpenAMRobot mobile base — URDF/Xacro model, STL meshes,
     and RViz visualization launch.</description>
-  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <maintainer email="info@botshare.ai">OpenAMRobot Maintainers</maintainer>
   <license>MIT</license>
 
   <exec_depend>robot_state_publisher</exec_depend>
