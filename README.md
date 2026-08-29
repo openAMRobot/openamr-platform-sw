@@ -456,3 +456,13 @@ Support open-source robotics, ROS 2 development, AI robotics education, and dual
 ## License
 
 MIT. See [`LICENSE`](LICENSE). Attribution for bundled third-party assets (AprilTag panel texture, etc.) is in [`NOTICE.md`](NOTICE.md).
+
+## Ownership, licensing, and contributions
+
+OpenAMRobot is a project initiated, operated, and controlled by **Botshare LTD** (Cyprus Company ID HE479056). Botshare LTD owns the transferable economic rights in original OpenAMRobot material created by or validly assigned to it. Third-party material remains subject to its respective ownership, licences, and notices.
+
+Public distribution under this repository's applicable licence grants the permissions stated in that licence; it does not transfer ownership of underlying copyright, trademarks, patents, or other intellectual property.
+
+Accepted external contributions require DCO sign-off and an applicable Individual or Corporate Contributor Agreement governing assignment of transferable economic rights to Botshare LTD. Contributor attribution and legally non-waivable authorship or moral rights remain recognized.
+
+See the organization [IP Policy](https://github.com/openAMRobot/.github/blob/main/IP_POLICY.md), [Contribution Guide](https://github.com/openAMRobot/.github/blob/main/CONTRIBUTING.md), and [Contributor Agreement Process](https://github.com/openAMRobot/.github/blob/main/CLA.md).
