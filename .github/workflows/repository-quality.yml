@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' --             ':!*.patch' ':!*.diff'; then
+          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' --             ':!*.patch' ':!*.diff' ':!*.md' ':!**/*.md'; then
             echo "::error::Unresolved merge-conflict marker detected"
             exit 1
           fi
