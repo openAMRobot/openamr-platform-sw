@@ -1,0 +1,56 @@
+name: Repository quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify governance baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in README.md LICENSE CONTRIBUTING.md LICENSING.md NOTICE.md; do
+            test -s "$file" || {
+              echo "::error file=$file::$file is missing or empty"
+              exit 1
+            }
+          done
+
+      - name: Reject unresolved merge markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' --             ':!*.patch' ':!*.diff' ':!*.md' ':!**/*.md'; then
+            echo "::error::Unresolved merge-conflict marker detected"
+            exit 1
+          fi
+
+      - name: Validate tracked JSON and XML
+        shell: python
+        run: |
+          import json
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          def tracked(pattern):
+              output = subprocess.check_output(
+                  ["git", "ls-files", pattern], text=True
+              )
+              return [line for line in output.splitlines() if line]
+
+          for path in tracked("*.json"):
+              with open(path, encoding="utf-8") as stream:
+                  json.load(stream)
+
+          for path in tracked("*.xml"):
+              ET.parse(path)
