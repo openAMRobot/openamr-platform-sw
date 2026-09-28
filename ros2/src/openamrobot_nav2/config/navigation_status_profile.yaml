@@ -1,0 +1,48 @@
+# Sensor and motion-source profile for navigation_status_node (simulation).
+# A real robot with ToF, ultrasonic, D455 and IMU sensors gets its own file.
+
+profile_id: "sim"
+thresholds_id: "UNSET"  # no thresholds agreed yet
+
+sensors:
+  - id: "lidar_nav"
+    kind: "LIDAR"
+    topic: "/scan_filtered"
+    frame_id: "base_scan"
+    required: true
+    nominal_period_s: 0.1        # about 10 Hz
+    stale_multiple: 5.0          # stale after 5 missed periods
+  - id: "odom"
+    kind: "ODOMETRY"
+    topic: "/odom"
+    frame_id: "odom"
+    required: true
+    nominal_period_s: 0.02       # about 50 Hz
+    stale_multiple: 5.0
+  - id: "imu"
+    kind: "IMU"
+    topic: "/imu"
+    frame_id: "base_link"
+    required: false              # the sim has no IMU, so it shows up as ABSENT
+    nominal_period_s: 0.02
+    stale_multiple: 5.0
+
+# Which motion sources go through the collision monitor. These are the values
+# the sim tests showed; change them when #35 changes the routing.
+motion_sources:
+  - source: "NAV_CONTROLLER"
+    coverage: "PARTIAL"      # goes through collision_monitor, approach polygon only
+  - source: "RECOVERY"
+    coverage: "UNPROTECTED"
+  - source: "DOCKING"
+    coverage: "UNPROTECTED"
+  - source: "UNDOCK_REVERSE"
+    coverage: "UNPROTECTED"
+  - source: "TELEOP"
+    coverage: "UNPROTECTED"  # AssistedTeleop bypasses collision_monitor (#35)
+  - source: "PARKING"
+    coverage: "UNKNOWN"      # not implemented yet
+
+rear_coverage: "UNAVAILABLE"   # the rear sector is outside the filtered scan
+
+heartbeat_hz: 2.0

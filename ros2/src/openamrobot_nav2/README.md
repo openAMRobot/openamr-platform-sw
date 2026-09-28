@@ -222,6 +222,37 @@ launch log, an old install space is being sourced.
 
 ---
 
+## Navigation Status Producer
+
+`navigation_status_node` publishes `openamr_nav_msgs/NavigationStatus` on
+`/navigation/status` (reliable, transient-local, fixed 2 Hz timer). It
+summarises Nav2 stack readiness, sensor freshness, localization, the current
+goal, recovery and collision-monitor state in one message for the mission and
+UI layers. It only observes: it never sends velocity or goals.
+
+- Sensors and motion-source coverage come from
+  `config/navigation_status_profile.yaml` (the `sim` profile). A declared
+  sensor that never publishes shows as `ABSENT` or `UNKNOWN`, never `OK`.
+- There is no I8 base-status adapter yet, so `navigation_readiness` stays
+  `NOT_READY` with `BASE_LINK_LOST` until one exists.
+- It needs `openamr_nav_msgs` from `openamrobot-interfaces`, which is not part
+  of this repository. Build it in an underlay and source it first.
+- It forces `use_sim_time` on. Change that before running on a real robot.
+
+```bash
+source ~/nav_msgs_ws/install/setup.bash   # wherever openamr_nav_msgs is built
+ros2 run openamrobot_nav2 navigation_status_node
+ros2 topic echo /navigation/status --once
+```
+
+Known gaps: it publishes only on the timer (the contract's on-change publishing
+is not implemented yet), the stack state never reaches `FAILED`, `constraints`
+stays empty (nothing publishes `/speed_limit` in simulation), and
+`distance_remaining` keeps its last value after a goal ends. Sim only,
+nothing validated on hardware.
+
+---
+
 ## Related Packages
 
 - `openamrobot_description` — URDF/xacro robot model
