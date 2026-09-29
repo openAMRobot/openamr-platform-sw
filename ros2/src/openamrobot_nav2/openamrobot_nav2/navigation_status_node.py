@@ -45,6 +45,7 @@ from openamrobot_nav2.status_rules import (
 from openamrobot_nav2.status_trackers import (
     LifecycleTracker,
     RecoveryTracker,
+    ResultFetcher,
     SensorTracker,
     TaskTracker,
 )
@@ -196,6 +197,9 @@ class NavigationStatusNode(Node):
             self._on_nav_feedback, 10)
         self._nav_result_client = self.create_client(
             NavigateToPose.Impl.GetResultService, '/navigate_to_pose/_action/get_result')
+        self._result_fetcher = ResultFetcher(
+            self._task, self._nav_result_client,
+            lambda: NavigateToPose.Impl.GetResultService.Request(), self.get_logger())
 
         # our own attempt counter, since number_of_recoveries from Nav2 overcounts
         self._recovery = RecoveryTracker(self.get_parameter('recovery_attempt_limit').value)
@@ -383,29 +387,10 @@ class NavigationStatusNode(Node):
         if new_goal:
             self._recovery.on_new_goal()
         if to_fetch is not None:
-            self._request_nav_result(to_fetch)
+            self._result_fetcher.request(to_fetch)
 
     def _on_nav_feedback(self, msg):
         self._task.on_feedback(bytes(msg.goal_id.uuid), msg.feedback.distance_remaining)
-
-    def _request_nav_result(self, goal_id):
-        if not self._nav_result_client.service_is_ready():
-            self.get_logger().warn(
-                'get_result service not ready, no error code for this goal')
-            return
-        req = NavigateToPose.Impl.GetResultService.Request()
-        req.goal_id = goal_id
-        future = self._nav_result_client.call_async(req)
-        goal_bytes = bytes(goal_id.uuid)
-        future.add_done_callback(lambda f: self._on_nav_result(f, goal_bytes))
-
-    def _on_nav_result(self, future, goal_bytes):
-        try:
-            response = future.result()
-        except Exception as exc:
-            self.get_logger().warn(f'get_result call failed: {exc}')
-            return
-        self._task.on_result(goal_bytes, response.result.error_code)
 
     def _on_bt_log(self, msg: BehaviorTreeLog):
         for event in msg.event_log:

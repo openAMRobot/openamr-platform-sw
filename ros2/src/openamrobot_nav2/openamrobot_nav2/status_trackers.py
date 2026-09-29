@@ -165,14 +165,21 @@ class TaskTracker:
             self.native_error_code = 0
             self.reason = NavigationStatus.NONE
             self.distance_remaining = 0.0
+            self._result_requested_for = None
         self.goal_stamp = (latest.goal_info.stamp.sec, latest.goal_info.stamp.nanosec)
         self.state = _TASK_STATE.get(latest.status, NavTaskStatus.STATE_UNKNOWN)
 
         to_fetch = None
         if latest.status in _TERMINAL and goal_id != self._result_requested_for:
-            self._result_requested_for = goal_id
+            # not marked as requested here - only once a request is actually
+            # sent (see mark_result_requested). Otherwise, if the service was
+            # not ready, this goal would never be asked for again.
             to_fetch = latest.goal_info.goal_id
         return new_goal, to_fetch
+
+    def mark_result_requested(self, goal_id):
+        """Record that a get_result request was actually sent for this goal."""
+        self._result_requested_for = goal_id
 
     def on_feedback(self, goal_id, distance_remaining):
         """Take the distance if the feedback belongs to the tracked goal."""
@@ -192,6 +199,46 @@ class TaskTracker:
             self.reason = NATIVE_CODE_TO_REASON.get(
                 error_code, NavigationStatus.NAV_UNKNOWN_FAULT)
         return True
+
+
+class ResultFetcher:
+    """
+    Ask for a terminal goal's result, retrying until the request is sent.
+
+    A goal is marked as requested only once the get_result call actually goes
+    out, not as soon as a terminal status arrives. If the service was not
+    ready, the next status update for the same goal - Nav2 republishes goal
+    status periodically, not only on change - drives the retry, since
+    TaskTracker.on_status keeps returning that goal to fetch until this class
+    marks it requested.
+    """
+
+    def __init__(self, task, client, request_factory, logger):
+        self._task = task
+        self._client = client
+        self._request_factory = request_factory
+        self._logger = logger
+
+    def request(self, goal_id):
+        """Ask for goal_id's result now, or log and leave it to retry later."""
+        if not self._client.service_is_ready():
+            self._logger.warn(
+                'get_result service not ready, will retry on the next status update')
+            return
+        req = self._request_factory()
+        req.goal_id = goal_id
+        goal_bytes = bytes(goal_id.uuid)
+        future = self._client.call_async(req)
+        self._task.mark_result_requested(goal_bytes)
+        future.add_done_callback(lambda f: self._on_result(f, goal_bytes))
+
+    def _on_result(self, future, goal_bytes):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self._logger.warn(f'get_result call failed: {exc}')
+            return
+        self._task.on_result(goal_bytes, response.result.error_code)
 
 
 class RecoveryTracker:

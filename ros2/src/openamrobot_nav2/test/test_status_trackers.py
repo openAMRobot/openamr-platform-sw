@@ -19,6 +19,7 @@ from openamr_nav_msgs.msg import NavigationStatus, NavTaskStatus, RecoveryStatus
 from openamrobot_nav2.status_trackers import (  # noqa: E402
     LifecycleTracker,
     RecoveryTracker,
+    ResultFetcher,
     TaskTracker,
 )
 
@@ -59,15 +60,28 @@ class TestTaskTracker(unittest.TestCase):
         self.assertEqual(tracker.state, NavTaskStatus.STATE_ACTIVE)
         self.assertEqual(tracker.goal_stamp, (10, 0))
 
-    def test_terminal_status_asks_for_the_result_once(self):
+    def test_terminal_status_offers_the_result_to_fetch(self):
         tracker = TaskTracker()
         tracker.on_status([entry(1, EXECUTING, 10)])
         _, to_fetch = tracker.on_status([entry(1, SUCCEEDED, 10)])
         self.assertEqual(bytes(to_fetch.uuid), goal(1))
         self.assertEqual(tracker.state, NavTaskStatus.STATE_SUCCEEDED)
-        # the same status arrives again: no second request
+
+    def test_stops_offering_it_once_the_request_is_marked_sent(self):
+        tracker = TaskTracker()
+        tracker.on_status([entry(1, SUCCEEDED, 10)])
+        tracker.mark_result_requested(goal(1))
         _, to_fetch = tracker.on_status([entry(1, SUCCEEDED, 10)])
         self.assertIsNone(to_fetch)
+
+    def test_keeps_offering_it_if_never_marked_sent(self):
+        # the exact bug this guards: a terminal goal must not be treated as
+        # "handled" just because a status update for it arrived
+        tracker = TaskTracker()
+        tracker.on_status([entry(1, SUCCEEDED, 10)])
+        for _ in range(3):
+            _, to_fetch = tracker.on_status([entry(1, SUCCEEDED, 10)])
+            self.assertEqual(bytes(to_fetch.uuid), goal(1))
 
     def test_newest_goal_wins_when_the_list_has_several(self):
         tracker = TaskTracker()
@@ -165,6 +179,115 @@ class TestRecoveryTracker(unittest.TestCase):
     def test_limit_is_kept_in_a_sane_range(self):
         self.assertEqual(RecoveryTracker(0).attempt_limit, 1)
         self.assertEqual(RecoveryTracker(1000).attempt_limit, 255)
+
+
+class FakeResultClient:
+    """Stands in for the get_result action-client service."""
+
+    def __init__(self, ready=False):
+        self.ready = ready
+        self.calls = []
+
+    def service_is_ready(self):
+        return self.ready
+
+    def call_async(self, req):
+        fut = FakeFuture()
+        self.calls.append((req, fut))
+        return fut
+
+
+class FakeFuture:
+
+    def __init__(self):
+        self._done = False
+        self._result = None
+        self._cbs = []
+
+    def done(self):
+        return self._done
+
+    def result(self):
+        return self._result
+
+    def add_done_callback(self, cb):
+        self._cbs.append(cb)
+
+    def finish(self, result):
+        self._done = True
+        self._result = result
+        for cb in self._cbs:
+            cb(self)
+
+
+class FakeLogger:
+
+    def __init__(self):
+        self.warnings = []
+
+    def warn(self, msg):
+        self.warnings.append(msg)
+
+
+class TestResultFetcher(unittest.TestCase):
+    """
+    Regression tests for a review finding.
+
+    A terminal goal's result must be retried, not treated as handled, if the
+    get_result service was not ready the first time a status update for it
+    arrived.
+    """
+
+    def make(self, ready=False):
+        task = TaskTracker()
+        client = FakeResultClient(ready=ready)
+        logger = FakeLogger()
+        fetcher = ResultFetcher(task, client, lambda: SimpleNamespace(goal_id=None), logger)
+        return task, client, logger, fetcher
+
+    def test_service_unavailable_then_available_then_applied(self):
+        task, client, logger, fetcher = self.make(ready=False)
+
+        # 1. a terminal goal status arrives while the service is unavailable
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        fetcher.request(to_fetch)
+        # 2. verify no result is applied yet, and nothing was actually sent
+        self.assertEqual(client.calls, [])
+        self.assertEqual(task.native_error_code, 0)
+        self.assertEqual(task.reason, NavigationStatus.NONE)
+        self.assertTrue(logger.warnings)
+
+        # a later status update for the same goal: still unavailable, still
+        # nothing sent - this is the exact case the bug lost
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        fetcher.request(to_fetch)
+        self.assertEqual(client.calls, [])
+
+        # 3. make the service available
+        client.ready = True
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        # 4. verify the result is requested
+        fetcher.request(to_fetch)
+        self.assertEqual(len(client.calls), 1)
+
+        # and applied once the response comes back
+        _, future = client.calls[0]
+        future.finish(SimpleNamespace(result=SimpleNamespace(error_code=208)))
+        # 5. verify native_error_code and reason are updated correctly
+        self.assertEqual(task.native_error_code, 208)
+        self.assertEqual(task.reason, NavigationStatus.NO_VALID_PATH)
+
+        # a further status update for the same goal does not ask again
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        self.assertIsNone(to_fetch)
+        self.assertEqual(len(client.calls), 1)
+
+    def test_available_from_the_start_asks_once(self):
+        task, client, logger, fetcher = self.make(ready=True)
+        _, to_fetch = task.on_status([entry(1, SUCCEEDED, 10)])
+        fetcher.request(to_fetch)
+        self.assertEqual(len(client.calls), 1)
+        self.assertFalse(logger.warnings)
 
 
 class TestLifecycleTracker(unittest.TestCase):
