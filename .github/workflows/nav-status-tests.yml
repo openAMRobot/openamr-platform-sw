@@ -68,4 +68,5 @@ jobs:
           python3 -m pytest -v \
             ros2/src/openamrobot_nav2/test/test_sensor_tracker.py \
             ros2/src/openamrobot_nav2/test/test_status_trackers.py \
-            ros2/src/openamrobot_nav2/test/test_status_rules.py
+            ros2/src/openamrobot_nav2/test/test_status_rules.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_status_node.py

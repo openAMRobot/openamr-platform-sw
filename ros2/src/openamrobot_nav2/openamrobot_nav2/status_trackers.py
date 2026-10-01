@@ -203,14 +203,15 @@ class TaskTracker:
 
 class ResultFetcher:
     """
-    Ask for a terminal goal's result, retrying until the request is sent.
+    Ask for a terminal goal's result, retrying on a timer until it is sent.
 
-    A goal is marked as requested only once the get_result call actually goes
-    out, not as soon as a terminal status arrives. If the service was not
-    ready, the next status update for the same goal - Nav2 republishes goal
-    status periodically, not only on change - drives the retry, since
-    TaskTracker.on_status keeps returning that goal to fetch until this class
-    marks it requested.
+    Nav2 publishes goal status only on change, not periodically - so if the
+    service was not ready when the terminal status first arrived, waiting for
+    another status update to retry could wait forever (that update may never
+    come, if no further goal is ever sent). Instead this remembers the goal id
+    still owed a request and tries again whenever the node calls
+    retry_if_pending(), meant to be driven by the node's own periodic tick
+    rather than by incoming status messages.
     """
 
     def __init__(self, task, client, request_factory, logger):
@@ -218,18 +219,28 @@ class ResultFetcher:
         self._client = client
         self._request_factory = request_factory
         self._logger = logger
+        self._pending_goal_id = None  # the GoalId message still owed a request
 
     def request(self, goal_id):
-        """Ask for goal_id's result now, or log and leave it to retry later."""
+        """Ask for goal_id's result now, remembering it if it can not be sent."""
+        self._pending_goal_id = goal_id
+        self._try_send(goal_id)
+
+    def retry_if_pending(self):
+        """Retry the outstanding request, if any. Call this from a timer."""
+        if self._pending_goal_id is not None:
+            self._try_send(self._pending_goal_id)
+
+    def _try_send(self, goal_id):
         if not self._client.service_is_ready():
-            self._logger.warn(
-                'get_result service not ready, will retry on the next status update')
+            self._logger.warn('get_result service not ready, will retry')
             return
         req = self._request_factory()
         req.goal_id = goal_id
         goal_bytes = bytes(goal_id.uuid)
         future = self._client.call_async(req)
         self._task.mark_result_requested(goal_bytes)
+        self._pending_goal_id = None
         future.add_done_callback(lambda f: self._on_result(f, goal_bytes))
 
     def _on_result(self, future, goal_bytes):

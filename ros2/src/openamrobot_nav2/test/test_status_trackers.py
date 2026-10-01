@@ -246,6 +246,10 @@ class TestResultFetcher(unittest.TestCase):
         return task, client, logger, fetcher
 
     def test_service_unavailable_then_available_then_applied(self):
+        # Nav2 publishes goal status only on change, so the retry must not
+        # depend on another status update ever arriving - this test drives it
+        # with retry_if_pending() alone, the way the node's timer does, and
+        # never calls task.on_status() a second time for the same goal.
         task, client, logger, fetcher = self.make(ready=False)
 
         # 1. a terminal goal status arrives while the service is unavailable
@@ -257,17 +261,15 @@ class TestResultFetcher(unittest.TestCase):
         self.assertEqual(task.reason, NavigationStatus.NONE)
         self.assertTrue(logger.warnings)
 
-        # a later status update for the same goal: still unavailable, still
-        # nothing sent - this is the exact case the bug lost
-        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
-        fetcher.request(to_fetch)
+        # the timer fires again while still unavailable: still nothing sent,
+        # with no status update involved at all
+        fetcher.retry_if_pending()
         self.assertEqual(client.calls, [])
 
-        # 3. make the service available
+        # 3. make the service available, the timer fires again
         client.ready = True
-        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
         # 4. verify the result is requested
-        fetcher.request(to_fetch)
+        fetcher.retry_if_pending()
         self.assertEqual(len(client.calls), 1)
 
         # and applied once the response comes back
@@ -277,10 +279,12 @@ class TestResultFetcher(unittest.TestCase):
         self.assertEqual(task.native_error_code, 208)
         self.assertEqual(task.reason, NavigationStatus.NO_VALID_PATH)
 
-        # a further status update for the same goal does not ask again
+        # nothing left to retry, and a further status update for the same
+        # goal does not ask again either
+        fetcher.retry_if_pending()
+        self.assertEqual(len(client.calls), 1)
         _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
         self.assertIsNone(to_fetch)
-        self.assertEqual(len(client.calls), 1)
 
     def test_available_from_the_start_asks_once(self):
         task, client, logger, fetcher = self.make(ready=True)
@@ -288,6 +292,11 @@ class TestResultFetcher(unittest.TestCase):
         fetcher.request(to_fetch)
         self.assertEqual(len(client.calls), 1)
         self.assertFalse(logger.warnings)
+
+    def test_retry_if_pending_does_nothing_when_nothing_is_owed(self):
+        task, client, logger, fetcher = self.make(ready=True)
+        fetcher.retry_if_pending()
+        self.assertEqual(client.calls, [])
 
 
 class TestLifecycleTracker(unittest.TestCase):

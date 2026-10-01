@@ -137,6 +137,7 @@ class NavigationStatusNode(Node):
             'recovery_attempt_limit', int(profile.get('recovery_attempt_limit', 6)))
         self.declare_parameter('lifecycle_poll_period_s', 1.0)
         self.declare_parameter('lifecycle_stale_after_s', 3.0)
+        self.declare_parameter('lifecycle_request_timeout_s', 2.0)
         self.declare_parameter('change_check_hz', 10.0)
 
         self._profile_id = self.get_parameter('profile_id').value
@@ -262,6 +263,9 @@ class NavigationStatusNode(Node):
     def _init_lifecycle_watchers(self, poll_period):
         self._state_clients = {}
         self._state_pending = {}
+        self._state_pending_since = {}
+        self._state_request_timeout_s = max(
+            float(self.get_parameter('lifecycle_request_timeout_s').value), 2 * poll_period)
         for name in MANAGED_NAV_NODES:
             self.create_subscription(
                 TransitionEvent, f'/{name}/transition_event',
@@ -273,16 +277,25 @@ class NavigationStatusNode(Node):
         self._poll_lifecycle()
 
     def _poll_lifecycle(self):
+        now_s = self._now_s()
         for name, client in self._state_clients.items():
             if not client.service_is_ready():
                 self._lifecycle.unreachable(name)
+                self._state_pending.pop(name, None)
                 continue
             pending = self._state_pending.get(name)
             if pending is not None and not pending.done():
-                continue
+                if now_s - self._state_pending_since[name] <= self._state_request_timeout_s:
+                    continue
+                # the node stopped answering mid-request - service_is_ready()
+                # can still say yes for a while after a crash (discovery lags
+                # behind), so abandon the request rather than wait forever
+                self.get_logger().warn(f'{name} get_state request timed out, retrying')
+                self._lifecycle.unreachable(name)
             future = client.call_async(GetState.Request())
             future.add_done_callback(self._make_get_state_cb(name))
             self._state_pending[name] = future
+            self._state_pending_since[name] = now_s
 
     def _make_transition_cb(self, name):
         def _cb(msg: TransitionEvent):
@@ -444,6 +457,7 @@ class NavigationStatusNode(Node):
         return [NavigationStatus.BASE_LINK_LOST]
 
     def _tick(self):
+        self._result_fetcher.retry_if_pending()
         now = self.get_clock().now()
         msg = self._build_status(now)
         if self._gate.should_publish(status_signature(msg), now.nanoseconds / 1e9):
