@@ -202,12 +202,15 @@ class FakeFuture:
     def __init__(self):
         self._done = False
         self._result = None
+        self._exc = None
         self._cbs = []
 
     def done(self):
         return self._done
 
     def result(self):
+        if self._exc is not None:
+            raise self._exc
         return self._result
 
     def add_done_callback(self, cb):
@@ -216,6 +219,13 @@ class FakeFuture:
     def finish(self, result):
         self._done = True
         self._result = result
+        for cb in self._cbs:
+            cb(self)
+
+    def fail(self, exc):
+        """Finish as a failed call, the way a service going away mid-call would."""
+        self._done = True
+        self._exc = exc
         for cb in self._cbs:
             cb(self)
 
@@ -297,6 +307,41 @@ class TestResultFetcher(unittest.TestCase):
         task, client, logger, fetcher = self.make(ready=True)
         fetcher.retry_if_pending()
         self.assertEqual(client.calls, [])
+
+    def test_async_failure_is_retried_once_the_service_recovers(self):
+        # the request was sent, but the future fails instead of returning a
+        # result (the service disappeared mid-call) - the result is still
+        # owed, and the tick-driven retry must pick it back up
+        task, client, logger, fetcher = self.make(ready=True)
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        fetcher.request(to_fetch)
+        self.assertEqual(len(client.calls), 1)
+
+        _, future = client.calls[0]
+        future.fail(RuntimeError('service disappeared'))
+        self.assertEqual(task.native_error_code, 0)
+        self.assertEqual(task.reason, NavigationStatus.NONE)
+
+        fetcher.retry_if_pending()
+        self.assertEqual(len(client.calls), 2)
+        _, future2 = client.calls[1]
+        future2.finish(SimpleNamespace(result=SimpleNamespace(error_code=208)))
+        self.assertEqual(task.native_error_code, 208)
+        self.assertEqual(task.reason, NavigationStatus.NO_VALID_PATH)
+
+    def test_async_failure_for_a_goal_no_longer_tracked_is_not_retried(self):
+        task, client, logger, fetcher = self.make(ready=True)
+        _, to_fetch = task.on_status([entry(1, ABORTED, 10)])
+        fetcher.request(to_fetch)
+        _, future = client.calls[0]
+
+        # a new goal replaces goal 1 before the async failure comes back
+        task.on_status([entry(1, ABORTED, 10), entry(2, EXECUTING, 20)])
+        future.fail(RuntimeError('service disappeared'))
+
+        # goal 1 is stale now: nothing is re-armed, nothing new is sent for it
+        fetcher.retry_if_pending()
+        self.assertEqual(len(client.calls), 1)
 
 
 class TestLifecycleTracker(unittest.TestCase):

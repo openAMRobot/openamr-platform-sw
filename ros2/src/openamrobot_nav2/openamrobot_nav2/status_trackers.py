@@ -237,17 +237,22 @@ class ResultFetcher:
             return
         req = self._request_factory()
         req.goal_id = goal_id
-        goal_bytes = bytes(goal_id.uuid)
         future = self._client.call_async(req)
-        self._task.mark_result_requested(goal_bytes)
+        self._task.mark_result_requested(bytes(goal_id.uuid))
         self._pending_goal_id = None
-        future.add_done_callback(lambda f: self._on_result(f, goal_bytes))
+        future.add_done_callback(lambda f: self._on_result(f, goal_id))
 
-    def _on_result(self, future, goal_bytes):
+    def _on_result(self, future, goal_id):
+        goal_bytes = bytes(goal_id.uuid)
         try:
             response = future.result()
         except Exception as exc:
             self._logger.warn(f'get_result call failed: {exc}')
+            # the request was sent but never came back - if a newer goal has
+            # not already replaced this one, re-arm it so retry_if_pending()
+            # tries again; otherwise this goal is stale and not worth retrying
+            if goal_bytes == self._task.goal_id:
+                self._pending_goal_id = goal_id
             return
         self._task.on_result(goal_bytes, response.result.error_code)
 

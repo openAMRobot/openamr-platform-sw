@@ -293,19 +293,24 @@ class NavigationStatusNode(Node):
                 self.get_logger().warn(f'{name} get_state request timed out, retrying')
                 self._lifecycle.unreachable(name)
             future = client.call_async(GetState.Request())
-            future.add_done_callback(self._make_get_state_cb(name))
             self._state_pending[name] = future
             self._state_pending_since[name] = now_s
+            future.add_done_callback(self._make_get_state_cb(name, future))
 
     def _make_transition_cb(self, name):
         def _cb(msg: TransitionEvent):
             self._lifecycle.confirm(name, msg.goal_state.id, self._now_s())
         return _cb
 
-    def _make_get_state_cb(self, name):
-        def _cb(future):
+    def _make_get_state_cb(self, name, future):
+        def _cb(fut):
+            if self._state_pending.get(name) is not future:
+                # superseded by a newer request (this one timed out and was
+                # abandoned) - a late response here would be stale and must
+                # not overwrite whatever the newer request already confirmed
+                return
             try:
-                state = future.result().current_state.id
+                state = fut.result().current_state.id
             except Exception as exc:
                 self.get_logger().warn(f'get_state failed for {name}: {exc}')
                 return

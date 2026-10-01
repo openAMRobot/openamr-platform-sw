@@ -131,6 +131,33 @@ class TestLifecyclePollTimeout(NodeTestCase):
         now_s = self.node._now_s()
         self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
 
+    def test_a_late_stale_response_does_not_overwrite_newer_state(self):
+        # request A times out and is abandoned, request B is sent and
+        # succeeds first, then A's late (stale) response finally arrives - it
+        # must be ignored, not overwrite what B already confirmed
+        name = 'planner_server'
+        client = FakeClient(ready=True)
+        self.node._state_clients[name] = client
+        self.node._state_request_timeout_s = 0.3
+
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 1)
+        _, fut_a = client.calls[0]
+
+        time.sleep(0.4)
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 2)
+        _, fut_b = client.calls[1]
+
+        fut_b.finish(SimpleNamespace(current_state=SimpleNamespace(id=ACTIVE)))
+        now_s = self.node._now_s()
+        self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
+
+        stale_state = 1  # TransitionState UNCONFIGURED - not what is true now
+        fut_a.finish(SimpleNamespace(current_state=SimpleNamespace(id=stale_state)))
+        now_s = self.node._now_s()
+        self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
+
 
 class TestResultRetryDrivenByTick(NodeTestCase):
     """
