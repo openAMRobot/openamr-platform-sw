@@ -1,4 +1,4 @@
-# Contributing to OpenAMR Platform Software
+# Contributing to OpenAMRobot Platform Software
 
 Thank you for your interest in contributing to `openamr-platform-sw`.
 
