@@ -1,4 +1,4 @@
-# OpenAMR Platform Software
+# OpenAMRobot Platform Software
 
 ROS 2 Jazzy software stack for the **OpenAMRobot** mobile robot platform: robot description, Gazebo Harmonic simulation, Nav2 navigation, and AprilTag-bundle-based autodocking (dock + undock) — three AprilTags (family 36h11, IDs 0/1/2) on the dock give a wide-baseline normal for stable yaw alignment.
 
