@@ -1,4 +1,4 @@
-# EKF robot_localization — OpenAMR
+# EKF robot_localization — OpenAMRobot
 # Fuses wheel odometry (/odom/unfiltered) + the IMU Z gyro (/imu/data).
 # The MPU6500 IMU has NO valid orientation (null quaternion) nor reliable accelerometer
 # (~14deg tilted mounting) -> we use ONLY angular_velocity.z (yaw rate).
