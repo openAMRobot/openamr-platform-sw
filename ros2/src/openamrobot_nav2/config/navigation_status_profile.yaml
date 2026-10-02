@@ -1,0 +1,66 @@
+# Sensor and motion-source profile for navigation_status_node (simulation).
+# A real robot with ToF, ultrasonic, Gemini 336L and IMU sensors gets its own file.
+
+profile_id: "sim"
+
+# Every limit the producer applies lives in this block, and thresholds_id names
+# it. A limit that is missing leaves what it decides UNKNOWN, never OK. The
+# covariance limits are left out on purpose: they need real robot data, so
+# localization stays UNKNOWN until they are set.
+thresholds_id: "sim-v1"
+thresholds:
+  sensor_stale_multiple:       # stale after this many missed periods
+    lidar_nav: 5.0
+    odom: 5.0
+    imu: 5.0
+  moving_speed_mps: 0.02       # above this the robot counts as moving
+  pose_age_moving_s: 5.0       # an AMCL pose older than this while moving is stale
+  # covariance_xy_max: not set
+  # covariance_yaw_max: not set
+
+# All sensor topics are subscribed with the default QoS (reliable, depth 10),
+# which is what the simulation publishes. Real drivers often publish
+# best-effort, and a reliable subscriber receives nothing from those, so the
+# real-robot profile will need sensor-data QoS.
+sensors:
+  - id: "lidar_nav"
+    kind: "LIDAR"
+    topic: "/scan_filtered"      # scan_body_filter output; Nav2 and AMCL read this, not /scan
+    frame_id: "base_scan"
+    required: true
+    nominal_period_s: 0.1        # about 10 Hz
+  - id: "odom"
+    kind: "ODOMETRY"
+    topic: "/odom"
+    frame_id: "odom"
+    required: true
+    nominal_period_s: 0.02       # about 50 Hz
+  - id: "imu"
+    kind: "IMU"
+    topic: "/imu"                # nothing publishes this in the sim
+    frame_id: "base_link"
+    required: false              # so it shows up as ABSENT
+    nominal_period_s: 0.02
+
+# Which motion sources go through the collision monitor. These are the values
+# the sim tests showed; change them when #35 changes the routing.
+motion_sources:
+  - source: "NAV_CONTROLLER"
+    coverage: "PARTIAL"      # goes through collision_monitor, approach polygon only
+  - source: "RECOVERY"
+    coverage: "UNPROTECTED"
+  - source: "DOCKING"
+    coverage: "UNPROTECTED"
+  - source: "UNDOCK_REVERSE"
+    coverage: "UNPROTECTED"
+  - source: "TELEOP"
+    coverage: "UNPROTECTED"  # AssistedTeleop bypasses collision_monitor (#35)
+  - source: "PARKING"
+    coverage: "UNKNOWN"      # not implemented yet
+
+rear_coverage: "UNAVAILABLE"   # the rear sector is outside the filtered scan
+
+heartbeat_hz: 2.0            # a status also goes out right away when something changes
+
+# recovery actions counted per goal before RECOVERY_LIMIT_REACHED is reported
+recovery_attempt_limit: 6

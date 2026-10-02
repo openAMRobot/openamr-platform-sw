@@ -1,0 +1,198 @@
+"""
+Node-level regression tests for two review findings.
+
+Both were bugs in navigation_status_node.py itself, not in the pure trackers
+or rules modules, so they needed a test that instantiates the real node. This
+replaces only the two external service boundaries (the lifecycle get_state
+clients and the nav2 get_result client) with fakes; everything else, _tick and
+_poll_lifecycle included, is the real node code.
+
+Skipped if openamr_nav_msgs (openamrobot-interfaces) isn't installed. Needs a
+real rclpy, which is always present in a ROS 2 workspace.
+"""
+
+import time
+from types import SimpleNamespace
+import unittest
+
+import pytest
+
+pytest.importorskip('openamr_nav_msgs')
+rclpy = pytest.importorskip('rclpy')
+
+from openamr_nav_msgs.msg import NavigationStatus  # noqa: E402,I100
+from openamrobot_nav2.navigation_status_node import NavigationStatusNode  # noqa: E402
+
+ABORTED = 6
+ACTIVE = 3
+
+
+class FakeFuture:
+
+    def __init__(self):
+        self._done = False
+        self._result = None
+        self._cbs = []
+
+    def done(self):
+        return self._done
+
+    def result(self):
+        return self._result
+
+    def add_done_callback(self, cb):
+        self._cbs.append(cb)
+
+    def finish(self, result):
+        self._done = True
+        self._result = result
+        for cb in self._cbs:
+            cb(self)
+
+
+class FakeClient:
+    """Stands in for an rclpy service client: get_state or get_result."""
+
+    def __init__(self, ready=True):
+        self.ready = ready
+        self.calls = []
+
+    def service_is_ready(self):
+        return self.ready
+
+    def call_async(self, req):
+        fut = FakeFuture()
+        self.calls.append((req, fut))
+        return fut
+
+
+def goal(n):
+    return bytes([n]) * 16
+
+
+def status_entry(n, status, sec=10):
+    return SimpleNamespace(
+        goal_info=SimpleNamespace(
+            goal_id=SimpleNamespace(uuid=goal(n)),
+            stamp=SimpleNamespace(sec=sec, nanosec=0)),
+        status=status)
+
+
+class NodeTestCase(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        rclpy.init(args=[])
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def setUp(self):
+        self.node = NavigationStatusNode()
+
+    def tearDown(self):
+        self.node.destroy_node()
+
+
+class TestLifecyclePollTimeout(NodeTestCase):
+    """
+    Covers a pending-request bug.
+
+    A pending get_state request that never completes must not block polling
+    that node forever - a node can crash mid-request, and service_is_ready()
+    can keep saying yes for a while afterwards since discovery lags behind.
+    """
+
+    def test_a_request_that_never_completes_is_abandoned_after_its_timeout(self):
+        # Real time, not a fake clock: the node reads get_clock().now(), so the
+        # timeout is shortened here and the test sleeps past it for real,
+        # rather than poking a clock attribute the real node does not use.
+        name = 'planner_server'
+        client = FakeClient(ready=True)
+        self.node._state_clients[name] = client
+        self.node._state_request_timeout_s = 0.3
+
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 1)  # first request sent, left pending
+
+        # well within the timeout: no new request while the old one is still out
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 1)
+
+        # past the timeout, and the first request still never completed
+        time.sleep(0.4)
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 2)  # abandoned, retried
+
+        # the retried request succeeds: state is picked up again
+        _, fut = client.calls[1]
+        fut.finish(SimpleNamespace(current_state=SimpleNamespace(id=ACTIVE)))
+        now_s = self.node._now_s()
+        self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
+
+    def test_a_late_stale_response_does_not_overwrite_newer_state(self):
+        # request A times out and is abandoned, request B is sent and
+        # succeeds first, then A's late (stale) response finally arrives - it
+        # must be ignored, not overwrite what B already confirmed
+        name = 'planner_server'
+        client = FakeClient(ready=True)
+        self.node._state_clients[name] = client
+        self.node._state_request_timeout_s = 0.3
+
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 1)
+        _, fut_a = client.calls[0]
+
+        time.sleep(0.4)
+        self.node._poll_lifecycle()
+        self.assertEqual(len(client.calls), 2)
+        _, fut_b = client.calls[1]
+
+        fut_b.finish(SimpleNamespace(current_state=SimpleNamespace(id=ACTIVE)))
+        now_s = self.node._now_s()
+        self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
+
+        stale_state = 1  # TransitionState UNCONFIGURED - not what is true now
+        fut_a.finish(SimpleNamespace(current_state=SimpleNamespace(id=stale_state)))
+        now_s = self.node._now_s()
+        self.assertEqual(self.node._lifecycle.state(name, now_s), ACTIVE)
+
+
+class TestResultRetryDrivenByTick(NodeTestCase):
+    """
+    Covers a retry-timing bug.
+
+    The retry must not depend on Nav2 sending another goal-status update,
+    since Nav2 only publishes it on change, not periodically.
+    """
+
+    def test_retry_fires_from_the_tick_with_no_further_status_update(self):
+        client = FakeClient(ready=False)
+        self.node._nav_result_client = client
+        self.node._result_fetcher._client = client
+
+        # the only status update Nav2 ever sends for this goal
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ABORTED)]))
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.node._task.native_error_code, 0)
+
+        # ticks while the service is still down: nothing drives this but the tick
+        for _ in range(3):
+            self.node._tick()
+        self.assertEqual(client.calls, [])
+
+        # the service comes up: the very next tick sends the request, with no
+        # new goal-status message at all
+        client.ready = True
+        self.node._tick()
+        self.assertEqual(len(client.calls), 1)
+
+        _, fut = client.calls[0]
+        fut.finish(SimpleNamespace(result=SimpleNamespace(error_code=208)))
+        self.assertEqual(self.node._task.native_error_code, 208)
+        self.assertEqual(self.node._task.reason, NavigationStatus.NO_VALID_PATH)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

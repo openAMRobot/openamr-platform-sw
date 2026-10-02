@@ -1,0 +1,72 @@
+name: nav-status-tests
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_nav2/**'
+      - '.github/workflows/nav-status-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_nav2/**'
+      - '.github/workflows/nav-status-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # openamrobot-interfaces revision the producer is built and tested against.
+  # Change it on purpose when openamr_nav_msgs changes.
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: afdc96060a6db7276121bba64c262dacbba0658a
+
+jobs:
+  producer-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-yaml \
+            ros-jazzy-nav2-msgs \
+            ros-jazzy-tf2-ros-py
+
+      - name: Build openamr_nav_msgs and the producer
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p ws/src
+          cp -r interfaces/ros2/openamr_nav_msgs ws/src/
+          cp -r ros2/src/openamrobot_nav2 ws/src/
+          cd ws
+          colcon build --packages-select openamr_nav_msgs openamrobot_nav2
+
+      # OPENAMR_REQUIRE_INTERFACES turns a missing openamr_nav_msgs into a
+      # failure instead of a skipped suite.
+      - name: Run the producer tests
+        shell: bash
+        env:
+          OPENAMR_REQUIRE_INTERFACES: '1'
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          python3 -m pytest -v \
+            ros2/src/openamrobot_nav2/test/test_sensor_tracker.py \
+            ros2/src/openamrobot_nav2/test/test_status_trackers.py \
+            ros2/src/openamrobot_nav2/test/test_status_rules.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_status_node.py

@@ -28,5 +28,9 @@ setup(
     ),
     license='MIT',
     tests_require=['pytest'],
-    entry_points={'console_scripts': []},
+    entry_points={
+        'console_scripts': [
+            'navigation_status_node = openamrobot_nav2.navigation_status_node:main',
+        ],
+    },
 )

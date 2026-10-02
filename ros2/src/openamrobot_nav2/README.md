@@ -222,6 +222,56 @@ launch log, an old install space is being sourced.
 
 ---
 
+## Navigation Status Producer
+
+`navigation_status_node` publishes `openamr_nav_msgs/NavigationStatus` on
+`/navigation/status` (reliable, transient-local). A status goes out as soon as
+something changes, and otherwise once per heartbeat (2 Hz). It summarises Nav2
+stack readiness, sensor freshness, localization, the current goal, recovery and
+collision-monitor state in one message for the mission and UI layers. It only
+observes: it never sends velocity or goals.
+
+- Sensors, motion-source coverage and every numeric limit come from
+  `config/navigation_status_profile.yaml` (the `sim` profile, `sim-v1`
+  thresholds). The producer has no numbers of its own. A limit that is missing
+  leaves what it decides UNKNOWN, never OK: the sim profile leaves the
+  covariance limits out on purpose, so localization stays UNKNOWN until real
+  robot data sets them.
+- `navigation_readiness` is READY only when the stack is active, every required
+  sensor is OK and localization is OK, on top of the I8 dependency. A profile
+  that can not be loaded, or has no required sensor, reports `NAV_CONFIG_FAULT`
+  and stays NOT_READY.
+- `active_reasons` rolls up the reasons of every group, and a state other than
+  OK never carries `NONE`. `PARTIAL` motion-source coverage reports the
+  stricter `MOTION_SOURCE_UNPROTECTED` until a reason of its own exists.
+- Status, feedback and results are matched to the goal id being tracked, so a
+  late message from an old goal is dropped. The recovery count starts over
+  with each new goal, and its limit is the `recovery_attempt_limit` parameter.
+- Each watched Nav2 node is asked for its lifecycle state once a second
+  (`lifecycle_poll_period_s`). One that stops answering counts as unknown
+  after `lifecycle_stale_after_s` (3 s by default), so a crashed node cannot
+  stay `ACTIVE`.
+- There is no I8 base-status adapter yet, so `navigation_readiness` stays
+  `NOT_READY` with `BASE_LINK_LOST` until one exists.
+- It needs `openamr_nav_msgs` from `openamrobot-interfaces`, which is not part
+  of this repository. Build it in an underlay and source it first.
+- `use_sim_time` is left to the launch file or parameters: pass
+  `use_sim_time:=true` in the simulation and leave it off on a real robot.
+
+```bash
+source ~/nav_msgs_ws/install/setup.bash   # wherever openamr_nav_msgs is built
+ros2 run openamrobot_nav2 navigation_status_node --ros-args -p use_sim_time:=true
+ros2 topic echo /navigation/status --once
+```
+
+This does not complete #34. Still missing: the `/diagnostics` mirror and a
+`FAILED` stack state. `constraints` stays empty (nothing publishes
+`/speed_limit` in simulation), `distance_remaining` keeps its last value after
+a goal ends, and localization stays UNKNOWN until AMCL publishes its next pose.
+Sim only, nothing validated on hardware.
+
+---
+
 ## Related Packages
 
 - `openamrobot_description` — URDF/xacro robot model
