@@ -27,7 +27,7 @@ or planning — the thing that repeatedly bites us on the Pi (see
 |---|---|---|
 | Compute | Raspberry Pi 5 Model B Rev 1.1, 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
 | MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
-| LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`, the driver default) | `/dev/ttyUSB0` (CP2102) |
+| LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`; the driver default stays `a1` until the S3 is mounted) | `/dev/ttyUSB0` (CP2102) |
 | Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
 | Drive | 2× BLDC Z4BLD60-24GN-30S (60 W, 30:1), 2× ZBLD.C20-120L2R drivers | — |
 | Power | 2× 12 V lead-acid in series (24 V bus), 5 V buck to the Pi | — |

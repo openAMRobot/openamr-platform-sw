@@ -48,9 +48,39 @@ def _active_lidar_nodes(model):
 
 
 def test_lidar_model_argument():
+    # Default a1 until the RPLIDAR S3 is physically mounted; s3 stays a valid choice.
     arg = _arg('lidar_model')
-    assert arg.default_value[0].text == 's3'
+    assert arg.default_value[0].text == 'a1'
     assert sorted(arg.choices) == ['a1', 's3']
+
+
+def test_default_starts_exactly_one_a1_node():
+    # No lidar_model given: executing the declaration applies the default.
+    context = _context()
+    description = _description()
+    for entity in description.entities:
+        if isinstance(entity, DeclareLaunchArgument):
+            entity.execute(context)
+    assert context.launch_configurations['lidar_model'] == 'a1'
+    nodes = [e for e in description.entities if isinstance(e, Node)]
+    active = [n for n in nodes if n.condition is None or n.condition.evaluate(context)]
+    assert len(active) == 1
+    params = {}
+    for entry in evaluate_parameters(context, active[0]._Node__parameters):
+        params.update(entry)
+    assert params['serial_baudrate'] == EXPECTED['a1']['serial_baudrate']
+    assert params['scan_mode'] == EXPECTED['a1']['scan_mode']
+
+
+def test_s3_still_selectable():
+    _arg('lidar_model').execute(_context(lidar_model='s3'))  # accepted by choices
+    nodes, context = _active_lidar_nodes('s3')
+    assert len(nodes) == 1
+    params = {}
+    for entry in evaluate_parameters(context, nodes[0]._Node__parameters):
+        params.update(entry)
+    assert params['serial_baudrate'] == EXPECTED['s3']['serial_baudrate']
+    assert params['scan_mode'] == EXPECTED['s3']['scan_mode']
 
 
 def test_lidar_port_default_unchanged():

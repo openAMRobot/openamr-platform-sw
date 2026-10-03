@@ -5,14 +5,16 @@ This is the host-side "thin" driver layer. The real control loop (per-wheel PID,
 encoder reading, odometry, IMU) runs in the Teensy firmware; here we only bridge
 it to ROS via the micro-ROS agent, and start the LiDAR driver.
 
-LiDAR: the OpenAMRobot 2.0 navigation LiDAR is the SLAMTEC RPLIDAR S3 (lidar_model:=s3,
-default). The RPLIDAR A1 of the existing robot is kept as legacy (existing robot):
-lidar_model:=a1. Both run the Slamtec sllidar_ros2 driver and publish /scan in frame
-lidar_link. The LiDAR is functional sensing only, not a safety device.
+LiDAR: the OpenAMRobot 2.0 navigation LiDAR is the SLAMTEC RPLIDAR S3 (lidar_model:=s3).
+The RPLIDAR A1 of the existing robot is kept as legacy (existing robot): lidar_model:=a1.
+The default is a1 until the S3 is physically mounted; the default flips to s3 in the change
+that mounts the S3 (s3 settings are already prepared below). Both run the Slamtec
+sllidar_ros2 driver and publish /scan in frame lidar_link. The LiDAR is functional sensing
+only, not a safety device.
 
 Ports default to THIS unit's by-id device paths; override on another robot:
   ros2 launch openamrobot_drivers drivers.launch.py teensy_port:=/dev/ttyACM0
-  ros2 launch openamrobot_drivers drivers.launch.py lidar_model:=a1   # legacy (existing robot)
+  ros2 launch openamrobot_drivers drivers.launch.py lidar_model:=s3   # RPLIDAR S3 (2.0)
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
@@ -74,10 +76,12 @@ def generate_launch_description():
                          "by-id path; the default is the existing unit's CP2102 "
                          '(to confirm on the S3 unit).')),
         # choices= makes launch reject any other value before starting anything.
+        # Default a1 until the S3 is physically mounted; flips to s3 in the change that mounts it.
         DeclareLaunchArgument(
-            name='lidar_model', default_value='s3', choices=sorted(LIDAR_MODELS),
+            name='lidar_model', default_value='a1', choices=sorted(LIDAR_MODELS),
             description=('Navigation LiDAR model: s3 = RPLIDAR S3 (OpenAMRobot 2.0), '
-                         'a1 = RPLIDAR A1, legacy (existing robot).')),
+                         'a1 = RPLIDAR A1, legacy (existing robot). Default a1 until the S3 '
+                         'is mounted.')),
         # micro-ROS agent: bridges the Teensy (/cmd_vel, /odom/unfiltered, /imu/data).
         ExecuteProcess(
             cmd=['ros2', 'run', 'micro_ros_agent', 'micro_ros_agent',
