@@ -6,7 +6,8 @@ SLAM / docking stack runs as in simulation -- only the data source differs:
 
 * sim  -> openamrobot_gazebo (Gazebo + gz_bridge) publishes /odom /scan /imu camera
 * real -> THIS launch publishes the same topics from real hardware:
-    - openamrobot_drivers   : micro-ROS agent (Teensy) + RPLIDAR (/scan)
+    - openamrobot_drivers   : micro-ROS agent (Teensy) + RPLIDAR via sllidar_ros2 (/scan;
+                              S3 by default, lidar_model:=a1 = legacy (existing robot) A1)
     - openamrobot_perception: scan body filter (/scan_filtered) + camera
     - robot_localization EKF: wheels + IMU gyro-Z -> /odom + TF odom->base_link
     - measured static TFs for THIS unit (lidar mounted rotated 180 deg)

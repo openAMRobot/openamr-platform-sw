@@ -188,7 +188,7 @@ distinctive objects** as landmarks. Saved `coin2.{pgm,yaml,posegraph,data}` (als
 
 ### Lidar gotchas (recurring)
 - **Stuck `80008000` / operation timeout** after a hard kill mid-scan → **unplug/replug the USB**.
-- **Two `rplidar_composition` fighting one port** (from repeated launches) → timeout. Always **clean kill +
+- **Two `rplidar_composition` (legacy A1 driver; now `sllidar_node`) fighting one port** (from repeated launches) → timeout. Always **clean kill +
   single launch**. (pgrep over-counts due to the `ros2 run` wrapper — verify with `ps -ef`.)
 
 ### Nav2 + AMCL brought up and WORKING
