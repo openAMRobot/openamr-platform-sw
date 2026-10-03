@@ -10,12 +10,20 @@ sensor drivers.
 Starts:
 - the **micro-ROS agent** over USB serial — bridges the Teensy topics `/cmd_vel`,
   `/odom/unfiltered`, `/imu/data` (needs `micro_ros_agent` installed);
-- the **RPLIDAR** driver (`rplidar_ros`) → `/scan` in frame `lidar_link`.
+- the navigation **LiDAR** driver (Slamtec `sllidar_ros2`, node `sllidar_node`) → `/scan`
+  in frame `lidar_link`. `lidar_model:=s3` is the RPLIDAR S3 (OpenAMRobot 2.0);
+  `lidar_model:=a1` is the RPLIDAR A1, legacy (existing robot). Any other value is rejected.
+  The default is `a1` until the S3 is physically mounted; the default flips to `s3` in the
+  change that mounts the S3 (the `s3` settings are already prepared).
+  `sllidar_ros2` has no Jazzy binary package; build it from source
+  (`https://github.com/Slamtec/sllidar_ros2`) in the same workspace.
 
 ```bash
 ros2 launch openamrobot_drivers drivers.launch.py
 # other robot / different ports:
 ros2 launch openamrobot_drivers drivers.launch.py teensy_port:=/dev/ttyACM0 lidar_port:=/dev/ttyUSB0
+# RPLIDAR S3 (OpenAMRobot 2.0), once mounted:
+ros2 launch openamrobot_drivers drivers.launch.py lidar_model:=s3
 ```
 
 ### Launch arguments (unit-specific defaults)
@@ -23,7 +31,8 @@ ros2 launch openamrobot_drivers drivers.launch.py teensy_port:=/dev/ttyACM0 lida
 | Argument | Default | Meaning |
 |---|---|---|
 | `teensy_port` | `/dev/serial/by-id/usb-Teensyduino_USB_Serial_16778200-if00` | Teensy serial (this unit's by-id path) |
-| `lidar_port` | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_..._if00-port0` | RPLIDAR serial (this unit's by-id path) |
+| `lidar_port` | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_..._if00-port0` | LiDAR USB to UART adapter (existing unit's CP2102 by-id path; to confirm on the S3 unit) |
+| `lidar_model` | `a1` (flips to `s3` when the S3 is mounted) | `s3` = RPLIDAR S3 (1000000 baud, scan mode `DenseBoost`); `a1` = RPLIDAR A1, legacy (existing robot) (115200 baud, scan mode `Standard`) |
 
 > The `by-id` paths are stable per device but **specific to this robot**; override them on
 > another unit. micro-ROS link is 115200 baud (matches the firmware `BAUDRATE`).

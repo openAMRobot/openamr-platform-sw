@@ -273,7 +273,7 @@ ros2 topic echo /global_costmap/costmap --field data --once \
 ros2 lifecycle get /controller_server                     # -> active
 ```
 
-Expected: `/scan_filtered` ~6.8 Hz (normal for an A1), a valid `/amcl_pose`, thousands of
+Expected: `/scan_filtered` ~6.8 Hz (normal for the legacy (existing robot) A1; S3 rate to be measured), a valid `/amcl_pose`, thousands of
 occupied costmap cells. If costmaps are empty **after** a 2D Pose Estimate, re-launch the
 nav rather than hand-activating lifecycle nodes (hand-activation comes up mis-initialised —
 see [`../navigation/`](../navigation/) and memory `amr-nav2-bringup` piège #8).
@@ -314,7 +314,7 @@ and memory `amr-docking-bundle-setup`.
 | `sim:=false requires an explicit map` | no `map:=` | pass `map:=$HOME/maps/<your_map>.yaml` |
 | Costmaps empty, robot blind | no `map→odom` | do the **2D Pose Estimate** first |
 | Duplicated agents/lidars/EKF, TF chaos | relaunched without clean-kill | clean-kill, then **one** launch |
-| `/scan` silent, node alive | RPLIDAR stuck (`80008000`) | `pkill -f "[r]plidar_composition"`, or unplug/replug the LiDAR USB |
+| `/scan` silent, node alive | RPLIDAR stuck (`80008000`, seen on the legacy A1) | `pkill -f "[s]llidar_node"`, or unplug/replug the LiDAR USB |
 | Two goal forwarders warn | relay + dock_trigger both up | `pkill -f "topic_tools/relay.*goal_pose"` |
 | Link collapses at bring-up | camera flood on Wi-Fi | use the **light profile** ([`02_networking_and_dds.md`](02_networking_and_dds.md)) |
 | Pi freezes / drops off net at launch | 5 V brown-out / low 24 V | `ping` before blaming software ([`07_troubleshooting.md`](07_troubleshooting.md)) |

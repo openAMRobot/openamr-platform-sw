@@ -6,7 +6,9 @@ SLAM / docking stack runs as in simulation -- only the data source differs:
 
 * sim  -> openamrobot_gazebo (Gazebo + gz_bridge) publishes /odom /scan /imu camera
 * real -> THIS launch publishes the same topics from real hardware:
-    - openamrobot_drivers   : micro-ROS agent (Teensy) + RPLIDAR (/scan)
+    - openamrobot_drivers   : micro-ROS agent (Teensy) + RPLIDAR via sllidar_ros2 (/scan;
+                              lidar_model:=s3 = S3; default a1 = legacy (existing robot)
+                              A1 until the S3 is mounted; passed through to the drivers)
     - openamrobot_perception: scan body filter (/scan_filtered) + camera
     - robot_localization EKF: wheels + IMU gyro-Z -> /odom + TF odom->base_link
     - measured static TFs for THIS unit (lidar mounted rotated 180 deg)
@@ -36,11 +38,11 @@ def _static_tf(name, parent, child, x=0.0, y=0.0, z=0.0, roll=0.0, pitch=0.0, ya
         output='screen')
 
 
-def _include(pkg_share, rel, condition=None):
+def _include(pkg_share, rel, condition=None, launch_arguments=None):
     """Include another package's launch file by share path (optionally conditional)."""
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_share, 'launch', rel)),
-        condition=condition)
+        condition=condition, launch_arguments=launch_arguments)
 
 
 def generate_launch_description():
@@ -55,8 +57,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_camera', default_value='true',
             description='Launches the IMX708 camera (false = no camera, reduced load).'),
+        # Same choices/default as openamrobot_drivers; default a1 until the S3 is mounted.
+        DeclareLaunchArgument(
+            'lidar_model', default_value='a1', choices=['a1', 's3'],
+            description=('Navigation LiDAR model passed to openamrobot_drivers: s3 = RPLIDAR S3 '
+                         '(OpenAMRobot 2.0), a1 = RPLIDAR A1, legacy (existing robot).')),
         # --- real data sources (same topics the sim publishes from Gazebo) ---
-        _include(drivers, 'drivers.launch.py'),
+        _include(drivers, 'drivers.launch.py',
+                 launch_arguments={'lidar_model': LaunchConfiguration('lidar_model')}.items()),
         _include(perception, 'scan_body_filter.launch.py'),
         _include(perception, 'camera.launch.py',
                  condition=IfCondition(LaunchConfiguration('use_camera'))),
