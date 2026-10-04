@@ -19,7 +19,7 @@ env:
   # openamrobot-interfaces revision the producer is built and tested against.
   # Change it on purpose when openamr_nav_msgs changes.
   INTERFACES_REPO: openAMRobot/openamrobot-interfaces
-  INTERFACES_REF: afdc96060a6db7276121bba64c262dacbba0658a
+  INTERFACES_REF: fa7c438e33bd807c174fa0747119d7d627faa3bf
 
 jobs:
   producer-tests:

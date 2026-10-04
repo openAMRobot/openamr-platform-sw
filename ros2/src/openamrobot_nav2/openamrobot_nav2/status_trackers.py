@@ -34,7 +34,7 @@ _TASK_STATE = {
 # Nav2 result codes mapped to the reasons in NavigationStatus. Only 204 and 208
 # have actually shown up in the sim; the rest come from the interface files.
 NATIVE_CODE_TO_REASON = {
-    203: NavigationStatus.GOAL_OUTSIDE_MAP,
+    203: NavigationStatus.START_BLOCKED,  # START_OUTSIDE_MAP
     204: NavigationStatus.GOAL_OUTSIDE_MAP,
     205: NavigationStatus.START_BLOCKED,
     206: NavigationStatus.GOAL_BLOCKED,
@@ -52,12 +52,14 @@ NATIVE_CODE_TO_REASON = {
     200: NavigationStatus.NAV_UNKNOWN_FAULT,
 }
 
-# Nav2 behavior tree nodes that count as a recovery action
+# Nav2 behavior tree nodes that count as a recovery action, matched by exact
+# name. Costmap clears are matched separately, by prefix - see on_bt_event -
+# since the default Nav2 BT names them ClearLocalCostmap-Context,
+# ClearGlobalCostmap-Context, and -Subtree variants, not one fixed name.
 _RECOVERY_NODES = {
     'Spin': RecoveryStatus.ACTION_SPIN,
     'BackUp': RecoveryStatus.ACTION_BACKUP,
     'Wait': RecoveryStatus.ACTION_WAIT,
-    'ClearEntireCostmap': RecoveryStatus.ACTION_CLEAR_COSTMAP,
 }
 
 
@@ -277,7 +279,12 @@ class RecoveryTracker:
 
     def on_bt_event(self, node_name, status):
         """Count a recovery action when its behavior tree node starts running."""
-        action = _RECOVERY_NODES.get(node_name)
+        if node_name.startswith('Clear'):
+            # ClearLocalCostmap-Context, ClearGlobalCostmap-Context, and the
+            # -Subtree variants all count as the same recovery action
+            action = RecoveryStatus.ACTION_CLEAR_COSTMAP
+        else:
+            action = _RECOVERY_NODES.get(node_name)
         if action is None:
             return
         if status == 'RUNNING':

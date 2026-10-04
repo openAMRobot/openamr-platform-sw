@@ -140,6 +140,15 @@ class TestTaskTracker(unittest.TestCase):
         tracker.on_result(goal(1), 0)
         self.assertEqual(tracker.reason, NavigationStatus.NONE)
 
+    def test_start_outside_map_maps_to_start_blocked_not_goal_outside_map(self):
+        # error 203 is START_OUTSIDE_MAP, a different failure than 204
+        # (GOAL_OUTSIDE_MAP) and must not share its reason
+        tracker = TaskTracker()
+        tracker.on_status([entry(1, ABORTED, 10)])
+        tracker.on_result(goal(1), 203)
+        self.assertEqual(tracker.reason, NavigationStatus.START_BLOCKED)
+        self.assertNotEqual(tracker.reason, NavigationStatus.GOAL_OUTSIDE_MAP)
+
 
 class TestRecoveryTracker(unittest.TestCase):
 
@@ -158,6 +167,23 @@ class TestRecoveryTracker(unittest.TestCase):
         tracker.on_bt_event('ComputePathToPose', 'RUNNING')
         self.assertEqual(tracker.attempt, 0)
         self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
+
+    def test_real_nav2_costmap_clear_node_names_are_counted(self):
+        # the default Nav2 BT uses these exact names, not the single
+        # 'ClearEntireCostmap' name this used to only match
+        for name in ('ClearLocalCostmap-Context', 'ClearGlobalCostmap-Context',
+                     'ClearLocalCostmap-Subtree', 'ClearGlobalCostmap-Subtree'):
+            tracker = RecoveryTracker(6)
+            tracker.on_bt_event(name, 'RUNNING')
+            self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP, name)
+            self.assertEqual(tracker.attempt, 1, name)
+
+    def test_a_costmap_clear_finishing_returns_to_no_action(self):
+        tracker = RecoveryTracker(6)
+        tracker.on_bt_event('ClearLocalCostmap-Context', 'RUNNING')
+        tracker.on_bt_event('ClearLocalCostmap-Context', 'SUCCESS')
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
+        self.assertEqual(tracker.attempt, 1)  # the attempt itself still counted
 
     def test_count_starts_over_with_a_new_goal(self):
         tracker = RecoveryTracker(6)
