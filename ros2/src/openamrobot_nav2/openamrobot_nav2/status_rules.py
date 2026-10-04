@@ -144,6 +144,10 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
 
     if config_fault:
         health = NavigationStatus.HEALTH_FAULT
+    elif stack_state == NavStackStatus.STATE_FAILED:
+        # a node that never came back is worse than still resetting - same
+        # severity class as a config fault, not just "degraded"
+        health = NavigationStatus.HEALTH_FAULT
     elif stack_state == NavStackStatus.STATE_UNKNOWN:
         health = NavigationStatus.HEALTH_UNKNOWN
     elif blocked:

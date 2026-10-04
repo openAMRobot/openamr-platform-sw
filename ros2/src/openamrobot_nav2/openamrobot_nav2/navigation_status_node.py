@@ -138,6 +138,8 @@ class NavigationStatusNode(Node):
         self.declare_parameter('lifecycle_poll_period_s', 1.0)
         self.declare_parameter('lifecycle_stale_after_s', 3.0)
         self.declare_parameter('lifecycle_request_timeout_s', 2.0)
+        self.declare_parameter('stack_failed_after_s', 15.0)
+        self._resetting_since = None  # set in _stack_state, see FAILED below
         self.declare_parameter('change_check_hz', 10.0)
 
         self._profile_id = self.get_parameter('profile_id').value
@@ -320,6 +322,7 @@ class NavigationStatusNode(Node):
     def _stack_state(self, now_s):
         states = [self._lifecycle.state(name, now_s) for name in MANAGED_NAV_NODES]
         if any(s is None for s in states):
+            self._resetting_since = None
             if self._lifecycle.lost(now_s):
                 reason = NavigationStatus.NAV_NODE_INACTIVE
             elif self._lifecycle.seen_any():
@@ -328,10 +331,18 @@ class NavigationStatusNode(Node):
                 reason = NavigationStatus.NAV_STACK_NOT_STARTED
             return NavStackStatus.STATE_UNKNOWN, reason
         if all(s == LIFECYCLE_ACTIVE for s in states):
+            self._resetting_since = None
             return NavStackStatus.STATE_ACTIVE, NavigationStatus.NONE
-        # Some but not all nodes active: call it resetting rather than failed, since
-        # a node bouncing is normal. FAILED (stuck like this for too long) is not
-        # implemented.
+        # Some but not all nodes active: a node bouncing briefly is normal, so this
+        # stays RESETTING at first. If it is still stuck here after
+        # stack_failed_after_s, something is not coming back on its own - report
+        # FAILED instead, with the same reason (it is still a reset that never
+        # finished, just one that has gone on too long to call transient).
+        if self._resetting_since is None:
+            self._resetting_since = now_s
+        timeout = float(self.get_parameter('stack_failed_after_s').value)
+        if now_s - self._resetting_since > timeout:
+            return NavStackStatus.STATE_FAILED, NavigationStatus.NAV_STACK_RESETTING
         return NavStackStatus.STATE_RESETTING, NavigationStatus.NAV_STACK_RESETTING
 
     def _make_sensor_cb(self, sensor_id):

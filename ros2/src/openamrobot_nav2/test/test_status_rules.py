@@ -271,6 +271,13 @@ class TestRollUp(unittest.TestCase):
                                 stack_reason=NavigationStatus.NAV_STACK_NOT_STARTED))
         self.assertEqual(result.health, NavigationStatus.HEALTH_UNKNOWN)
 
+    def test_failed_stack_is_a_fault_not_just_degraded(self):
+        result = roll_up(**good(stack_state=NavStackStatus.STATE_FAILED,
+                                stack_reason=NavigationStatus.NAV_STACK_RESETTING))
+        self.assertEqual(result.health, NavigationStatus.HEALTH_FAULT)
+        self.assertEqual(result.readiness, NOT_READY)
+        self.assertIn(NavigationStatus.NAV_STACK_RESETTING, result.not_ready_reasons)
+
     def test_config_fault_is_not_ready_and_a_fault(self):
         result = roll_up(**good(config_fault=True))
         self.assertEqual(result.readiness, NOT_READY)
