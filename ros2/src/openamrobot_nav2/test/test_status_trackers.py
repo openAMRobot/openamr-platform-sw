@@ -178,6 +178,15 @@ class TestRecoveryTracker(unittest.TestCase):
             self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP, name)
             self.assertEqual(tracker.attempt, 1, name)
 
+    def test_an_unrelated_clear_prefixed_node_is_not_counted(self):
+        # the match is the four exact costmap-clear names, not a "Clear"
+        # prefix - a differently-named node that happens to start the same
+        # way must not be mistaken for one
+        tracker = RecoveryTracker(6)
+        tracker.on_bt_event('ClearSomethingUnrelated', 'RUNNING')
+        self.assertEqual(tracker.attempt, 0)
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
+
     def test_a_costmap_clear_finishing_returns_to_no_action(self):
         tracker = RecoveryTracker(6)
         tracker.on_bt_event('ClearLocalCostmap-Context', 'RUNNING')

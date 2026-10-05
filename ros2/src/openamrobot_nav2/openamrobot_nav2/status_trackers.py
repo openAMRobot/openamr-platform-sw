@@ -53,13 +53,19 @@ NATIVE_CODE_TO_REASON = {
 }
 
 # Nav2 behavior tree nodes that count as a recovery action, matched by exact
-# name. Costmap clears are matched separately, by prefix - see on_bt_event -
-# since the default Nav2 BT names them ClearLocalCostmap-Context,
-# ClearGlobalCostmap-Context, and -Subtree variants, not one fixed name.
+# name - the default Nav2 BT names its costmap clears ClearLocalCostmap-
+# Context, ClearGlobalCostmap-Context, and the -Subtree variants, never one
+# fixed name, so all four are listed explicitly rather than matched by a
+# "Clear" prefix, which would also match an unrelated node that happens to
+# share it.
 _RECOVERY_NODES = {
     'Spin': RecoveryStatus.ACTION_SPIN,
     'BackUp': RecoveryStatus.ACTION_BACKUP,
     'Wait': RecoveryStatus.ACTION_WAIT,
+    'ClearLocalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearGlobalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearLocalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearGlobalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
 }
 
 
@@ -279,12 +285,7 @@ class RecoveryTracker:
 
     def on_bt_event(self, node_name, status):
         """Count a recovery action when its behavior tree node starts running."""
-        if node_name.startswith('Clear'):
-            # ClearLocalCostmap-Context, ClearGlobalCostmap-Context, and the
-            # -Subtree variants all count as the same recovery action
-            action = RecoveryStatus.ACTION_CLEAR_COSTMAP
-        else:
-            action = _RECOVERY_NODES.get(node_name)
+        action = _RECOVERY_NODES.get(node_name)
         if action is None:
             return
         if status == 'RUNNING':
