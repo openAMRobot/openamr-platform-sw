@@ -265,6 +265,34 @@ class TestFailedStackState(NodeTestCase):
         state, _ = self.node._stack_state(self.node._now_s())
         self.assertEqual(state, NavStackStatus.STATE_RESETTING)
 
+    def test_going_unknown_clears_the_clock_for_a_later_stall(self):
+        self.node.set_parameters(
+            [Parameter('stack_failed_after_s', value=0.3)])
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)
+        self.node._stack_state(self.node._now_s())  # first stall begins, clock starts
+
+        time.sleep(0.2)  # into the stall, still under the 0.3s timeout
+
+        # every node drops out of confirmation (e.g. their services become
+        # unreachable) - the stack reports UNKNOWN, and must forget the clock
+        # it was keeping for the stall above, not just pause it
+        for name in MANAGED_NAV_NODES:
+            self.node._lifecycle.unreachable(name)
+        state, _ = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_UNKNOWN)
+
+        # total elapsed since the FIRST stall is now ~0.4s, past the 0.3s
+        # timeout - but that old clock is gone
+        time.sleep(0.2)
+
+        # a brand new, separate stall starts now
+        self._confirm_all_but_one(1, self.node._now_s())
+        state, reason = self.node._stack_state(self.node._now_s())
+        # freshly RESETTING, not immediately FAILED from inherited time
+        self.assertEqual(state, NavStackStatus.STATE_RESETTING)
+        self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
