@@ -19,9 +19,13 @@ def generate_launch_description():
     use_robot_state_pub = LaunchConfiguration('use_robot_state_pub')
     world = LaunchConfiguration('world')
     gui = LaunchConfiguration('gui')
+    legacy_camera = LaunchConfiguration('legacy_camera')
 
     xacro_file = os.path.join(description_dir, 'urdf', 'robo_urdf.urdf.xacro')
-    robot_desc = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
+    robot_desc = ParameterValue(
+        Command(['xacro ', xacro_file, ' legacy_camera:=', legacy_camera]),
+        value_type=str,
+    )
 
     # walled_world.sdf <include>s `model://apriltag_dock` which is shipped
     # by the openamrobot_docking package. We add its models/ directory to
@@ -124,6 +128,10 @@ def generate_launch_description():
             'gui',
             default_value='false',
             description='Start Gazebo GUI. Default false keeps simulation timing stable.'),
+        DeclareLaunchArgument(
+            'legacy_camera',
+            default_value='false',
+            description='Enable the legacy IMX708 Gazebo camera sensor.'),
         gz_resource_path,
         gz_sim_gui,
         gz_sim_headless,
