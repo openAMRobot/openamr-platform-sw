@@ -720,6 +720,9 @@ Stephen Brawner (brawner@gmail.com)
        (5 / 10 / 15 deg up), default bt10 (Alex decision 2026-10-12).
        An unknown base_tilt value fails the xacro expansion. -->
   <xacro:arg name="base_tilt" default="bt10"/>
+  <!-- Legacy Gate A IMX708 simulation sensor selection; camera frames remain
+       available for existing docking and perception consumers. -->
+  <xacro:arg name="legacy_camera" default="false"/>
   <xacro:property name="base_camera_pitch"
     value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
 
