@@ -234,6 +234,23 @@ def generate_launch_description():
         ],
     )
 
+    # Plain Python node, not a LifecycleNode and not composable (no C++
+    # component to register), so it runs unconditionally here rather than
+    # inside either GroupAction above - the same process either way,
+    # regardless of use_composition. It only watches the nodes those
+    # GroupActions start; it has no configure/activate services of its own,
+    # so it is deliberately not in lifecycle_nodes.
+    status_node = Node(
+        package='openamrobot_nav2',
+        executable='navigation_status_node',
+        name='navigation_status_node',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
     load_composable_nodes = GroupAction(
         condition=IfCondition(use_composition),
         actions=[
@@ -331,5 +348,6 @@ def generate_launch_description():
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
+    ld.add_action(status_node)
 
     return ld

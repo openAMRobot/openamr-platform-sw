@@ -34,7 +34,7 @@ _TASK_STATE = {
 # Nav2 result codes mapped to the reasons in NavigationStatus. Only 204 and 208
 # have actually shown up in the sim; the rest come from the interface files.
 NATIVE_CODE_TO_REASON = {
-    203: NavigationStatus.GOAL_OUTSIDE_MAP,
+    203: NavigationStatus.START_BLOCKED,  # START_OUTSIDE_MAP
     204: NavigationStatus.GOAL_OUTSIDE_MAP,
     205: NavigationStatus.START_BLOCKED,
     206: NavigationStatus.GOAL_BLOCKED,
@@ -52,12 +52,20 @@ NATIVE_CODE_TO_REASON = {
     200: NavigationStatus.NAV_UNKNOWN_FAULT,
 }
 
-# Nav2 behavior tree nodes that count as a recovery action
+# Nav2 behavior tree nodes that count as a recovery action, matched by exact
+# name - the default Nav2 BT names its costmap clears ClearLocalCostmap-
+# Context, ClearGlobalCostmap-Context, and the -Subtree variants, never one
+# fixed name, so all four are listed explicitly rather than matched by a
+# "Clear" prefix, which would also match an unrelated node that happens to
+# share it.
 _RECOVERY_NODES = {
     'Spin': RecoveryStatus.ACTION_SPIN,
     'BackUp': RecoveryStatus.ACTION_BACKUP,
     'Wait': RecoveryStatus.ACTION_WAIT,
-    'ClearEntireCostmap': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearLocalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearGlobalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearLocalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearGlobalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
 }
 
 
