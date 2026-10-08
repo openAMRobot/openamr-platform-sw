@@ -20,8 +20,13 @@ import pytest
 pytest.importorskip('openamr_nav_msgs')
 rclpy = pytest.importorskip('rclpy')
 
-from openamr_nav_msgs.msg import NavigationStatus  # noqa: E402,I100
-from openamrobot_nav2.navigation_status_node import NavigationStatusNode  # noqa: E402
+from openamr_nav_msgs.msg import NavigationStatus, NavStackStatus  # noqa: E402,I100
+from openamrobot_nav2.navigation_status_node import (  # noqa: E402
+    LIFECYCLE_ACTIVE,
+    MANAGED_NAV_NODES,
+    NavigationStatusNode,
+)
+from rclpy.parameter import Parameter  # noqa: E402
 
 ABORTED = 6
 ACTIVE = 3
@@ -192,6 +197,101 @@ class TestResultRetryDrivenByTick(NodeTestCase):
         fut.finish(SimpleNamespace(result=SimpleNamespace(error_code=208)))
         self.assertEqual(self.node._task.native_error_code, 208)
         self.assertEqual(self.node._task.reason, NavigationStatus.NO_VALID_PATH)
+
+
+class TestFailedStackState(NodeTestCase):
+    """
+    Covers the FAILED stack state.
+
+    A stack stuck with some but not all nodes active must eventually report
+    FAILED, not stay RESETTING forever - but a normal, brief bounce must not
+    be mistaken for FAILED.
+    """
+
+    def _confirm_all_but_one(self, state_of_rest, now_s):
+        for i, name in enumerate(MANAGED_NAV_NODES):
+            state = LIFECYCLE_ACTIVE if i == 0 else state_of_rest
+            self.node._lifecycle.confirm(name, state, now_s)
+
+    def test_a_brief_bounce_stays_resetting_not_failed(self):
+        self.node._state_request_timeout_s = 0.3
+        self.node.set_parameters(
+            [Parameter('stack_failed_after_s', value=0.3)])
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)  # 1 = UNCONFIGURED, not ACTIVE
+
+        state, reason = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_RESETTING)
+        self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
+
+    def test_stuck_past_the_timeout_becomes_failed(self):
+        self.node.set_parameters(
+            [Parameter('stack_failed_after_s', value=0.3)])
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)
+        self.node._stack_state(self.node._now_s())  # starts the resetting_since clock
+
+        time.sleep(0.4)
+        # the stuck nodes are still not confirmed active, so refresh them so
+        # they do not also go stale/unknown for an unrelated reason
+        self._confirm_all_but_one(1, self.node._now_s())
+        state, reason = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_FAILED)
+        self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
+
+    def test_recovering_to_active_clears_the_failed_state(self):
+        self.node.set_parameters(
+            [Parameter('stack_failed_after_s', value=0.3)])
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)
+        self.node._stack_state(self.node._now_s())
+        time.sleep(0.4)
+        self._confirm_all_but_one(1, self.node._now_s())
+        state, _ = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_FAILED)
+
+        # all nodes come back
+        now_s = self.node._now_s()
+        for name in MANAGED_NAV_NODES:
+            self.node._lifecycle.confirm(name, LIFECYCLE_ACTIVE, now_s)
+        state, reason = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_ACTIVE)
+        self.assertEqual(reason, NavigationStatus.NONE)
+
+        # and if it gets stuck again later, the clock must have restarted,
+        # not still be counting from the first time
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)
+        state, _ = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_RESETTING)
+
+    def test_going_unknown_clears_the_clock_for_a_later_stall(self):
+        self.node.set_parameters(
+            [Parameter('stack_failed_after_s', value=0.3)])
+        now_s = self.node._now_s()
+        self._confirm_all_but_one(1, now_s)
+        self.node._stack_state(self.node._now_s())  # first stall begins, clock starts
+
+        time.sleep(0.2)  # into the stall, still under the 0.3s timeout
+
+        # every node drops out of confirmation (e.g. their services become
+        # unreachable) - the stack reports UNKNOWN, and must forget the clock
+        # it was keeping for the stall above, not just pause it
+        for name in MANAGED_NAV_NODES:
+            self.node._lifecycle.unreachable(name)
+        state, _ = self.node._stack_state(self.node._now_s())
+        self.assertEqual(state, NavStackStatus.STATE_UNKNOWN)
+
+        # total elapsed since the FIRST stall is now ~0.4s, past the 0.3s
+        # timeout - but that old clock is gone
+        time.sleep(0.2)
+
+        # a brand new, separate stall starts now
+        self._confirm_all_but_one(1, self.node._now_s())
+        state, reason = self.node._stack_state(self.node._now_s())
+        # freshly RESETTING, not immediately FAILED from inherited time
+        self.assertEqual(state, NavStackStatus.STATE_RESETTING)
+        self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
 
 
 if __name__ == '__main__':
