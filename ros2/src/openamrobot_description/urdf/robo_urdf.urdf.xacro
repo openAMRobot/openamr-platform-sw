@@ -666,6 +666,37 @@ Stephen Brawner (brawner@gmail.com)
     <child link="camera_optical_frame"/>
   </joint>
 
+  <!-- Gemini RGB-D assembly. Z = 0.143 m is derived from the current baseline
+       lens floor height (~0.243 m) and base_link floor reference (~0.100 m).
+       X remains a provisional simulation placeholder pending confirmation of
+       current bracket/hardware geometry; Y = 0 m places it on the centreline.
+       The -0.1745 rad pitch is the confirmed baseline 10-degree up-tilt.
+       This provisional origin is not claimed as final physical calibration. -->
+  <link name="base_camera_link"/>
+
+  <joint name="base_camera_joint" type="fixed">
+    <origin xyz="0 0 0.143" rpy="0 -0.1745 0"/>
+    <parent link="base_link"/>
+    <child link="base_camera_link"/>
+  </joint>
+
+  <!-- Optical axes: +Z forward, +X right, +Y down. The two optical origins
+       are temporarily co-located for simulation; the real RGB/depth baseline
+       and extrinsics remain TBD pending the Gemini camera geometry. -->
+  <link name="base_camera_color_optical_frame"/>
+  <joint name="base_camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_color_optical_frame"/>
+  </joint>
+
+  <link name="base_camera_depth_optical_frame"/>
+  <joint name="base_camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_depth_optical_frame"/>
+  </joint>
+
   <xacro:include filename="gazebo_control.xacro" />
 
 

@@ -162,6 +162,36 @@
     </sensor>
   </gazebo>
 
+  <!-- Gemini RGB-D simulation sensor. This is an idealized Gazebo sensor;
+       mount pose, optical calibration, and RGB/depth baseline are TBD and
+       must not be interpreted as Gemini/A6 physical measurements. Gazebo's
+       native RGBD sensor publishes one shared camera_info and uses the same
+       optical_frame_id for its RGB and depth image headers. -->
+  <gazebo reference="base_camera_link">
+    <sensor name="gemini_rgbd_sensor" type="rgbd_camera">
+      <pose relative_to="base_camera_link">0 0 0 0 0 0</pose>
+      <topic>/base_camera/rgbd</topic>
+      <gz_frame_id>base_camera_color_optical_frame</gz_frame_id>
+      <update_rate>12</update_rate>
+      <camera>
+        <!-- Provisional simulation settings, using the existing sim camera profile. -->
+        <horizontal_fov>1.047</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>15.0</far>
+        </clip>
+        <optical_frame_id>base_camera_color_optical_frame</optical_frame_id>
+      </camera>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+    </sensor>
+  </gazebo>
+
   <!-- ── Link-level: lidar_link — sensor ONLY here ─────────────────── -->
   <gazebo reference="lidar_link">
     <material>Gazebo/Black</material>

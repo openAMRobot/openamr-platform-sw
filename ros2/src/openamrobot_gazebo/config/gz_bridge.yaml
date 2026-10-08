@@ -60,3 +60,23 @@
   ros_type_name: "sensor_msgs/msg/CameraInfo"
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS
+
+# Gemini RGB-D sensor. Gazebo's native rgbd_camera appends /image,
+# /depth_image, and /camera_info to its configured /base_camera/rgbd base topic.
+- ros_topic_name: "/base_camera/rgbd/image"
+  gz_topic_name: "/base_camera/rgbd/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/base_camera/rgbd/depth_image"
+  gz_topic_name: "/base_camera/rgbd/depth_image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/base_camera/rgbd/camera_info"
+  gz_topic_name: "/base_camera/rgbd/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
