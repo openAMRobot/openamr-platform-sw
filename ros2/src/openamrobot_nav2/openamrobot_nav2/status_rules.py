@@ -7,6 +7,7 @@ can be tested without a running graph.
 
 from collections import namedtuple
 
+from diagnostic_msgs.msg import DiagnosticStatus
 from openamr_nav_msgs.msg import (
     LocalizationStatus,
     MotionSourceCoverage,
@@ -57,6 +58,35 @@ def motion_source_reason(coverage):
         # stricter one until a MOTION_SOURCE_PARTIALLY_PROTECTED code exists.
         return NavigationStatus.MOTION_SOURCE_UNPROTECTED
     return NavigationStatus.PROTECTION_STATE_UNKNOWN
+
+
+def health_to_diagnostic_level(health):
+    """Map NavigationStatus.health to a diagnostic_msgs/DiagnosticStatus level."""
+    if health == NavigationStatus.HEALTH_OK:
+        return DiagnosticStatus.OK
+    if health == NavigationStatus.HEALTH_DEGRADED:
+        return DiagnosticStatus.WARN
+    if health == NavigationStatus.HEALTH_FAULT:
+        return DiagnosticStatus.ERROR
+    # HEALTH_UNKNOWN, or any value this does not recognize yet, must never
+    # read as healthy - same rule NavigationStatus.msg states for HEALTH_UNKNOWN.
+    return DiagnosticStatus.STALE
+
+
+def sensor_state_to_diagnostic_level(state):
+    """Map SensorStatus.state to a diagnostic_msgs/DiagnosticStatus level."""
+    if state == SensorStatus.STATE_OK:
+        return DiagnosticStatus.OK
+    if state == SensorStatus.STATE_DEGRADED:
+        return DiagnosticStatus.WARN
+    if state in (SensorStatus.STATE_STALE, SensorStatus.STATE_UNKNOWN):
+        # STALE has data that stopped arriving; UNKNOWN has none to judge yet.
+        # Both mean "no current reading to trust", which is what STALE means
+        # to diagnostic_msgs - distinct from ABSENT, which is a real fault.
+        return DiagnosticStatus.STALE
+    # STATE_ABSENT, or any value this does not recognize yet, is a real
+    # problem, not merely stale data.
+    return DiagnosticStatus.ERROR
 
 
 def rear_coverage_reason(rear_coverage):

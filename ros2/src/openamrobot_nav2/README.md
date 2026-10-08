@@ -263,6 +263,12 @@ observes: it never sends velocity or goals.
   of this repository. Build it in an underlay and source it first.
 - `use_sim_time` is left to the launch file or parameters: pass
   `use_sim_time:=true` in the simulation and leave it off on a real robot.
+- It also mirrors a plain `diagnostic_msgs/DiagnosticArray` on `/diagnostics`,
+  published every tick regardless of whether `/navigation/status` itself was
+  due, so generic diagnostic tooling sees this node without understanding
+  `NavigationStatus`. It currently covers overall `health` and one entry per
+  sensor only — stack, localization, recovery and protection are not mirrored
+  there yet.
 
 ```bash
 source ~/nav_msgs_ws/install/setup.bash   # wherever openamr_nav_msgs is built
@@ -270,11 +276,10 @@ ros2 run openamrobot_nav2 navigation_status_node --ros-args -p use_sim_time:=tru
 ros2 topic echo /navigation/status --once
 ```
 
-This does not complete #34. Still missing: the `/diagnostics` mirror and
-`constraints`/speed-limit reporting. `constraints` stays empty (nothing
-publishes `/speed_limit` in simulation), `distance_remaining` keeps its last
-value after a goal ends, and localization stays UNKNOWN until AMCL publishes
-its next pose. Sim only, nothing validated on hardware.
+This does not complete #34. `constraints` stays empty (nothing publishes
+`/speed_limit` in simulation), `distance_remaining` keeps its last value
+after a goal ends, and localization stays UNKNOWN until AMCL publishes its
+next pose. Sim only, nothing validated on hardware.
 
 ---
 
