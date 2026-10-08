@@ -307,10 +307,12 @@ class FakePub:
 
 class TestDiagnosticsMirror(NodeTestCase):
     """
-    The /diagnostics mirror must publish every tick, independent of whether
-    /navigation/status itself was due (PublishGate only gates that topic).
-    A monitoring tool watching /diagnostics should not have to understand
-    NavigationStatus's own change/heartbeat gating to get a fresh reading.
+    The /diagnostics mirror publishes every tick, independent of status gating.
+
+    /navigation/status itself may not be due yet (PublishGate only gates that
+    topic), but a monitoring tool watching /diagnostics should not have to
+    understand NavigationStatus's own change/heartbeat gating to get a fresh
+    reading.
     """
 
     def test_diagnostics_publishes_every_tick_even_with_no_change(self):

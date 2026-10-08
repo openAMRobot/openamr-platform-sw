@@ -96,9 +96,12 @@ class TestSensorReason(unittest.TestCase):
 
 
 class TestDiagnosticLevels(unittest.TestCase):
-    """The /diagnostics mirror's level mapping, kept pure and testable here;
-    the DiagnosticArray/DiagnosticStatus message construction itself lives in
-    the node, since it is one-line glue with nothing left to unit test."""
+    """
+    The /diagnostics mirror's level mapping, kept pure and testable here.
+
+    The DiagnosticArray/DiagnosticStatus message construction itself lives in
+    the node, since it is one-line glue with nothing left to unit test.
+    """
 
     def test_health_levels(self):
         self.assertEqual(

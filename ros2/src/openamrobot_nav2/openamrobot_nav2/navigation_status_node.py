@@ -1,6 +1,5 @@
 """
-Publish NavigationStatus on /navigation/status, and a plain diagnostic_msgs
-mirror of it on /diagnostics.
+Publish NavigationStatus on /navigation/status and mirror it on /diagnostics.
 
 Watches Nav2 (lifecycle state, AMCL, the navigate_to_pose action, the behavior
 tree log), the sensor topics in the profile and the collision monitor, and
