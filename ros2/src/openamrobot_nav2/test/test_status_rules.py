@@ -161,10 +161,24 @@ class TestProtectionReasons(unittest.TestCase):
                          MotionSourceCoverage.COVERAGE_PARTIAL):
             self.assertNotEqual(motion_source_reason(coverage), NONE)
 
-    def test_partial_is_reported_as_the_stricter_reason(self):
+    def test_partial_gets_its_own_reason_not_the_unprotected_one(self):
         self.assertEqual(
             motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL),
+            NavigationStatus.MOTION_SOURCE_PARTIALLY_PROTECTED)
+
+    def test_unprotected_still_reports_the_unprotected_reason(self):
+        self.assertEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_UNPROTECTED),
             NavigationStatus.MOTION_SOURCE_UNPROTECTED)
+
+    def test_partial_and_unprotected_are_distinguishable(self):
+        self.assertNotEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL),
+            motion_source_reason(MotionSourceCoverage.COVERAGE_UNPROTECTED))
+
+    def test_partial_does_not_relax_to_protected(self):
+        self.assertNotEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL), NONE)
 
     def test_unknown_coverage_says_the_state_is_unknown(self):
         self.assertEqual(

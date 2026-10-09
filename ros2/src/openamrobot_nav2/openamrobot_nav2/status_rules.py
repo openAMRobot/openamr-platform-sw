@@ -52,11 +52,10 @@ def motion_source_reason(coverage):
     """Return the reason for a motion source's collision-monitor coverage."""
     if coverage == MotionSourceCoverage.COVERAGE_PROTECTED:
         return NavigationStatus.NONE
-    if coverage in (MotionSourceCoverage.COVERAGE_UNPROTECTED,
-                    MotionSourceCoverage.COVERAGE_PARTIAL):
-        # There is no reason for "partly protected" yet, so PARTIAL reports the
-        # stricter one until a MOTION_SOURCE_PARTIALLY_PROTECTED code exists.
+    if coverage == MotionSourceCoverage.COVERAGE_UNPROTECTED:
         return NavigationStatus.MOTION_SOURCE_UNPROTECTED
+    if coverage == MotionSourceCoverage.COVERAGE_PARTIAL:
+        return NavigationStatus.MOTION_SOURCE_PARTIALLY_PROTECTED
     return NavigationStatus.PROTECTION_STATE_UNKNOWN
 
 
