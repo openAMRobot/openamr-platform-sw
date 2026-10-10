@@ -115,7 +115,9 @@ hardware as in simulation. Only the data source differs:
 | odom / scan / imu / camera | `openamrobot_gazebo` (Gazebo + `gz_bridge`) | `openamrobot_drivers` + `openamrobot_perception` + EKF |
 
 It composes:
-- `openamrobot_drivers/drivers.launch.py` — micro-ROS agent (Teensy) + RPLIDAR → `/scan`;
+- `openamrobot_drivers/drivers.launch.py` — micro-ROS agent (Teensy) + RPLIDAR (`sllidar_ros2`;
+  `lidar_model:=s3` for the RPLIDAR S3; default `a1`, the legacy (existing robot) A1, until
+  the S3 is mounted; passed through from this launch) → `/scan`;
 - `openamrobot_perception/scan_body_filter.launch.py` — `/scan` → `/scan_filtered`;
 - `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708);
 - `robot_localization` **EKF** (`config/ekf.yaml`) — wheels + IMU gyro-Z → `/odom` + TF

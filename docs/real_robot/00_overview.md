@@ -27,7 +27,7 @@ or planning — the thing that repeatedly bites us on the Pi (see
 |---|---|---|
 | Compute | Raspberry Pi 5 Model B Rev 1.1, 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
 | MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
-| LiDAR | RPLIDAR A1 (2D, ~5.5–10 Hz), mounted **rotated 180°** | `/dev/ttyUSB0` (CP2102) |
+| LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`; the driver default stays `a1` until the S3 is mounted) | `/dev/ttyUSB0` (CP2102) |
 | Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
 | Drive | 2× BLDC Z4BLD60-24GN-30S (60 W, 30:1), 2× ZBLD.C20-120L2R drivers | — |
 | Power | 2× 12 V lead-acid in series (24 V bus), 5 V buck to the Pi | — |
@@ -68,7 +68,7 @@ TF: (map →) odom → base_link → {lidar_link, imu_link, base_footprint,
 | Node (real) | Package | Provides |
 |---|---|---|
 | micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data`, `/debug/*` |
-| `rplidar_composition` | `openamrobot_drivers` | `/scan` (frame `lidar_link`) |
+| `sllidar_node` (`sllidar_ros2`) | `openamrobot_drivers` | `/scan` (frame `lidar_link`) |
 | `scan_body_filter` | `openamrobot_perception` | `/scan_filtered` (robot body masked) |
 | `ekf_node` (`robot_localization`) | `openamrobot_bringup` cfg | `/odom` + TF `odom→base_link` (wheels + IMU gyro-Z) |
 | `camera` (`camera_ros`) | `openamrobot_perception` | `/camera/image_raw`, `/camera/camera_info` |

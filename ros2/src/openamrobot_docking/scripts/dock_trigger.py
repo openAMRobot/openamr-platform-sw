@@ -206,14 +206,14 @@ class DockTrigger(Node):
         # False: legacy hard floor. Live-tunable.
         self.declare_parameter('omega_pwm', True)
         # Stop the LiDAR during the NEAR visual approach (its IR dot can drop tag
-        # detections — its ~5-6Hz spin period roughly matches the tag-detection
+        # detections — its ~5-6Hz spin period (legacy A1) roughly matches the tag-detection
         # flicker measured near contact, 2026-07-07 docking audit). OFF by default:
         # a PRIOR observation was that stopping the motor also killed AprilTag
-        # detection within ~1s. That was attributed to apriltag and rplidar sharing
+        # detection within ~1s. That was attributed to apriltag and the LiDAR driver sharing
         # a component container, but this has been VERIFIED FALSE (2026-07-07):
         # apriltag runs standalone (docking_real.launch.py -> apriltag.launch.yml)
-        # and rplidar_composition runs as its own separate process
-        # (openamrobot_drivers/drivers.launch.py) — they have never shared a
+        # and the LiDAR driver (rplidar_composition then, sllidar_node now) runs as its own
+        # separate process (openamrobot_drivers/drivers.launch.py) — they have never shared a
         # container. The real cause of the earlier observation (if it reproduces)
         # is unconfirmed (USB bus/power contention on motor toggle? CPU spike?
         # stale observation?) — worth re-testing on hardware before flipping this
@@ -373,9 +373,10 @@ class DockTrigger(Node):
         # below the closest legitimate obstacle distance.
         self.declare_parameter('obstacle_min_range', 0.0)               # m — 0 = disabled
         # Scan-frame angle that points to the robot's FORWARD. 0.0 in sim (lidar aligned with
-        # base_link). On THIS real robot the RPLIDAR is mounted rotated 180° (yaw=π), so scan
-        # angle 0 points BACKWARD — set this to 3.14159 in the real dock_trigger.yaml, otherwise
-        # the forward obstacle cone watches the rear and the robot drives in blind.
+        # base_link). On THIS real robot the RPLIDAR A1, legacy (existing robot), is mounted
+        # rotated 180° (yaw=π), so scan angle 0 points BACKWARD — set this to 3.14159 in the real
+        # dock_trigger.yaml, otherwise the forward obstacle cone watches the rear and the robot
+        # drives in blind. To re-check on the RPLIDAR S3 (OpenAMRobot 2.0).
         self.declare_parameter('obstacle_scan_forward_angle', 0.0)      # rad (real robot: 3.14159)
 
         self.trigger_topic = self.get_parameter('trigger_topic').value
@@ -654,6 +655,9 @@ class DockTrigger(Node):
 
     def _set_lidar(self, running: bool) -> None:
         """Start/stop the RPLIDAR motor during the camera phases.
+
+        Uses the LiDAR driver's /stop_motor and /start_motor services (std_srvs/Empty;
+        sllidar_ros2 provides both under the same names as rplidar_ros did).
 
         The LiDAR's IR laser sweeps a bright dot across the tags and drops
         apriltag detections. The visual approach doesn't use the LiDAR

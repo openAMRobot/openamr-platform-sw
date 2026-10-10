@@ -147,7 +147,7 @@ general_goal_checker:
 
 ```yaml
 amcl:
-  laser_max_range: 12.0        # RPLIDAR A1's real reach (not 100 → phantom beams)
+  laser_max_range: 12.0        # legacy (existing robot) RPLIDAR A1 reach (not 100 → phantom beams); S3: to retune
   laser_min_range: -1.0
   max_beams: 60   min_particles: 500   max_particles: 2000
   recovery_alpha_fast: 0.1     recovery_alpha_slow: 0.001

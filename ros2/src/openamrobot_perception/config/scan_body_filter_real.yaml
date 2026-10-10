@@ -1,8 +1,10 @@
 # Real-robot LiDAR body filter — parameters for the openamrobot_perception
 # scan_body_filter node. Angles are in DEGREES, in the LiDAR frame.
 #
-# Calibrated for THIS unit (2026-06): the RPLIDAR A1 is mounted ROTATED 180 deg,
-# so 0 deg = robot REAR, +/-180 deg = robot FRONT, -90 = left, +90 = right.
+# Calibrated for THIS unit (2026-06): the RPLIDAR A1, legacy (existing robot), is
+# mounted ROTATED 180 deg, so 0 deg = robot REAR, +/-180 deg = robot FRONT, -90 = left,
+# +90 = right. Not yet re-measured with the RPLIDAR S3 (OpenAMRobot 2.0): re-measure the
+# sectors and the scan-angle orientation on the S3 before relying on them.
 # Empirical body-return profile:
 #   - rear shell blocks everything  -> full mask
 #   - thin side posts (~0.17-0.18 m) -> close-only mask (real walls kept)
