@@ -481,8 +481,9 @@
       </visual>
     </link>
     <joint name="left_wheel_joint" type="revolute">
-      <!-- drive axle x 0, y +0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-           was 4.7743e-05 0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
+      <!-- drive axle x 0, y +0.200, z 0 (Alex decision 2026-10-12).
+           Wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
+           Was 4.7743e-05 0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
       <pose relative_to="base_link">0 0.200 0 0 0 0</pose>
       <parent>base_link</parent>
       <child>left_wheel_link</child>
@@ -592,8 +593,9 @@
       </visual>
     </link>
     <joint name="right_wheel_joint" type="revolute">
-      <!-- drive axle x 0, y -0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-           was 4.7657000000000001e-05 -0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
+      <!-- drive axle x 0, y -0.200, z 0 (Alex decision 2026-10-12).
+           Wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
+           Was 4.7657000000000001e-05 -0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
       <pose relative_to="base_link">0 -0.200 0 0 0 0</pose>
       <parent>base_link</parent>
       <child>right_wheel_link</child>
@@ -649,9 +651,10 @@
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
-      <!-- wheel separation 0.400, radius 0.100 (Alex decision 2026-10-12,
-           STEP MMP.00.00.00.000); separation 0.46 superseded by Alex decision 2026-10-12 -->
+      <!-- wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
+           Was 0.46, superseded by Alex decision 2026-10-12 -->
       <wheel_separation>0.400</wheel_separation>
+      <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
       <wheel_radius>0.100</wheel_radius>
       <odom_publish_frequency>50</odom_publish_frequency>
       <topic>/cmd_vel</topic>
