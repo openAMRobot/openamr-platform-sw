@@ -54,6 +54,10 @@ colcon build --symlink-install --packages-select openamrobot_drivers openamrobot
 source install/setup.bash
 ```
 
+The Docker quickstart (`Dockerfile`) copies only `ros2/src` and does not fetch `sllidar_ros2`, so the
+image supports simulation only; `drivers.launch.py` and `real_bringup.launch.py` need the pinned install
+above on the robot.
+
 This repository has no `.repos` file. The workspace manifest entry for the same commit is proposed
 in [openamrobot-manifest PR #11](https://github.com/openAMRobot/openamrobot-manifest/pull/11). CI job
 `drivers-bringup-launch-tests` (`.github/workflows/drivers-bringup-tests.yml`) builds this pinned commit
