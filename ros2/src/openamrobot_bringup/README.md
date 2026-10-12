@@ -139,7 +139,7 @@ preventing "extrapolation into the future" on the SLAM side.
 
 ### Measured static TFs (unit-specific)
 
-The LiDAR is mounted **rotated 180°** (`yaw=π`), 0.335 m ahead of the axle, 0.18 m up. The
+Gate A unit: the LiDAR is mounted **rotated 180°** (`yaw=π`), 0.335 m ahead of the axle, 0.18 m up. The
 camera is 0.415 m ahead, 0.12 m up. Re-measure if the sensor mounts change. These describe
 **this** robot; on another unit, edit the values in `real_bringup.launch.py`.
 

@@ -75,8 +75,9 @@ def generate_launch_description():
             remappings=[('odometry/filtered', '/odom')],
             output='screen'),
         # --- measured static TFs for THIS unit ---
-        # lidar: 0.335 m ahead of the axle, 0.18 m up, mounted ROTATED 180 deg.
-        _static_tf('base_to_lidar', 'base_link', 'lidar_link', x=0.335, z=0.18, yaw=3.14159),
+        # lidar, Gate A unit: 0.335 m ahead of the axle, 0.18 m up, mounted ROTATED 180 deg.
+        _static_tf('base_to_lidar', 'base_link', 'lidar_link',
+                   x=0.335, z=0.18, yaw=3.14159),  # Gate A unit
         # imu: identity (only gyro-Z used, robust to the small physical tilt).
         _static_tf('base_to_imu', 'base_link', 'imu_link'),
         # base_footprint: identity (firmware odom child_frame_id = base_footprint).

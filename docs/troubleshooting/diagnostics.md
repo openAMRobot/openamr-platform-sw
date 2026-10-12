@@ -78,7 +78,7 @@ Setting up PlatformIO on a PEP 668 ("externally managed") Ubuntu was non-trivial
 - **Stops publishing on its own**: sometimes the node is alive but `/scan` goes silent. A single node
   restart brings it back. Cause not pinned (USB power / motor?). To watch — especially during SLAM.
 - **Mounted rotated 180°**: found empirically (object in front shows at ±180° in the LiDAR frame). The TF
-  `base_link→lidar_link` uses **yaw=180°**, x=0.335, z=0.18. The robot's own frame also produces close
+  `base_link→lidar_link` uses **yaw=180°**, x=0.335, z=0.18 (Gate A unit). The robot's own frame also produces close
   returns (≈ ±20–50°, ±80–90°) → handled with `min_laser_range`/scan filter.
 
 ## 5. Smaller gotchas
