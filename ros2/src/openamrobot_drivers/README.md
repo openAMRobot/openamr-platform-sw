@@ -15,8 +15,8 @@ Starts:
   `lidar_model:=a1` is the RPLIDAR A1, legacy (existing robot). Any other value is rejected.
   The default is `a1` until the S3 is physically mounted; the default flips to `s3` in the
   change that mounts the S3 (the `s3` settings are already prepared).
-  `sllidar_ros2` has no Jazzy binary package; build it from source
-  (`https://github.com/Slamtec/sllidar_ros2`) in the same workspace.
+  `sllidar_ros2` has no Jazzy binary package; build it from source at the pinned commit
+  (see [Pinned `sllidar_ros2` install](#pinned-sllidar_ros2-install)).
 
 ```bash
 ros2 launch openamrobot_drivers drivers.launch.py
@@ -25,6 +25,39 @@ ros2 launch openamrobot_drivers drivers.launch.py teensy_port:=/dev/ttyACM0 lida
 # RPLIDAR S3 (OpenAMRobot 2.0), once mounted:
 ros2 launch openamrobot_drivers drivers.launch.py lidar_model:=s3
 ```
+
+### Pinned `sllidar_ros2` install
+
+The LiDAR driver is Slamtec `sllidar_ros2` (BSD licence, not copied into this repository), pinned to
+upstream commit `34300099fadfc772965962dec837bf436706188f` (main, 2024-06-17, "bugfix:set the minimum
+distance to 5cm"). The `s3` and `a1` settings in `drivers.launch.py` were taken from this commit's
+`launch/sllidar_s3_launch.py` and `launch/sllidar_a1_launch.py`. Build it once in its own workspace
+and overlay it under this repository's workspace:
+
+```bash
+# 1. Check out the pinned commit
+mkdir -p ~/sllidar_ws/src && cd ~/sllidar_ws/src
+git clone https://github.com/Slamtec/sllidar_ros2.git
+git -C sllidar_ros2 checkout 34300099fadfc772965962dec837bf436706188f
+
+# 2. Build
+cd ~/sllidar_ws
+source /opt/ros/jazzy/setup.bash
+rosdep install -y --rosdistro jazzy --ignore-src --from-paths src
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# 3. Overlay: source it before building and running this repository's workspace
+source ~/sllidar_ws/install/setup.bash
+ros2 pkg executables sllidar_ros2   # expect: sllidar_ros2 sllidar_client, sllidar_ros2 sllidar_node
+cd <this repository>/ros2
+colcon build --symlink-install --packages-select openamrobot_drivers openamrobot_bringup
+source install/setup.bash
+```
+
+This repository has no `.repos` file. The workspace manifest entry for the same commit is proposed
+in [openamrobot-manifest PR #11](https://github.com/openAMRobot/openamrobot-manifest/pull/11). CI job
+`drivers-bringup-launch-tests` (`.github/workflows/drivers-bringup-tests.yml`) builds this pinned commit
+on every change to the drivers or bringup packages.
 
 ### Launch arguments (unit-specific defaults)
 
