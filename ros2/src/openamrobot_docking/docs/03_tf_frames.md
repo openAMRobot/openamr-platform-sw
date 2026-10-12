@@ -9,16 +9,17 @@ each link comes from, and how to verify it.
 The dock carries a **3-tag bundle** (family 36h11, IDs `0`, `1`, `2`). `apriltag_ros` publishes one dynamic TF per detected tag — the same chain prefix, three different leaves:
 
 ```
-map → odom → base_link → camera_link → camera_optical_frame ─┬→ charging_dock_tag_0
-                                                              ├→ charging_dock_tag_1   (centre, docking target)
-                                                              └→ charging_dock_tag_2
+map → odom → base_footprint → base_link → camera_link → camera_optical_frame ─┬→ charging_dock_tag_0
+                                                                               ├→ charging_dock_tag_1   (centre, docking target)
+                                                                               └→ charging_dock_tag_2
 ```
 
 | Link | Source |
 |---|---|
 | `map → odom` | Localization (slam_toolbox in sim, AMCL or another localizer in real) |
-| `odom → base_link` | Wheel odometry (DiffDrive plugin in sim, robot driver in real) |
-| `base_link → camera_link` | Static, from URDF (`camera_joint`, fixed) — translation (0.35, 0, 0.22), no rotation |
+| `odom → base_footprint` | Wheel odometry (DiffDrive plugin in sim, `child_frame_id` base_footprint). On the real Gate A unit the EKF publishes `odom → base_link` and a static `base_link → base_footprint` |
+| `base_footprint → base_link` | Static, from URDF (`base_footprint_joint`) — z 0.098, base_link at the drive-axle midpoint (REP 105) |
+| `base_link → camera_link` | Static, from URDF (`camera_joint`, fixed) — translation (0.35, 0, 0.20), no rotation; legacy IMX708, Gate A |
 | `camera_link → camera_optical_frame` | Static, from URDF (`camera_optical_joint`, fixed) — `rpy = (−π/2, 0, −π/2)` |
 | `camera_optical_frame → charging_dock_tag_{0,1,2}` | Dynamic, from `apriltag_ros` — one TF per detected bundle tag |
 
@@ -59,26 +60,30 @@ servo, so the rotation must be correct or those steps will mis-aim.
 
 Provided by the `openamrobot_description` package, loaded by
 `robot_state_publisher` via `xacro` from
-`openamrobot_description/urdf/openamrobot.urdf.xacro`. The URDF tree is:
+`openamrobot_description/urdf/robo_urdf.urdf.xacro`. Values from the Alex decision
+2026-10-12 and STEP MMP.00.00.00.000 (xyz in metres relative to the parent). The URDF tree is:
 
 ```
-base_link                  ← URDF root, ground projection (z = 0)
-└── base_link                   ← base_joint lifts by 0.053 m so wheels touch ground
-    ├── lidar_link              ← gpu_lidar sensor host
-    ├── camera_link             ← (0.35, 0, 0.22), forward-mounted camera
+base_footprint                  ← URDF root, on the floor under the drive-axle midpoint (z = 0)
+└── base_link                   ← base_footprint_joint, z 0.098 (drive-axle midpoint)
+    ├── lidar_link              ← (0.330, 0, 0.124), yaw π; scan plane 222.0 mm above floor
+    ├── base_camera_link        ← (0.376, 0, 0.0445), Gemini 336L, pitch by base_tilt (default bt10)
+    │   ├── base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
+    │   └── base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
+    ├── imu_link                ← (0.195, 0, −0.044), ICM-42688-P
+    ├── us_front_left, us_front_right, us_rear_left, us_rear_right, tof_front, tof_rear
+    ├── camera_link             ← (0.35, 0, 0.20), legacy IMX708, Gate A; docking camera
     │   └── camera_optical_frame  ← rpy (−π/2, 0, −π/2) for solvePnP
-    ├── left_wheel_link
-    ├── right_wheel_link
+    ├── left_wheel_link, right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100
     └── (4 caster + 4 caster-wheel links)
 ```
 
-`base_footprint` is the URDF's root, NOT `base_link`. This matters for
-the spawn z: `simulation.launch.py` spawns `base_link` at world
-`z = 0`, and `base_joint` then puts `base_link` 5.3 cm higher so the
-wheel centres are at world z = `wheel_radius` = 0.1 m. Spawning the
-URDF root at non-zero z (as an earlier version did) left the drive
-wheels floating above the ground — see Lesson 25 in
-`12_lessons_learned.md`.
+<!-- superseded by Alex decision 2026-10-12: base_joint lifted base_link by 0.053 m above the
+     URDF root; camera_joint was listed here as (0.35, 0, 0.22), the URDF value is (0.35, 0, 0.20). -->
+
+`base_footprint` is the URDF's root, NOT `base_link`. The DiffDrive plugin publishes
+`odom → base_footprint`, and `base_footprint_joint` puts `base_link` 0.098 m higher, at the
+drive-axle midpoint.
 
 Gazebo's plugins publish dynamic transforms (`odom`, `joint_states`).
 `robot_state_publisher` constructs the static portion from the URDF.
@@ -126,8 +131,8 @@ estimation in Phase 2/3 of the bundle sequencer.
 - **Forgetting `camera_optical_frame`.** Tag pose is then in
   `camera_link` (body), apriltag_ros computes solvePnP assuming
   optical → result is rotated.
-- **Spawning the URDF root with a non-zero z**. `base_link` must
-  be at z = 0; the lift to `base_link` is handled by `base_joint`.
+- **Spawning the URDF root with a non-zero z**. `base_footprint` must
+  be at z = 0; the lift to `base_link` (0.098 m) is handled by `base_footprint_joint`.
 - **Spawning the robot at non-zero yaw in simulation**.
   `slam_toolbox` initialises the map at the robot's spawn pose. If
   you spawn at world `yaw = π/2`, the `map_x` axis aligns with
