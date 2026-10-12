@@ -5,12 +5,30 @@ Stephen Brawner (brawner@gmail.com)
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="robo_urdf" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- REP 105 frame convention (Alex decision 2026-10-12): base_footprint is the
+       URDF root on the floor under the drive-axle midpoint; base_link sits at the
+       drive-axle midpoint 0.098 m above it; x forward, y left, z up.
+       Superseded: base_link was the URDF root at the SolidWorks export origin, about
+       0.0635 m above the floor (wheel radius 0.11 minus axle height 0.046533);
+       superseded by Alex decision 2026-10-12.
+       The legacy SolidWorks meshes, inertials and caster joints below were expressed
+       in that old origin. They are shifted by z -0.034533 (0.063467 - 0.098) so they
+       keep their height above the floor; the meshes themselves are unchanged. -->
+  <link name="base_footprint"/>
+  <!-- base_footprint to base_link: z 0.098 (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
+  <joint name="base_footprint_joint" type="fixed">
+    <origin xyz="0 0 0.098" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+  </joint>
   <link
     name="base_link">
     <inertial>
       <origin
-        xyz="0.0130206782008723 -0.0172284113080805 0.0788067724499705"
+        xyz="0.0130206782008723 -0.0172284113080805 0.0442737724499705"
         rpy="0 0 0" />
+      <!-- z shifted by -0.034533 for the base_link move (Alex decision 2026-10-12);
+           was z 0.0788067724499705, superseded by Alex decision 2026-10-12 -->
       <mass
         value="4.17533781895232" />
       <inertia
@@ -22,8 +40,10 @@ Stephen Brawner (brawner@gmail.com)
         izz="0.135705995449285" />
     </inertial>
     <visual>
+      <!-- legacy mesh kept at its floor height: z -0.034533 (Alex decision 2026-10-12);
+           was xyz="0 0 0", superseded by Alex decision 2026-10-12 -->
       <origin
-        xyz="0 0 0"
+        xyz="0 0 -0.034533"
         rpy="0 0 0" />
       <geometry>
         <mesh
@@ -36,8 +56,10 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
+      <!-- legacy mesh kept at its floor height: z -0.034533 (Alex decision 2026-10-12);
+           was xyz="0 0 0", superseded by Alex decision 2026-10-12 -->
       <origin
-        xyz="0 0 0"
+        xyz="0 0 -0.034533"
         rpy="0 0 0" />
       <geometry>
         <mesh
@@ -88,8 +110,10 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="fl_caster_joint"
     type="fixed">
+    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
+         was xyz="0.27505 0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="0.27505 0.215 -0.0093"
+      xyz="0.27505 0.215 -0.043833"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -194,8 +218,10 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="fr_caster_joint"
     type="fixed">
+    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
+         was xyz="0.27505 -0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="0.27505 -0.215 -0.0093"
+      xyz="0.27505 -0.215 -0.043833"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -300,8 +326,10 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="br_caster_joint"
     type="fixed">
+    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
+         was xyz="-0.27495 -0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="-0.27495 -0.215 -0.0093"
+      xyz="-0.27495 -0.215 -0.043833"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -406,8 +434,10 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="bl_caster_joint"
     type="fixed">
+    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
+         was xyz="-0.27495 0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="-0.27495 0.215 -0.0093"
+      xyz="-0.27495 0.215 -0.043833"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -502,15 +532,19 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.11" length="0.046"/>
+        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+             was radius 0.11, superseded by Alex decision 2026-10-12 -->
+        <cylinder radius="0.100" length="0.046"/>
       </geometry>
     </collision>
   </link>
   <joint
     name="left_wheel_joint"
     type="continuous">
+    <!-- drive axle: x 0, y +0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+         was xyz="4.7743E-05 0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="4.7743E-05 0.20375 0.046533"
+      xyz="0 0.200 0"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -553,15 +587,19 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <cylinder radius="0.11" length="0.046"/>
+        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+             was radius 0.11, superseded by Alex decision 2026-10-12 -->
+        <cylinder radius="0.100" length="0.046"/>
       </geometry>
     </collision>
   </link>
   <joint
     name="right_wheel_joint"
     type="continuous">
+    <!-- drive axle: x 0, y -0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+         was xyz="4.7657E-05 -0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
     <origin
-      xyz="4.7657E-05 -0.20375 0.046533"
+      xyz="0 -0.200 0"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -617,9 +655,14 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="lidar_joint"
     type="fixed">
+    <!-- lidar_link origin at the scan-plane centre, 222.0 mm above the floor
+         (0.098 + 0.124), mounted rotated 180 deg (Alex decision 2026-10-12,
+         STEP MMP.00.00.00.000). Superseded by Alex decision 2026-10-12:
+         xyz="0.35135 -0.0010251 0.1683" rpy="0 0 0". The lidar visual/collision
+         mesh is the legacy A1 mesh and is not re-placed by this change. -->
     <origin
-      xyz="0.35135 -0.0010251 0.1683"
-      rpy="0 0 0" />
+      xyz="0.330 0 0.124"
+      rpy="0 0 ${pi}" />
     <parent
       link="base_link" />
     <child
@@ -628,7 +671,9 @@ Stephen Brawner (brawner@gmail.com)
       xyz="0 0 0" />
   </joint>
 
-  <!-- Camera link — mounted at front of robot, facing forward -->
+  <!-- Camera link — mounted at front of robot, facing forward.
+       legacy IMX708, Gate A. Kept unchanged with its consumers (Alex decision
+       2026-10-12); the 2.0 base camera is base_camera_link below. -->
   <link name="camera_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -665,6 +710,73 @@ Stephen Brawner (brawner@gmail.com)
     <parent link="camera_link"/>
     <child link="camera_optical_frame"/>
   </joint>
+
+  <!-- ── OpenAMRobot 2.0 sensor frames (Alex decision 2026-10-12) ────── -->
+
+  <!-- Base camera, Orbbec Gemini 336L. Tilt is a configuration ID:
+       base_tilt:=bt05 / bt10 / bt15 -> pitch -0.0873 / -0.1745 / -0.2618 rad
+       (5 / 10 / 15 deg up), default bt10 (Alex decision 2026-10-12).
+       An unknown base_tilt value fails the xacro expansion. -->
+  <xacro:arg name="base_tilt" default="bt10"/>
+  <xacro:property name="base_camera_pitch"
+    value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
+
+  <link name="base_camera_link"/>
+  <!-- xyz (0.376, 0, 0.0445) (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
+  <joint name="base_camera_joint" type="fixed">
+    <origin xyz="0.376 0 0.0445" rpy="0 ${base_camera_pitch} 0"/>
+    <parent link="base_link"/>
+    <child link="base_camera_link"/>
+  </joint>
+
+  <!-- Optical frames: ROS optical convention, z forward, x right, y down
+       (Alex decision 2026-10-12) -->
+  <link name="base_camera_color_optical_frame"/>
+  <joint name="base_camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_color_optical_frame"/>
+  </joint>
+
+  <link name="base_camera_depth_optical_frame"/>
+  <joint name="base_camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_depth_optical_frame"/>
+  </joint>
+
+  <!-- IMU, ICM-42688-P: xyz (0.195, 0, -0.044), rpy 0 (Alex decision 2026-10-12,
+       STEP MMP.00.00.00.000). base plate top; board stack height added from the
+       mount drawing. -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <origin xyz="0.195 0 -0.044" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+
+  <!-- Near-field sensors at the panel hole centres, fixed to base_link
+       (Alex decision 2026-10-12, STEP MMP.00.00.00.000). -->
+  <xacro:macro name="near_field_frame" params="name x y z pitch:=0 yaw:=0">
+    <link name="${name}"/>
+    <joint name="${name}_joint" type="fixed">
+      <origin xyz="${x} ${y} ${z}" rpy="0 ${pitch} ${yaw}"/>
+      <parent link="base_link"/>
+      <child link="${name}"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Ultrasonic, MB7060 (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
+  <xacro:near_field_frame name="us_front_left" x="0.390" y="0.130" z="-0.0066"/>
+  <xacro:near_field_frame name="us_front_right" x="0.390" y="-0.130" z="-0.0066"/>
+  <xacro:near_field_frame name="us_rear_left" x="-0.390" y="0.130" z="-0.0066" yaw="${pi}"/>
+  <xacro:near_field_frame name="us_rear_right" x="-0.390" y="-0.130" z="-0.0066" yaw="${pi}"/>
+
+  <!-- ToF, TF-Luna (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
+       20 degree down screening value until the bench test. -->
+  <xacro:near_field_frame name="tof_front" x="0.390" y="0" z="-0.0066" pitch="0.3491"/>
+  <!-- 20 degree down screening value until the bench test. -->
+  <xacro:near_field_frame name="tof_rear" x="-0.390" y="0" z="-0.0066" pitch="0.3491" yaw="${pi}"/>
 
   <xacro:include filename="gazebo_control.xacro" />
 

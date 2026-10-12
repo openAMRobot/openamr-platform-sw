@@ -1,8 +1,14 @@
 <sdf version="1.11">
   <model name="robo_urdf">
+    <!-- REP 105 (Alex decision 2026-10-12): base_link at the drive-axle midpoint,
+         0.098 m above base_footprint on the floor. The legacy SolidWorks mesh,
+         inertial and caster poses are shifted by z -0.034533 to keep their floor
+         height. Old base_link origin (about 0.0635 m above the floor) is
+         superseded by Alex decision 2026-10-12. -->
     <link name="base_link">
       <inertial>
-        <pose>0.013020678200872301 -0.017228411308080501 0.078806772449970502 0 0 0</pose>
+        <!-- was z 0.078806772449970502, superseded by Alex decision 2026-10-12 -->
+        <pose>0.013020678200872301 -0.017228411308080501 0.044273772449970502 0 0 0</pose>
         <mass>4.17533781895232</mass>
         <inertia>
           <ixx>0.055682348905823603</ixx>
@@ -14,7 +20,8 @@
         </inertia>
       </inertial>
       <collision name="base_link_collision">
-        <pose>0 0 0 0 0 0</pose>
+        <!-- was 0 0 0 0 0 0, superseded by Alex decision 2026-10-12 -->
+        <pose>0 0 -0.034533 0 0 0</pose>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
@@ -23,7 +30,8 @@
         </geometry>
       </collision>
       <visual name="base_link_visual">
-        <pose>0 0 0 0 0 0</pose>
+        <!-- was 0 0 0 0 0 0, superseded by Alex decision 2026-10-12 -->
+        <pose>0 0 -0.034533 0 0 0</pose>
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
@@ -37,7 +45,9 @@
       </visual>
     </link>
     <joint name="bl_caster_joint" type="revolute">
-      <pose relative_to="base_link">-0.27495000000000003 0.215 -0.0092999999999999992 0 0 0</pose>
+      <!-- caster mount z -0.0093 - 0.034533 (Alex decision 2026-10-12); was
+           -0.27495000000000003 0.215 -0.0092999999999999992, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">-0.27495000000000003 0.215 -0.043833 0 0 0</pose>
       <parent>base_link</parent>
       <child>bl_caster_link</child>
       <axis>
@@ -144,7 +154,9 @@
       </visual>
     </link>
     <joint name="br_caster_joint" type="revolute">
-      <pose relative_to="base_link">-0.27495000000000003 -0.215 -0.0092999999999999992 0 0 0</pose>
+      <!-- caster mount z -0.0093 - 0.034533 (Alex decision 2026-10-12); was
+           -0.27495000000000003 -0.215 -0.0092999999999999992, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">-0.27495000000000003 -0.215 -0.043833 0 0 0</pose>
       <parent>base_link</parent>
       <child>br_caster_link</child>
       <axis>
@@ -251,7 +263,9 @@
       </visual>
     </link>
     <joint name="fl_caster_joint" type="revolute">
-      <pose relative_to="base_link">0.27505000000000002 0.215 -0.0092999999999999992 0 0 0</pose>
+      <!-- caster mount z -0.0093 - 0.034533 (Alex decision 2026-10-12); was
+           0.27505000000000002 0.215 -0.0092999999999999992, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">0.27505000000000002 0.215 -0.043833 0 0 0</pose>
       <parent>base_link</parent>
       <child>fl_caster_link</child>
       <axis>
@@ -358,7 +372,9 @@
       </visual>
     </link>
     <joint name="fr_caster_joint" type="revolute">
-      <pose relative_to="base_link">0.27505000000000002 -0.215 -0.0092999999999999992 0 0 0</pose>
+      <!-- caster mount z -0.0093 - 0.034533 (Alex decision 2026-10-12); was
+           0.27505000000000002 -0.215 -0.0092999999999999992, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">0.27505000000000002 -0.215 -0.043833 0 0 0</pose>
       <parent>base_link</parent>
       <child>fr_caster_link</child>
       <axis>
@@ -465,7 +481,9 @@
       </visual>
     </link>
     <joint name="left_wheel_joint" type="revolute">
-      <pose relative_to="base_link">4.7743e-05 0.20374999999999999 0.046532999999999998 0 0 0</pose>
+      <!-- drive axle x 0, y +0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+           was 4.7743e-05 0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">0 0.200 0 0 0 0</pose>
       <parent>base_link</parent>
       <child>left_wheel_link</child>
       <axis>
@@ -518,7 +536,10 @@
       </visual>
     </link>
     <joint name="lidar_joint" type="fixed">
-      <pose relative_to="base_link">0.35135 -0.0010250999999999999 0.16830000000000001 0 0 0</pose>
+      <!-- lidar_link at the scan-plane centre, 222.0 mm above the floor, yaw pi
+           (Alex decision 2026-10-12, STEP MMP.00.00.00.000); was
+           0.35135 -0.0010250999999999999 0.16830000000000001 0 0 0, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">0.330 0 0.124 0 0 3.141592653589793</pose>
       <parent>base_link</parent>
       <child>lidar_link</child>
       <axis>
@@ -571,7 +592,9 @@
       </visual>
     </link>
     <joint name="right_wheel_joint" type="revolute">
-      <pose relative_to="base_link">4.7657000000000001e-05 -0.20374999999999999 0.046532999999999998 0 0 0</pose>
+      <!-- drive axle x 0, y -0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
+           was 4.7657000000000001e-05 -0.20374999999999999 0.046532999999999998, superseded by Alex decision 2026-10-12 -->
+      <pose relative_to="base_link">0 -0.200 0 0 0 0</pose>
       <parent>base_link</parent>
       <child>right_wheel_link</child>
       <axis>
@@ -626,14 +649,58 @@
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
-      <wheel_separation>0.46</wheel_separation>
-      <wheel_radius>0.10</wheel_radius>
+      <!-- wheel separation 0.400, radius 0.100 (Alex decision 2026-10-12,
+           STEP MMP.00.00.00.000); separation 0.46 superseded by Alex decision 2026-10-12 -->
+      <wheel_separation>0.400</wheel_separation>
+      <wheel_radius>0.100</wheel_radius>
       <odom_publish_frequency>50</odom_publish_frequency>
       <topic>/cmd_vel</topic>
       <odom_topic>/odom</odom_topic>
       <tf_topic>/tf</tf_topic>
       <frame_id>odom</frame_id>
-      <child_frame_id>base_link</child_frame_id>
+      <!-- odom child is base_footprint (REP 105, Alex decision 2026-10-12);
+           was base_link, superseded by Alex decision 2026-10-12 -->
+      <child_frame_id>base_footprint</child_frame_id>
     </plugin>
+
+    <!-- OpenAMRobot 2.0 frames (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
+         Same values as robo_urdf.urdf.xacro; this static SDF uses the default
+         base camera tilt bt10 (pitch -0.1745). -->
+    <frame name="base_footprint" attached_to="base_link">
+      <pose relative_to="base_link">0 0 -0.098 0 0 0</pose>
+    </frame>
+    <frame name="base_camera_link" attached_to="base_link">
+      <pose relative_to="base_link">0.376 0 0.0445 0 -0.1745 0</pose>
+    </frame>
+    <frame name="base_camera_color_optical_frame" attached_to="base_camera_link">
+      <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
+    </frame>
+    <frame name="base_camera_depth_optical_frame" attached_to="base_camera_link">
+      <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
+    </frame>
+    <!-- IMU ICM-42688-P: base plate top; board stack height added from the mount drawing. -->
+    <frame name="imu_link" attached_to="base_link">
+      <pose relative_to="base_link">0.195 0 -0.044 0 0 0</pose>
+    </frame>
+    <frame name="us_front_left" attached_to="base_link">
+      <pose relative_to="base_link">0.390 0.130 -0.0066 0 0 0</pose>
+    </frame>
+    <frame name="us_front_right" attached_to="base_link">
+      <pose relative_to="base_link">0.390 -0.130 -0.0066 0 0 0</pose>
+    </frame>
+    <frame name="us_rear_left" attached_to="base_link">
+      <pose relative_to="base_link">-0.390 0.130 -0.0066 0 0 3.141592653589793</pose>
+    </frame>
+    <frame name="us_rear_right" attached_to="base_link">
+      <pose relative_to="base_link">-0.390 -0.130 -0.0066 0 0 3.141592653589793</pose>
+    </frame>
+    <!-- 20 degree down screening value until the bench test. -->
+    <frame name="tof_front" attached_to="base_link">
+      <pose relative_to="base_link">0.390 0 -0.0066 0 0.3491 0</pose>
+    </frame>
+    <!-- 20 degree down screening value until the bench test. -->
+    <frame name="tof_rear" attached_to="base_link">
+      <pose relative_to="base_link">-0.390 0 -0.0066 0 0.3491 3.141592653589793</pose>
+    </frame>
   </model>
 </sdf>
