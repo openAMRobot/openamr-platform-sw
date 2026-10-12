@@ -143,6 +143,10 @@ Gate A unit: the LiDAR is mounted **rotated 180°** (`yaw=π`), 0.335 m ahead of
 camera is 0.415 m ahead, 0.12 m up. Re-measure if the sensor mounts change. These describe
 **this** robot; on another unit, edit the values in `real_bringup.launch.py`.
 
+OpenAMRobot 2.0: the URDF defines `lidar_link` at (0.330, 0, 0.124) from `base_link`, yaw π, the scan-plane
+centre on the 7.1 mm spacer (P-03 rev19.0 items 13 and 19).
+`real_bringup.launch.py` keeps the 0.335 / 0.18 transform (Gate A unit) until the real path loads the URDF.
+
 > `real_bringup.launch.py` is the **data source only**. For the full stack (data source +
 > Nav2), use `bringup.launch.py` above — it adds localization + navigation with the shared
 > `openamrobot_nav2/config/nav2_params.yaml` and the right `use_sim_time`.

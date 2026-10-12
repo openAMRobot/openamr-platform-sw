@@ -251,12 +251,24 @@ observes: it never sends velocity or goals.
   (`lifecycle_poll_period_s`). One that stops answering counts as unknown
   after `lifecycle_stale_after_s` (3 s by default), so a crashed node cannot
   stay `ACTIVE`.
+- A stack stuck with some nodes active and some not is reported `RESETTING`
+  at first — a node bouncing briefly is normal. If it is still stuck there
+  past `stack_failed_after_s` (15 s by default), the stack is reported
+  `FAILED` instead, and `health` escalates to `FAULT` rather than the
+  `DEGRADED` a merely-resetting stack gets. This default is a configurable
+  status-reporting value, not a hardware-validated or safety timeout.
 - There is no I8 base-status adapter yet, so `navigation_readiness` stays
   `NOT_READY` with `BASE_LINK_LOST` until one exists.
 - It needs `openamr_nav_msgs` from `openamrobot-interfaces`, which is not part
   of this repository. Build it in an underlay and source it first.
 - `use_sim_time` is left to the launch file or parameters: pass
   `use_sim_time:=true` in the simulation and leave it off on a real robot.
+- It also mirrors a plain `diagnostic_msgs/DiagnosticArray` on `/diagnostics`,
+  published every tick regardless of whether `/navigation/status` itself was
+  due, so generic diagnostic tooling sees this node without understanding
+  `NavigationStatus`. It currently covers overall `health` and one entry per
+  sensor only — stack, localization, recovery and protection are not mirrored
+  there yet.
 
 ```bash
 source ~/nav_msgs_ws/install/setup.bash   # wherever openamr_nav_msgs is built
@@ -264,11 +276,10 @@ ros2 run openamrobot_nav2 navigation_status_node --ros-args -p use_sim_time:=tru
 ros2 topic echo /navigation/status --once
 ```
 
-This does not complete #34. Still missing: the `/diagnostics` mirror and a
-`FAILED` stack state. `constraints` stays empty (nothing publishes
-`/speed_limit` in simulation), `distance_remaining` keeps its last value after
-a goal ends, and localization stays UNKNOWN until AMCL publishes its next pose.
-Sim only, nothing validated on hardware.
+This does not complete #34. `constraints` stays empty (nothing publishes
+`/speed_limit` in simulation), `distance_remaining` keeps its last value
+after a goal ends, and localization stays UNKNOWN until AMCL publishes its
+next pose. Sim only, nothing validated on hardware.
 
 ---
 

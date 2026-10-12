@@ -81,22 +81,55 @@ shim exists. Details and gains in [`03_planner_controller.md`](03_planner_contro
 
 ## 3. TF tree
 
+### OpenAMRobot 2.0 description (URDF, simulation)
+
+Frames follow REP 105: `base_footprint` on the floor under the drive-axle midpoint, `base_link`
+at the drive-axle midpoint 0.098 m above it, x forward, y left, z up. Values from the Alex
+decision 2026-10-12 and STEP MMP.00.00.00.000; all xyz in metres relative to the parent.
+
+```
+map                                        ← amcl (localization)
+ └─ odom                                   ← gz DiffDrive (sim, child_frame_id base_footprint)
+     └─ base_footprint                     ← URDF root, on the floor under the drive axle
+         └─ base_link                      ← z 0.098, drive-axle midpoint
+             ├─ left_wheel_link / right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100
+             ├─ lidar_link                 ← (0.330, 0, 0.124), yaw π; scan plane 222.0 mm above floor
+             ├─ base_camera_link           ← (0.376, 0, 0.0445), pitch by base_tilt (Gemini 336L)
+             │   ├─ base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
+             │   └─ base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
+             ├─ imu_link                   ← (0.195, 0, −0.044), ICM-42688-P
+             ├─ us_front_left / us_front_right  ← (0.390, ±0.130, −0.0066)
+             ├─ us_rear_left / us_rear_right    ← (−0.390, ±0.130, −0.0066), yaw π
+             ├─ tof_front                  ← (0.390, 0, −0.0066), pitch 0.3491 (20° down)
+             ├─ tof_rear                   ← (−0.390, 0, −0.0066), pitch 0.3491, yaw π
+             └─ camera_link                ← legacy IMX708, Gate A (0.35, 0, 0.20)
+                 └─ camera_optical_frame
+```
+
+`base_tilt` selects the base camera pitch: `bt05` / `bt10` / `bt15` = −0.0873 / −0.1745 /
+−0.2618 rad (5 / 10 / 15° up), default `bt10`. The ToF pitch is a 20° down screening value until
+the bench test.
+
+### Real robot today (Gate A unit)
+
 ```
 map                                   ← amcl (localization)
- └─ odom                              ← EKF (real) / gz bridge (sim)
+ └─ odom                              ← EKF
      └─ base_link                     ← the control/kinematic frame
          ├─ base_footprint            ← static (firmware odom child_frame_id)
          ├─ lidar_link                ← static: x=0.335, z=0.18, yaw=π (Gate A unit, mounted rotated 180°)
-         ├─ imu_link                  ← static: identity (only gyro-Z used)
-         └─ camera_link               ← static: x=0.415, z=0.12
+         ├─ imu_link                  ← static: identity (Gate A unit: MPU6500)
+         └─ camera_link               ← static: x=0.415, z=0.12 (Gate A unit: IMX708)
              └─ camera_optical_frame  ← static: roll=−π/2, yaw=−π/2 (ROS optical convention)
 ```
 
 On the **real robot** these static TFs are published by `real_bringup.launch.py` (measured
-for this specific unit — note the lidar is physically mounted **rotated 180°**, which is why
+for the Gate A unit — note the lidar is physically mounted **rotated 180°**, which is why
 the scan filter's angle conventions look "backwards"; see
-[`04_real_robot_tuning.md`](04_real_robot_tuning.md)). In **simulation** the same tree comes
-from `robot_state_publisher` + the URDF via the Gazebo bridge.
+[`04_real_robot_tuning.md`](04_real_robot_tuning.md)). The real path does not start
+`robot_state_publisher` yet, so the `base_to_lidar` static transform stays until it loads the
+URDF; after that `lidar_link` comes only from the URDF. In **simulation** the 2.0 tree above
+comes from `robot_state_publisher` + the URDF and the Gazebo bridge.
 
 `base_frame_id: base_link`, `odom_frame_id: odom`, `global_frame_id: map` are set on AMCL and
 the costmaps consistently. `transform_tolerance` is **1.0 s** on AMCL and **0.6 s** on the

@@ -80,6 +80,8 @@ Setting up PlatformIO on a PEP 668 ("externally managed") Ubuntu was non-trivial
 - **Mounted rotated 180°**: found empirically (object in front shows at ±180° in the LiDAR frame). The TF
   `base_link→lidar_link` uses **yaw=180°**, x=0.335, z=0.18 (Gate A unit). The robot's own frame also produces close
   returns (≈ ±20–50°, ±80–90°) → handled with `min_laser_range`/scan filter.
+  On OpenAMRobot 2.0 the URDF defines `lidar_link` at (0.330, 0, 0.124) from `base_link`, yaw π (P-03 rev19.0
+  items 13 and 19, 7.1 mm spacer); the 0.335 / 0.18 transform above applies to the Gate A unit only.
 
 ## 5. Smaller gotchas
 - **Debug topics QoS**: `/debug/*` are published **best-effort** → a subscriber must request best-effort

@@ -16,6 +16,7 @@ import pytest
 
 pytest.importorskip('openamr_nav_msgs')
 
+from diagnostic_msgs.msg import DiagnosticStatus  # noqa: E402,I100
 from openamr_nav_msgs.msg import (  # noqa: E402,I100
     LocalizationStatus,
     MotionSourceCoverage,
@@ -26,11 +27,13 @@ from openamr_nav_msgs.msg import (  # noqa: E402,I100
 )
 from openamrobot_nav2.status_rules import (  # noqa: E402
     evaluate_localization,
+    health_to_diagnostic_level,
     motion_source_reason,
     PublishGate,
     rear_coverage_reason,
     roll_up,
     sensor_reason,
+    sensor_state_to_diagnostic_level,
     status_signature,
     validate_profile,
 )
@@ -92,6 +95,62 @@ class TestSensorReason(unittest.TestCase):
                 self.assertNotEqual(sensor_reason(state, ever_seen), NONE)
 
 
+class TestDiagnosticLevels(unittest.TestCase):
+    """
+    The /diagnostics mirror's level mapping, kept pure and testable here.
+
+    The DiagnosticArray/DiagnosticStatus message construction itself lives in
+    the node, since it is one-line glue with nothing left to unit test.
+    """
+
+    def test_health_levels(self):
+        self.assertEqual(
+            health_to_diagnostic_level(NavigationStatus.HEALTH_OK), DiagnosticStatus.OK)
+        self.assertEqual(
+            health_to_diagnostic_level(NavigationStatus.HEALTH_DEGRADED),
+            DiagnosticStatus.WARN)
+        self.assertEqual(
+            health_to_diagnostic_level(NavigationStatus.HEALTH_FAULT),
+            DiagnosticStatus.ERROR)
+
+    def test_health_unknown_never_reads_as_ok(self):
+        self.assertNotEqual(
+            health_to_diagnostic_level(NavigationStatus.HEALTH_UNKNOWN),
+            DiagnosticStatus.OK)
+        self.assertEqual(
+            health_to_diagnostic_level(NavigationStatus.HEALTH_UNKNOWN),
+            DiagnosticStatus.STALE)
+
+    def test_an_unrecognized_health_value_never_reads_as_ok(self):
+        self.assertNotEqual(health_to_diagnostic_level(99), DiagnosticStatus.OK)
+
+    def test_sensor_levels(self):
+        self.assertEqual(
+            sensor_state_to_diagnostic_level(SensorStatus.STATE_OK), DiagnosticStatus.OK)
+        self.assertEqual(
+            sensor_state_to_diagnostic_level(SensorStatus.STATE_DEGRADED),
+            DiagnosticStatus.WARN)
+        self.assertEqual(
+            sensor_state_to_diagnostic_level(SensorStatus.STATE_STALE),
+            DiagnosticStatus.STALE)
+        self.assertEqual(
+            sensor_state_to_diagnostic_level(SensorStatus.STATE_UNKNOWN),
+            DiagnosticStatus.STALE)
+
+    def test_sensor_absent_is_an_error_not_merely_stale(self):
+        self.assertEqual(
+            sensor_state_to_diagnostic_level(SensorStatus.STATE_ABSENT),
+            DiagnosticStatus.ERROR)
+
+    def test_no_sensor_state_other_than_ok_reads_as_ok(self):
+        for state in (SensorStatus.STATE_UNKNOWN, SensorStatus.STATE_ABSENT,
+                      SensorStatus.STATE_STALE, SensorStatus.STATE_DEGRADED):
+            self.assertNotEqual(sensor_state_to_diagnostic_level(state), DiagnosticStatus.OK)
+
+    def test_an_unrecognized_sensor_state_never_reads_as_ok(self):
+        self.assertNotEqual(sensor_state_to_diagnostic_level(99), DiagnosticStatus.OK)
+
+
 class TestProtectionReasons(unittest.TestCase):
 
     def test_only_protected_carries_none(self):
@@ -102,10 +161,24 @@ class TestProtectionReasons(unittest.TestCase):
                          MotionSourceCoverage.COVERAGE_PARTIAL):
             self.assertNotEqual(motion_source_reason(coverage), NONE)
 
-    def test_partial_is_reported_as_the_stricter_reason(self):
+    def test_partial_gets_its_own_reason_not_the_unprotected_one(self):
         self.assertEqual(
             motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL),
+            NavigationStatus.MOTION_SOURCE_PARTIALLY_PROTECTED)
+
+    def test_unprotected_still_reports_the_unprotected_reason(self):
+        self.assertEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_UNPROTECTED),
             NavigationStatus.MOTION_SOURCE_UNPROTECTED)
+
+    def test_partial_and_unprotected_are_distinguishable(self):
+        self.assertNotEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL),
+            motion_source_reason(MotionSourceCoverage.COVERAGE_UNPROTECTED))
+
+    def test_partial_does_not_relax_to_protected(self):
+        self.assertNotEqual(
+            motion_source_reason(MotionSourceCoverage.COVERAGE_PARTIAL), NONE)
 
     def test_unknown_coverage_says_the_state_is_unknown(self):
         self.assertEqual(
@@ -270,6 +343,13 @@ class TestRollUp(unittest.TestCase):
         result = roll_up(**good(stack_state=NavStackStatus.STATE_UNKNOWN,
                                 stack_reason=NavigationStatus.NAV_STACK_NOT_STARTED))
         self.assertEqual(result.health, NavigationStatus.HEALTH_UNKNOWN)
+
+    def test_failed_stack_is_a_fault_not_just_degraded(self):
+        result = roll_up(**good(stack_state=NavStackStatus.STATE_FAILED,
+                                stack_reason=NavigationStatus.NAV_STACK_RESETTING))
+        self.assertEqual(result.health, NavigationStatus.HEALTH_FAULT)
+        self.assertEqual(result.readiness, NOT_READY)
+        self.assertIn(NavigationStatus.NAV_STACK_RESETTING, result.not_ready_reasons)
 
     def test_config_fault_is_not_ready_and_a_fault(self):
         result = roll_up(**good(config_fault=True))

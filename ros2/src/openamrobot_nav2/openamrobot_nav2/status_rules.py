@@ -7,6 +7,7 @@ can be tested without a running graph.
 
 from collections import namedtuple
 
+from diagnostic_msgs.msg import DiagnosticStatus
 from openamr_nav_msgs.msg import (
     LocalizationStatus,
     MotionSourceCoverage,
@@ -51,12 +52,40 @@ def motion_source_reason(coverage):
     """Return the reason for a motion source's collision-monitor coverage."""
     if coverage == MotionSourceCoverage.COVERAGE_PROTECTED:
         return NavigationStatus.NONE
-    if coverage in (MotionSourceCoverage.COVERAGE_UNPROTECTED,
-                    MotionSourceCoverage.COVERAGE_PARTIAL):
-        # There is no reason for "partly protected" yet, so PARTIAL reports the
-        # stricter one until a MOTION_SOURCE_PARTIALLY_PROTECTED code exists.
+    if coverage == MotionSourceCoverage.COVERAGE_UNPROTECTED:
         return NavigationStatus.MOTION_SOURCE_UNPROTECTED
+    if coverage == MotionSourceCoverage.COVERAGE_PARTIAL:
+        return NavigationStatus.MOTION_SOURCE_PARTIALLY_PROTECTED
     return NavigationStatus.PROTECTION_STATE_UNKNOWN
+
+
+def health_to_diagnostic_level(health):
+    """Map NavigationStatus.health to a diagnostic_msgs/DiagnosticStatus level."""
+    if health == NavigationStatus.HEALTH_OK:
+        return DiagnosticStatus.OK
+    if health == NavigationStatus.HEALTH_DEGRADED:
+        return DiagnosticStatus.WARN
+    if health == NavigationStatus.HEALTH_FAULT:
+        return DiagnosticStatus.ERROR
+    # HEALTH_UNKNOWN, or any value this does not recognize yet, must never
+    # read as healthy - same rule NavigationStatus.msg states for HEALTH_UNKNOWN.
+    return DiagnosticStatus.STALE
+
+
+def sensor_state_to_diagnostic_level(state):
+    """Map SensorStatus.state to a diagnostic_msgs/DiagnosticStatus level."""
+    if state == SensorStatus.STATE_OK:
+        return DiagnosticStatus.OK
+    if state == SensorStatus.STATE_DEGRADED:
+        return DiagnosticStatus.WARN
+    if state in (SensorStatus.STATE_STALE, SensorStatus.STATE_UNKNOWN):
+        # STALE has data that stopped arriving; UNKNOWN has none to judge yet.
+        # Both mean "no current reading to trust", which is what STALE means
+        # to diagnostic_msgs - distinct from ABSENT, which is a real fault.
+        return DiagnosticStatus.STALE
+    # STATE_ABSENT, or any value this does not recognize yet, is a real
+    # problem, not merely stale data.
+    return DiagnosticStatus.ERROR
 
 
 def rear_coverage_reason(rear_coverage):
@@ -143,6 +172,10 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
         + list(other_reasons))
 
     if config_fault:
+        health = NavigationStatus.HEALTH_FAULT
+    elif stack_state == NavStackStatus.STATE_FAILED:
+        # a node that never came back is worse than still resetting - same
+        # severity class as a config fault, not just "degraded"
         health = NavigationStatus.HEALTH_FAULT
     elif stack_state == NavStackStatus.STATE_UNKNOWN:
         health = NavigationStatus.HEALTH_UNKNOWN

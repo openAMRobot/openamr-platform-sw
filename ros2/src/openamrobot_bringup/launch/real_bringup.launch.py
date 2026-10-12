@@ -75,13 +75,18 @@ def generate_launch_description():
             remappings=[('odometry/filtered', '/odom')],
             output='screen'),
         # --- measured static TFs for THIS unit ---
-        # lidar, Gate A unit: 0.335 m ahead of the axle, 0.18 m up, mounted ROTATED 180 deg.
-        _static_tf('base_to_lidar', 'base_link', 'lidar_link',
-                   x=0.335, z=0.18, yaw=3.14159),  # Gate A unit
+        # lidar: 0.335 m ahead of the axle, 0.18 m up, mounted ROTATED 180 deg.
+        # Kept for now: Alex decision 2026-10-12 moves lidar_link to the URDF only
+        # (xyz 0.330 0 0.124, yaw pi, STEP MMP.00.00.00.000), but this real path starts
+        # no robot_state_publisher yet, so removing this transform would leave
+        # lidar_link without a publisher. Remove it once the real path loads the URDF.
+        _static_tf('base_to_lidar', 'base_link', 'lidar_link', x=0.335, z=0.18, yaw=3.14159),  # Gate A unit
+        # Gate A unit: IMX708, MPU6500
         # imu: identity (only gyro-Z used, robust to the small physical tilt).
         _static_tf('base_to_imu', 'base_link', 'imu_link'),
         # base_footprint: identity (firmware odom child_frame_id = base_footprint).
         _static_tf('base_to_footprint', 'base_link', 'base_footprint'),
+        # Gate A unit: IMX708, MPU6500
         # camera: 0.415 m ahead, 0.12 m up.
         _static_tf('base_to_camera', 'base_link', 'camera_link', x=0.415, z=0.12),
         # optical frame: ROS optical convention (z fwd, x right, y down).
