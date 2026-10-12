@@ -541,8 +541,9 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="left_wheel_joint"
     type="continuous">
-    <!-- drive axle: x 0, y +0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-         was xyz="4.7743E-05 0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
+    <!-- drive axle: x 0, y +0.200, z 0 (Alex decision 2026-10-12).
+         Wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
+         Was xyz="4.7743E-05 0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
     <origin
       xyz="0 0.200 0"
       rpy="0 0 0" />
@@ -596,8 +597,9 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="right_wheel_joint"
     type="continuous">
-    <!-- drive axle: x 0, y -0.200, z 0 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-         was xyz="4.7657E-05 -0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
+    <!-- drive axle: x 0, y -0.200, z 0 (Alex decision 2026-10-12).
+         Wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
+         Was xyz="4.7657E-05 -0.20375 0.046533", superseded by Alex decision 2026-10-12 -->
     <origin
       xyz="0 -0.200 0"
       rpy="0 0 0" />
