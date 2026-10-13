@@ -39,14 +39,10 @@ jobs:
         run: |
           set -eo pipefail
 
-          # Initialize ROS without nounset.
           source /opt/ros/jazzy/setup.bash
-
-          # Enable strict checks for our commands.
           set -u
 
           cd ros2
-
           colcon build --event-handlers console_direct+
 
       - name: Test ROS 2 packages
@@ -54,19 +50,40 @@ jobs:
         run: |
           set -eo pipefail
 
-          # Initialize ROS environment.
           source /opt/ros/jazzy/setup.bash
-
           cd ros2
-
-          # Overlay the compiled workspace.
           source install/setup.bash
-
-          # Enable strict checks after ROS setup.
           set -u
 
-          # Execute ROS 2 tests.
           colcon test --event-handlers console_direct+
 
-          # Fail CI if any tests failed.
-          colcon test-result --verbose --return-code-on-test-failure
+          # Print test results and fail if any tests failed.
+          colcon test-result --verbose
+
+          python3 - <<'PY'
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["colcon", "test-result"],
+              capture_output=True,
+              text=True,
+              check=False,
+          )
+
+          output = result.stdout + result.stderr
+          print(output)
+
+          if result.returncode != 0:
+              sys.exit(result.returncode)
+
+          # Colcon reports failures in its summary.
+          # Treat any nonzero failed-test count as a CI failure.
+          import re
+          match = re.search(r"(\d+)\s+tests?\s+failed", output)
+          if match and int(match.group(1)) > 0:
+              sys.exit(1)
+
+          if not match and "failures" in output.lower():
+              sys.exit(1)
+          PY
