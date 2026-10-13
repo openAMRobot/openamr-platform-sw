@@ -96,10 +96,11 @@ two publishers again: `pkill -9 -f scan_to_scan_filter_chain`.
 
 ### d. The lidar is mounted rotated 180°
 
-On this unit the RPLIDAR A1 is physically **rotated 180°** (static TF `base_link → lidar_link`,
-`yaw = π`). That is why the real filter's angle conventions look inverted (0° = robot rear,
-±180° = front). The masked sectors are calibrated for **this** mount — re-measure (watch `/scan`
-in RViz) if the mount, chassis, or URDF changes.
+On this unit the RPLIDAR A1, legacy (existing robot), is physically **rotated 180°** (static TF
+`base_link → lidar_link`, `yaw = π`). That is why the real filter's angle conventions look
+inverted (0° = robot rear, ±180° = front). The masked sectors are calibrated for **this** mount —
+re-measure (watch `/scan` in RViz) if the mount, chassis, or URDF changes, and on the RPLIDAR S3
+(the OpenAMRobot 2.0 navigation LiDAR).
 
 ### e. 2D-lidar vertical blind spot (no software fix)
 

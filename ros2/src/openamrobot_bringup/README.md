@@ -115,7 +115,9 @@ hardware as in simulation. Only the data source differs:
 | odom / scan / imu / camera | `openamrobot_gazebo` (Gazebo + `gz_bridge`) | `openamrobot_drivers` + `openamrobot_perception` + EKF |
 
 It composes:
-- `openamrobot_drivers/drivers.launch.py` — micro-ROS agent (Teensy) + RPLIDAR → `/scan`;
+- `openamrobot_drivers/drivers.launch.py` — micro-ROS agent (Teensy) + RPLIDAR (`sllidar_ros2`;
+  `lidar_model:=s3` for the RPLIDAR S3; default `a1`, the legacy (existing robot) A1, until
+  the S3 is mounted; passed through from this launch) → `/scan`;
 - `openamrobot_perception/scan_body_filter.launch.py` — `/scan` → `/scan_filtered`;
 - `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708);
 - `robot_localization` **EKF** (`config/ekf.yaml`) — wheels + IMU gyro-Z → `/odom` + TF
@@ -137,9 +139,13 @@ preventing "extrapolation into the future" on the SLAM side.
 
 ### Measured static TFs (unit-specific)
 
-The LiDAR is mounted **rotated 180°** (`yaw=π`), 0.335 m ahead of the axle, 0.18 m up. The
+Gate A unit: the LiDAR is mounted **rotated 180°** (`yaw=π`), 0.335 m ahead of the axle, 0.18 m up. The
 camera is 0.415 m ahead, 0.12 m up. Re-measure if the sensor mounts change. These describe
 **this** robot; on another unit, edit the values in `real_bringup.launch.py`.
+
+OpenAMRobot 2.0: the URDF defines `lidar_link` at (0.330, 0, 0.124) from `base_link`, yaw π, the scan-plane
+centre on the 7.1 mm spacer (P-03 rev19.0 items 13 and 19).
+`real_bringup.launch.py` keeps the 0.335 / 0.18 transform (Gate A unit) until the real path loads the URDF.
 
 > `real_bringup.launch.py` is the **data source only**. For the full stack (data source +
 > Nav2), use `bringup.launch.py` above — it adds localization + navigation with the shared

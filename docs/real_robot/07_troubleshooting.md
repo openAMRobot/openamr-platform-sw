@@ -68,8 +68,8 @@ Most lost hours trace to skipping one of these:
 | Symptom | Cause | Fix |
 |---|---|---|
 | TF chaos, serial/USB conflicts, "everything unstable" | **duplicate** agents / lidars / EKF from relaunching without clean-kill | clean-kill, then **one** launch. Count real nodes with `ros2 node list`, **not** `grep` (a grep whose cmdline contains the pattern self-counts) |
-| `pkill` kills your SSH session (exit 255) | `pkill -f pat` matches its own command line | bracket trick: `pkill -f "[m]icro_ros_agent"`, `pkill -f "[r]plidar_composition"` |
-| `/scan` silent, node alive; or lidar hangs after "RPLIDAR running… SDK 1.12.0" (`80008000`) | RPLIDAR firmware stuck; `respawn` just hammers it | `pkill -f "[r]plidar_composition"`, or **unplug/replug the LiDAR USB**; a battery power-cycle also resets it |
+| `pkill` kills your SSH session (exit 255) | `pkill -f pat` matches its own command line | bracket trick: `pkill -f "[m]icro_ros_agent"`, `pkill -f "[s]llidar_node"` |
+| `/scan` silent, node alive; or lidar hangs after "RPLIDAR running… SDK 1.12.0" (`80008000`, seen with the legacy A1 and `rplidar_ros`) | RPLIDAR firmware stuck; `respawn` just hammers it | `pkill -f "[s]llidar_node"`, or **unplug/replug the LiDAR USB**; a battery power-cycle also resets it |
 | Two "double goal forwarder" warnings | a stray relay **and** `dock_trigger` both forwarding `/goal_pose` | `pkill -f "topic_tools/relay.*goal_pose"` (exactly one forwarder must run) |
 | Costmaps empty after launch → robot blind | nav came up before `map→odom`, or lifecycle nodes hand-activated | do the **2D Pose Estimate** first; if still empty **re-launch** nav — never hand-activate ([`01`](01_bringup.md) §5, and [`../navigation/`](../navigation/)) |
 | `sim:=false requires an explicit map` | no `map:=` passed | pass `map:=$HOME/maps/<your_map>.yaml` |
