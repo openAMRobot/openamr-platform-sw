@@ -1,0 +1,6 @@
+﻿{
+  "name": "OpenAMRobot ROS 2 Jazzy",
+  "image": "ghcr.io/openamrobot/ci-ros2-jazzy@sha256:1653d4bdadce9999a48f73315e2da7aa667d3777579a97b0f1c12146667892d2",
+  "workspaceFolder": "/workspaces/openamr-platform-sw",
+  "postCreateCommand": "bash -lc 'source /opt/ros/jazzy/setup.bash && ros2 --help >/dev/null'"
+}
