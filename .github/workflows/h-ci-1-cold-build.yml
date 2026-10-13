@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/h-ci-1-cold-build.yml'
       - 'ros2/**'
+
   push:
     branches:
       - h-ci-1-devcontainer
@@ -36,17 +37,36 @@ jobs:
       - name: Build ROS 2 packages
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
+
+          # Initialize ROS without nounset.
           source /opt/ros/jazzy/setup.bash
+
+          # Enable strict checks for our commands.
+          set -u
+
           cd ros2
+
           colcon build --event-handlers console_direct+
 
       - name: Test ROS 2 packages
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
+
+          # Initialize ROS environment.
           source /opt/ros/jazzy/setup.bash
+
           cd ros2
+
+          # Overlay the compiled workspace.
           source install/setup.bash
+
+          # Enable strict checks after ROS setup.
+          set -u
+
+          # Execute ROS 2 tests.
           colcon test --event-handlers console_direct+
+
+          # Fail CI if any tests failed.
           colcon test-result --verbose --return-code-on-test-failure
