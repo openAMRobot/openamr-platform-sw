@@ -1,0 +1,48 @@
+
+name: H-CI-1 Cold Hosted Build Test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/h-ci-1-cold-build.yml'
+      - 'ros2/**'
+  push:
+    branches:
+      - h-ci-1-devcontainer
+    paths:
+      - '.github/workflows/h-ci-1-cold-build.yml'
+      - 'ros2/**'
+
+permissions:
+  contents: read
+
+jobs:
+  cold-build-test:
+    name: Cold ROS 2 build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    container:
+      image: ghcr.io/openamrobot/ci-ros2-jazzy@sha256:1653d4bdadce9999a48f73315e2da7aa667d3777579a97b0f1c12146667892d2
+
+    steps:
+      - name: Checkout platform source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build ROS 2 packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          cd ros2
+          colcon build --event-handlers console_direct+
+
+      - name: Test ROS 2 packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          cd ros2
+          source install/setup.bash
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose --return-code-on-test-failure
