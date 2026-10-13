@@ -56,14 +56,12 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
-      <!-- legacy mesh kept at its floor height: z -0.034533 (Alex decision 2026-10-12);
-           was xyz="0 0 0", superseded by Alex decision 2026-10-12 -->
-      <origin
-        xyz="0 0 -0.034533"
-        rpy="0 0 0" />
+      <!-- Chassis box, CAD Rev B STEP MMP.00.00.00.000: x +-0.390 (panel faces),
+           y +-0.290 (base plate), 0.050 to 0.295 m above the floor (panel bottom to
+           cover top). Was the base_link.STL visual mesh, superseded (#49). -->
+      <origin xyz="0 0 0.0745" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/base_link.STL" />
+        <box size="0.780 0.580 0.245"/>
       </geometry>
     </collision>
   </link>
@@ -98,12 +96,11 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
+           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
+      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/fl_caster_link.STL" />
+        <box size="0.060 0.060 0.040"/>
       </geometry>
     </collision>
   </link>
@@ -206,12 +203,11 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
+           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
+      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/fr_caster_link.STL" />
+        <box size="0.060 0.060 0.040"/>
       </geometry>
     </collision>
   </link>
@@ -314,12 +310,11 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
+           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
+      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/br_caster_link.STL" />
+        <box size="0.060 0.060 0.040"/>
       </geometry>
     </collision>
   </link>
@@ -422,12 +417,11 @@ Stephen Brawner (brawner@gmail.com)
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
+           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
+      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/bl_caster_link.STL" />
+        <box size="0.060 0.060 0.040"/>
       </geometry>
     </collision>
   </link>
@@ -627,27 +621,22 @@ Stephen Brawner (brawner@gmail.com)
         iyz="5.02504950673121E-08"
         izz="0.000100924865484583" />
     </inertial>
+    <!-- RPLIDAR S3 body: cylinder 0.0556 m diameter, 0.0413 m high, 0.0277 m below
+         to 0.0136 m above the scan plane (CAD Rev B). Was the A1 lidar_link.STL
+         mesh, superseded (#49). The inertial above is still the A1 one. -->
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.00765" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/lidar_link.STL" />
+        <cylinder radius="0.0278" length="0.0413"/>
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      <material name="lidar_black">
+        <color rgba="0.1 0.1 0.1 1"/>
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.00765" rpy="0 0 0"/>
       <geometry>
-        <mesh
-          filename="package://openamrobot_description/meshes/visual/lidar_link.STL" />
+        <cylinder radius="0.0278" length="0.0413"/>
       </geometry>
     </collision>
 
@@ -661,7 +650,8 @@ Stephen Brawner (brawner@gmail.com)
          (0.098 + 0.124), mounted rotated 180 deg (Alex decision 2026-10-12,
          STEP MMP.00.00.00.000). Superseded by Alex decision 2026-10-12:
          xyz="0.35135 -0.0010251 0.1683" rpy="0 0 0". The lidar visual/collision
-         mesh is the legacy A1 mesh and is not re-placed by this change. -->
+         shape is the RPLIDAR S3 cylinder (#49). CAD Rev B places the S3 centre
+         at x 0.321; lidar_link is kept at 0.330 until that is decided. -->
     <origin
       xyz="0.330 0 0.124"
       rpy="0 0 ${pi}" />
@@ -713,72 +703,8 @@ Stephen Brawner (brawner@gmail.com)
     <child link="camera_optical_frame"/>
   </joint>
 
-  <!-- ── OpenAMRobot 2.0 sensor frames (Alex decision 2026-10-12) ────── -->
-
-  <!-- Base camera, Orbbec Gemini 336L. Tilt is a configuration ID:
-       base_tilt:=bt05 / bt10 / bt15 -> pitch -0.0873 / -0.1745 / -0.2618 rad
-       (5 / 10 / 15 deg up), default bt10 (Alex decision 2026-10-12).
-       An unknown base_tilt value fails the xacro expansion. -->
-  <xacro:arg name="base_tilt" default="bt10"/>
-  <xacro:property name="base_camera_pitch"
-    value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
-
-  <link name="base_camera_link"/>
-  <!-- xyz (0.376, 0, 0.0445) (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
-  <joint name="base_camera_joint" type="fixed">
-    <origin xyz="0.376 0 0.0445" rpy="0 ${base_camera_pitch} 0"/>
-    <parent link="base_link"/>
-    <child link="base_camera_link"/>
-  </joint>
-
-  <!-- Optical frames: ROS optical convention, z forward, x right, y down
-       (Alex decision 2026-10-12) -->
-  <link name="base_camera_color_optical_frame"/>
-  <joint name="base_camera_color_optical_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
-    <parent link="base_camera_link"/>
-    <child link="base_camera_color_optical_frame"/>
-  </joint>
-
-  <link name="base_camera_depth_optical_frame"/>
-  <joint name="base_camera_depth_optical_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
-    <parent link="base_camera_link"/>
-    <child link="base_camera_depth_optical_frame"/>
-  </joint>
-
-  <!-- IMU, ICM-42688-P: xyz (0.195, 0, -0.044), rpy 0 (Alex decision 2026-10-12,
-       STEP MMP.00.00.00.000). base plate top; board stack height added from the
-       mount drawing. -->
-  <link name="imu_link"/>
-  <joint name="imu_joint" type="fixed">
-    <origin xyz="0.195 0 -0.044" rpy="0 0 0"/>
-    <parent link="base_link"/>
-    <child link="imu_link"/>
-  </joint>
-
-  <!-- Near-field sensors at the panel hole centres, fixed to base_link
-       (Alex decision 2026-10-12, STEP MMP.00.00.00.000). -->
-  <xacro:macro name="near_field_frame" params="name x y z pitch:=0 yaw:=0">
-    <link name="${name}"/>
-    <joint name="${name}_joint" type="fixed">
-      <origin xyz="${x} ${y} ${z}" rpy="0 ${pitch} ${yaw}"/>
-      <parent link="base_link"/>
-      <child link="${name}"/>
-    </joint>
-  </xacro:macro>
-
-  <!-- Ultrasonic, MB7060 (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
-  <xacro:near_field_frame name="us_front_left" x="0.390" y="0.130" z="-0.0066"/>
-  <xacro:near_field_frame name="us_front_right" x="0.390" y="-0.130" z="-0.0066"/>
-  <xacro:near_field_frame name="us_rear_left" x="-0.390" y="0.130" z="-0.0066" yaw="${pi}"/>
-  <xacro:near_field_frame name="us_rear_right" x="-0.390" y="-0.130" z="-0.0066" yaw="${pi}"/>
-
-  <!-- ToF, TF-Luna (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
-       20 degree down screening value until the bench test. -->
-  <xacro:near_field_frame name="tof_front" x="0.390" y="0" z="-0.0066" pitch="0.3491"/>
-  <!-- 20 degree down screening value until the bench test. -->
-  <xacro:near_field_frame name="tof_rear" x="-0.390" y="0" z="-0.0066" pitch="0.3491" yaw="${pi}"/>
+  <!-- OpenAMRobot 2.0 sensor frames: Gemini 336L, IMU, TF-Luna, MB7060 (#49) -->
+  <xacro:include filename="sensors.xacro" />
 
   <xacro:include filename="gazebo_control.xacro" />
 

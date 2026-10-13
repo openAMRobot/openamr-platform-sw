@@ -13,6 +13,26 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Changed — Robot model: 2.0 sensor frames and simplified collision (#49)
+
+- Sensor links and joints moved to `openamrobot_description/urdf/sensors.xacro`, included by
+  `robo_urdf.urdf.xacro`. Poses from the OpenAMRobot platform v0.2 CAD (CAD Rev B, STEP
+  MMP.00.00.00.000); each frame with its CAD source and status in
+  `openamrobot_description/config/sensor_frames.yaml`.
+- Sensor layout follows the CAD: four TF-Luna (`tof_front_left`, `tof_front_right`,
+  `tof_rear_left`, `tof_rear_right`, 10° down from the TF-Luna mount) and two MB7060
+  (`us_front`, `us_rear`). Replaces `us_front_left`, `us_front_right`, `us_rear_left`,
+  `us_rear_right`, `tof_front` and `tof_rear` (Alex decision 2026-10-12).
+- `base_camera_link` (Gemini 336L) at (0.386, 0, 0.0447) on the 10° camera mount; `base_tilt`
+  gains `bt00`, default stays `bt10`.
+- Collision: chassis, castors and LiDAR are boxes and cylinders instead of the STL meshes; the
+  A1 LiDAR mesh is replaced with an RPLIDAR S3 cylinder. Link and joint names of the base are
+  unchanged.
+- Gazebo: the TF-Luna and MB7060 publish `/tof/*` and `/ultrasonic/*` (LaserScan), bridged in
+  `openamrobot_gazebo/config/gz_bridge.yaml`.
+- Open: `imu_link` stays a placeholder until the IMU and its mounting plate are designed;
+  `lidar_link` stays at x 0.330 while the CAD places the S3 centre at x 0.321.
+
 ### Added — Bundle docking (3-tag pipeline)
 
 - **AprilTag 3-tag bundle** at the dock — IDs `0`, `1`, `2` on the family `36h11`, coplanar, all 0.20 m panels (0.16 m black-square edge). Outer tags (id 0, id 2) at `y = ±0.45 m` give a wide 0.90 m baseline for **dock-normal estimation**; centre tag (id 1) at `y = 0` is the docking target.

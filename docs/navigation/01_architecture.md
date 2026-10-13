@@ -94,20 +94,21 @@ map                                        ← amcl (localization)
          └─ base_link                      ← z 0.098, drive-axle midpoint
              ├─ left_wheel_link / right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100
              ├─ lidar_link                 ← (0.330, 0, 0.124), yaw π; scan plane 222.0 mm above floor
-             ├─ base_camera_link           ← (0.376, 0, 0.0445), pitch by base_tilt (Gemini 336L)
+             ├─ base_camera_link           ← (0.386, 0, 0.0447), pitch by base_tilt (Gemini 336L)
              │   ├─ base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
              │   └─ base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
              ├─ imu_link                   ← (0.195, 0, −0.044), ICM-42688-P
-             ├─ us_front_left / us_front_right  ← (0.390, ±0.130, −0.0066)
-             ├─ us_rear_left / us_rear_right    ← (−0.390, ±0.130, −0.0066), yaw π
-             ├─ tof_front                  ← (0.390, 0, −0.0066), pitch 0.3491 (20° down)
-             ├─ tof_rear                   ← (−0.390, 0, −0.0066), pitch 0.3491, yaw π
+             ├─ us_front / us_rear         ← (0.394, 0, −0.0066) / (−0.391, 0, −0.0066), yaw π (MB7060)
+             ├─ tof_front_left / _right    ← (0.3945, ±0.130, −0.0074), pitch 0.1745 (10° down, TF-Luna)
+             ├─ tof_rear_left / _right     ← (−0.3933, ±0.130, −0.0074), pitch 0.1745 (10° down), yaw π
              └─ camera_link                ← legacy IMX708, Gate A (0.35, 0, 0.20)
                  └─ camera_optical_frame
 ```
 
-`base_tilt` selects the base camera pitch: `bt05` / `bt10` / `bt15` = −0.0873 / −0.1745 /
-−0.2618 rad (5 / 10 / 15° up), default `bt10`. The ToF pitch is a 20° down screening value until
+`base_tilt` selects the base camera pitch: `bt00` / `bt05` / `bt10` / `bt15` = 0 / −0.0873 / −0.1745 /
+−0.2618 rad (0 / 5 / 10 / 15° up), default `bt10`. Sensor poses are from CAD
+Rev B (STEP MMP.00.00.00.000, 2026-10-13) and are listed with their source and status in
+`openamrobot_description/config/sensor_frames.yaml`; the ToF pitch is the 10° TF-Luna mount angle until
 the bench test.
 
 ### Real robot today (Gate A unit)
