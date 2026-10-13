@@ -26,7 +26,7 @@ sensors:
   - id: "lidar_nav"
     kind: "LIDAR"
     topic: "/scan_filtered"      # scan_body_filter output; Nav2 and AMCL read this, not /scan
-    frame_id: "base_scan"
+    frame_id: "lidar_link"     # Alex decision 2026-10-12; was "base_scan", superseded by Alex decision 2026-10-12
     required: true
     nominal_period_s: 0.1        # about 10 Hz
   - id: "odom"

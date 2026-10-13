@@ -8,6 +8,11 @@
 #   - thin side posts (~0.17-0.18 m) -> close-only mask (real walls kept)
 # Re-measure (watch /scan in RViz) if the LiDAR mount, chassis, or URDF changes.
 #
+# Valid for the RPLIDAR S3 on the same mount (yaw pi, scan plane 222.0 mm):
+# side posts at 82.9 to 89.5 degrees in this frame, range 0.169 to 0.188 m,
+# inside the close-mask sectors. (Alex decision 2026-10-12, STEP MMP.00.00.00.000;
+# values below unchanged.)
+#
 # NOTE: this is the REAL profile. In simulation the body filter is the
 # laser_filters angular chain in openamrobot_nav2/config/scan_body_filter.yaml.
 scan_body_filter:

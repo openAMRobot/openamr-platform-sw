@@ -165,7 +165,10 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
+      # rear edge x -0.390 / -0.290, chassis 780 mm (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
+      # was rear x -0.365 / -0.265, superseded by Alex decision 2026-10-12:
+      # footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
+      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.290, -0.29], [-0.390, -0.19], [-0.390, 0.19], [-0.290, 0.29], [0.315, 0.29]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -207,7 +210,10 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 0.6
-      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
+      # rear edge x -0.390 / -0.290, chassis 780 mm (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
+      # was rear x -0.365 / -0.265, superseded by Alex decision 2026-10-12:
+      # footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.265, -0.29], [-0.365, -0.19], [-0.365, 0.19], [-0.265, 0.29], [0.315, 0.29]]"
+      footprint: "[[0.415, 0.19], [0.415, -0.19], [0.315, -0.29], [-0.290, -0.29], [-0.390, -0.19], [-0.390, 0.19], [-0.290, 0.29], [0.315, 0.29]]"
       resolution: 0.05
       track_unknown_space: false
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

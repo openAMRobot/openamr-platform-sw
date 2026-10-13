@@ -1,13 +1,21 @@
 """
-Publish NavigationStatus on /navigation/status.
+Publish NavigationStatus on /navigation/status and mirror it on /diagnostics.
 
 Watches Nav2 (lifecycle state, AMCL, the navigate_to_pose action, the behavior
 tree log), the sensor topics in the profile and the collision monitor, and
 rolls them into one status message. It never sends goals or velocity commands.
 A status goes out as soon as something changes, and otherwise once per heartbeat.
 
-Not covered yet: mission-state mapping (waiting on N1) and base/I8 status (no
-adapter yet, so navigation stays NOT_READY with BASE_LINK_LOST).
+The /diagnostics mirror is a separate, unconditional publish every tick (not
+gated like /navigation/status), covering overall health and one entry per
+sensor, so generic diagnostic tooling (rqt_robot_monitor and the like) sees
+this node without having to understand NavigationStatus itself. It carries
+less detail than /navigation/status and is not a replacement for it.
+
+Not covered yet: mission-state mapping (waiting on N1), base/I8 status (no
+adapter yet, so navigation stays NOT_READY with BASE_LINK_LOST), and a
+/diagnostics entry for anything beyond overall health and sensors (stack,
+localization, recovery, protection are not mirrored there yet).
 """
 
 import math
@@ -15,6 +23,7 @@ import os
 
 from action_msgs.msg import GoalStatusArray
 from ament_index_python.packages import get_package_share_directory
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from lifecycle_msgs.msg import TransitionEvent
 from lifecycle_msgs.srv import GetState
@@ -33,12 +42,14 @@ from openamr_nav_msgs.msg import (
 )
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
+    health_to_diagnostic_level,
     motion_source_reason,
     PublishGate,
     rear_coverage_reason,
     roll_up,
     SENSOR_KEYS,
     sensor_reason,
+    sensor_state_to_diagnostic_level,
     status_signature,
     validate_profile,
 )
@@ -81,6 +92,24 @@ MANAGED_NAV_NODES = [
 ]
 
 LIFECYCLE_ACTIVE = 3  # PRIMARY_STATE_ACTIVE
+
+# Human-readable labels for the /diagnostics mirror's DiagnosticStatus.message
+# field. Anything not in these dicts (an enum value added later and not yet
+# known here) still gets a safe level from status_rules; only the text falls
+# back to a generic label.
+_HEALTH_LABEL = {
+    NavigationStatus.HEALTH_OK: 'OK',
+    NavigationStatus.HEALTH_DEGRADED: 'DEGRADED',
+    NavigationStatus.HEALTH_FAULT: 'FAULT',
+    NavigationStatus.HEALTH_UNKNOWN: 'UNKNOWN',
+}
+_SENSOR_STATE_LABEL = {
+    SensorStatus.STATE_OK: 'OK',
+    SensorStatus.STATE_DEGRADED: 'DEGRADED',
+    SensorStatus.STATE_STALE: 'STALE',
+    SensorStatus.STATE_UNKNOWN: 'UNKNOWN',
+    SensorStatus.STATE_ABSENT: 'ABSENT',
+}
 
 # Message type to subscribe to for each sensor kind in the profile. ToF,
 # ultrasonic and depth camera are not here yet; a profile entry with a kind
@@ -153,6 +182,10 @@ class NavigationStatusNode(Node):
             depth=1,
         )
         self._pub = self.create_publisher(NavigationStatus, '/navigation/status', qos)
+        # Standard /diagnostics convention: volatile, not transient-local, and
+        # published every tick regardless of the gate above - a monitoring tool
+        # watching /diagnostics should never have to wait for something to change.
+        self._diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
 
         # sensors from the profile; the stale limits come from its thresholds
         self._sensors = {}
@@ -478,6 +511,40 @@ class NavigationStatusNode(Node):
         msg = self._build_status(now)
         if self._gate.should_publish(status_signature(msg), now.nanoseconds / 1e9):
             self._pub.publish(msg)
+        # Unconditional, every tick, independent of the /navigation/status gate
+        # above - a monitoring tool watching /diagnostics should see a fresh
+        # message on its own schedule, not only when something changed.
+        self._diag_pub.publish(self._build_diagnostics(msg, now))
+
+    def _build_diagnostics(self, msg: NavigationStatus, now) -> DiagnosticArray:
+        diag = DiagnosticArray()
+        diag.header.stamp = now.to_msg()
+
+        overall = DiagnosticStatus()
+        overall.name = 'navigation_status_node: health'
+        overall.hardware_id = self._profile_id
+        overall.level = health_to_diagnostic_level(msg.health)
+        overall.message = _HEALTH_LABEL.get(msg.health, 'UNKNOWN')
+        overall.values = [
+            KeyValue(key='active_reasons', value=','.join(str(r) for r in msg.active_reasons)),
+            KeyValue(key='navigation_readiness', value=str(msg.navigation_readiness)),
+        ]
+        diag.status.append(overall)
+
+        for s in msg.sensors:
+            entry = DiagnosticStatus()
+            entry.name = f'navigation_status_node: sensor {s.id}'
+            entry.hardware_id = s.id
+            entry.level = sensor_state_to_diagnostic_level(s.state)
+            entry.message = _SENSOR_STATE_LABEL.get(s.state, 'UNKNOWN')
+            entry.values = [
+                KeyValue(key='reason', value=str(s.reason)),
+                KeyValue(key='rate_hz', value=f'{s.rate_hz:.2f}'),
+                KeyValue(key='required', value=str(s.required)),
+            ]
+            diag.status.append(entry)
+
+        return diag
 
     def _build_status(self, now):
         now_s = now.nanoseconds / 1e9
