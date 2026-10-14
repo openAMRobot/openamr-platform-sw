@@ -117,7 +117,7 @@ map                                   ← amcl (localization)
  └─ odom                              ← EKF
      └─ base_link                     ← the control/kinematic frame
          ├─ base_footprint            ← static (firmware odom child_frame_id)
-         ├─ lidar_link                ← static: x=0.335, z=0.18, yaw=π (mounted rotated 180°)
+         ├─ lidar_link                ← static: x=0.335, z=0.18, yaw=π (Gate A unit, mounted rotated 180°)
          ├─ imu_link                  ← static: identity (Gate A unit: MPU6500)
          └─ camera_link               ← static: x=0.415, z=0.12 (Gate A unit: IMX708)
              └─ camera_optical_frame  ← static: roll=−π/2, yaw=−π/2 (ROS optical convention)

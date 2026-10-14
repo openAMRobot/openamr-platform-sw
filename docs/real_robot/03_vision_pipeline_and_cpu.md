@@ -226,7 +226,7 @@ The Pi 5 has **no GPU/NPU acceleration for AprilTag** — the detector runs on t
 competing with Nav2. Production robots sidestep it: an NVIDIA **Jetson** runs
 `isaac_ros_apriltag` on the GPU in <10 ms off the CPU; an **OAK-D** runs the detector on the
 camera; and **most industrial AMRs don't use a camera + AprilTag at all** — they dock with
-**2D-LiDAR reflective markers** (reuses the RPLIDAR, no camera compute, Nav2
+**2D-LiDAR reflective markers** (reuses the navigation RPLIDAR, no camera compute, Nav2
 `opennav_docking`). Camera + AprilTag is the most compute-hungry and lighting/focus-sensitive
 option; we chose it for a markerless/printable target. Full comparison + the "put the
 intelligence in the mechanics (V-guide)" insight: the 2026-07-02 audit and memory

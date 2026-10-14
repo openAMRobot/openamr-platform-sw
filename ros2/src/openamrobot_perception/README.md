@@ -28,10 +28,11 @@ ros2 launch openamrobot_perception scan_body_filter.launch.py params_file:=/path
 
 ### Parameters
 
-Defaults are calibrated for **this unit's** LiDAR mount (RPLIDAR A1 mounted rotated
-180 deg: 0 deg = robot rear, +/-180 deg = front, -90 = left, +90 = right). Re-measure
-(watch `/scan` in RViz) if the mount, chassis, or URDF changes. Values live in
-[`config/scan_body_filter_real.yaml`](config/scan_body_filter_real.yaml).
+Defaults are calibrated for **this unit's** LiDAR mount (RPLIDAR A1, legacy (existing
+robot), mounted rotated 180 deg: 0 deg = robot rear, +/-180 deg = front, -90 = left,
++90 = right). Re-measure (watch `/scan` in RViz) if the mount, chassis, or URDF changes,
+and on the RPLIDAR S3 (OpenAMRobot 2.0 navigation LiDAR) before relying on these values.
+Values live in [`config/scan_body_filter_real.yaml`](config/scan_body_filter_real.yaml).
 
 | Parameter | Type | Default | Unit | Meaning / impact |
 |---|---|---|---|---|

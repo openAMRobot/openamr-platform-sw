@@ -62,8 +62,9 @@ def generate_launch_description():
         Node(
             package='openamrobot_docking', executable='dock_trigger.py',
             name='dock_trigger',
-            # obstacle_scan_forward_angle=π: this unit's RPLIDAR is mounted rotated 180°, so the
-            # forward obstacle cone must be offset by π (scan angle 0 points backward). Sim keeps 0.
+            # obstacle_scan_forward_angle=π: this unit's RPLIDAR A1, legacy (existing robot), is
+            # mounted rotated 180°, so the forward obstacle cone must be offset by π (scan angle 0
+            # points backward). To re-check on the RPLIDAR S3. Sim keeps 0.
             # use_apriltag_gate: real robot only. The dock sequence flips the
             # on-demand AprilTag image gate (apriltag.launch.yml) so apriltag
             # burns CPU only during the approach, not during navigation.

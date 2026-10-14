@@ -13,7 +13,8 @@ amcl:
     global_frame_id: "map"
     lambda_short: 0.1
     laser_likelihood_max_dist: 2.0
-    laser_max_range: 12.0   # = portee reelle du RPLIDAR A1 (100 inutile -> faisceaux fantomes)
+    laser_max_range: 12.0   # = portee reelle du RPLIDAR A1, legacy (existing robot) (100 inutile -> faisceaux fantomes)
+    # RPLIDAR S3 (OpenAMRobot 2.0): 12.0 kept until retuned from the Slamtec S3 datasheet.
     laser_min_range: -1.0
     laser_model_type: "likelihood_field"
     max_beams: 60
