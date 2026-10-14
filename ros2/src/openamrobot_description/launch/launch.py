@@ -50,12 +50,15 @@ def generate_launch_description():
                    '--roll', '0', '--pitch', '0', '--yaw', '0',
                    '--frame-id', 'map', '--child-frame-id', 'odom'])
 
+    # odom child is the URDF root base_footprint (REP 105, Alex decision 2026-10-12),
+    # so base_link keeps one parent; child was 'base_link', superseded by Alex
+    # decision 2026-10-12.
     tf_odom = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=['--x', '0', '--y', '0', '--z', '0',
                    '--roll', '0', '--pitch', '0', '--yaw', '0',
-                   '--frame-id', 'odom', '--child-frame-id', 'base_link'])
+                   '--frame-id', 'odom', '--child-frame-id', 'base_footprint'])
 
     ld = LaunchDescription()
     ld.add_action(DeclareLaunchArgument(

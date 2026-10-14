@@ -94,7 +94,7 @@ nmcli -t -f ACTIVE,SSID dev wifi | grep '^yes'
 # 3. check the sensor DIRECTLY ON THE PI, not through the flaky Wi-Fi
 ssh <user>@<robot>.local
 #   (on the Pi, env sourced)
-ros2 topic hz /scan          # ~5.5–10 Hz on an A1 = healthy
+ros2 topic hz /scan          # ~5.5–10 Hz on the legacy (existing robot) A1 = healthy; S3 rate to be measured
 ```
 
 If (1) or (2) fail, it's Wi-Fi — stop debugging ROS. Do **not** switch the PC to

@@ -1,0 +1,120 @@
+name: drivers-bringup-tests
+
+# Hardware-free checks for the LiDAR selection in openamrobot_drivers and
+# openamrobot_bringup. No serial device, LiDAR or robot is used: the launch
+# tests only introspect the launch descriptions.
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_drivers/**'
+      - 'ros2/src/openamrobot_bringup/**'
+      - '.github/workflows/drivers-bringup-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_drivers/**'
+      - 'ros2/src/openamrobot_bringup/**'
+      - '.github/workflows/drivers-bringup-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned Slamtec sllidar_ros2 commit, the same one documented in
+  # ros2/src/openamrobot_drivers/README.md. Change it on purpose only.
+  SLLIDAR_REPO: https://github.com/Slamtec/sllidar_ros2.git
+  SLLIDAR_REF: 34300099fadfc772965962dec837bf436706188f
+
+jobs:
+  drivers-bringup-launch-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install build and test tools
+        run: |
+          apt-get update
+          apt-get install -y git python3-colcon-common-extensions python3-pytest
+
+      # Same commands as the pinned install path in the drivers README.
+      - name: Build sllidar_ros2 at the pinned commit
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p sllidar_ws/src
+          git clone "$SLLIDAR_REPO" sllidar_ws/src/sllidar_ros2
+          git -C sllidar_ws/src/sllidar_ros2 checkout "$SLLIDAR_REF"
+          test "$(git -C sllidar_ws/src/sllidar_ros2 rev-parse HEAD)" = "$SLLIDAR_REF"
+          rosdep update --rosdistro jazzy
+          rosdep install -y --rosdistro jazzy --ignore-src --from-paths sllidar_ws/src
+          cd sllidar_ws
+          colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+          source install/setup.bash
+          ros2 pkg executables sllidar_ros2 | grep -x 'sllidar_ros2 sllidar_node'
+
+      - name: Build openamrobot_drivers and openamrobot_bringup
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source sllidar_ws/install/setup.bash
+          mkdir -p ws/src
+          cp -r ros2/src/openamrobot_drivers ros2/src/openamrobot_bringup ws/src/
+          cd ws
+          colcon build --packages-select openamrobot_drivers openamrobot_bringup
+
+      # Seven driver tests (default a1, s3, invalid-model rejection, one
+      # sllidar_node per model, port default) and two bringup tests (lidar_model
+      # declared with default a1, passed through to the drivers).
+      - name: Run the driver and bringup launch tests
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source sllidar_ws/install/setup.bash
+          source ws/install/setup.bash
+          python3 -m pytest -v -p no:cacheprovider --junitxml=launch-tests.xml \
+            ros2/src/openamrobot_drivers/test/test_drivers_launch.py \
+            ros2/src/openamrobot_bringup/test/test_real_bringup_launch.py
+
+      # A missing or renamed test must not pass as an empty suite.
+      - name: Check that all nine launch tests ran
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('launch-tests.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          print(f'{tests} tests, {skipped} skipped')
+          assert tests == 9 and skipped == 0, 'expected 9 launch tests, none skipped'
+          EOF
+
+  # Existing ament lint results for the same two packages, reported in their
+  # own job so they are visible without changing the launch-test result.
+  # openamrobot_bringup has lint findings on main that predate this job.
+  drivers-bringup-lint:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [openamrobot_drivers, openamrobot_bringup]
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install lint tools
+        run: |
+          apt-get update
+          apt-get install -y python3-pytest ros-jazzy-ament-copyright \
+            ros-jazzy-ament-flake8 ros-jazzy-ament-pep257
+
+      - name: Run flake8, pep257 and copyright tests
+        shell: bash
+        working-directory: ros2/src/${{ matrix.package }}
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          python3 -m pytest -v -p no:cacheprovider \
+            test/test_flake8.py test/test_pep257.py test/test_copyright.py

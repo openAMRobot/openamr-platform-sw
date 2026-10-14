@@ -26,6 +26,7 @@ from openamrobot_nav2.navigation_status_node import (  # noqa: E402
     MANAGED_NAV_NODES,
     NavigationStatusNode,
 )
+from openamrobot_nav2.status_rules import health_to_diagnostic_level  # noqa: E402
 from rclpy.parameter import Parameter  # noqa: E402
 
 ABORTED = 6
@@ -292,6 +293,67 @@ class TestFailedStackState(NodeTestCase):
         # freshly RESETTING, not immediately FAILED from inherited time
         self.assertEqual(state, NavStackStatus.STATE_RESETTING)
         self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
+
+
+class FakePub:
+    """Stands in for an rclpy publisher, capturing every message it is given."""
+
+    def __init__(self):
+        self.published = []
+
+    def publish(self, msg):
+        self.published.append(msg)
+
+
+class TestDiagnosticsMirror(NodeTestCase):
+    """
+    The /diagnostics mirror publishes every tick, independent of status gating.
+
+    /navigation/status itself may not be due yet (PublishGate only gates that
+    topic), but a monitoring tool watching /diagnostics should not have to
+    understand NavigationStatus's own change/heartbeat gating to get a fresh
+    reading.
+    """
+
+    def test_diagnostics_publishes_every_tick_even_with_no_change(self):
+        diag_pub = FakePub()
+        status_pub = FakePub()
+        self.node._diag_pub = diag_pub
+        self.node._pub = status_pub
+
+        for _ in range(3):
+            self.node._tick()
+
+        # unconditional: one /diagnostics message per tick, no gating
+        self.assertEqual(len(diag_pub.published), 3)
+        # meanwhile /navigation/status is still gated: nothing changed between
+        # these back-to-back ticks and no heartbeat period has elapsed, so
+        # only the first tick (nothing published yet) is due
+        self.assertEqual(len(status_pub.published), 1)
+
+    def test_overall_entry_reflects_navigation_status_health(self):
+        diag_pub = FakePub()
+        self.node._diag_pub = diag_pub
+        self.node._tick()
+
+        published = diag_pub.published[-1]
+        overall = published.status[0]
+        self.assertEqual(overall.name, 'navigation_status_node: health')
+
+        built = self.node._build_status(self.node.get_clock().now())
+        self.assertEqual(overall.level, health_to_diagnostic_level(built.health))
+
+    def test_one_diagnostic_entry_per_tracked_sensor(self):
+        diag_pub = FakePub()
+        self.node._diag_pub = diag_pub
+        self.node._tick()
+
+        published = diag_pub.published[-1]
+        sensor_entries = [
+            s for s in published.status if s.name != 'navigation_status_node: health']
+        self.assertEqual(len(sensor_entries), len(self.node._sensors))
+        self.assertEqual(
+            {s.hardware_id for s in sensor_entries}, set(self.node._sensors.keys()))
 
 
 if __name__ == '__main__':
