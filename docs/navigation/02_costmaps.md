@@ -75,8 +75,10 @@ scan:
 - The global costmap uses a plain `ObstacleLayer`; the local costmap uses a `VoxelLayer` (3D
   marking, `z_voxels: 16`, `max_obstacle_height: 2.0`) — same 2D scan source, but the voxel
   layer gives cleaner clearing of transient returns in the rolling window.
-- AMCL uses `laser_max_range: 12.0` (the RPLIDAR A1's real reach; 100 m would inject phantom
-  beams) while the costmaps mark only to 2.5 m — appropriate for a 3 × 3 m local window.
+- AMCL uses `laser_max_range: 12.0` (the real reach of the RPLIDAR A1, legacy (existing robot);
+  100 m would inject phantom beams) while the costmaps mark only to 2.5 m — appropriate for a
+  3 × 3 m local window. The value is kept for the RPLIDAR S3 (OpenAMRobot 2.0) until it is
+  retuned from the Slamtec S3 datasheet.
 
 ---
 

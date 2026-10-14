@@ -78,8 +78,10 @@ Setting up PlatformIO on a PEP 668 ("externally managed") Ubuntu was non-trivial
 - **Stops publishing on its own**: sometimes the node is alive but `/scan` goes silent. A single node
   restart brings it back. Cause not pinned (USB power / motor?). To watch — especially during SLAM.
 - **Mounted rotated 180°**: found empirically (object in front shows at ±180° in the LiDAR frame). The TF
-  `base_link→lidar_link` uses **yaw=180°**, x=0.335, z=0.18. The robot's own frame also produces close
+  `base_link→lidar_link` uses **yaw=180°**, x=0.335, z=0.18 (Gate A unit). The robot's own frame also produces close
   returns (≈ ±20–50°, ±80–90°) → handled with `min_laser_range`/scan filter.
+  On OpenAMRobot 2.0 the URDF defines `lidar_link` at (0.330, 0, 0.124) from `base_link`, yaw π (P-03 rev19.0
+  items 13 and 19, 7.1 mm spacer); the 0.335 / 0.18 transform above applies to the Gate A unit only.
 
 ## 5. Smaller gotchas
 - **Debug topics QoS**: `/debug/*` are published **best-effort** → a subscriber must request best-effort
@@ -188,7 +190,7 @@ distinctive objects** as landmarks. Saved `coin2.{pgm,yaml,posegraph,data}` (als
 
 ### Lidar gotchas (recurring)
 - **Stuck `80008000` / operation timeout** after a hard kill mid-scan → **unplug/replug the USB**.
-- **Two `rplidar_composition` fighting one port** (from repeated launches) → timeout. Always **clean kill +
+- **Two `rplidar_composition` (legacy A1 driver; now `sllidar_node`) fighting one port** (from repeated launches) → timeout. Always **clean kill +
   single launch**. (pgrep over-counts due to the `ros2 run` wrapper — verify with `ps -ef`.)
 
 ### Nav2 + AMCL brought up and WORKING
