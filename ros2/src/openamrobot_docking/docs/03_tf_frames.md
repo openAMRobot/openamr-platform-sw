@@ -67,11 +67,11 @@ Provided by the `openamrobot_description` package, loaded by
 base_footprint                  ← URDF root, on the floor under the drive-axle midpoint (z = 0)
 └── base_link                   ← base_footprint_joint, z 0.098 (drive-axle midpoint)
     ├── lidar_link              ← (0.330, 0, 0.124), yaw π; scan plane 222.0 mm above floor
-    ├── base_camera_link        ← (0.386, 0, 0.0447), Gemini 336L, pitch by base_tilt (default bt10)
+    ├── base_camera_link        ← (0.387, 0, 0.046), Gemini 336L, pitch by base_tilt (default bt10)
     │   ├── base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
     │   └── base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
-    ├── imu_link                ← (0.195, 0, −0.044), ICM-42688-P
-    ├── us_front, us_rear, tof_front_left, tof_front_right, tof_rear_left, tof_rear_right
+    ├── imu_link                ← (0.0544, 0, 0.133), ICM-42688-P
+    ├── us_front_left, us_front_right, us_rear_left, us_rear_right, tof_front, tof_rear
     ├── camera_link             ← (0.35, 0, 0.20), legacy IMX708, Gate A; docking camera
     │   └── camera_optical_frame  ← rpy (−π/2, 0, −π/2) for solvePnP
     ├── left_wheel_link, right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100

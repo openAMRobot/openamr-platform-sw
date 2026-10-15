@@ -62,38 +62,38 @@
   direction: GZ_TO_ROS
 
 # gz topics published by the TF-Luna and MB7060 range sensors (sensors.xacro, #49)
-- ros_topic_name: "/tof/front_left"
-  gz_topic_name: "/tof/front_left"
+- ros_topic_name: "/tof/front"
+  gz_topic_name: "/tof/front"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/tof/front_right"
-  gz_topic_name: "/tof/front_right"
+- ros_topic_name: "/tof/rear"
+  gz_topic_name: "/tof/rear"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/tof/rear_left"
-  gz_topic_name: "/tof/rear_left"
+- ros_topic_name: "/ultrasonic/front_left"
+  gz_topic_name: "/ultrasonic/front_left"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/tof/rear_right"
-  gz_topic_name: "/tof/rear_right"
+- ros_topic_name: "/ultrasonic/front_right"
+  gz_topic_name: "/ultrasonic/front_right"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/ultrasonic/front"
-  gz_topic_name: "/ultrasonic/front"
+- ros_topic_name: "/ultrasonic/rear_left"
+  gz_topic_name: "/ultrasonic/rear_left"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/ultrasonic/rear"
-  gz_topic_name: "/ultrasonic/rear"
+- ros_topic_name: "/ultrasonic/rear_right"
+  gz_topic_name: "/ultrasonic/rear_right"
   ros_type_name: "sensor_msgs/msg/LaserScan"
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS

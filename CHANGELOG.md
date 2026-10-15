@@ -16,22 +16,25 @@ This project follows a simple changelog structure:
 ### Changed — Robot model: 2.0 sensor frames and simplified collision (#49)
 
 - Sensor links and joints moved to `openamrobot_description/urdf/sensors.xacro`, included by
-  `robo_urdf.urdf.xacro`. Poses from the OpenAMRobot platform v0.2 CAD (CAD Rev B, STEP
-  MMP.00.00.00.000); each frame with its CAD source and status in
-  `openamrobot_description/config/sensor_frames.yaml`.
-- Sensor layout follows the CAD: four TF-Luna (`tof_front_left`, `tof_front_right`,
-  `tof_rear_left`, `tof_rear_right`, 10° down from the TF-Luna mount) and two MB7060
-  (`us_front`, `us_rear`). Replaces `us_front_left`, `us_front_right`, `us_rear_left`,
-  `us_rear_right`, `tof_front` and `tof_rear` (Alex decision 2026-10-12).
-- `base_camera_link` (Gemini 336L) at (0.386, 0, 0.0447) on the 10° camera mount; `base_tilt`
-  gains `bt00`, default stays `bt10`.
-- Collision: chassis, castors and LiDAR are boxes and cylinders instead of the STL meshes; the
-  A1 LiDAR mesh is replaced with an RPLIDAR S3 cylinder. Link and joint names of the base are
-  unchanged.
-- Gazebo: the TF-Luna and MB7060 publish `/tof/*` and `/ultrasonic/*` (LaserScan), bridged in
-  `openamrobot_gazebo/config/gz_bridge.yaml`.
-- Open: `imu_link` stays a placeholder until the IMU and its mounting plate are designed;
-  `lidar_link` stays at x 0.330 while the CAD places the S3 centre at x 0.321.
+  `robo_urdf.urdf.xacro`. Poses from the CAD Rev B full assembly (2026-10-15,
+  openamr-platform-hw#20) and P-03 rev19.0 item 19; each frame with its source and status in
+  `openamrobot_description/config/sensor_frames.yaml`. Existing link and joint names are kept.
+- `base_camera_link` (Gemini 336L) at (0.387, 0, 0.046) on the 10° camera mount (was
+  (0.376, 0, 0.0445)); `base_tilt` bt05 / bt10 / bt15, default bt10.
+- `imu_link` (ICM-42688-P) at (0.0544, 0, 0.133) on the electronics bracket (was
+  (0.195, 0, -0.044)).
+- `us_front_left`, `us_front_right`, `us_rear_left`, `us_rear_right` (4 x MB7060, y ±0.130)
+  and `tof_front`, `tof_rear` (2 x TF-Luna, 20° down screening value): x at the sensor faces
+  from the CAD; simple visual bodies.
+- `lidar_link` unchanged (scan plane 222.0 mm; MMP.07 bracket + 17.5 mm spacer gives 222.05 mm).
+  The A1 mesh is replaced with an RPLIDAR S3 cylinder.
+- Collision: chassis box, castor boxes and the S3 cylinder instead of the STL meshes; drive and
+  castor wheels keep their cylinders and spheres.
+- Gazebo: MB7060 and TF-Luna as narrow `gpu_lidar` range sensors on `/ultrasonic/*` and `/tof/*`
+  (LaserScan), bridged in `openamrobot_gazebo/config/gz_bridge.yaml`.
+- `robot.sdf` frames and the TF tree docs updated.
+- Open: `lidar_link` stays at x 0.330 while the CAD places the S3 centre at x 0.321; the CAD
+  TF-Luna mount face is 10°, the model uses the 20° screening value.
 
 ### Added — Bundle docking (3-tag pipeline)
 

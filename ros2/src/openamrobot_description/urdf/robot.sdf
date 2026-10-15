@@ -666,16 +666,16 @@
       <child_frame_id>base_footprint</child_frame_id>
     </plugin>
 
-    <!-- OpenAMRobot 2.0 frames (Alex decision 2026-10-12; sensor poses from CAD Rev B,
-         STEP MMP.00.00.00.000, 2026-10-13, #49). Same values as sensors.xacro and
+    <!-- OpenAMRobot 2.0 frames (Alex decision 2026-10-12, P-03 rev19.0 item 19; poses from
+         the CAD Rev B full assembly 2026-10-15, #49). Same values as sensors.xacro and
          config/sensor_frames.yaml; this static SDF uses the default base camera tilt
          bt10 (pitch -0.1745). -->
     <frame name="base_footprint" attached_to="base_link">
       <pose relative_to="base_link">0 0 -0.098 0 0 0</pose>
     </frame>
-    <!-- was 0.376 0 0.0445, superseded by CAD Rev B -->
+    <!-- was 0.376 0 0.0445 (Alex decision 2026-10-12) -->
     <frame name="base_camera_link" attached_to="base_link">
-      <pose relative_to="base_link">0.386 0 0.0447 0 -0.1745 0</pose>
+      <pose relative_to="base_link">0.387 0 0.046 0 -0.1745 0</pose>
     </frame>
     <frame name="base_camera_color_optical_frame" attached_to="base_camera_link">
       <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
@@ -683,31 +683,29 @@
     <frame name="base_camera_depth_optical_frame" attached_to="base_camera_link">
       <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
     </frame>
-    <!-- IMU ICM-42688-P: base plate top; board stack height added from the mount drawing. -->
+    <!-- IMU ICM-42688-P on the electronics bracket; was 0.195 0 -0.044 -->
     <frame name="imu_link" attached_to="base_link">
-      <pose relative_to="base_link">0.195 0 -0.044 0 0 0</pose>
+      <pose relative_to="base_link">0.0544 0 0.133 0 0 0</pose>
     </frame>
-    <!-- TF-Luna, 10 deg down from the TF-Luna mount MMP.00.00.00.005.
-         Supersede tof_front / tof_rear (20 deg down screening value). -->
-    <frame name="tof_front_left" attached_to="base_link">
-      <pose relative_to="base_link">0.3945 0.130 -0.0074 0 0.1745 0</pose>
+    <!-- MB7060 x4 in the panel edge holes -->
+    <frame name="us_front_left" attached_to="base_link">
+      <pose relative_to="base_link">0.3906 0.130 -0.0066 0 0 0</pose>
     </frame>
-    <frame name="tof_front_right" attached_to="base_link">
-      <pose relative_to="base_link">0.3945 -0.130 -0.0074 0 0.1745 0</pose>
+    <frame name="us_front_right" attached_to="base_link">
+      <pose relative_to="base_link">0.3906 -0.130 -0.0066 0 0 0</pose>
     </frame>
-    <frame name="tof_rear_left" attached_to="base_link">
-      <pose relative_to="base_link">-0.3933 0.130 -0.0074 0 0.1745 3.141592653589793</pose>
+    <frame name="us_rear_left" attached_to="base_link">
+      <pose relative_to="base_link">-0.3886 0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
-    <frame name="tof_rear_right" attached_to="base_link">
-      <pose relative_to="base_link">-0.3933 -0.130 -0.0074 0 0.1745 3.141592653589793</pose>
+    <frame name="us_rear_right" attached_to="base_link">
+      <pose relative_to="base_link">-0.3886 -0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
-    <!-- MB7060, front and rear centre. Supersede us_front_left / us_front_right /
-         us_rear_left / us_rear_right. -->
-    <frame name="us_front" attached_to="base_link">
-      <pose relative_to="base_link">0.394 0 -0.0066 0 0 0</pose>
+    <!-- TF-Luna x2 (cliff) in the centre openings; 20 degree down screening value until the bench test. -->
+    <frame name="tof_front" attached_to="base_link">
+      <pose relative_to="base_link">0.399 0 -0.0066 0 0.3491 0</pose>
     </frame>
-    <frame name="us_rear" attached_to="base_link">
-      <pose relative_to="base_link">-0.391 0 -0.0066 0 0 3.141592653589793</pose>
+    <frame name="tof_rear" attached_to="base_link">
+      <pose relative_to="base_link">-0.399 0 -0.0066 0 0.3491 3.141592653589793</pose>
     </frame>
   </model>
 </sdf>
