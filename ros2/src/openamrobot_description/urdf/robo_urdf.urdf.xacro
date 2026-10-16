@@ -720,13 +720,16 @@ Stephen Brawner (brawner@gmail.com)
        (5 / 10 / 15 deg up), default bt10 (Alex decision 2026-10-12).
        An unknown base_tilt value fails the xacro expansion. -->
   <xacro:arg name="base_tilt" default="bt10"/>
+  <!-- Legacy Gate A IMX708 simulation sensor selection; camera frames remain
+       available for existing docking and perception consumers. -->
+  <xacro:arg name="legacy_camera" default="false"/>
   <xacro:property name="base_camera_pitch"
     value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
 
   <link name="base_camera_link"/>
-  <!-- xyz (0.376, 0, 0.0445) (Alex decision 2026-10-12, STEP MMP.00.00.00.000) -->
+  <!-- xyz (0.387, 0, 0.046) (Gemini 336L base-camera mounting position) -->
   <joint name="base_camera_joint" type="fixed">
-    <origin xyz="0.376 0 0.0445" rpy="0 ${base_camera_pitch} 0"/>
+    <origin xyz="0.387 0 0.046" rpy="0 ${base_camera_pitch} 0"/>
     <parent link="base_link"/>
     <child link="base_camera_link"/>
   </joint>
