@@ -21,8 +21,9 @@ This project follows a simple changelog structure:
   `openamrobot_description/config/sensor_frames.yaml`. Existing link and joint names are kept.
 - `base_camera_link` (Gemini 336L) at (0.387, 0, 0.046) on the 10° camera mount (was
   (0.376, 0, 0.0445)); `base_tilt` bt05 / bt10 / bt15, default bt10.
-- `imu_link` (ICM-42688-P) at (0.0544, 0, 0.133) on the electronics bracket (was
-  (0.195, 0, -0.044)).
+- `imu_link` (ICM-42688-P) at the package centre, (0.0544, 0, 0.1246), yaw −π/2 (sensor X → base
+  −y, Y → +x) on the electronics bracket (was (0.195, 0, -0.044), and (0.0544, 0, 0.133) rpy 0
+  from a measurement against a displaced base plate). The firmware publishes in the sensor frame.
 - `us_front_left`, `us_front_right`, `us_rear_left`, `us_rear_right` (4 x MB7060, y ±0.130)
   and `tof_front`, `tof_rear` (2 x TF-Luna, 20° down screening value): x at the sensor faces
   from the CAD; simple visual bodies.

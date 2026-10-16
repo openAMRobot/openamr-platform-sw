@@ -70,7 +70,7 @@ base_footprint                  ← URDF root, on the floor under the drive-axle
     ├── base_camera_link        ← (0.387, 0, 0.046), Gemini 336L, pitch by base_tilt (default bt10)
     │   ├── base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
     │   └── base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
-    ├── imu_link                ← (0.0544, 0, 0.133), ICM-42688-P
+    ├── imu_link                ← (0.0544, 0, 0.1246), yaw −π/2, ICM-42688-P
     ├── us_front_left, us_front_right, us_rear_left, us_rear_right, tof_front, tof_rear
     ├── camera_link             ← (0.35, 0, 0.20), legacy IMX708, Gate A; docking camera
     │   └── camera_optical_frame  ← rpy (−π/2, 0, −π/2) for solvePnP

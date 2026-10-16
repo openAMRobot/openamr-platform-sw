@@ -683,9 +683,10 @@
     <frame name="base_camera_depth_optical_frame" attached_to="base_camera_link">
       <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
     </frame>
-    <!-- IMU ICM-42688-P on the electronics bracket; was 0.195 0 -0.044 -->
+    <!-- IMU ICM-42688-P package centre on the electronics bracket, yaw -90 deg
+         (sensor X -> base -y); was 0.0544 0 0.133 rpy 0 and 0.195 0 -0.044 -->
     <frame name="imu_link" attached_to="base_link">
-      <pose relative_to="base_link">0.0544 0 0.133 0 0 0</pose>
+      <pose relative_to="base_link">0.0544 0 0.1246 0 0 -1.5707963267948966</pose>
     </frame>
     <!-- MB7060 x4 in the panel edge holes -->
     <frame name="us_front_left" attached_to="base_link">
