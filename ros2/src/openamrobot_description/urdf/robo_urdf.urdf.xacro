@@ -646,7 +646,9 @@ Stephen Brawner (brawner@gmail.com)
   <joint
     name="lidar_joint"
     type="fixed">
-    <!-- lidar_link origin at the scan-plane centre, 222.0 mm above the floor
+    <!-- lidar_link origin at the scan-plane centre, 222.05 mm above the floor
+         (MMP.07 bracket + 17.5 mm spacer, no standoffs; Alex decision 2026-10-16;
+         z 0.124 rounds it to 222.0 mm)
          (0.098 + 0.124), mounted rotated 180 deg (Alex decision 2026-10-12,
          STEP MMP.00.00.00.000). Superseded by Alex decision 2026-10-12:
          xyz="0.35135 -0.0010251 0.1683" rpy="0 0 0". The lidar visual/collision

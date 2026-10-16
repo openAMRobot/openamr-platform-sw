@@ -23,9 +23,9 @@ frames:
 
   imu_link:
     sensor: ICM-42688-P (MIKROE-4237 Click)
-    xyz: [0.0544, 0.0, 0.1246]
+    xyz: [0.0544, 0.0, 0.1210]
     rpy: [0.0, 0.0, -1.5707963267948966]   # sensor X -> base -y, Y -> +x, Z -> +z
-    cad_source: ICM-42688-P package centre on electronics bracket MMP.04.00.00.002, 222.6 mm above the floor (168.6 mm above the base-plate top); pin 1 front-left, component side up
+    cad_source: ICM-42688-P package centre on electronics bracket MMP.04.00.00.002, 165.043 mm above the base-plate top (54.0 mm), 219.04 mm above the floor; pin 1 front-left, component side up
     status: measured   # axis mapping from the datasheet (Evans) and the CAD package orientation
     superseded: "(0.0544, 0, 0.133) rpy 0 (16 Oct, 177 mm measured against a displaced base plate); (0.195, 0, -0.044) (12 Oct)"
 
@@ -36,7 +36,7 @@ frames:
     cad_source: S3_CONTINUE_ASM centre at x 0.321 (lidar_link kept at 0.330 per #49)
     status: decision
     mount: MMP.07 bracket (top 174.0 mm) + 17.5 mm printed spacer MMP.07.00.00.002, no standoffs
-    note: S3 beam 174.0 + 17.5 + 30.55 = 222.05 mm above the floor; scan plane 222.0 mm (Alex decision 2026-10-12)
+    note: scan plane 222.05 mm above the floor (174.0 + 17.5 + 30.55; Alex decision 2026-10-16); lidar_link z 0.124 rounds it to 222.0 mm
 
   us_front_left:
     sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)

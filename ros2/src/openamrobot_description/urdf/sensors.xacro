@@ -57,17 +57,17 @@
 
   <!-- IMU, ICM-42688-P on the MIKROE-4237 Click board, electronics bracket
        MMP.04.00.00.002. Origin at the centre of the ICM-42688-P package: on the
-       centreline, 54.4 mm in front of the drive axle, 222.6 mm above the floor
-       (168.6 mm above the base-plate top), CAD Rev B 2026-10-16.
+       centreline, 54.4 mm in front of the drive axle, 165.043 mm above the
+       base-plate top (54.0 mm), i.e. 219.04 mm above the floor (CAD 2026-10-16).
        Orientation: board flat, component side up, pin 1 at the front-left corner;
        sensor X -> base -y, Y -> +x, Z -> +z, so yaw -90 deg (datasheet axis check
        by Evans, CAD check 2026-10-16). imu_link is the sensor frame; the firmware
-       must not remap the axes as well.
-       Was (0.0544, 0, 0.133) rpy 0 (16 Oct: 177 mm was measured against a
+       publishes in it and must not remap the axes as well.
+       Was (0.0544, 0, 0.133) rpy 0 (16 Oct; 177 mm was measured against a
        displaced base plate) and (0.195, 0, -0.044) (Alex decision 2026-10-12). -->
   <link name="imu_link"/>
   <joint name="imu_joint" type="fixed">
-    <origin xyz="0.0544 0 0.1246" rpy="0 0 ${-pi/2}"/>
+    <origin xyz="0.0544 0 0.1210" rpy="0 0 ${-pi/2}"/>
     <parent link="base_link"/>
     <child link="imu_link"/>
   </joint>

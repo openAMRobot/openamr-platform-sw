@@ -21,16 +21,17 @@ This project follows a simple changelog structure:
   `openamrobot_description/config/sensor_frames.yaml`. Existing link and joint names are kept.
 - `base_camera_link` (Gemini 336L) at (0.387, 0, 0.046) on the 10° camera mount (was
   (0.376, 0, 0.0445)); `base_tilt` bt05 / bt10 / bt15, default bt10.
-- `imu_link` (ICM-42688-P) at the package centre, (0.0544, 0, 0.1246), yaw −π/2 (sensor X → base
+- `imu_link` (ICM-42688-P) at the package centre, (0.0544, 0, 0.1210), yaw −π/2 (sensor X → base
   −y, Y → +x) on the electronics bracket (was (0.195, 0, -0.044), and (0.0544, 0, 0.133) rpy 0
   from a measurement against a displaced base plate). The firmware publishes in the sensor frame.
 - `us_front_left`, `us_front_right`, `us_rear_left`, `us_rear_right` (4 x MB7060, y ±0.130)
   and `tof_front`, `tof_rear` (2 x TF-Luna, 20° down screening value): x at the sensor faces
   from the CAD; simple visual bodies.
-- `lidar_link` unchanged (scan plane 222.0 mm; MMP.07 bracket + 17.5 mm spacer gives 222.05 mm).
+- `lidar_link` unchanged; scan plane 222.05 mm (MMP.07 bracket + 17.5 mm spacer, no standoffs).
   The A1 mesh is replaced with an RPLIDAR S3 cylinder.
 - Collision: chassis box, castor boxes and the S3 cylinder instead of the STL meshes; drive and
   castor wheels keep their cylinders and spheres.
+- Gazebo IMU sensor on `imu_link` (topic `imu`, 50 Hz) and the `gz-sim-imu-system` plugin (from #69).
 - Gazebo: MB7060 and TF-Luna as narrow `gpu_lidar` range sensors on `/ultrasonic/*` and `/tof/*`
   (LaserScan), bridged in `openamrobot_gazebo/config/gz_bridge.yaml`.
 - `robot.sdf` frames and the TF tree docs updated.
