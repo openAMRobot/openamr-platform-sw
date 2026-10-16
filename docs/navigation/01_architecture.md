@@ -97,7 +97,7 @@ map                                        ← amcl (localization)
              ├─ base_camera_link           ← (0.376, 0, 0.0445), pitch by base_tilt (Gemini 336L)
              │   ├─ base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)
              │   └─ base_camera_depth_optical_frame  ← rpy (−π/2, 0, −π/2)
-             ├─ imu_link                   ← (0.195, 0, −0.044), ICM-42688-P
+             ├─ imu_link                   ← (0.0544, 0, 0.133), ICM-42688-P
              ├─ us_front_left / us_front_right  ← (0.390, ±0.130, −0.0066)
              ├─ us_rear_left / us_rear_right    ← (−0.390, ±0.130, −0.0066), yaw π
              ├─ tof_front                  ← (0.390, 0, −0.0066), pitch 0.3491 (20° down)

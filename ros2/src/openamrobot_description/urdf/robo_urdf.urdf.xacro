@@ -747,12 +747,14 @@ Stephen Brawner (brawner@gmail.com)
     <child link="base_camera_depth_optical_frame"/>
   </joint>
 
-  <!-- IMU, ICM-42688-P: xyz (0.195, 0, -0.044), rpy 0 (Alex decision 2026-10-12,
-       STEP MMP.00.00.00.000). base plate top; board stack height added from the
-       mount drawing. -->
+  <!-- IMU, ICM-42688-P: xyz (0.0544, 0, 0.133), rpy 0 (Alex decision 2026-10-16,
+       CAD Rev B, platform-hw #20): on the electronics bracket MMP.04.00.00.002, on
+       the centreline, 54.4 mm ahead of the drive axle, 177 mm above the base-plate
+       top (z -0.044 + 0.177). Supersedes (0.195, 0, -0.044) of 2026-10-12, which
+       had no board-stack height. Axes aligned with base_link. -->
   <link name="imu_link"/>
   <joint name="imu_joint" type="fixed">
-    <origin xyz="0.195 0 -0.044" rpy="0 0 0"/>
+    <origin xyz="0.0544 0 0.133" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="imu_link"/>
   </joint>
