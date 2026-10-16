@@ -19,10 +19,14 @@ Docking is ON by default in BOTH profiles. ``dock_trigger`` owns ``/goal_pose`` 
 ``/goal_pose_nav`` (it IS the goal forwarder). With ``use_docking:=false`` a plain relay takes over
 that forwarding for nav-only debugging. Exactly one forwarder runs — never both.
 
-  ros2 launch openamrobot_bringup bringup.launch.py                              # real, everything
-  ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true     # sim, everything + RViz
-  ros2 launch openamrobot_bringup bringup.launch.py map:=/path/to/real_map.yaml  # real, your map
-  ros2 launch openamrobot_bringup bringup.launch.py sim:=false use_camera:=false # real, lighter (no camera)
+  # real, everything
+  ros2 launch openamrobot_bringup bringup.launch.py
+  # sim, everything + RViz
+  ros2 launch openamrobot_bringup bringup.launch.py sim:=true use_rviz:=true
+  # real, your map
+  ros2 launch openamrobot_bringup bringup.launch.py map:=/path/to/real_map.yaml
+  # real, lighter (no camera)
+  ros2 launch openamrobot_bringup bringup.launch.py sim:=false use_camera:=false
 
 For step-by-step / per-terminal launching (debugging), see openamrobot_bringup/README.md
 "Individual commands"; each include below can be launched on its own.
@@ -37,13 +41,13 @@ import atexit
 import os
 import tempfile
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import yaml
 
 
 def _truthy(value):
@@ -51,7 +55,8 @@ def _truthy(value):
 
 
 def _params_with_map(nav2_share, map_file, is_sim):
-    """Write a temp copy of nav2_params.yaml with map_server.yaml_filename = map_file.
+    """
+    Write a temp copy of nav2_params.yaml with map_server.yaml_filename = map_file.
 
     Returns the temp file path. Lets localization run its simple (no map-condition) node
     while map_server still gets the map — deterministic across includes.
@@ -87,7 +92,8 @@ def launch_setup(context, *args, **kwargs):
     map_file = LaunchConfiguration('map').perform(context)
     is_sim = _truthy(sim)
 
-    # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled sim map.
+    # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled
+    # sim map.
     if not map_file:
         if is_sim:
             map_file = os.path.join(nav2, 'maps', 'my_map.yaml')   # sim: the walled_world map
@@ -110,29 +116,33 @@ def launch_setup(context, *args, **kwargs):
             src(gazebo, 'gz_simulator.launch.py'),
             launch_arguments={'gui': gui}.items()))
         # Scan filtering is a DATA-SOURCE responsibility (Raj review PR1): the SIM profile owns its
-        # laser_filters chain here (the REAL profile owns it via openamrobot_perception). This keeps
-        # exactly ONE /scan_filtered publisher per profile; navigation_launch only consumes it.
+        # laser_filters chain here (the REAL profile owns it via openamrobot_perception). This
+        # keeps exactly ONE /scan_filtered publisher per profile; navigation_launch only consumes
+        # it.
         actions.append(Node(
-            package='laser_filters', executable='scan_to_scan_filter_chain', name='scan_body_filter',
+            package='laser_filters', executable='scan_to_scan_filter_chain',
+            name='scan_body_filter',
             parameters=[os.path.join(nav2, 'config', 'scan_body_filter.yaml'),
                         {'use_sim_time': True}],
             remappings=[('scan', '/scan'), ('scan_filtered', '/scan_filtered')]))
         # Goal routing (sim) — SYMMETRIC to the real branch below, gated by use_docking.
-        # navigation_launch remaps bt_navigator's goal to goal_pose_nav (for the docking gate), so the
-        # RViz "2D Goal Pose" (/goal_pose) must be forwarded or it never reaches Nav2. Exactly ONE
-        # forwarder runs: dock_trigger (when docking) OR a plain relay (nav-only) — never both.
+        # navigation_launch remaps bt_navigator's goal to goal_pose_nav (for the docking gate), so
+        # the RViz "2D Goal Pose" (/goal_pose) must be forwarded or it never reaches Nav2. Exactly
+        # ONE forwarder runs: dock_trigger (when docking) OR a plain relay (nav-only) — never both.
         if _truthy(use_docking):
             # Sim docking layer (gz camera_info bridge + sync + apriltag_sim + detected_dock_pose +
-            # dock_trigger). dock_trigger OWNS /goal_pose and forwards it to /goal_pose_nav, so it IS
-            # the forwarder (no relay). This folds the legacy openamrobot_docking/bringup_sim.launch.py
-            # into the unified bringup: `sim:=true` now does Gazebo + Nav2 + docking in one command.
+            # dock_trigger). dock_trigger OWNS /goal_pose and forwards it to /goal_pose_nav, so it
+            # IS the forwarder (no relay). This folds the legacy
+            # openamrobot_docking/bringup_sim.launch.py into the unified bringup: `sim:=true` now
+            # does Gazebo + Nav2 + docking in one command.
             docking = get_package_share_directory('openamrobot_docking')
             actions.append(IncludeLaunchDescription(
                 src(docking, 'openamrobot_docking.launch.py'),
                 launch_arguments={'use_sim_time': sim}.items()))
         else:
-            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch by
-            # hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no docking.
+            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch
+            # by hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no
+            # docking.
             actions.append(IncludeLaunchDescription(src(bringup, 'goal_relay.launch.py')))
     else:
         actions.append(IncludeLaunchDescription(
@@ -150,8 +160,9 @@ def launch_setup(context, *args, **kwargs):
                 src(docking, 'docking_real.launch.py'),
                 launch_arguments={'use_sim_time': sim}.items()))
         else:
-            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch by
-            # hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no docking.
+            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch
+            # by hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no
+            # docking.
             actions.append(IncludeLaunchDescription(src(bringup, 'goal_relay.launch.py')))
 
     # --- same Nav2 stack on top of either source ---
@@ -178,7 +189,8 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    nav2 = get_package_share_directory('openamrobot_nav2')
+    # Fails early if openamrobot_nav2 is not installed (launch_setup resolves it again).
+    get_package_share_directory('openamrobot_nav2')
     return LaunchDescription([
         DeclareLaunchArgument(
             'sim', default_value='false',
@@ -194,13 +206,14 @@ def generate_launch_description():
             description='Real only: launch the IMX708 camera (false = lighter load).'),
         DeclareLaunchArgument(
             'use_docking', default_value='true',
-            description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose and IS '
-                        'the goal forwarder). Set false only for nav-only debug -> a plain '
-                        'topic_tools relay /goal_pose->/goal_pose_nav takes over as the forwarder. '
-                        'Exactly one forwarder runs in either case.'),
+            description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '
+                        'and IS the goal forwarder). Set false only for nav-only debug -> a plain '
+                        'topic_tools relay /goal_pose->/goal_pose_nav takes over as the '
+                        'forwarder. Exactly one forwarder runs in either case.'),
         DeclareLaunchArgument(
             'map', default_value='',
-            description='Map YAML for AMCL/localization. Empty -> sim uses the bundled walled_world '
-                        'map; sim:=false REQUIRES an explicit map:= (no silent bundled-map fallback).'),
+            description='Map YAML for AMCL/localization. Empty -> sim uses the bundled '
+                        'walled_world map; sim:=false REQUIRES an explicit map:= (no silent '
+                        'bundled-map fallback).'),
         OpaqueFunction(function=launch_setup),
     ])
