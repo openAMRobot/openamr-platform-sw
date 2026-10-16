@@ -171,7 +171,12 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                # Recovery/teleop behaviors (spin, backup, drive_on_heading,
+                # assisted_teleop) must go through the same reactive-safety chain
+                # as the controller (#35, GATE-A): without this remap they publish
+                # straight to the final /cmd_vel, bypassing velocity_smoother AND
+                # collision_monitor entirely.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
             ),
             Node(
                 package='nav2_bt_navigator',
@@ -285,7 +290,8 @@ def generate_launch_description():
                         plugin='behavior_server::BehaviorServer',
                         name='behavior_server',
                         parameters=[configured_params],
-                        remappings=remappings,
+                        # See the non-composed behavior_server above (#35, GATE-A).
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
                     ),
                     ComposableNode(
                         package='nav2_bt_navigator',
