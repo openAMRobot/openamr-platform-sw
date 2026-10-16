@@ -57,11 +57,14 @@ Stephen Brawner (brawner@gmail.com)
     </visual>
     <collision>
       <!-- Chassis box, CAD Rev B STEP MMP.00.00.00.000: x +-0.390 (panel faces),
-           y +-0.290 (base plate), 0.050 to 0.295 m above the floor (panel bottom to
-           cover top). Was the base_link.STL visual mesh, superseded (#49). -->
-      <origin xyz="0 0 0.0745" rpy="0 0 0"/>
+           y +-0.290 (base plate), 0.055 to 0.295 m above the floor (cover top).
+           The bottom sits at 0.055, not the 0.050 panel bottom, so the box clears the
+           caster-wheel collision spheres (top 0.0524 m above the floor) by 2.6 mm;
+           a permanent box/sphere overlap would be a self-collision for MoveIt.
+           Was the base_link.STL visual mesh, superseded (#49). -->
+      <origin xyz="0 0 0.077" rpy="0 0 0"/>
       <geometry>
-        <box size="0.780 0.580 0.245"/>
+        <box size="0.780 0.580 0.240"/>
       </geometry>
     </collision>
   </link>
