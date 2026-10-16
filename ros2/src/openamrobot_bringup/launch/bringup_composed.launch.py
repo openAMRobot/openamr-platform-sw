@@ -15,9 +15,11 @@ Python GIL gate, starving the detector on a Pi that was actually 50% idle. Compo
 vision CPU ~124% -> ~55% and feeds the detector at the full 15 Hz. See
 docs/AUDIT-2026-07-03-cpu-pipeline-optimization.md.
 
-  ros2 launch openamrobot_bringup bringup_composed.launch.py map:=/home/botshare/maps/piece_actuelle.yaml
+  ros2 launch openamrobot_bringup bringup_composed.launch.py \
+      map:=/home/botshare/maps/piece_actuelle.yaml
 
-Then: 2D Pose Estimate in RViz; dock with `ros2 topic pub --once /dock_trigger std_msgs/msg/Bool "{data: true}"`.
+Then: 2D Pose Estimate in RViz; dock with
+`ros2 topic pub --once /dock_trigger std_msgs/msg/Bool "{data: true}"`.
 """
 import os
 
