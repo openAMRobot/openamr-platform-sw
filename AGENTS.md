@@ -96,9 +96,10 @@ decision. A text check proves textual consistency, never mechanical, electrical 
 
 ## Verification
 - For ROS changes, from `ros2/`: source `/opt/ros/jazzy/setup.bash`, run
-  `colcon build --symlink-install --packages-up-to openamrobot_docking`, then source
+  `colcon build --symlink-install --packages-up-to <changed package>`, then source
   `install/setup.bash`.
-- Exercise the relevant launch smoke tests documented in CONTRIBUTING.md. For docking changes,
+- Run the tests the CI workflows run for the touched packages (`nav-status-tests`,
+  `drivers-bringup-tests`) and the launch smoke tests in CONTRIBUTING.md. For docking changes,
   also publish the documented `/dock_trigger` message when the environment supports it.
 - Record exact commands, outcomes and blocked prerequisites in the PR; a display, dependency or
   hardware limitation is blocked evidence, not a pass.
