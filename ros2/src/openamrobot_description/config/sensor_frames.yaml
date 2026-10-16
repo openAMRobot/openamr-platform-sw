@@ -1,0 +1,77 @@
+# OpenAMRobot 2.0 base sensor frames (#49).
+# Parent base_link (REP 105: drive-axle midpoint, 0.098 m above the floor), x forward,
+# y left, z up. xyz in metres, rpy in radians. The URDF values are in
+# urdf/sensors.xacro; keep both files in step.
+#
+# Sources: P-03 Decision Addendum rev19.0 item 19 (12 Oct 2026), BOM Issue 7.7, and the
+# CAD Rev B full assembly STEP MMP.00.00.00.000 (2026-10-15, openamr-platform-hw#20).
+# STEP axes: X forward, Y up from the floor, Z right; base_link = (X, -Z, Y - 98 mm).
+# Range sensor frames are at the centre of the sensor face with x along the beam.
+#
+# status: measured    = taken from the CAD Rev B assembly
+#         decision    = fixed by P-03 rev19.0 item 19 / Alex decision 2026-10-12
+#         placeholder = not yet in the CAD
+
+frames:
+  base_camera_link:
+    sensor: Orbbec Gemini 336L
+    xyz: [0.387, 0.0, 0.046]
+    rpy: [0.0, -0.1745, 0.0]   # default bt10, 10 deg up; base_tilt bt05 -0.0873, bt10 -0.1745, bt15 -0.2618
+    cad_source: GEMINI_336L_3D_ALL_ASM model origin (front glass) on camera mount MMP.01.00.00.003, 10 deg up
+    status: measured
+    superseded: "(0.376, 0, 0.0445) (Alex decision 2026-10-12)"
+
+  imu_link:
+    sensor: ICM-42688-P (MIKROE-4237 Click)
+    xyz: [0.0544, 0.0, 0.1210]
+    rpy: [0.0, 0.0, -1.5707963267948966]   # sensor X -> base -y, Y -> +x, Z -> +z
+    cad_source: ICM-42688-P package centre on electronics bracket MMP.04.00.00.002, 165.043 mm above the base-plate top (54.0 mm), 219.04 mm above the floor; pin 1 front-left, component side up
+    status: measured   # axis mapping from the datasheet (Evans) and the CAD package orientation
+    superseded: "(0.0544, 0, 0.133) rpy 0 (16 Oct, 177 mm measured against a displaced base plate); (0.195, 0, -0.044) (12 Oct)"
+
+  lidar_link:
+    sensor: RPLIDAR S3
+    xyz: [0.330, 0.0, 0.124]
+    rpy: [0.0, 0.0, 3.141592653589793]
+    cad_source: S3_CONTINUE_ASM centre at x 0.321 (lidar_link kept at 0.330 per #49)
+    status: decision
+    mount: MMP.07 bracket (top 174.0 mm) + 17.5 mm printed spacer MMP.07.00.00.002, no standoffs
+    note: scan plane 222.05 mm above the floor (174.0 + 17.5 + 30.55; Alex decision 2026-10-16); lidar_link z 0.124 rounds it to 222.0 mm
+
+  us_front_left:
+    sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
+    xyz: [0.3906, 0.130, -0.0066]
+    rpy: [0.0, 0.0, 0.0]
+    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
+    status: measured
+  us_front_right:
+    sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
+    xyz: [0.3906, -0.130, -0.0066]
+    rpy: [0.0, 0.0, 0.0]
+    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
+    status: measured
+  us_rear_left:
+    sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
+    xyz: [-0.3886, 0.130, -0.0066]
+    rpy: [0.0, 0.0, 3.141592653589793]
+    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
+    status: measured
+  us_rear_right:
+    sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
+    xyz: [-0.3886, -0.130, -0.0066]
+    rpy: [0.0, 0.0, 3.141592653589793]
+    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
+    status: measured
+
+  tof_front:
+    sensor: Benewake TF-Luna (cliff)
+    xyz: [0.399, 0.0, -0.0066]
+    rpy: [0.0, 0.3491, 0.0]   # 20 deg down, screening value until the bench test
+    cad_source: lens face x from the CAD; height from the front centre opening (91.4 mm above the floor)
+    status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
+  tof_rear:
+    sensor: Benewake TF-Luna (cliff)
+    xyz: [-0.399, 0.0, -0.0066]
+    rpy: [0.0, 0.3491, 3.141592653589793]   # 20 deg down, screening value until the bench test
+    cad_source: lens face x from the CAD; height from the rear centre opening (91.35 mm above the floor)
+    status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
