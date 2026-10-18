@@ -1,0 +1,32 @@
+b0/cmd.csv
+  /cmd_vel publisher set(s) during docking: ['behavior_server|collision_monitor|dock_trigger']
+  collision_monitor transitions during docking: ['active->deactivating', 'deactivating->inactive', 'inactive->cleaningup', 'cleaningup->unconfigured'] ...
+  max step not explained by smoother or monitor: 0.125 m/s, 0.424 rad/s (linear excess over the accel/decel bound 0.050 m/s)
+  PASS C4 docked
+  FAIL C1 single final publisher
+  FAIL C2 monitor stays active
+  FAIL C3 rate limited
+p1/dock_run.csv
+  /cmd_vel publisher set(s) during docking: ['collision_monitor']
+  collision_monitor transitions during docking: []
+  max step not explained by smoother or monitor: 0.050 m/s, 0.150 rad/s (linear excess over the accel/decel bound 0.000 m/s)
+  PASS C4 docked
+  PASS C1 single final publisher
+  PASS C2 monitor stays active
+  PASS C3 rate limited
+p5_dock_run.csv
+  /cmd_vel publisher set(s) during docking: ['collision_monitor']
+  collision_monitor transitions during docking: []
+  max step not explained by smoother or monitor: 0.125 m/s, 0.150 rad/s (linear excess over the accel/decel bound 0.000 m/s)
+  PASS C4 docked
+  PASS C1 single final publisher
+  PASS C2 monitor stays active
+  PASS C3 rate limited
+p4_dock_run_failed_phase1.csv
+  /cmd_vel publisher set(s) during docking: ['collision_monitor']
+  collision_monitor transitions during docking: []
+  max step not explained by smoother or monitor: 0.125 m/s, 0.104 rad/s (linear excess over the accel/decel bound 0.000 m/s)
+  FAIL C4 docked
+  PASS C1 single final publisher
+  PASS C2 monitor stays active
+  PASS C3 rate limited

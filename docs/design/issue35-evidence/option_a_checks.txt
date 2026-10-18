@@ -1,0 +1,4 @@
+A1 default use_stamped: /a_check/cmd_vel_out type ['geometry_msgs/msg/TwistStamped'] (TwistStamped, incompatible with the Twist base and Gazebo bridge)
+A2 all inputs silent for 1.5 s after dock 0.2 rad/s: twist_mux published 0 message(s) (a zero would be 0)
+A3 lock 255 engaged, teleop 255 publishing: 19 teleop message(s) forwarded (NOT masked)
+A4 lock 255 engaged, teleop 100 publishing: 0 teleop message(s) forwarded after the lock (masked); output type ['geometry_msgs/msg/Twist']

@@ -1,0 +1,5 @@
+RESULT priority_handover: PASS: dock selected 0.002 s after start; nav back 0.301 s after dock stopped (docking timeout 0.3 s); nav samples leaked while dock live: 0
+RESULT stop_lock_over_teleop: PASS: final /cmd_vel zero 0.044 s after lock; teleop samples forwarded under lock: 0; yaw after zero 3.8 deg
+RESULT lock_without_zero_source: PASS: mux messages after lock: 0; final /cmd_vel held 0.4 for 0.98 s, zero after 1.02 s (smoother velocity_timeout)
+RESULT teleop_loss: PASS: final /cmd_vel zero 1.0 s after the last cmd_vel_joy message; ground-truth travel after loss 0.110 m, 0.0 deg
+RESULT dock_loss: PASS: final /cmd_vel zero 1.0 s after the last cmd_vel_dock message; ground-truth travel after loss 0.110 m, 0.0 deg

@@ -1,0 +1,117 @@
+=== /cmd_vel
+Node name: collision_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: cmd_review_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+Node name: ros_gz_bridge
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+=== /cmd_vel_mux
+Node name: twist_mux
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: cmd_review_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+Node name: velocity_smoother
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+=== /cmd_vel_nav
+Node name: controller_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: cmd_review_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+Node name: twist_mux
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+=== /cmd_vel_dock
+Node name: dock_trigger
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: cmd_review_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+Node name: twist_mux
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+=== /cmd_vel_smoothed
+Node name: velocity_smoother
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+Node name: cmd_review_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+Node name: collision_monitor
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+active [3]
+Boolean value is: True
+Boolean value is: False
+Boolean value is: False
+/twist_mux
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /cmd_vel_dock: geometry_msgs/msg/Twist
+    /cmd_vel_joy: geometry_msgs/msg/Twist
+    /cmd_vel_nav: geometry_msgs/msg/Twist
+    /cmd_vel_stop: geometry_msgs/msg/Twist
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /stop_lock: std_msgs/msg/Bool
+  Publishers:
+    /cmd_vel_mux: geometry_msgs/msg/Twist
+    /diagnostics: diagnostic_msgs/msg/DiagnosticArray
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+  Service Servers:
+    /twist_mux/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /twist_mux/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /twist_mux/get_parameters: rcl_interfaces/srv/GetParameters
+    /twist_mux/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /twist_mux/list_parameters: rcl_interfaces/srv/ListParameters
+    /twist_mux/set_parameters: rcl_interfaces/srv/SetParameters
+    /twist_mux/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+
