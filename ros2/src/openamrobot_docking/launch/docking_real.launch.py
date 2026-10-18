@@ -72,4 +72,11 @@ def generate_launch_description():
                                          'obstacle_scan_forward_angle': 3.14159,
                                          'use_apriltag_gate': True}],
             output='screen'),
+
+        # PROTOTYPE #35: keep collision_monitor active and swap its polygons for the
+        # dock (FootprintApproach <-> DockStop); reports /docking/guard_mode.
+        Node(
+            package='openamrobot_docking', executable='dock_guard_mode.py',
+            name='dock_guard_mode', output='screen',
+            parameters=[{'use_sim_time': use_sim_time}]),
     ])

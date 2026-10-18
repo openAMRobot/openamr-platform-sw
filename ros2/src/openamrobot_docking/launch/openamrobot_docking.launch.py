@@ -176,4 +176,15 @@ def generate_launch_description():
             parameters=[trigger_params, {'use_sim_time': use_sim_time}],
             condition=IfCondition(launch_trigger),
         ),
+
+        # PROTOTYPE #35: keeps collision_monitor active during docking and swaps
+        # its polygons (FootprintApproach <-> DockStop); reports /docking/guard_mode.
+        Node(
+            package='openamrobot_docking',
+            executable='dock_guard_mode.py',
+            name='dock_guard_mode',
+            output='screen',
+            parameters=[{'use_sim_time': use_sim_time}],
+            condition=IfCondition(launch_trigger),
+        ),
     ])

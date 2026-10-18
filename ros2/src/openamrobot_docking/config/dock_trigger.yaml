@@ -167,7 +167,11 @@
     # publish straight to /cmd_vel which the gz bridge forwards to the
     # DiffDrive plugin. Nav2's own controller is idle by Phase 4 (its
     # NavigateToPose goal completed in Phase 1), so we don't fight it.
-    cmd_vel_topic: /cmd_vel
+    # PROTOTYPE #35: publish into twist_mux (priority 20), not the final /cmd_vel.
+    cmd_vel_topic: /cmd_vel_dock
+    # PROTOTYPE #35: do not lifecycle-deactivate collision_monitor; the dock guard
+    # mode switches its polygons instead (prototype node dock_guard_mode.py).
+    pause_collision_monitor_during_dock: false
 
     # ─── Tag detection topic ─────────────────────────────────────────────────
     detection_topic: /detected_dock_pose
