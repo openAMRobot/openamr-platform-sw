@@ -1,0 +1,38 @@
+# PROTOTYPE, Proposed for issue #35 (pending owner review; not approved values).
+# Design: docs/design/issue35-command-arbitration.md. Implementation owner: Kunal (skunal3318).
+#
+# twist_mux 4.5.0 (Jazzy) semantics, checked against its source:
+#   - a topic is masked when it timed out or its priority is strictly LOWER
+#     than the highest engaged lock (equal priority is NOT masked);
+#   - twist_mux only republishes the selected input; it never publishes a
+#     zero by itself (not on timeout, not when a lock engages);
+#   - use_stamped defaults to TRUE in 4.5.0. This stack and the base
+#     (Gazebo bridge, Teensy micro-ROS) use geometry_msgs/Twist, so it is
+#     set false explicitly.
+# The output (cmd_vel_mux) feeds velocity_smoother, then collision_monitor,
+# which stays the only publisher of /cmd_vel.
+twist_mux:
+  ros__parameters:
+    use_stamped: false
+    topics:
+      navigation:            # controller_server and behavior_server (via #54 remap)
+        topic: cmd_vel_nav
+        timeout: 0.5         # controller 20 Hz, behaviors 10 Hz
+        priority: 10
+      docking:               # dock_trigger (cmd_vel_topic: /cmd_vel_dock)
+        topic: cmd_vel_dock
+        timeout: 0.3         # B0 sim: gaps while moving p99 0.082 s, max 0.114 s (wall)
+        priority: 20
+      manual:                # human teleop with deadman; NOT cmd_vel_teleop, which
+        topic: cmd_vel_joy   # Nav2 assisted_teleop already subscribes to
+        timeout: 0.25
+        priority: 100
+      software_stop:         # zero Twist from the software stop requester while engaged
+        topic: cmd_vel_stop
+        timeout: 0.5
+        priority: 255
+    locks:
+      software_stop:         # functional stop, NOT the safety function (hardwired E-stop)
+        topic: stop_lock     # std_msgs/Bool, true = engaged; masks every input below 255
+        timeout: 0.0
+        priority: 255

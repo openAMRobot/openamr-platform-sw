@@ -171,7 +171,9 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                # PROTOTYPE #35 (same remap as #54): recoveries and assisted_teleop
+                # publish cmd_vel_nav, the navigation input of twist_mux.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
             ),
             Node(
                 package='nav2_bt_navigator',
@@ -208,8 +210,9 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # input remapped to the controller's cmd_vel_nav; output stays cmd_vel_smoothed.
-                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                # PROTOTYPE #35: input is the twist_mux output (cmd_vel_mux), so every
+                # source is limited here; output stays cmd_vel_smoothed.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
             ),
             Node(
                 package='nav2_collision_monitor',
@@ -240,6 +243,25 @@ def generate_launch_description():
     # regardless of use_composition. It only watches the nodes those
     # GroupActions start; it has no configure/activate services of its own,
     # so it is deliberately not in lifecycle_nodes.
+    # PROTOTYPE #35: command arbitration in front of the existing chain:
+    #   cmd_vel_nav (controller, behaviors) | cmd_vel_dock | cmd_vel_joy | cmd_vel_stop
+    #   -> twist_mux -> cmd_vel_mux -> velocity_smoother -> cmd_vel_smoothed
+    #   -> collision_monitor -> cmd_vel (the only final publisher).
+    # twist_mux is not a composable component, so it runs as a plain node in
+    # both launch modes. Config: config/twist_mux.yaml (Proposed, issue #35).
+    twist_mux_node = Node(
+        package='twist_mux',
+        executable='twist_mux',
+        name='twist_mux',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[os.path.join(bringup_dir, 'config', 'twist_mux.yaml'),
+                    {'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=remappings + [('cmd_vel_out', 'cmd_vel_mux')],
+    )
+
     status_node = Node(
         package='openamrobot_nav2',
         executable='navigation_status_node',
@@ -285,7 +307,7 @@ def generate_launch_description():
                         plugin='behavior_server::BehaviorServer',
                         name='behavior_server',
                         parameters=[configured_params],
-                        remappings=remappings,
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
                     ),
                     ComposableNode(
                         package='nav2_bt_navigator',
@@ -308,7 +330,7 @@ def generate_launch_description():
                         plugin='nav2_velocity_smoother::VelocitySmoother',
                         name='velocity_smoother',
                         parameters=[configured_params],
-                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
                     ),
                     ComposableNode(
                         package='nav2_collision_monitor',
@@ -348,6 +370,7 @@ def generate_launch_description():
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
+    ld.add_action(twist_mux_node)
     ld.add_action(status_node)
 
     return ld
