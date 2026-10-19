@@ -8,6 +8,10 @@ This is an **honest** account. The current safety is a layered *software + firmw
 not a certified functional-safety system. Read [`00_safety_overview.md`](00_safety_overview.md)
 before relying on any single layer.
 
+The hardware E-stop chain is defined in the [E-01 safety and power baseline](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md)
+(`openamr-platform-hw`). When it is fitted, the base controller will publish `/estop` from the
+safety relay state (`SAFETY_OK`). It is not built or tested yet; until then the gaps in `00_safety_overview.md` stand.
+
 ---
 
 ## Layout
