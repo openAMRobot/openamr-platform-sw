@@ -18,8 +18,11 @@ permissions:
 env:
   # openamrobot-interfaces revision the producer is built and tested against.
   # Change it on purpose when openamr_nav_msgs changes.
+  # TEMP: pinned to the tip of interfaces PR #28 (feature/site-config-status)
+  # so producer CI can validate against SiteConfigStatus before that PR merges.
+  # Revert this to upstream main's merge commit once #28 lands.
   INTERFACES_REPO: openAMRobot/openamrobot-interfaces
-  INTERFACES_REF: 77950470a87f1f5815346b2f000a662ee8c56f94
+  INTERFACES_REF: 1f46b295ccfc99901072a263769c97adf87e18c5
 
 jobs:
   producer-tests:
