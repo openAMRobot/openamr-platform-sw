@@ -20,7 +20,11 @@ import pytest
 pytest.importorskip('openamr_nav_msgs')
 rclpy = pytest.importorskip('rclpy')
 
-from openamr_nav_msgs.msg import NavigationStatus, NavStackStatus  # noqa: E402,I100
+from openamr_nav_msgs.msg import (  # noqa: E402,I100
+    NavigationStatus,
+    NavStackStatus,
+    SiteConfigStatus,
+)
 from openamrobot_nav2.navigation_status_node import (  # noqa: E402
     LIFECYCLE_ACTIVE,
     MANAGED_NAV_NODES,
@@ -354,6 +358,70 @@ class TestDiagnosticsMirror(NodeTestCase):
         self.assertEqual(len(sensor_entries), len(self.node._sensors))
         self.assertEqual(
             {s.hardware_id for s in sensor_entries}, set(self.node._sensors.keys()))
+
+
+class TestSiteConfigStatus(NodeTestCase):
+    """
+    Covers platform-sw#73 review findings: config identity and zone presence
+    must not report a pass when there is nothing to confirm them - a missing
+    input has to keep readiness blocked, same as a real mismatch would.
+
+    Each test sets the node's loaded site_config/_required_zones/
+    _optional_zones/_map_hash directly, the same way other tests here drive
+    _lifecycle or _task directly, rather than depend on whatever
+    site_config.yaml happens to be installed.
+    """
+
+    def _configure(self, *, config_version, required_zones=(), optional_zones=(),
+                   map_hash='declared-hash', map_matches=True):
+        self.node._site_config = {
+            'map_id': 'm', 'map_version': map_hash,
+            'config_id': 'c', 'config_version': config_version,
+        }
+        self.node._required_zones = set(required_zones)
+        self.node._optional_zones = set(optional_zones)
+        self.node._map_hash = map_hash if map_matches else 'actual-hash-does-not-match'
+        self.node._map_reload_pending = False
+
+    def test_blank_config_version_mismatches_even_when_the_map_matches(self):
+        self._configure(config_version='')
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(out.reason, NavigationStatus.CONFIG_ID_MISMATCH)
+
+    def test_populated_config_version_with_empty_zone_lists_is_fully_matched(self):
+        self._configure(config_version='CFG-1')
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_FULL)
+        self.assertEqual(out.reason, NavigationStatus.NONE)
+
+    def test_declared_required_zone_without_confirmation_blocks_readiness(self):
+        # roll_up()'s own tests (test_status_rules.py) already cover that
+        # COVERAGE_INSUFFICIENT blocks readiness in general; this is the
+        # node-level half - that an unconfirmed required zone actually
+        # produces COVERAGE_INSUFFICIENT, not a silent pass.
+        self._configure(config_version='CFG-1', required_zones=['charging_dock'])
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_INSUFFICIENT)
+        self.assertEqual(out.reason, NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT)
+
+    def test_declared_optional_zone_without_confirmation_degrades_not_blocks(self):
+        # same split as above: roll_up()'s tests cover that COVERAGE_PARTIAL
+        # degrades without blocking; this confirms the node-level input that
+        # feeds it - an unconfirmed optional zone, not a required one.
+        self._configure(config_version='CFG-1', optional_zones=['loading_bay'])
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_PARTIAL)
+        self.assertEqual(out.reason, NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP)
+
+    def test_map_hash_mismatch_still_blocks_regardless_of_config_version(self):
+        self._configure(config_version='CFG-1', map_matches=False)
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(out.reason, NavigationStatus.MAP_ID_MISMATCH)
 
 
 if __name__ == '__main__':

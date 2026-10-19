@@ -18,8 +18,6 @@ adapter yet, so navigation stays NOT_READY with BASE_LINK_LOST), and a
 localization, recovery, protection are not mirrored there yet).
 """
 
-import hashlib
-import json
 import math
 import os
 
@@ -43,6 +41,7 @@ from openamr_nav_msgs.msg import (
     SensorStatus,
     SiteConfigStatus,
 )
+from openamrobot_nav2.map_identity import map_identity_hash
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
     evaluate_site_config,
@@ -174,35 +173,22 @@ class NavigationStatusNode(Node):
     @staticmethod
     def _map_identity_hash(grid: OccupancyGrid) -> str:
         """
-        SHA-256 over an OccupancyGrid's own content: resolution, origin, size
-        and cell data, canonicalized so float formatting/whitespace can never
-        change the hash but any real value or cell-data change always does.
+        Hash of the live /map topic's 'actual' identity, in the shared
+        canonical form every caller uses - see map_identity.map_identity_hash.
 
-        Used for the live /map topic's 'actual' identity. The matching
-        'declared' value in site_config.yaml needs an offline tool that loads
-        a map.yaml + image file the way nav2_map_server does (respecting
-        mode/negate/occupied_thresh/free_thresh) and hashes the equivalent
-        OccupancyGrid with this same function - not yet written, tracked as a
-        follow-up on interfaces#27 (see site_config.yaml's own note). Until it
-        exists, map_version in site_config.yaml is a placeholder and this will
-        correctly, harmlessly report MISMATCHED rather than silently matching.
+        The matching 'declared' value in site_config.yaml is produced by
+        tools/compute_map_identity.py, which loads a map.yaml + image file the
+        way nav2_map_server does (respecting mode/negate/occupied_thresh/
+        free_thresh) and calls this exact same function, so the two can never
+        silently compute different things for the same map.
         """
         info = grid.info
-        canonical = json.dumps({
-            'resolution': round(float(info.resolution), 6),
-            'width': int(info.width),
-            'height': int(info.height),
-            'origin': {
-                'x': round(float(info.origin.position.x), 6),
-                'y': round(float(info.origin.position.y), 6),
-                'yaw_z': round(float(info.origin.orientation.z), 6),
-                'yaw_w': round(float(info.origin.orientation.w), 6),
-            },
-        }, sort_keys=True, separators=(',', ':')).encode('utf-8')
-        digest = hashlib.sha256()
-        digest.update(canonical)
-        digest.update(bytes(grid.data))
-        return digest.hexdigest()
+        return map_identity_hash(
+            resolution=info.resolution, width=info.width, height=info.height,
+            origin_x=info.origin.position.x, origin_y=info.origin.position.y,
+            origin_yaw_z=info.origin.orientation.z,
+            origin_yaw_w=info.origin.orientation.w,
+            cell_data=grid.data)
 
     def __init__(self):
         super().__init__('navigation_status_node')
@@ -501,17 +487,24 @@ class NavigationStatusNode(Node):
         Build this tick's SiteConfigStatus from the declared site_config.yaml
         and the live /map topic.
 
-        Two pieces are not yet wired to a real live signal and are flagged
-        here rather than silently faked:
+        Two pieces are not yet wired to a real live signal. Neither is faked
+        as a pass: a check with nothing to confirm it reports as unconfirmed,
+        not matching, so a missing input blocks or degrades readiness the
+        same way a real mismatch would, rather than silently looking healthy
+        (Mohamed Sayed's platform-sw#73 review).
           - config identity: there is no separate approval/fleet-manifest
-            source yet to compare the loaded site_config.yaml against, so a
-            successfully-loaded file is treated as matching. Once such a
-            source exists, this should compare against it the same way map
-            identity compares against the live /map hash.
+            source yet to compare the loaded site_config.yaml against, so the
+            best this can require is that an operator actually declared a
+            config_version at all - a blank one (the shipped placeholder)
+            reports CONFIG_ID_MISMATCH. Once a real comparison source exists,
+            this should compare against it the same way map identity compares
+            against the live /map hash.
           - zone presence: required_zones/optional_zones are declared here but
             nothing in this node yet checks that those zones actually exist in
-            the active costmap/geofence layer, so presence is reported True
-            once the file has loaded. Wiring this up is tracked as a follow-up
+            the active costmap/geofence layer, so a declared zone can not
+            actually be confirmed present yet. An empty list has nothing to
+            confirm and passes vacuously; a non-empty one reports as not
+            present until that live check is wired up, tracked as a follow-up
             on interfaces#27, same as the map-identity offline tool.
         """
         out = SiteConfigStatus()
@@ -528,9 +521,13 @@ class NavigationStatusNode(Node):
             declared_map_version = declared.get('map_version') or ''
             map_identity_matches = bool(
                 self._map_hash is not None and self._map_hash == declared_map_version)
-            config_identity_matches = True  # see docstring: no comparison source yet
-            required_zones_present = True   # see docstring: not wired to a live check
-            optional_zones_present = True
+            # see docstring: no comparison source yet, so "matches" only means
+            # an operator actually declared one - blank is never a match
+            config_identity_matches = bool(declared.get('config_version'))
+            # see docstring: not wired to a live check yet, so a declared zone
+            # can not be confirmed present - an empty list is vacuously true
+            required_zones_present = not self._required_zones
+            optional_zones_present = not self._optional_zones
             self._map_hash_confirmed = self._map_hash
 
         state, floor_coverage, reason = evaluate_site_config(
