@@ -15,6 +15,7 @@ from openamr_nav_msgs.msg import (
     NavStackStatus,
     ProtectionStatus,
     SensorStatus,
+    SiteConfigStatus,
 )
 
 # keys every sensor entry in the profile needs
@@ -134,8 +135,56 @@ def evaluate_localization(*, pose_received, pose_age_s, covariance_xy, covarianc
             NavigationStatus.NONE)
 
 
+def evaluate_site_config(*, profile_loaded, reload_pending,
+                          map_identity_matches, config_identity_matches,
+                          required_zones_present, optional_zones_present):
+    """
+    Return (state, floor_coverage, reason) for the site/map configuration.
+
+    This is the 7-step evaluation order from interfaces#27: each step only
+    runs once the ones before it have passed, so precedence (which fault wins
+    when more than one is true at once) falls out of the order itself rather
+    than needing a separate priority table. floor_coverage is only ever
+    evaluated once state == STATE_MATCHED - checking zone coverage against a
+    map/config pair we don't even trust the identity of isn't meaningful, so
+    every earlier branch below returns COVERAGE_UNKNOWN.
+
+    map_identity_matches/config_identity_matches are already-reduced booleans
+    (declared hash == actual hash), computed by the caller - this function
+    only encodes the decision, not the hashing.
+    """
+    unknown_coverage = SiteConfigStatus.COVERAGE_UNKNOWN
+    if not profile_loaded:
+        return (SiteConfigStatus.STATE_MISSING, unknown_coverage,
+                NavigationStatus.SITE_CONFIG_NOT_LOADED)
+    if reload_pending:
+        # a /map change just arrived; hold STALE for exactly one tick while
+        # the identity check below re-runs against the new map
+        return (SiteConfigStatus.STATE_STALE, unknown_coverage,
+                NavigationStatus.MAP_STALE)
+    if not map_identity_matches:
+        return (SiteConfigStatus.STATE_MISMATCHED, unknown_coverage,
+                NavigationStatus.MAP_ID_MISMATCH)
+    if not config_identity_matches:
+        return (SiteConfigStatus.STATE_MISMATCHED, unknown_coverage,
+                NavigationStatus.CONFIG_ID_MISMATCH)
+    if not required_zones_present:
+        # blocks readiness - see CONTRACT.md's field-validity note
+        return (SiteConfigStatus.STATE_MATCHED, SiteConfigStatus.COVERAGE_INSUFFICIENT,
+                NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT)
+    if not optional_zones_present:
+        # degrades health only, does not block readiness
+        return (SiteConfigStatus.STATE_MATCHED, SiteConfigStatus.COVERAGE_PARTIAL,
+                NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP)
+    return (SiteConfigStatus.STATE_MATCHED, SiteConfigStatus.COVERAGE_FULL,
+            NavigationStatus.NONE)
+
+
 def roll_up(*, config_fault, stack_state, stack_reason, sensors,
-            localization_state, localization_reason, other_reasons, base_reasons):
+            localization_state, localization_reason, other_reasons, base_reasons,
+            site_config_state=SiteConfigStatus.STATE_MATCHED,
+            site_config_floor_coverage=SiteConfigStatus.COVERAGE_FULL,
+            site_config_reason=NavigationStatus.NONE):
     """
     Combine the group results into health, readiness and the two reason lists.
 
@@ -143,14 +192,31 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
     from the task, recovery and protection groups, and base_reasons are the ones
     from the I8 dependency. Readiness does not depend on the reason lists: a
     blocked component blocks it even if its reason were missing.
+
+    site_config_state/floor_coverage/reason default to the healthy case so
+    existing callers (and existing tests) that don't know about site_config
+    yet don't silently start reporting NOT_READY. A real caller always passes
+    the producer's actual evaluate_site_config() result explicitly.
+
+    An unmatched site_config blocks readiness the same way a down sensor or
+    lost localization does - navigating against the wrong or an unconfirmed
+    map isn't something readiness can paper over. A COVERAGE_INSUFFICIENT
+    floor (a required zone missing) blocks too, even though state is
+    otherwise MATCHED; COVERAGE_PARTIAL (only an optional zone missing)
+    degrades health without blocking, per CONTRACT.md's field-validity note.
     """
+    site_config_blocks = bool(
+        site_config_state != SiteConfigStatus.STATE_MATCHED
+        or site_config_floor_coverage == SiteConfigStatus.COVERAGE_INSUFFICIENT)
+
     blocked = bool(
         config_fault
         or base_reasons
         or stack_state != NavStackStatus.STATE_ACTIVE
         or any(required and state != SensorStatus.STATE_OK
                for required, state, _ in sensors)
-        or localization_state != LocalizationStatus.STATE_OK)
+        or localization_state != LocalizationStatus.STATE_OK
+        or site_config_blocks)
 
     blocking_reasons = []
     if config_fault:
@@ -163,11 +229,13 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
             blocking_reasons.append(reason)
     if localization_state != LocalizationStatus.STATE_OK:
         blocking_reasons.append(localization_reason)
+    if site_config_blocks:
+        blocking_reasons.append(site_config_reason)
     not_ready_reasons = _unique(blocking_reasons)
 
     active_reasons = _unique(
         not_ready_reasons
-        + [stack_reason, localization_reason]
+        + [stack_reason, localization_reason, site_config_reason]
         + [reason for _, _, reason in sensors]
         + list(other_reasons))
 
@@ -179,7 +247,7 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
         health = NavigationStatus.HEALTH_FAULT
     elif stack_state == NavStackStatus.STATE_UNKNOWN:
         health = NavigationStatus.HEALTH_UNKNOWN
-    elif blocked:
+    elif blocked or site_config_floor_coverage == SiteConfigStatus.COVERAGE_PARTIAL:
         health = NavigationStatus.HEALTH_DEGRADED
     else:
         health = NavigationStatus.HEALTH_OK

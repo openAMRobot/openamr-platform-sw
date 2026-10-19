@@ -18,6 +18,8 @@ adapter yet, so navigation stays NOT_READY with BASE_LINK_LOST), and a
 localization, recovery, protection are not mirrored there yet).
 """
 
+import hashlib
+import json
 import math
 import os
 
@@ -29,7 +31,7 @@ from lifecycle_msgs.msg import TransitionEvent
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import BehaviorTreeLog, CollisionMonitorState
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from openamr_nav_msgs.msg import (
     LocalizationStatus,
     MotionSourceCoverage,
@@ -39,9 +41,11 @@ from openamr_nav_msgs.msg import (
     ProtectionStatus,
     RecoveryStatus,
     SensorStatus,
+    SiteConfigStatus,
 )
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
+    evaluate_site_config,
     health_to_diagnostic_level,
     motion_source_reason,
     PublishGate,
@@ -146,6 +150,60 @@ class NavigationStatusNode(Node):
             profile = {}
         return profile, problems
 
+    def _load_site_config(self, path: str):
+        """
+        Load the declared site/map identity and zone list (interfaces#27 /
+        platform-sw#36).
+
+        Mirrors _load_profile(): a missing or broken file does not crash the
+        node - site_config.state simply reports STATE_MISSING (which already
+        blocks readiness on its own) until a real file is available.
+        """
+        try:
+            with open(path, 'r') as f:
+                site_config = yaml.safe_load(f)
+        except Exception as exc:
+            self.get_logger().error(f'failed to load site config at {path}: {exc}')
+            return None
+        if not isinstance(site_config, dict):
+            self.get_logger().error(f'site config at {path} is not a mapping')
+            return None
+        self.get_logger().info(f'loaded site config from {path}')
+        return site_config
+
+    @staticmethod
+    def _map_identity_hash(grid: OccupancyGrid) -> str:
+        """
+        SHA-256 over an OccupancyGrid's own content: resolution, origin, size
+        and cell data, canonicalized so float formatting/whitespace can never
+        change the hash but any real value or cell-data change always does.
+
+        Used for the live /map topic's 'actual' identity. The matching
+        'declared' value in site_config.yaml needs an offline tool that loads
+        a map.yaml + image file the way nav2_map_server does (respecting
+        mode/negate/occupied_thresh/free_thresh) and hashes the equivalent
+        OccupancyGrid with this same function - not yet written, tracked as a
+        follow-up on interfaces#27 (see site_config.yaml's own note). Until it
+        exists, map_version in site_config.yaml is a placeholder and this will
+        correctly, harmlessly report MISMATCHED rather than silently matching.
+        """
+        info = grid.info
+        canonical = json.dumps({
+            'resolution': round(float(info.resolution), 6),
+            'width': int(info.width),
+            'height': int(info.height),
+            'origin': {
+                'x': round(float(info.origin.position.x), 6),
+                'y': round(float(info.origin.position.y), 6),
+                'yaw_z': round(float(info.origin.orientation.z), 6),
+                'yaw_w': round(float(info.origin.orientation.w), 6),
+            },
+        }, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        digest = hashlib.sha256()
+        digest.update(canonical)
+        digest.update(bytes(grid.data))
+        return digest.hexdigest()
+
     def __init__(self):
         super().__init__('navigation_status_node')
 
@@ -186,6 +244,22 @@ class NavigationStatusNode(Node):
         # published every tick regardless of the gate above - a monitoring tool
         # watching /diagnostics should never have to wait for something to change.
         self._diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+
+        # site/map configuration (interfaces#27, platform-sw#36)
+        default_site_config_path = os.path.join(
+            get_package_share_directory('openamrobot_nav2'),
+            'config', 'site_config.yaml')
+        self.declare_parameter('site_config_path', default_site_config_path)
+        site_config_path = self.get_parameter('site_config_path').value
+        self._site_config = self._load_site_config(site_config_path)
+        self._required_zones = set((self._site_config or {}).get('required_zones') or [])
+        self._optional_zones = set((self._site_config or {}).get('optional_zones') or [])
+        # live state the /map callback below updates; _site_config_status reads it
+        self._map_hash = None             # hash of the most recent /map message
+        self._map_hash_confirmed = None   # hash the last published result ran against
+        self._map_reload_pending = False  # True for exactly one tick after a change
+        # map_server publishes transient-local, same as our own status topic
+        self.create_subscription(OccupancyGrid, '/map', self._on_map, qos)
 
         # sensors from the profile; the stale limits come from its thresholds
         self._sensors = {}
@@ -411,6 +485,77 @@ class NavigationStatusNode(Node):
         # dock_trigger pauses AMCL correction while docking; we only read the status
         self._correction_paused = msg.data in ('docking', 'undocking')
 
+    def _on_map(self, msg: OccupancyGrid):
+        # map_server republishes (transient-local) whenever it loads a new map,
+        # e.g. via its ~/load_map service - that's the only way this node finds
+        # out a live reload happened, since it isn't the one calling that
+        # service. A changed hash holds STATE_STALE for exactly one tick while
+        # the next _site_config_status() re-runs the full comparison against it.
+        new_hash = self._map_identity_hash(msg)
+        if self._map_hash is not None and new_hash != self._map_hash:
+            self._map_reload_pending = True
+        self._map_hash = new_hash
+
+    def _site_config_status(self, now_s) -> SiteConfigStatus:
+        """
+        Build this tick's SiteConfigStatus from the declared site_config.yaml
+        and the live /map topic.
+
+        Two pieces are not yet wired to a real live signal and are flagged
+        here rather than silently faked:
+          - config identity: there is no separate approval/fleet-manifest
+            source yet to compare the loaded site_config.yaml against, so a
+            successfully-loaded file is treated as matching. Once such a
+            source exists, this should compare against it the same way map
+            identity compares against the live /map hash.
+          - zone presence: required_zones/optional_zones are declared here but
+            nothing in this node yet checks that those zones actually exist in
+            the active costmap/geofence layer, so presence is reported True
+            once the file has loaded. Wiring this up is tracked as a follow-up
+            on interfaces#27, same as the map-identity offline tool.
+        """
+        out = SiteConfigStatus()
+        declared = self._site_config
+        reload_pending = self._map_reload_pending
+        self._map_reload_pending = False  # one-tick pulse, consumed either way
+
+        if declared is None:
+            map_identity_matches = False
+            config_identity_matches = False
+            required_zones_present = False
+            optional_zones_present = False
+        else:
+            declared_map_version = declared.get('map_version') or ''
+            map_identity_matches = bool(
+                self._map_hash is not None and self._map_hash == declared_map_version)
+            config_identity_matches = True  # see docstring: no comparison source yet
+            required_zones_present = True   # see docstring: not wired to a live check
+            optional_zones_present = True
+            self._map_hash_confirmed = self._map_hash
+
+        state, floor_coverage, reason = evaluate_site_config(
+            profile_loaded=declared is not None,
+            reload_pending=reload_pending,
+            map_identity_matches=map_identity_matches,
+            config_identity_matches=config_identity_matches,
+            required_zones_present=required_zones_present,
+            optional_zones_present=optional_zones_present)
+
+        out.state = state
+        out.floor_coverage = floor_coverage
+        out.reason = reason
+        if state in (SiteConfigStatus.STATE_UNKNOWN, SiteConfigStatus.STATE_MISSING):
+            out.map_id = ''
+            out.map_version = ''
+            out.config_id = ''
+            out.config_version = ''
+        else:
+            out.map_id = (declared or {}).get('map_id', '')
+            out.map_version = self._map_hash or ''
+            out.config_id = (declared or {}).get('config_id', '')
+            out.config_version = (declared or {}).get('config_version', '')
+        return out
+
     def _localization_status(self, now: Time) -> LocalizationStatus:
         out = LocalizationStatus()
         try:
@@ -595,6 +740,8 @@ class NavigationStatusNode(Node):
 
         msg.protection = self._protection_status(now_s)
 
+        msg.site_config = self._site_config_status(now_s)
+
         msg.sensor_gaps = sum(
             1 for s in msg.sensors
             if s.state in (SensorStatus.STATE_ABSENT, SensorStatus.STATE_UNKNOWN)
@@ -610,7 +757,10 @@ class NavigationStatusNode(Node):
                 [task.reason, recovery.reason, msg.protection.collision_monitor_reason]
                 + [m.reason for m in msg.protection.motion_sources]
                 + [msg.protection.rear_coverage_reason]),
-            base_reasons=self._base_reasons())
+            base_reasons=self._base_reasons(),
+            site_config_state=msg.site_config.state,
+            site_config_floor_coverage=msg.site_config.floor_coverage,
+            site_config_reason=msg.site_config.reason)
         msg.health = result.health
         msg.navigation_readiness = result.readiness
         msg.not_ready_reasons = result.not_ready_reasons

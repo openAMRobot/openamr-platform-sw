@@ -1,0 +1,33 @@
+# Declared site/map identity and required/optional zone list, read by
+# navigation_status_node to produce NavigationStatus.site_config
+# (interfaces#27 / platform-sw#36).
+
+site_id: "sim"
+
+map_id: "sim-floor-1"
+# SHA-256 over the loaded map's resolution/origin/size/cell-data, the same
+# way navigation_status_node hashes the live /map topic (see
+# NavigationStatusNode._map_identity_hash). OPEN ITEM: the offline tool that
+# produces this value from a map.yaml + image pair, replicating
+# nav2_map_server's own image-to-OccupancyGrid conversion exactly, is not
+# written yet - tracked as a follow-up on interfaces#27. Left blank until
+# then, which makes this node correctly and harmlessly report MISMATCHED
+# rather than silently claiming a match it hasn't verified.
+map_version: ""
+
+config_id: "sim-floor-1-config"
+# OPEN ITEM: there is no separate approval/fleet-manifest source yet to
+# compare this file against, so config identity is currently reported as
+# matching whenever this file loads - see _site_config_status()'s docstring.
+config_version: ""
+
+# OPEN ITEM: not yet checked against a live costmap/geofence layer - see
+# _site_config_status()'s docstring. Declared here so the schema and the
+# reason codes (FLOOR_COVERAGE_INSUFFICIENT / _OPTIONAL_GAP) are ready for
+# when that check is wired up.
+required_zones:
+  - "charging_dock"
+  - "staging_area"
+
+optional_zones:
+  - "loading_bay"
