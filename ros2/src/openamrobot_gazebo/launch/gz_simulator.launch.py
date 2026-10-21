@@ -20,10 +20,15 @@ def generate_launch_description():
     world = LaunchConfiguration('world')
     gui = LaunchConfiguration('gui')
     legacy_camera = LaunchConfiguration('legacy_camera')
+    base_tilt = LaunchConfiguration('base_tilt')
 
     xacro_file = os.path.join(description_dir, 'urdf', 'robo_urdf.urdf.xacro')
     robot_desc = ParameterValue(
-        Command(['xacro ', xacro_file, ' legacy_camera:=', legacy_camera]),
+        Command([
+            'xacro ', xacro_file,
+            ' legacy_camera:=', legacy_camera,
+            ' base_tilt:=', base_tilt,
+        ]),
         value_type=str,
     )
 
@@ -132,6 +137,11 @@ def generate_launch_description():
             'legacy_camera',
             default_value='false',
             description='Enable the legacy IMX708 Gazebo camera sensor.'),
+        DeclareLaunchArgument(
+            'base_tilt',
+            default_value='bt10',
+            choices=['bt05', 'bt10', 'bt15'],
+            description='Gemini base-camera tilt configuration.'),
         gz_resource_path,
         gz_sim_gui,
         gz_sim_headless,
