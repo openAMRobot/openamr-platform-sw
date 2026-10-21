@@ -50,13 +50,19 @@ def generate_launch_description():
     docking_delay = LaunchConfiguration('docking_delay')
     gazebo_gui = LaunchConfiguration('gazebo_gui')
     use_rviz = LaunchConfiguration('use_rviz')
+    legacy_camera = LaunchConfiguration('legacy_camera')
+    base_tilt = LaunchConfiguration('base_tilt')
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('openamrobot_gazebo'),
             'launch', 'gz_simulator.launch.py',
         ])),
-        launch_arguments={'gui': gazebo_gui}.items(),
+        launch_arguments={
+            'gui': gazebo_gui,
+            'legacy_camera': legacy_camera,
+            'base_tilt': base_tilt,
+        }.items(),
     )
 
     nav2 = IncludeLaunchDescription(
@@ -92,6 +98,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_rviz', default_value='true',
             description='Start RViz.',
+        ),
+        DeclareLaunchArgument(
+            'legacy_camera', default_value='true',
+            description='Enable the legacy IMX708 sensor for the docking camera pipeline.',
+        ),
+        DeclareLaunchArgument(
+            'base_tilt', default_value='bt10',
+            choices=['bt05', 'bt10', 'bt15'],
+            description='Gemini base-camera tilt configuration.',
         ),
         # Gazebo first (at t=0): it owns /clock, so everything else can run on
         # sim time once it is up.
