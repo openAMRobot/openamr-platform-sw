@@ -25,6 +25,7 @@ from openamr_nav_msgs.msg import (  # noqa: E402,I100
     NavStackStatus,
     SiteConfigStatus,
 )
+from openamrobot_nav2.config_identity import config_identity_hash  # noqa: E402
 from openamrobot_nav2.navigation_status_node import (  # noqa: E402
     LIFECYCLE_ACTIVE,
     MANAGED_NAV_NODES,
@@ -362,24 +363,40 @@ class TestDiagnosticsMirror(NodeTestCase):
 
 class TestSiteConfigStatus(NodeTestCase):
     """
-    Covers platform-sw#73 review findings: config identity and zone presence
-    must not report a pass when there is nothing to confirm them - a missing
-    input has to keep readiness blocked, same as a real mismatch would.
+    Covers platform-sw#73 review findings: map identity, config identity and
+    zone presence/schema must not report a pass when there is nothing real
+    to confirm them - a missing or merely-plausible-looking input has to
+    keep readiness blocked, the same way a real mismatch would.
 
     Each test sets the node's loaded site_config/_required_zones/
-    _optional_zones/_map_hash directly, the same way other tests here drive
-    _lifecycle or _task directly, rather than depend on whatever
-    site_config.yaml happens to be installed.
+    _optional_zones/_zones_schema_valid/_map_hash directly, the same way
+    other tests here drive _lifecycle or _task directly, rather than depend
+    on whatever site_config.yaml happens to be installed.
+
+    config_version defaults to the real config_identity_hash() of whatever
+    site_id/map_id/config_id/zones this test declares, so "a positive test
+    that proves a real content match" (Mohamed Sayed's review) is the
+    default path every test here takes unless it explicitly overrides
+    config_version to something else - most directly in
+    test_wrong_but_nonempty_config_version_still_mismatches below.
     """
 
-    def _configure(self, *, config_version, required_zones=(), optional_zones=(),
-                   map_hash='declared-hash', map_matches=True):
+    def _configure(self, *, config_version=None, required_zones=(), optional_zones=(),
+                   zones_schema_valid=True, map_hash='declared-hash', map_matches=True,
+                   site_id='s', map_id='m', config_id='c'):
+        required_zones = frozenset(required_zones)
+        optional_zones = frozenset(optional_zones)
+        if config_version is None:
+            config_version = config_identity_hash(
+                site_id=site_id, map_id=map_id, config_id=config_id,
+                required_zones=required_zones, optional_zones=optional_zones)
         self.node._site_config = {
-            'map_id': 'm', 'map_version': map_hash,
-            'config_id': 'c', 'config_version': config_version,
+            'site_id': site_id, 'map_id': map_id, 'map_version': map_hash,
+            'config_id': config_id, 'config_version': config_version,
         }
-        self.node._required_zones = set(required_zones)
-        self.node._optional_zones = set(optional_zones)
+        self.node._required_zones = required_zones
+        self.node._optional_zones = optional_zones
+        self.node._zones_schema_valid = zones_schema_valid
         self.node._map_hash = map_hash if map_matches else 'actual-hash-does-not-match'
         self.node._map_reload_pending = False
 
@@ -389,8 +406,40 @@ class TestSiteConfigStatus(NodeTestCase):
         self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
         self.assertEqual(out.reason, NavigationStatus.CONFIG_ID_MISMATCH)
 
+    def test_wrong_but_nonempty_config_version_still_mismatches(self):
+        # Mohamed Sayed's platform-sw#73 review: bool(config_version) alone
+        # used to pass here, since "CFG-1" is nonempty - this is the
+        # negative test proving a real content comparison is now happening.
+        self._configure(config_version='CFG-1-this-is-not-the-real-hash')
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(out.reason, NavigationStatus.CONFIG_ID_MISMATCH)
+
+    def test_correct_config_version_matches_real_declared_content(self):
+        # the positive half of the above: the real hash of this site's own
+        # declared identity/zone content is computed and matched exactly,
+        # not merely "is this field present".
+        self._configure(
+            site_id='sim', map_id='sim-floor-1', config_id='sim-floor-1-config',
+            required_zones=['charging_dock'], optional_zones=['loading_bay'])
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertNotEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertNotEqual(out.reason, NavigationStatus.CONFIG_ID_MISMATCH)
+
+    def test_editing_a_zone_list_without_regenerating_config_version_mismatches(self):
+        # the whole point of hashing real content: a declared config_version
+        # that was correct for a different set of zones must not still read
+        # as matched once the zones below it change.
+        self._configure(config_version=None, required_zones=['charging_dock'])
+        stale_version = self.node._site_config['config_version']
+        self.node._required_zones = frozenset(['charging_dock', 'new_zone'])
+        self.node._site_config['config_version'] = stale_version
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(out.reason, NavigationStatus.CONFIG_ID_MISMATCH)
+
     def test_populated_config_version_with_empty_zone_lists_is_fully_matched(self):
-        self._configure(config_version='CFG-1')
+        self._configure()
         out = self.node._site_config_status(self.node._now_s())
         self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
         self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_FULL)
@@ -401,7 +450,7 @@ class TestSiteConfigStatus(NodeTestCase):
         # COVERAGE_INSUFFICIENT blocks readiness in general; this is the
         # node-level half - that an unconfirmed required zone actually
         # produces COVERAGE_INSUFFICIENT, not a silent pass.
-        self._configure(config_version='CFG-1', required_zones=['charging_dock'])
+        self._configure(required_zones=['charging_dock'])
         out = self.node._site_config_status(self.node._now_s())
         self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
         self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_INSUFFICIENT)
@@ -411,17 +460,31 @@ class TestSiteConfigStatus(NodeTestCase):
         # same split as above: roll_up()'s tests cover that COVERAGE_PARTIAL
         # degrades without blocking; this confirms the node-level input that
         # feeds it - an unconfirmed optional zone, not a required one.
-        self._configure(config_version='CFG-1', optional_zones=['loading_bay'])
+        self._configure(optional_zones=['loading_bay'])
         out = self.node._site_config_status(self.node._now_s())
         self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
         self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_PARTIAL)
         self.assertEqual(out.reason, NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP)
 
     def test_map_hash_mismatch_still_blocks_regardless_of_config_version(self):
-        self._configure(config_version='CFG-1', map_matches=False)
+        self._configure(map_matches=False)
         out = self.node._site_config_status(self.node._now_s())
         self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
         self.assertEqual(out.reason, NavigationStatus.MAP_ID_MISMATCH)
+
+    def test_invalid_zones_schema_blocks_with_unknown_not_a_silent_pass(self):
+        # Mohamed Sayed's platform-sw#73 review: a missing/malformed zone
+        # declaration must not silently evaluate as "no zones required".
+        self._configure(zones_schema_valid=False)
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertEqual(out.state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(out.floor_coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(out.reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+        # STATE_UNKNOWN blanks the identity fields too, per CONTRACT.md's
+        # field-validity note - they are not meaningful once the schema
+        # itself can't be trusted.
+        self.assertEqual(out.map_id, '')
+        self.assertEqual(out.config_id, '')
 
 
 if __name__ == '__main__':

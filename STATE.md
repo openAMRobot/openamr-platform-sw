@@ -22,6 +22,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
+| SiteConfigStatus producer (platform-sw#36) | #73 | in review, addressing review | owner re-review |
 
 ## Decisions this repository implements
 

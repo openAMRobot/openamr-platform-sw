@@ -137,21 +137,34 @@ def evaluate_localization(*, pose_received, pose_age_s, covariance_xy, covarianc
 
 def evaluate_site_config(*, profile_loaded, reload_pending,
                           map_identity_matches, config_identity_matches,
+                          zones_schema_valid=True,
                           required_zones_present, optional_zones_present):
     """
     Return (state, floor_coverage, reason) for the site/map configuration.
 
-    This is the 7-step evaluation order from interfaces#27: each step only
-    runs once the ones before it have passed, so precedence (which fault wins
-    when more than one is true at once) falls out of the order itself rather
-    than needing a separate priority table. floor_coverage is only ever
-    evaluated once state == STATE_MATCHED - checking zone coverage against a
-    map/config pair we don't even trust the identity of isn't meaningful, so
-    every earlier branch below returns COVERAGE_UNKNOWN.
+    This is the 7-step evaluation order from interfaces#27, with one gate
+    added after review (platform-sw#73): each step only runs once the ones
+    before it have passed, so precedence (which fault wins when more than
+    one is true at once) falls out of the order itself rather than needing a
+    separate priority table. floor_coverage is only ever evaluated once
+    state == STATE_MATCHED - checking zone coverage against a map/config pair
+    we don't even trust the identity of isn't meaningful, so every earlier
+    branch below returns COVERAGE_UNKNOWN.
 
     map_identity_matches/config_identity_matches are already-reduced booleans
     (declared hash == actual hash), computed by the caller - this function
-    only encodes the decision, not the hashing.
+    only encodes the decision, not the hashing. zones_schema_valid is
+    checked before config_identity_matches, not after, because
+    config_identity_hash() is computed over required_zones/optional_zones
+    (see config_identity.py) - a mismatch computed from an invalid schema's
+    zones would be meaningless, and could even accidentally "match" by
+    coincidence, so the caller must not be trusted to have attempted that
+    comparison at all until the schema is confirmed valid.
+
+    zones_schema_valid defaults to True so existing callers (and existing
+    tests) that predate this gate don't silently start blocking on it; a real
+    caller always passes the producer's actual parse_zone_list() result for
+    both required_zones and optional_zones explicitly (both must be valid).
     """
     unknown_coverage = SiteConfigStatus.COVERAGE_UNKNOWN
     if not profile_loaded:
@@ -165,6 +178,14 @@ def evaluate_site_config(*, profile_loaded, reload_pending,
     if not map_identity_matches:
         return (SiteConfigStatus.STATE_MISMATCHED, unknown_coverage,
                 NavigationStatus.MAP_ID_MISMATCH)
+    if not zones_schema_valid:
+        # the file loaded, but required_zones/optional_zones is absent,
+        # null, or malformed - we cannot tell what it actually declares, so
+        # this is a real unknown, not a vacuous pass and not the same as
+        # "the file failed to load" (STATE_MISSING). Must be checked before
+        # config_identity_matches - see docstring.
+        return (SiteConfigStatus.STATE_UNKNOWN, unknown_coverage,
+                NavigationStatus.SITE_CONFIG_UNKNOWN)
     if not config_identity_matches:
         return (SiteConfigStatus.STATE_MISMATCHED, unknown_coverage,
                 NavigationStatus.CONFIG_ID_MISMATCH)

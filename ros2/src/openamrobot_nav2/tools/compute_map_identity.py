@@ -2,17 +2,25 @@
 """
 Offline map-identity hash, for declaring site_config.yaml's map_version.
 
-interfaces#27 / platform-sw#36's OPEN ITEM: navigation_status_node hashes the
-live /map topic's OccupancyGrid (NavigationStatusNode._map_identity_hash) to
-decide whether the robot is actually running the map an operator declared in
-site_config.yaml. That only works once something can compute the *same* hash
-offline, from the map.yaml + image pair an operator actually has in hand,
-before the robot ever loads it. This is that tool.
+interfaces#28's SiteConfigStatus.map_version is "SHA-256 over canonicalized
+map YAML fields + raw image bytes" - NavigationStatusNode._compute_map_hash
+reads a map.yaml + image file off disk and hashes exactly that, to decide
+whether the robot is actually running the map an operator declared in
+site_config.yaml. This is the same computation, offline, from the map.yaml +
+image pair an operator has in hand before the robot ever loads it.
 
-It replicates nav2_map_server's own image-to-OccupancyGrid conversion
-(mode/negate/occupied_thresh/free_thresh), then calls the exact same
-map_identity_hash() function the live node uses, so the two can never
-silently compute different things for the same map.
+It calls load_map_identity_source() to read the file the same way the live
+node does, then map_identity_hash() - the exact same two functions the live
+node uses - so the two can never silently compute different things for the
+same map. Earlier, this tool re-decoded the image into occupancy values
+itself (replicating nav2_map_server's mode/negate/occupied_thresh/
+free_thresh conversion) to predict what the live node would compute; that
+replication disagreed with the real nav2_map_server on several boundary
+cases (Mohamed Sayed's platform-sw#73 review). Hashing the raw bytes
+directly - what the contract actually specifies - removes the need to
+replicate that conversion at all, and with it, the entire class of
+disagreement: both this tool and the live node read the identical bytes off
+disk through the identical function.
 
 Usage:
     python3 tools/compute_map_identity.py path/to/map.yaml
@@ -26,92 +34,15 @@ file's comments or formatting are disturbed.
 """
 
 import argparse
-import math
 import os
 import sys
 
-import yaml
-
-try:
-    from PIL import Image
-except ImportError:  # pragma: no cover - environment-dependent
-    print(
-        "error: this tool needs Pillow (pip install --break-system-packages Pillow)",
-        file=sys.stderr)
-    raise
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'openamrobot_nav2'))
-from map_identity import map_identity_hash  # noqa: E402
-
-
-def _yaw_to_quaternion_zw(yaw):
-    """Return (z, w) for a pure yaw rotation, same convention tf2 uses."""
-    return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
-
-
-def load_map_yaml(path):
-    with open(path, 'r') as f:
-        doc = yaml.safe_load(f)
-    image_path = doc['image']
-    if not os.path.isabs(image_path):
-        image_path = os.path.join(os.path.dirname(path), image_path)
-    return {
-        'image_path': image_path,
-        'resolution': float(doc['resolution']),
-        'origin': [float(v) for v in doc['origin']],
-        'negate': bool(doc.get('negate', 0)),
-        'occupied_thresh': float(doc.get('occupied_thresh', 0.65)),
-        'free_thresh': float(doc.get('free_thresh', 0.196)),
-        'mode': doc.get('mode', 'trinary'),
-    }
-
-
-def image_to_occupancy_data(image_path, negate, occupied_thresh, free_thresh, mode):
-    """
-    Return (width, height, data) the way nav2_map_server's trinary/scale/raw
-    modes would, for the same inputs:
-      - the image is read top-to-bottom, then flipped, since OccupancyGrid
-        row 0 is the map's bottom row and image row 0 is the image's top;
-      - a pixel's occupancy probability is its averaged, normalized shade,
-        inverted when negate is set (dark = occupied by default);
-      - trinary collapses that probability to -1/0/100 at the two
-        thresholds; scale keeps 0-100 directly; raw passes the pixel value
-        through unchanged (rarely used, included for completeness).
-    """
-    img = Image.open(image_path).convert('L')
-    width, height = img.size
-    pixels = list(img.getdata())  # row-major, top row first
-
-    data = [0] * (width * height)
-    for row in range(height):
-        src_row = height - 1 - row  # flip: OccupancyGrid row 0 = image bottom row
-        for col in range(width):
-            shade = pixels[src_row * width + col] / 255.0
-            occ = (1.0 - shade) if not negate else shade
-            if mode == 'raw':
-                cell = int(round(occ * 100))
-            elif occ > occupied_thresh:
-                cell = 100
-            elif occ < free_thresh:
-                cell = 0
-            else:
-                cell = -1 if mode == 'trinary' else int(round(occ * 100))
-            data[row * width + col] = cell
-    return width, height, data
+from map_identity import load_map_identity_source, map_identity_hash  # noqa: E402
 
 
 def compute(map_yaml_path):
-    cfg = load_map_yaml(map_yaml_path)
-    width, height, data = image_to_occupancy_data(
-        cfg['image_path'], cfg['negate'], cfg['occupied_thresh'],
-        cfg['free_thresh'], cfg['mode'])
-    origin_x, origin_y, origin_yaw = cfg['origin']
-    yaw_z, yaw_w = _yaw_to_quaternion_zw(origin_yaw)
-    return map_identity_hash(
-        resolution=cfg['resolution'], width=width, height=height,
-        origin_x=origin_x, origin_y=origin_y,
-        origin_yaw_z=yaw_z, origin_yaw_w=yaw_w,
-        cell_data=data)
+    return map_identity_hash(**load_map_identity_source(map_yaml_path))
 
 
 def write_map_version(site_config_path, map_hash):

@@ -41,7 +41,8 @@ from openamr_nav_msgs.msg import (
     SensorStatus,
     SiteConfigStatus,
 )
-from openamrobot_nav2.map_identity import map_identity_hash
+from openamrobot_nav2.config_identity import config_identity_hash, parse_zone_list
+from openamrobot_nav2.map_identity import load_map_identity_source, map_identity_hash
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
     evaluate_site_config,
@@ -170,25 +171,35 @@ class NavigationStatusNode(Node):
         self.get_logger().info(f'loaded site config from {path}')
         return site_config
 
-    @staticmethod
-    def _map_identity_hash(grid: OccupancyGrid) -> str:
+    def _compute_map_hash(self):
         """
-        Hash of the live /map topic's 'actual' identity, in the shared
-        canonical form every caller uses - see map_identity.map_identity_hash.
+        Hash of the map this node is configured to run against, read
+        straight from the map.yaml + image file on disk - the same files
+        nav2_map_server itself loads - in the shared canonical form every
+        caller uses (see map_identity.map_identity_hash).
 
-        The matching 'declared' value in site_config.yaml is produced by
-        tools/compute_map_identity.py, which loads a map.yaml + image file the
-        way nav2_map_server does (respecting mode/negate/occupied_thresh/
-        free_thresh) and calls this exact same function, so the two can never
-        silently compute different things for the same map.
+        This never decodes the image into occupancy values: interfaces#28
+        defines SiteConfigStatus.map_version as a hash over the declared
+        YAML fields plus the image file's raw bytes, not over any pixel
+        interpretation of them, so there is nothing here that needs to
+        agree with Nav2's own conversion (Mohamed Sayed's platform-sw#73
+        review). The matching 'declared' value in site_config.yaml is
+        produced by tools/compute_map_identity.py, which reads a map.yaml +
+        image file the same way (via the same load_map_identity_source) and
+        calls this exact same hash function, so the two can never silently
+        compute different things for the same map.
+
+        Returns None if map_yaml_path can't be read - a missing file or a
+        typo'd path - rather than raising; that correctly reports
+        MAP_ID_MISMATCH the same way a blank declared map_version does, not
+        a crash.
         """
-        info = grid.info
-        return map_identity_hash(
-            resolution=info.resolution, width=info.width, height=info.height,
-            origin_x=info.origin.position.x, origin_y=info.origin.position.y,
-            origin_yaw_z=info.origin.orientation.z,
-            origin_yaw_w=info.origin.orientation.w,
-            cell_data=grid.data)
+        try:
+            source = load_map_identity_source(self._map_yaml_path)
+        except Exception as exc:
+            self.get_logger().error(f'failed to read map at {self._map_yaml_path}: {exc}')
+            return None
+        return map_identity_hash(**source)
 
     def __init__(self):
         super().__init__('navigation_status_node')
@@ -238,13 +249,35 @@ class NavigationStatusNode(Node):
         self.declare_parameter('site_config_path', default_site_config_path)
         site_config_path = self.get_parameter('site_config_path').value
         self._site_config = self._load_site_config(site_config_path)
-        self._required_zones = set((self._site_config or {}).get('required_zones') or [])
-        self._optional_zones = set((self._site_config or {}).get('optional_zones') or [])
-        # live state the /map callback below updates; _site_config_status reads it
-        self._map_hash = None             # hash of the most recent /map message
+
+        # required_zones/optional_zones: see parse_zone_list's docstring for
+        # why "absent/null" and "explicitly declared empty" must not collapse
+        # into the same thing (Mohamed Sayed's platform-sw#73 review) - a
+        # missing or malformed declaration has to block (zones_schema_valid),
+        # not silently read as "no zones required".
+        zones_ok_required, required_zones = parse_zone_list(
+            (self._site_config or {}).get('required_zones'))
+        zones_ok_optional, optional_zones = parse_zone_list(
+            (self._site_config or {}).get('optional_zones'))
+        self._zones_schema_valid = bool(zones_ok_required and zones_ok_optional)
+        self._required_zones = required_zones or frozenset()
+        self._optional_zones = optional_zones or frozenset()
+
+        # map identity: read straight from disk up front, so a match can be
+        # confirmed on the very first tick rather than waiting for /map to
+        # arrive (see _compute_map_hash's docstring for why this no longer
+        # needs the live OccupancyGrid payload at all).
+        default_map_yaml_path = os.path.join(
+            get_package_share_directory('openamrobot_nav2'), 'maps', 'my_map.yaml')
+        self.declare_parameter('map_yaml_path', default_map_yaml_path)
+        self._map_yaml_path = self.get_parameter('map_yaml_path').value
+        self._map_hash = self._compute_map_hash()  # None if unreadable
         self._map_hash_confirmed = None   # hash the last published result ran against
         self._map_reload_pending = False  # True for exactly one tick after a change
-        # map_server publishes transient-local, same as our own status topic
+        # map_server publishes transient-local, same as our own status topic.
+        # The OccupancyGrid payload itself isn't used for the hash any more -
+        # see _on_map - it only tells us a reload just happened, so we know
+        # to re-read map_yaml_path from disk.
         self.create_subscription(OccupancyGrid, '/map', self._on_map, qos)
 
         # sensors from the profile; the stale limits come from its thresholds
@@ -475,9 +508,12 @@ class NavigationStatusNode(Node):
         # map_server republishes (transient-local) whenever it loads a new map,
         # e.g. via its ~/load_map service - that's the only way this node finds
         # out a live reload happened, since it isn't the one calling that
-        # service. A changed hash holds STATE_STALE for exactly one tick while
-        # the next _site_config_status() re-runs the full comparison against it.
-        new_hash = self._map_identity_hash(msg)
+        # service. The OccupancyGrid payload itself carries none of what
+        # _compute_map_hash needs (see its docstring), so it is not read here
+        # at all - its arrival is only the signal to re-read map_yaml_path
+        # from disk. A changed hash holds STATE_STALE for exactly one tick
+        # while the next _site_config_status() re-runs the comparison.
+        new_hash = self._compute_map_hash()
         if self._map_hash is not None and new_hash != self._map_hash:
             self._map_reload_pending = True
         self._map_hash = new_hash
@@ -485,27 +521,35 @@ class NavigationStatusNode(Node):
     def _site_config_status(self, now_s) -> SiteConfigStatus:
         """
         Build this tick's SiteConfigStatus from the declared site_config.yaml
-        and the live /map topic.
+        and the map this node is configured to run against (see
+        _compute_map_hash).
 
-        Two pieces are not yet wired to a real live signal. Neither is faked
-        as a pass: a check with nothing to confirm it reports as unconfirmed,
-        not matching, so a missing input blocks or degrades readiness the
-        same way a real mismatch would, rather than silently looking healthy
-        (Mohamed Sayed's platform-sw#73 review).
-          - config identity: there is no separate approval/fleet-manifest
-            source yet to compare the loaded site_config.yaml against, so the
-            best this can require is that an operator actually declared a
-            config_version at all - a blank one (the shipped placeholder)
-            reports CONFIG_ID_MISMATCH. Once a real comparison source exists,
-            this should compare against it the same way map identity compares
-            against the live /map hash.
-          - zone presence: required_zones/optional_zones are declared here but
-            nothing in this node yet checks that those zones actually exist in
-            the active costmap/geofence layer, so a declared zone can not
-            actually be confirmed present yet. An empty list has nothing to
-            confirm and passes vacuously; a non-empty one reports as not
-            present until that live check is wired up, tracked as a follow-up
-            on interfaces#27, same as the map-identity offline tool.
+        map identity and config identity are both real content comparisons
+        (declared hash == actual hash), not stand-ins:
+          - map identity: declared map_version is compared against the hash
+            of the map.yaml + image file on disk (_compute_map_hash).
+          - config identity: declared config_version is compared against
+            config_identity_hash() of this file's own declared identity/zone
+            fields - see config_identity.py's docstring for why that is the
+            right "canonical site-config file content" to hash given that
+            there is no separate fleet/approval-manifest source yet
+            (platform-sw#36's OPEN ITEM). A blank or merely-nonempty-but-
+            unverified declared value is never treated as a match (Mohamed
+            Sayed's platform-sw#73 review - a profile with config_version:
+            anything must not read as MATCHED).
+
+        One piece is still not wired to a real live signal, and is not faked
+        as a pass: zone presence. required_zones/optional_zones are declared
+        here but nothing in this node yet checks that those zones actually
+        exist in the active costmap/geofence layer, so a declared zone can
+        not actually be confirmed present yet. An empty, schema-valid list
+        has nothing to confirm and passes vacuously; a non-empty one reports
+        as not present until that live check is wired up, tracked as a
+        follow-up on interfaces#27, same as the map-identity offline tool
+        used to be. A missing, null or malformed zone declaration is a
+        different thing from an explicitly-declared-empty one - see
+        parse_zone_list's docstring - and reports SITE_CONFIG_UNKNOWN rather
+        than silently defaulting to "no zones required".
         """
         out = SiteConfigStatus()
         declared = self._site_config
@@ -515,17 +559,30 @@ class NavigationStatusNode(Node):
         if declared is None:
             map_identity_matches = False
             config_identity_matches = False
+            zones_schema_valid = False
             required_zones_present = False
             optional_zones_present = False
         else:
             declared_map_version = declared.get('map_version') or ''
             map_identity_matches = bool(
                 self._map_hash is not None and self._map_hash == declared_map_version)
-            # see docstring: no comparison source yet, so "matches" only means
-            # an operator actually declared one - blank is never a match
-            config_identity_matches = bool(declared.get('config_version'))
+
+            zones_schema_valid = self._zones_schema_valid
+            declared_config_version = declared.get('config_version') or ''
+            actual_config_hash = config_identity_hash(
+                site_id=declared.get('site_id', ''),
+                map_id=declared.get('map_id', ''),
+                config_id=declared.get('config_id', ''),
+                required_zones=self._required_zones,
+                optional_zones=self._optional_zones)
+            config_identity_matches = bool(
+                zones_schema_valid
+                and declared_config_version
+                and actual_config_hash == declared_config_version)
+
             # see docstring: not wired to a live check yet, so a declared zone
-            # can not be confirmed present - an empty list is vacuously true
+            # can not be confirmed present - an empty, schema-valid list is
+            # vacuously true
             required_zones_present = not self._required_zones
             optional_zones_present = not self._optional_zones
             self._map_hash_confirmed = self._map_hash
@@ -535,6 +592,7 @@ class NavigationStatusNode(Node):
             reload_pending=reload_pending,
             map_identity_matches=map_identity_matches,
             config_identity_matches=config_identity_matches,
+            zones_schema_valid=zones_schema_valid,
             required_zones_present=required_zones_present,
             optional_zones_present=optional_zones_present)
 

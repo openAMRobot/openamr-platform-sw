@@ -591,6 +591,41 @@ class TestEvaluateSiteConfig(unittest.TestCase):
         self.assertEqual(coverage, SiteConfigStatus.COVERAGE_INSUFFICIENT)
         self.assertEqual(reason, NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT)
 
+    def test_default_zones_schema_valid_stays_matched(self):
+        # callers that don't pass zones_schema_valid at all (pre-#73 call
+        # sites, existing tests) must not start seeing it block them
+        state, coverage, reason = evaluate_site_config(**self.good())
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+
+    def test_invalid_zones_schema_reports_unknown_not_a_pass(self):
+        # Mohamed Sayed's platform-sw#73 review: a missing/malformed zone
+        # declaration must block with a real "unknown" status, not silently
+        # evaluate as if no zones were required.
+        state, coverage, reason = evaluate_site_config(
+            **self.good(zones_schema_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_zones_schema_is_reported_before_zone_presence(self):
+        # an invalid schema means required_zones_present/optional_zones_present
+        # can not even be trusted - the schema gate must win regardless of
+        # what those (otherwise meaningless) booleans say
+        state, coverage, reason = evaluate_site_config(**self.good(
+            zones_schema_valid=False, required_zones_present=True,
+            optional_zones_present=True))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_zones_schema_is_reported_after_identity_mismatches(self):
+        # identity still wins over schema validity - an untrusted map/config
+        # identity is a worse problem than an untrusted zone declaration,
+        # and the existing precedence order should not change underneath it
+        state, coverage, reason = evaluate_site_config(**self.good(
+            map_identity_matches=False, zones_schema_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
+
 
 class TestRollUpSiteConfig(unittest.TestCase):
     """roll_up()'s site_config_state/floor_coverage/reason parameters."""
