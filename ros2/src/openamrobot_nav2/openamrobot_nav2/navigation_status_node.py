@@ -610,7 +610,8 @@ class NavigationStatusNode(Node):
                 [task.reason, recovery.reason, msg.protection.collision_monitor_reason]
                 + [m.reason for m in msg.protection.motion_sources]
                 + [msg.protection.rear_coverage_reason]),
-            base_reasons=self._base_reasons())
+            base_reasons=self._base_reasons(),
+            recovery_reason=recovery.reason)
         msg.health = result.health
         msg.navigation_readiness = result.readiness
         msg.not_ready_reasons = result.not_ready_reasons

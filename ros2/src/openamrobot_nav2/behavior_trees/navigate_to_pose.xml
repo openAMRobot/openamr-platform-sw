@@ -1,0 +1,84 @@
+<!--
+  OpenAMRobot #35/N4 recovery policy. Starting point: the exact stock tree shipped as
+  nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml in
+  ROS 2 Jazzy (every port, attribute and node left byte-identical except the two
+  changes below) - this is a surgical diff of that file, not a rewrite from scratch.
+
+  Changes from stock, both driven by the plan's own rule (P-02 execution plan, section
+  27, "Navigation state and recovery policy"): "Costmap clearing, backup or spin are
+  never universal first responses."
+
+  1. ClearEntireCostmap -> ClearCostmapAroundRobot (bounded) in all four places. Stock
+     wipes the WHOLE costmap unconditionally on every planner/controller failure and
+     on every round-robin cycle - that erases real, currently-correct obstacle data
+     anywhere else on the map, not just near whatever triggered the failure. Bounded
+     clearing only discards the area right around the robot, where a stale/transient
+     reading is actually plausible; it cannot silently erase an obstacle on the other
+     side of the corridor the way ClearEntireCostmap can.
+     - Global costmap bound (reset_distance 3.0 m): wider, since global planning
+       failures aren't always caused by something near the robot's current pose.
+     - Local costmap bound (reset_distance 1.5 m): matched to the local costmap's own
+       rolling-window scale, not reused from the global value.
+     Both values are a starting point for real-robot tuning, not a measured constant -
+     see the PR's Not-verified section.
+  2. An explicit Wait inserted immediately before each inline (per-action) bounded
+     clear - "wait for transient obstacle" as its own step, not folded silently into
+     the clear itself. 2.0 s: long enough for a person/forklift to clear a doorway,
+     short enough not to blow the outer RecoveryNode's retry budget (6 retries,
+     matching navigation_status_profile.yaml's recovery_attempt_limit - see that
+     file's own comment on this parallel value). Stock has no equivalent wait at this
+     level at all; Wait only exists in the outer round-robin, after both inline
+     retries are already exhausted.
+
+  Left unchanged from stock, out of scope for this PR: Spin/Wait(5.0)/BackUp in the
+  outer round-robin (zone-gating them to site policy needs N2/#73's zone data, not yet
+  merged), and the outer RecoveryNode's retry-exhaustion behavior itself (surfacing
+  that to an operator is the status_rules.py/navigation_status_node.py change in the
+  same PR, not a BT-side change).
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+            <Sequence>
+              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+              <Wait wait_duration="2.0"/>
+              <ClearCostmapAroundRobot name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
+            </Sequence>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <Sequence>
+            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+            <Wait wait_duration="2.0"/>
+            <ClearCostmapAroundRobot name="ClearLocalCostmap-Context" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
+          </Sequence>
+        </RecoveryNode>
+      </PipelineSequence>
+      <Sequence>
+        <Fallback>
+          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+        </Fallback>
+        <ReactiveFallback name="RecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <Sequence name="ClearingActions">
+              <ClearCostmapAroundRobot name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
+              <ClearCostmapAroundRobot name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
+            </Sequence>
+            <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
+            <Wait wait_duration="5.0"/>
+            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
