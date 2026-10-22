@@ -137,12 +137,12 @@ def evaluate_localization(*, pose_received, pose_age_s, covariance_xy, covarianc
 
 def evaluate_site_config(*, profile_loaded, reload_pending,
                           map_identity_matches, config_identity_matches,
-                          zones_schema_valid=True,
+                          zones_schema_valid=True, identity_fields_valid=True,
                           required_zones_present, optional_zones_present):
     """
     Return (state, floor_coverage, reason) for the site/map configuration.
 
-    This is the 7-step evaluation order from interfaces#27, with one gate
+    This is the 7-step evaluation order from interfaces#27, with two gates
     added after review (platform-sw#73): each step only runs once the ones
     before it have passed, so precedence (which fault wins when more than
     one is true at once) falls out of the order itself rather than needing a
@@ -153,18 +153,22 @@ def evaluate_site_config(*, profile_loaded, reload_pending,
 
     map_identity_matches/config_identity_matches are already-reduced booleans
     (declared hash == actual hash), computed by the caller - this function
-    only encodes the decision, not the hashing. zones_schema_valid is
-    checked before config_identity_matches, not after, because
-    config_identity_hash() is computed over required_zones/optional_zones
-    (see config_identity.py) - a mismatch computed from an invalid schema's
-    zones would be meaningless, and could even accidentally "match" by
-    coincidence, so the caller must not be trusted to have attempted that
-    comparison at all until the schema is confirmed valid.
+    only encodes the decision, not the hashing. zones_schema_valid and
+    identity_fields_valid are both checked before config_identity_matches,
+    not after, because config_identity_hash() is computed over both
+    required_zones/optional_zones and site_id/map_id/config_id (see
+    config_identity.py) - a mismatch computed over an invalid schema's zones
+    or unvalidated identity fields would be meaningless, and could even
+    accidentally "match" by coincidence (an absent site_id/map_id/config_id
+    hashing three empty strings, for example), so the caller must not be
+    trusted to have attempted that comparison at all until both are
+    confirmed valid.
 
-    zones_schema_valid defaults to True so existing callers (and existing
-    tests) that predate this gate don't silently start blocking on it; a real
-    caller always passes the producer's actual parse_zone_list() result for
-    both required_zones and optional_zones explicitly (both must be valid).
+    zones_schema_valid and identity_fields_valid both default to True so
+    existing callers (and existing tests) that predate these gates don't
+    silently start blocking on them; a real caller always passes the
+    producer's actual parse_zone_list()/parse_identity_fields() results
+    explicitly (all must be valid).
     """
     unknown_coverage = SiteConfigStatus.COVERAGE_UNKNOWN
     if not profile_loaded:
@@ -184,6 +188,14 @@ def evaluate_site_config(*, profile_loaded, reload_pending,
         # this is a real unknown, not a vacuous pass and not the same as
         # "the file failed to load" (STATE_MISSING). Must be checked before
         # config_identity_matches - see docstring.
+        return (SiteConfigStatus.STATE_UNKNOWN, unknown_coverage,
+                NavigationStatus.SITE_CONFIG_UNKNOWN)
+    if not identity_fields_valid:
+        # site_id/map_id/config_id is absent, null, empty, or the wrong
+        # type - same reasoning as zones_schema_valid above, and checked
+        # here for the same reason: config_identity_hash() is computed over
+        # these fields too, so a comparison against them before they are
+        # confirmed valid would be meaningless (platform-sw#73 review).
         return (SiteConfigStatus.STATE_UNKNOWN, unknown_coverage,
                 NavigationStatus.SITE_CONFIG_UNKNOWN)
     if not config_identity_matches:

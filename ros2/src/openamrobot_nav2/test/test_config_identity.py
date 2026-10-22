@@ -9,7 +9,8 @@ differently - see config_identity.py's docstring.
 
 import unittest
 
-from openamrobot_nav2.config_identity import config_identity_hash, parse_zone_list
+from openamrobot_nav2.config_identity import (
+    config_identity_hash, parse_identity_fields, parse_zone_list)
 
 BASE_KWARGS = dict(
     site_id='sim', map_id='sim-floor-1', config_id='sim-floor-1-config',
@@ -84,6 +85,60 @@ class TestConfigIdentityHash(unittest.TestCase):
             'required_zones': ['charging_dock'], 'optional_zones': ['loading_bay'],
         }
         self.assertEqual(config_identity_hash(**a), config_identity_hash(**b))
+
+
+class TestParseIdentityFields(unittest.TestCase):
+    """
+    Mohamed Sayed's platform-sw#73 review (second pass): an absent, null,
+    empty or wrong-type site_id/map_id/config_id must not reach
+    config_identity_hash at all - that is the identity-field counterpart of
+    TestParseZoneList above, which already covers required_zones/
+    optional_zones.
+    """
+
+    def test_real_string_identities_are_valid_and_passed_through(self):
+        ok, site_id, map_id, config_id = parse_identity_fields(
+            'sim', 'sim-floor-1', 'sim-floor-1-config')
+        self.assertTrue(ok)
+        expected = ('sim', 'sim-floor-1', 'sim-floor-1-config')
+        self.assertEqual((site_id, map_id, config_id), expected)
+
+    def test_all_three_absent_is_invalid(self):
+        ok, site_id, map_id, config_id = parse_identity_fields(None, None, None)
+        self.assertFalse(ok)
+        self.assertIsNone(site_id)
+        self.assertIsNone(map_id)
+        self.assertIsNone(config_id)
+
+    def test_one_absent_field_is_enough_to_invalidate_all_three(self):
+        ok, *_ = parse_identity_fields('sim', None, 'sim-floor-1-config')
+        self.assertFalse(ok)
+
+    def test_empty_string_is_invalid_not_a_real_identity(self):
+        # a profile that declares site_id: "" must not be treated as a
+        # confirmed, if blank, identity - empty is absent in spirit too.
+        ok, *_ = parse_identity_fields('', 'sim-floor-1', 'sim-floor-1-config')
+        self.assertFalse(ok)
+
+    def test_an_integer_identity_is_invalid_not_silently_stringified(self):
+        # previously config_identity_hash's str(site_id) would have hashed
+        # this cleanly as "7" - the point of this gate is that it never
+        # reaches that call at all.
+        ok, *_ = parse_identity_fields(7, 'sim-floor-1', 'sim-floor-1-config')
+        self.assertFalse(ok)
+
+    def test_a_none_identity_is_invalid_not_silently_stringified(self):
+        # str(None) == 'None' would also have hashed cleanly before this
+        # gate existed.
+        ok, *_ = parse_identity_fields('sim', None, 'sim-floor-1-config')
+        self.assertFalse(ok)
+
+    def test_a_boolean_identity_is_invalid(self):
+        # bool is a str subtype-free int subtype in Python, not a string -
+        # worth its own case since isinstance(True, int) is True but
+        # isinstance(True, str) is False, which is exactly what this checks.
+        ok, *_ = parse_identity_fields('sim', True, 'sim-floor-1-config')
+        self.assertFalse(ok)
 
 
 class TestParseZoneList(unittest.TestCase):

@@ -626,6 +626,51 @@ class TestEvaluateSiteConfig(unittest.TestCase):
         self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
         self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
 
+    def test_default_identity_fields_valid_stays_matched(self):
+        # same reasoning as test_default_zones_schema_valid_stays_matched:
+        # existing call sites that don't pass identity_fields_valid must not
+        # start seeing it block them
+        state, coverage, reason = evaluate_site_config(**self.good())
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+
+    def test_invalid_identity_fields_reports_unknown_not_a_pass(self):
+        # Mohamed Sayed's platform-sw#73 review (second pass): an absent,
+        # null, empty or wrong-type site_id/map_id/config_id must block
+        # with a real "unknown" status, not silently evaluate against
+        # whatever config_identity_matches the caller computed from them.
+        state, coverage, reason = evaluate_site_config(
+            **self.good(identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_before_config_mismatch(self):
+        # an invalid identity field means config_identity_matches can not be
+        # trusted either (it was computed over those same fields) - the
+        # identity-field gate must win regardless of what that otherwise-
+        # meaningless boolean says
+        state, coverage, reason = evaluate_site_config(**self.good(
+            identity_fields_valid=False, config_identity_matches=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_after_zones_schema(self):
+        # zones_schema_valid is checked first in the function body; an
+        # invalid zone schema should still win when both are invalid, same
+        # precedence reasoning as the zones-vs-identity-mismatch test above
+        state, coverage, reason = evaluate_site_config(**self.good(
+            zones_schema_valid=False, identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_after_identity_mismatches(self):
+        # map/config identity mismatches still win over identity-field
+        # validity, same precedence reasoning as the zones-schema version
+        state, coverage, reason = evaluate_site_config(**self.good(
+            map_identity_matches=False, identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
+
 
 class TestRollUpSiteConfig(unittest.TestCase):
     """roll_up()'s site_config_state/floor_coverage/reason parameters."""

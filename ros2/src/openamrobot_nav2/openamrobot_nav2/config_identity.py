@@ -58,6 +58,37 @@ def parse_zone_list(value):
     return True, frozenset(value)
 
 
+def parse_identity_fields(site_id, map_id, config_id):
+    """
+    Validate the three identity fields declared in site_config.yaml before
+    they are hashed or assigned to SiteConfigStatus's output fields.
+
+    Returns (ok, site_id, map_id, config_id). ok is False when any of the
+    three is absent, None, empty, or not a string - previously an absent
+    field defaulted to '' at the call site and hashed cleanly, so a profile
+    missing site_id/map_id/config_id entirely could still compute a real
+    hash (of three empty strings) and read as MATCHED/FULL against a
+    declared config_version of that same hash (Mohamed Sayed's
+    platform-sw#73 review). A numeric or null id was silently stringified
+    for the hash and then assigned unchanged to the message's string
+    output fields, carrying the same unvalidated value through either way.
+    ok is True only once all three are confirmed non-empty strings; the
+    caller must then treat an invalid result the same as an invalid zone
+    schema - SITE_CONFIG_UNKNOWN, never a hash comparison against
+    unvalidated input.
+
+    Never raises, same reason as parse_zone_list: a malformed profile must
+    report invalid, not crash the status producer. Pure and
+    dependency-free, for the same reason parse_zone_list is - the live
+    node and tools/compute_config_identity.py must never be allowed to
+    disagree about what counts as a valid identity field.
+    """
+    values = (site_id, map_id, config_id)
+    if any(not isinstance(value, str) or not value for value in values):
+        return False, None, None, None
+    return True, site_id, map_id, config_id
+
+
 def config_identity_hash(*, site_id, map_id, config_id,
                           required_zones, optional_zones) -> str:
     """
