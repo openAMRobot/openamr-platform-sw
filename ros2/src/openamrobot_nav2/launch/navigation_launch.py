@@ -213,8 +213,10 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # input remapped to the controller's cmd_vel_nav; output stays cmd_vel_smoothed.
-                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                # #35: input comes from twist_mux's arbitrated output, not straight
+                # from the controller - every cmd_vel source (nav/dock/manual/stop)
+                # has to clear the mux first. Output stays cmd_vel_smoothed.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
             ),
             Node(
                 package='nav2_collision_monitor',
@@ -225,7 +227,8 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel
+                # (set in nav2_params.yaml).
                 remappings=remappings,
             ),
             Node(
@@ -234,7 +237,11 @@ def generate_launch_description():
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
+                parameters=[
+                    {'autostart': autostart},
+                    {'node_names': lifecycle_nodes},
+                    {'bond_timeout': 60.0},
+                ],
             ),
         ],
     )
@@ -249,6 +256,53 @@ def generate_launch_description():
         package='openamrobot_nav2',
         executable='navigation_status_node',
         name='navigation_status_node',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # #35 command arbitration chain: every cmd_vel source -> twist_mux -> cmd_vel_mux
+    # -> velocity_smoother -> cmd_vel_smoothed -> collision_monitor -> cmd_vel (final).
+    # twist_mux is not a composable component, so - like status_node above - these
+    # three run as plain nodes unconditionally, outside either GroupAction, regardless
+    # of use_composition. None are nav2-lifecycle-managed, so none are in
+    # lifecycle_nodes. Config: config/twist_mux.yaml (posted on issue #35).
+    twist_mux_node = Node(
+        package='twist_mux',
+        executable='twist_mux',
+        name='twist_mux',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[os.path.join(bringup_dir, 'config', 'twist_mux.yaml'),
+                    {'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=remappings + [('cmd_vel_out', 'cmd_vel_mux')],
+    )
+
+    # Owns /safety/stop_lock + /safety/stop_lock_release + /safety/stop_lock_engage,
+    # and publishes the zero Twist on cmd_vel_stop while locked - twist_mux never
+    # does this itself (see safety_stop_gate_node.py). Starts locked by default.
+    safety_stop_gate_node = Node(
+        package='openamrobot_nav2',
+        executable='safety_stop_gate_node',
+        name='safety_stop_gate_node',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # Relays /ui/cmd_vel (TwistStamped) down to plain Twist on cmd_vel_joy, dropping
+    # anything older than 0.25s off header.stamp - twist_mux's use_stamped is false
+    # globally (see twist_mux.yaml), so this is the only place stamping is handled.
+    ui_cmd_vel_relay_node = Node(
+        package='openamrobot_nav2',
+        executable='ui_cmd_vel_relay_node',
+        name='ui_cmd_vel_relay_node',
         output='screen',
         respawn=use_respawn,
         respawn_delay=2.0,
@@ -314,7 +368,9 @@ def generate_launch_description():
                         plugin='nav2_velocity_smoother::VelocitySmoother',
                         name='velocity_smoother',
                         parameters=[configured_params],
-                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                        # #35: see the non-composed velocity_smoother above - input
+                        # is the mux's arbitrated output, not the raw controller topic.
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
                     ),
                     ComposableNode(
                         package='nav2_collision_monitor',
@@ -328,7 +384,11 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
+                            {
+                                'autostart': autostart,
+                                'node_names': lifecycle_nodes,
+                                'bond_timeout': 60.0,
+                            }
                         ],
                     ),
                 ],
@@ -355,5 +415,8 @@ def generate_launch_description():
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
     ld.add_action(status_node)
+    ld.add_action(twist_mux_node)
+    ld.add_action(safety_stop_gate_node)
+    ld.add_action(ui_cmd_vel_relay_node)
 
     return ld

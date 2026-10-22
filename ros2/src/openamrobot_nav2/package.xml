@@ -24,6 +24,7 @@
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
   <exec_depend>laser_filters</exec_depend>
   <exec_depend>rviz2</exec_depend>
@@ -37,6 +38,8 @@
   <exec_depend>openamr_nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 

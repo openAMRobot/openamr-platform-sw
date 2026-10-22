@@ -1,0 +1,46 @@
+# Command arbitration for issue #35. Values posted by Kunal (skunal3318) on the
+# issue thread ahead of PR, ahead of the 25th deadline:
+# https://github.com/openAMRobot/openamr-platform-sw/issues/35
+#
+# twist_mux 4.5.0 (Jazzy) semantics, checked against its source:
+#   - a topic is masked when it has timed out or its priority is strictly
+#     LOWER than the highest currently-engaged lock (equal priority is NOT
+#     masked - software_stop's own input is priority 255, same as its lock,
+#     so the lock does not end up masking itself);
+#   - twist_mux only republishes whichever input is selected; it never
+#     publishes a zero by itself, not on timeout and not when a lock
+#     engages - openamrobot_nav2/safety_stop_gate_node.py is what actually
+#     puts a zero Twist on cmd_vel_stop while locked;
+#   - use_stamped is one switch for every input in 4.5.0. This stack (Gazebo
+#     bridge, Teensy micro-ROS) only takes plain Twist, so it is set false
+#     globally; the one stamped source (/ui/cmd_vel, TwistStamped) is
+#     relayed down to plain Twist on cmd_vel_joy by
+#     openamrobot_nav2/ui_cmd_vel_relay_node.py before it ever reaches here.
+#
+# The output (cmd_vel_mux) feeds velocity_smoother, then collision_monitor,
+# which stays the only publisher of the final /cmd_vel to the base.
+twist_mux:
+  ros__parameters:
+    use_stamped: false
+    topics:
+      navigation:            # controller_server and behavior_server (via #54 remap)
+        topic: cmd_vel_nav
+        timeout: 0.5
+        priority: 10
+      docking:               # dock_trigger, remapped onto cmd_vel_dock (was /cmd_vel)
+        topic: cmd_vel_dock
+        timeout: 0.3
+        priority: 20
+      manual:                # ui_cmd_vel_relay_node's output; UI's "drive" control
+        topic: cmd_vel_joy
+        timeout: 0.25
+        priority: 100
+      software_stop:         # zero Twist from safety_stop_gate_node while locked
+        topic: cmd_vel_stop
+        timeout: 0.5
+        priority: 255
+    locks:
+      software_stop:         # functional stop, NOT the safety function (hardwired E-stop)
+        topic: /safety/stop_lock   # std_msgs/Bool, true = engaged; masks every input below 255
+        timeout: 0.0               # does not auto-expire once engaged; does not start engaged
+        priority: 255
