@@ -1,0 +1,54 @@
+# Declared site/map identity and required/optional zone list, read by
+# navigation_status_node to produce NavigationStatus.site_config
+# (interfaces#27 / platform-sw#36).
+
+site_id: "sim"
+
+map_id: "sim-floor-1"
+# SHA-256 over this map's canonicalized YAML fields (resolution/origin/
+# negate/occupied_thresh/free_thresh/mode) plus its image file's raw bytes -
+# the interfaces#28 SiteConfigStatus.map_version contract - computed the
+# same way navigation_status_node hashes the map.yaml it is configured to
+# run against (see NavigationStatusNode._compute_map_hash). Generate this
+# value with:
+#   python3 tools/compute_map_identity.py path/to/map.yaml --write \
+#     ros2/src/openamrobot_nav2/config/site_config.yaml
+# A blank or stale value here reports MAP_ID_MISMATCH (never a silent
+# pass) - rerun the tool above whenever the real map.yaml changes.
+map_version: "fc0dd52019db2b9938752d311b5b927580623d2fbc13664e5a10bc0c67fff13d"
+
+config_id: "sim-floor-1-config"
+# SHA-256 over this file's own declared identity/zone content (site_id,
+# map_id, config_id, required_zones, optional_zones - not this field or
+# map_version, which would make the check compare the file to its own
+# answer) - the interfaces#28 SiteConfigStatus.config_version contract.
+# There is no separate approval/fleet-manifest source yet to compare a
+# config's actual meaning against (tracked as a follow-up on interfaces#27),
+# so this is the closest real content check available: it catches a
+# site_id/map_id/config_id/zone-list edit that the operator forgot to
+# re-declare a version for, which a free-text label like "sim-v1" never
+# could. Generate this value with:
+#   python3 tools/compute_config_identity.py path/to/site_config.yaml \
+#     --write ros2/src/openamrobot_nav2/config/site_config.yaml
+# A blank or stale value here reports CONFIG_ID_MISMATCH (never a silent
+# pass) - rerun the tool above whenever site_id/map_id/config_id/
+# required_zones/optional_zones below changes.
+config_version: "a0209552d21ecda8d86924f3ca83b471e25b29551b9078a1e359aa11a4bc0c56"
+
+# Must be present and either [] or a plain list of zone-name strings - an
+# absent/null/malformed value (e.g. a list of objects instead of strings)
+# reports SITE_CONFIG_UNKNOWN and blocks readiness rather than silently
+# reading as "no zones required" (platform-sw#73 review). An explicit []
+# means this site declares no zones of this kind, which is a real,
+# confirmed answer.
+#
+# OPEN ITEM: a non-empty, schema-valid list still can not actually be
+# confirmed present yet - there is no live costmap/geofence check wired up
+# (tracked as a follow-up on interfaces#27) - so it reports
+# FLOOR_COVERAGE_INSUFFICIENT (required) or _OPTIONAL_GAP (optional) and
+# degrades/blocks readiness accordingly, rather than silently passing. See
+# _site_config_status()'s docstring. Leave a list empty if its zones are
+# not meant to affect readiness until the real check lands.
+required_zones: []
+
+optional_zones: []

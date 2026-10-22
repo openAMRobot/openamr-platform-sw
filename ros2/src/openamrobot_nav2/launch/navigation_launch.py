@@ -39,6 +39,7 @@ def generate_launch_description():
     container_name_full = (namespace, '/', container_name)
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
+    map_yaml = LaunchConfiguration('map_yaml')
 
     lifecycle_nodes = [
         'controller_server',
@@ -118,6 +119,21 @@ def generate_launch_description():
 
     declare_log_level_cmd = DeclareLaunchArgument(
         'log_level', default_value='info', description='log level'
+    )
+
+    declare_map_yaml_cmd = DeclareLaunchArgument(
+        'map_yaml',
+        # Same default the node itself would fall back to (its own
+        # declare_parameter default) if this were never passed, so there is
+        # no empty-string case to special-case: this always has a concrete
+        # value, identical to the node's own, unless a caller overrides it.
+        default_value=os.path.join(bringup_dir, 'maps', 'my_map.yaml'),
+        description=(
+            "Full path to the map.yaml navigation_status_node hashes for site-config "
+            "identity (platform-sw#36/#73) - pass the same path given to map_server's "
+            "'map' argument so the two never disagree about which map is actually "
+            "loaded."
+        ),
     )
 
     load_nodes = GroupAction(
@@ -252,7 +268,7 @@ def generate_launch_description():
         output='screen',
         respawn=use_respawn,
         respawn_delay=2.0,
-        parameters=[{'use_sim_time': use_sim_time}],
+        parameters=[{'use_sim_time': use_sim_time, 'map_yaml_path': map_yaml}],
         arguments=['--ros-args', '--log-level', log_level],
     )
 
@@ -351,6 +367,7 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_map_yaml_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)

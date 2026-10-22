@@ -24,9 +24,11 @@ from openamr_nav_msgs.msg import (  # noqa: E402,I100
     NavStackStatus,
     ProtectionStatus,
     SensorStatus,
+    SiteConfigStatus,
 )
 from openamrobot_nav2.status_rules import (  # noqa: E402
     evaluate_localization,
+    evaluate_site_config,
     health_to_diagnostic_level,
     motion_source_reason,
     PublishGate,
@@ -521,6 +523,189 @@ class TestValidateProfile(unittest.TestCase):
         broken = {k: v for k, v in self.SENSOR.items() if k != 'topic'}
         problems = validate_profile({'sensors': [self.SENSOR, broken]})
         self.assertTrue(any('topic' in problem for problem in problems))
+
+
+class TestEvaluateSiteConfig(unittest.TestCase):
+    """interfaces#27 / platform-sw#36: the 7-step site/map evaluation order."""
+
+    def good(self, **overrides):
+        args = {
+            'profile_loaded': True,
+            'reload_pending': False,
+            'map_identity_matches': True,
+            'config_identity_matches': True,
+            'required_zones_present': True,
+            'optional_zones_present': True,
+        }
+        args.update(overrides)
+        return args
+
+    def test_everything_fine_is_matched_and_full(self):
+        state, coverage, reason = evaluate_site_config(**self.good())
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_FULL)
+        self.assertEqual(reason, NavigationStatus.NONE)
+
+    def test_no_profile_is_missing(self):
+        state, coverage, reason = evaluate_site_config(**self.good(profile_loaded=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISSING)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_NOT_LOADED)
+
+    def test_reload_pending_is_stale_even_if_identity_would_otherwise_match(self):
+        state, coverage, reason = evaluate_site_config(**self.good(reload_pending=True))
+        self.assertEqual(state, SiteConfigStatus.STATE_STALE)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.MAP_STALE)
+
+    def test_map_mismatch_is_reported_before_config_mismatch(self):
+        state, coverage, reason = evaluate_site_config(
+            **self.good(map_identity_matches=False, config_identity_matches=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
+
+    def test_config_mismatch_alone_is_reported_too(self):
+        state, coverage, reason = evaluate_site_config(
+            **self.good(config_identity_matches=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(reason, NavigationStatus.CONFIG_ID_MISMATCH)
+
+    def test_missing_required_zone_is_matched_but_insufficient(self):
+        state, coverage, reason = evaluate_site_config(
+            **self.good(required_zones_present=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_INSUFFICIENT)
+        self.assertEqual(reason, NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT)
+
+    def test_missing_optional_zone_only_is_partial_not_insufficient(self):
+        state, coverage, reason = evaluate_site_config(
+            **self.good(optional_zones_present=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_PARTIAL)
+        self.assertEqual(reason, NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP)
+
+    def test_missing_required_zone_wins_over_missing_optional_zone(self):
+        state, coverage, reason = evaluate_site_config(
+            **self.good(required_zones_present=False, optional_zones_present=False))
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_INSUFFICIENT)
+        self.assertEqual(reason, NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT)
+
+    def test_default_zones_schema_valid_stays_matched(self):
+        # callers that don't pass zones_schema_valid at all (pre-#73 call
+        # sites, existing tests) must not start seeing it block them
+        state, coverage, reason = evaluate_site_config(**self.good())
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+
+    def test_invalid_zones_schema_reports_unknown_not_a_pass(self):
+        # Mohamed Sayed's platform-sw#73 review: a missing/malformed zone
+        # declaration must block with a real "unknown" status, not silently
+        # evaluate as if no zones were required.
+        state, coverage, reason = evaluate_site_config(
+            **self.good(zones_schema_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_zones_schema_is_reported_before_zone_presence(self):
+        # an invalid schema means required_zones_present/optional_zones_present
+        # can not even be trusted - the schema gate must win regardless of
+        # what those (otherwise meaningless) booleans say
+        state, coverage, reason = evaluate_site_config(**self.good(
+            zones_schema_valid=False, required_zones_present=True,
+            optional_zones_present=True))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_zones_schema_is_reported_after_identity_mismatches(self):
+        # identity still wins over schema validity - an untrusted map/config
+        # identity is a worse problem than an untrusted zone declaration,
+        # and the existing precedence order should not change underneath it
+        state, coverage, reason = evaluate_site_config(**self.good(
+            map_identity_matches=False, zones_schema_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
+
+    def test_default_identity_fields_valid_stays_matched(self):
+        # same reasoning as test_default_zones_schema_valid_stays_matched:
+        # existing call sites that don't pass identity_fields_valid must not
+        # start seeing it block them
+        state, coverage, reason = evaluate_site_config(**self.good())
+        self.assertEqual(state, SiteConfigStatus.STATE_MATCHED)
+
+    def test_invalid_identity_fields_reports_unknown_not_a_pass(self):
+        # Mohamed Sayed's platform-sw#73 review (second pass): an absent,
+        # null, empty or wrong-type site_id/map_id/config_id must block
+        # with a real "unknown" status, not silently evaluate against
+        # whatever config_identity_matches the caller computed from them.
+        state, coverage, reason = evaluate_site_config(
+            **self.good(identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(coverage, SiteConfigStatus.COVERAGE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_before_config_mismatch(self):
+        # an invalid identity field means config_identity_matches can not be
+        # trusted either (it was computed over those same fields) - the
+        # identity-field gate must win regardless of what that otherwise-
+        # meaningless boolean says
+        state, coverage, reason = evaluate_site_config(**self.good(
+            identity_fields_valid=False, config_identity_matches=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_after_zones_schema(self):
+        # zones_schema_valid is checked first in the function body; an
+        # invalid zone schema should still win when both are invalid, same
+        # precedence reasoning as the zones-vs-identity-mismatch test above
+        state, coverage, reason = evaluate_site_config(**self.good(
+            zones_schema_valid=False, identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_UNKNOWN)
+        self.assertEqual(reason, NavigationStatus.SITE_CONFIG_UNKNOWN)
+
+    def test_invalid_identity_fields_is_reported_after_identity_mismatches(self):
+        # map/config identity mismatches still win over identity-field
+        # validity, same precedence reasoning as the zones-schema version
+        state, coverage, reason = evaluate_site_config(**self.good(
+            map_identity_matches=False, identity_fields_valid=False))
+        self.assertEqual(state, SiteConfigStatus.STATE_MISMATCHED)
+        self.assertEqual(reason, NavigationStatus.MAP_ID_MISMATCH)
+
+
+class TestRollUpSiteConfig(unittest.TestCase):
+    """roll_up()'s site_config_state/floor_coverage/reason parameters."""
+
+    def test_default_site_config_args_stay_ready(self):
+        # callers that don't pass the new kwargs at all (pre-#27 call sites,
+        # existing tests) must not start seeing NOT_READY
+        result = roll_up(**good())
+        self.assertEqual(result.readiness, READY)
+
+    def test_mismatched_site_config_blocks_readiness(self):
+        result = roll_up(**good(
+            site_config_state=SiteConfigStatus.STATE_MISMATCHED,
+            site_config_floor_coverage=SiteConfigStatus.COVERAGE_UNKNOWN,
+            site_config_reason=NavigationStatus.MAP_ID_MISMATCH))
+        self.assertEqual(result.readiness, NOT_READY)
+        self.assertIn(NavigationStatus.MAP_ID_MISMATCH, result.not_ready_reasons)
+
+    def test_insufficient_floor_coverage_blocks_even_though_state_is_matched(self):
+        result = roll_up(**good(
+            site_config_state=SiteConfigStatus.STATE_MATCHED,
+            site_config_floor_coverage=SiteConfigStatus.COVERAGE_INSUFFICIENT,
+            site_config_reason=NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT))
+        self.assertEqual(result.readiness, NOT_READY)
+        self.assertIn(NavigationStatus.FLOOR_COVERAGE_INSUFFICIENT, result.not_ready_reasons)
+
+    def test_partial_optional_only_floor_coverage_does_not_block(self):
+        result = roll_up(**good(
+            site_config_state=SiteConfigStatus.STATE_MATCHED,
+            site_config_floor_coverage=SiteConfigStatus.COVERAGE_PARTIAL,
+            site_config_reason=NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP))
+        self.assertEqual(result.readiness, READY)
+        self.assertNotIn(NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP, result.not_ready_reasons)
+        self.assertIn(NavigationStatus.FLOOR_COVERAGE_OPTIONAL_GAP, result.active_reasons)
+        self.assertEqual(result.health, NavigationStatus.HEALTH_DEGRADED)
 
 
 if __name__ == '__main__':

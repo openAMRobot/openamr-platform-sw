@@ -177,7 +177,10 @@ def launch_setup(context, *args, **kwargs):
         src(nav2, 'navigation_launch.py'),
         # navigation_launch no longer runs a scan filter (it's owned by the data source above) —
         # it only consumes /scan_filtered. Exactly one /scan_filtered publisher per profile.
-        launch_arguments={'use_sim_time': sim}.items()))
+        # map_yaml: same resolved map_file map_server actually loads above (real map on
+        # hardware, sim map in sim), so navigation_status_node's site-config map-identity
+        # hash (platform-sw#36/#73) is never computed against the wrong file.
+        launch_arguments={'use_sim_time': sim, 'map_yaml': map_file}.items()))
 
     if _truthy(use_rviz):
         actions.append(Node(
