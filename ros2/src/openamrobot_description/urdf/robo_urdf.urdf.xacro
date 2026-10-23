@@ -708,6 +708,8 @@ Stephen Brawner (brawner@gmail.com)
     <child link="camera_optical_frame"/>
   </joint>
 
+  <xacro:arg name="legacy_camera" default="true"/>
+
   <!-- OpenAMRobot 2.0 sensor frames: Gemini 336L, IMU, TF-Luna, MB7060 (#49) -->
   <xacro:include filename="sensors.xacro" />
 
