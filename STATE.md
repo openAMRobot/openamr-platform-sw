@@ -22,7 +22,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | merged (8a7a5b1) | - |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
-| twist_mux command arbitration + stop gate (#35) | #90 | draft, AI-authored, needs adopt/adapt/reject | owner decision, then 2 approvals incl. platform lead (safety path) |
+| twist_mux command arbitration + stop gate (#35) | #90 | draft, needs adopt/adapt/reject | owner decision, then review |
 
 ## Decisions this repository implements
 
