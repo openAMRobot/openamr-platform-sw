@@ -65,13 +65,13 @@ frames:
 
   tof_front:
     sensor: Benewake TF-Luna (cliff)
-    xyz: [0.390, 0.0, -0.0066]
+    xyz: [0.399, 0.0, -0.0066]
     rpy: [0.0, 0.1745, 0.0]   # 10 deg down, confirmed by the bench test
     cad_source: lens face x from the CAD; height from the front centre opening (91.4 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
   tof_rear:
     sensor: Benewake TF-Luna (cliff)
-    xyz: [-0.390, 0.0, -0.0066]
+    xyz: [-0.399, 0.0, -0.0066]
     rpy: [0.0, 0.1745, 3.141592653589793]   # 10 deg down, confirmed by the bench test
     cad_source: lens face x from the CAD; height from the rear centre opening (91.35 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
