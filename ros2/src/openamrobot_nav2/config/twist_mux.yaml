@@ -42,5 +42,24 @@ twist_mux:
     locks:
       software_stop:         # functional stop, NOT the safety function (hardwired E-stop)
         topic: /safety/stop_lock   # std_msgs/Bool, true = engaged; masks every input below 255
-        timeout: 0.0               # does not auto-expire once engaged; does not start engaged
+        # Mohamed's review (platform-sw#90): twist_mux's own LockTopicHandle
+        # subscribes with rclcpp::SystemDefaultsQoS() (volatile), so it never
+        # receives safety_stop_gate_node's TRANSIENT_LOCAL retained sample -
+        # only a live message published after it subscribes. With timeout:
+        # 0.0, hasExpired() short-circuits to false forever (see
+        # twist_mux/topic_handle.hpp), so isLocked() defaults to false
+        # (unlocked) until a real message lands. A fresh or restarted mux is
+        # fail-open for that window.
+        # timeout: 0.3 flips the default: hasExpired() is
+        # (now() - stamp_) > timeout, and stamp_ starts at epoch 0, so a
+        # handle that has received nothing is "expired" (locked) immediately
+        # at any now() past 0.3s - fail-closed by default, not just once a
+        # true sample arrives. During normal operation this is a no-op:
+        # safety_stop_gate_node republishes every tick (TICK_HZ=10, period
+        # 0.1s), well inside 0.3s, so a live mux's lock never actually
+        # expires. See navigation_launch.py for the complementary
+        # wall-clock startup stagger covering the use_sim_time cold-start
+        # edge case (sim clock near zero at boot, where this epoch-zero
+        # trick alone has not yet had 0.3s of simulated time to trip).
+        timeout: 0.3
         priority: 255

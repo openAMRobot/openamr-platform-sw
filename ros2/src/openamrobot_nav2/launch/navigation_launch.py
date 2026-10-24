@@ -18,6 +18,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.actions import TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LoadComposableNodes, SetParameter
@@ -310,6 +311,28 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', log_level],
     )
 
+    # #90 (Mohamed's review): twist_mux's lock defaults fail-closed on its own
+    # now (twist_mux.yaml timeout: 0.3), but that default only trips once
+    # now() has advanced past 0.3s of whatever clock the mux uses - with
+    # use_sim_time true and a sim clock that starts near zero, a cold-boot
+    # mux could briefly read unlocked before either that threshold or a real
+    # lock sample from safety_stop_gate_node arrives. ui_cmd_vel_relay_node
+    # is the only unmanaged, non-lifecycle Twist producer in this file (the
+    # nav/docking producers are lifecycle-managed and don't publish until
+    # explicitly activated, well after this window) - delaying it on the
+    # launch orchestrator's own wall clock, independent of use_sim_time,
+    # guarantees twist_mux and safety_stop_gate_node have been running long
+    # enough (comfortably more than one 0.1s tick and, in practice, any sim
+    # clock already advancing from a real wall-clock delay) before this raw
+    # producer can emit anything. This is a complement to the timeout fix,
+    # not a replacement for it - it only covers the one unmanaged producer
+    # that can run this early; it does not by itself make twist_mux
+    # fail-closed.
+    delayed_ui_cmd_vel_relay_node = TimerAction(
+        period=1.0,
+        actions=[ui_cmd_vel_relay_node],
+    )
+
     load_composable_nodes = GroupAction(
         condition=IfCondition(use_composition),
         actions=[
@@ -417,6 +440,6 @@ def generate_launch_description():
     ld.add_action(status_node)
     ld.add_action(twist_mux_node)
     ld.add_action(safety_stop_gate_node)
-    ld.add_action(ui_cmd_vel_relay_node)
+    ld.add_action(delayed_ui_cmd_vel_relay_node)
 
     return ld
