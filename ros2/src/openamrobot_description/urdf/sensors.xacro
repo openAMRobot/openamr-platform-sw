@@ -122,8 +122,8 @@
        91.4 mm above the floor (P-03 rev19.0 item 19). x at the lens face from the
        CAD 2026-10-15 full assembly. 20 deg down is the screening value until the
        bench test (Alex decision 2026-10-12); the CAD mount face is 10 deg. -->
-  <xacro:tof_frame name="tof_front" x="0.390" y="0" z="-0.0066" pitch="0.1745"/>
-  <xacro:tof_frame name="tof_rear" x="-0.390" y="0" z="-0.0066" pitch="0.1745" yaw="${pi}"/>
+  <xacro:tof_frame name="tof_front" x="0.399" y="0" z="-0.0066" pitch="0.1745"/>
+  <xacro:tof_frame name="tof_rear" x="-0.399" y="0" z="-0.0066" pitch="0.1745" yaw="${pi}"/>
 
   <!-- ── Gazebo range sensors (simulation only) ─────────────────────────── -->
   <xacro:macro name="range_sensor_gazebo" params="name topic samples half_angle range_min range_max rate">
