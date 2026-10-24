@@ -70,4 +70,5 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_status_trackers.py \
             ros2/src/openamrobot_nav2/test/test_status_rules.py \
             ros2/src/openamrobot_nav2/test/test_navigation_status_node.py \
-            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py \
+            ros2/src/openamrobot_nav2/test/test_navigate_through_poses_bt.py

@@ -66,6 +66,10 @@ bt_navigator:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     navigate_through_poses:
       plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    # #35/N4 fast-follow (see PR #91): same bounded-clearing + wait-before-replan
+    # policy as navigate_to_pose, applied to the through-poses tree too. See that
+    # file's own header comment for the full rationale.
+    default_nav_through_poses_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_through_poses.xml"
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code
