@@ -3,13 +3,13 @@
 # y left, z up. xyz in metres, rpy in radians. The URDF values are in
 # urdf/sensors.xacro; keep both files in step.
 #
-# Sources: P-03 Decision Addendum rev19.0 item 19 (12 Oct 2026), BOM Issue 7.7, and the
+# Sources: P-03 Decision Addendum rev19.7 item 19 (20 Oct 2026), BOM Issue 7.7, and the
 # CAD Rev B full assembly STEP MMP.00.00.00.000 (2026-10-15, openamr-platform-hw#20).
 # STEP axes: X forward, Y up from the floor, Z right; base_link = (X, -Z, Y - 98 mm).
 # Range sensor frames are at the centre of the sensor face with x along the beam.
 #
 # status: measured    = taken from the CAD Rev B assembly
-#         decision    = fixed by P-03 rev19.0 item 19 / Alex decision 2026-10-12
+#         decision    = fixed by P-03 rev19.7 item 19 / Alex decision 2026-10-20
 #         placeholder = not yet in the CAD
 
 frames:
@@ -65,13 +65,13 @@ frames:
 
   tof_front:
     sensor: Benewake TF-Luna (cliff)
-    xyz: [0.399, 0.0, -0.0066]
-    rpy: [0.0, 0.3491, 0.0]   # 20 deg down, screening value until the bench test
+    xyz: [0.390, 0.0, -0.0066]
+    rpy: [0.0, 0.1745, 0.0]   # 10 deg down, confirmed by the bench test
     cad_source: lens face x from the CAD; height from the front centre opening (91.4 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
   tof_rear:
     sensor: Benewake TF-Luna (cliff)
-    xyz: [-0.399, 0.0, -0.0066]
-    rpy: [0.0, 0.3491, 3.141592653589793]   # 20 deg down, screening value until the bench test
+    xyz: [-0.390, 0.0, -0.0066]
+    rpy: [0.0, 0.1745, 3.141592653589793]   # 10 deg down, confirmed by the bench test
     cad_source: lens face x from the CAD; height from the rear centre opening (91.35 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
