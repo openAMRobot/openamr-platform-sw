@@ -162,12 +162,13 @@
     visual_servo_kp: 0.6                # rad/s per rad of image-frame angle
     visual_servo_filter_alpha: 0.2      # lower = more smoothing, slower response
 
-    # Raj's Nav2 stack does NOT run a velocity_smoother that subscribes to
-    # /cmd_vel_nav, so publishing there is a dead end (0 subscribers). We
-    # publish straight to /cmd_vel which the gz bridge forwards to the
-    # DiffDrive plugin. Nav2's own controller is idle by Phase 4 (its
-    # NavigateToPose goal completed in Phase 1), so we don't fight it.
-    cmd_vel_topic: /cmd_vel
+    # #35: docking is one of twist_mux's arbitrated inputs (priority 20,
+    # config/twist_mux.yaml), so this has to go through the mux rather than
+    # straight to /cmd_vel - publishing directly there was a pre-#35 shortcut
+    # that bypassed velocity_smoother and collision_monitor entirely. Nav2's
+    # own controller is idle by Phase 4 (its NavigateToPose goal completed in
+    # Phase 1), so docking and navigation aren't fighting over cmd_vel_dock.
+    cmd_vel_topic: /cmd_vel_dock
 
     # ─── Tag detection topic ─────────────────────────────────────────────────
     detection_topic: /detected_dock_pose
