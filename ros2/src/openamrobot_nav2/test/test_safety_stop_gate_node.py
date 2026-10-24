@@ -19,6 +19,7 @@ rclpy = pytest.importorskip('rclpy')
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode  # noqa: E402
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E402
 from std_msgs.msg import Bool  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
@@ -70,16 +71,57 @@ class TestStartupLockedByDefault(NodeTestCase):
         self.assertTrue(self.node._locked)
 
     def test_lock_topic_carries_true_before_any_timer_tick(self):
-        # The retained TRANSIENT_LOCAL sample must exist from construction,
-        # not from the first timer callback - a late subscriber created
-        # immediately after this node (the "mux starts after the gate"
-        # order) must see True without waiting a tick period.
+        # Mohamed's review (platform-sw#90): this used to spin BOTH nodes
+        # for 0.2s with a plain probe subscriber, so it could pass purely
+        # from _tick()'s periodic republish (10 Hz) and proved nothing
+        # about a sample being retained "before any timer tick."
+        #
+        # Pin the claim down structurally instead of racing a clock: only
+        # self.probe is ever spun in this test - self.node (the gate) is
+        # NEVER spun here, so its create_timer(_tick) callback cannot
+        # execute even once, no matter how long this waits for DDS
+        # discovery. Whatever the probe receives, it received with the
+        # gate's own timer callback never having run - that is the actual
+        # guarantee in the test's name, independent of wall-clock timing.
+        #
+        # The probe's own subscription QoS matters here too, and this is
+        # the exact mistake Mohamed's review is about (platform-sw#90):
+        # create_subscription(..., 1) with a plain int depth defaults to
+        # VOLATILE durability in rclpy, same as twist_mux's real
+        # LockTopicHandle. A volatile subscriber only gets LIVE samples
+        # published after it matches - it does NOT receive a retained
+        # TRANSIENT_LOCAL sample from before it existed. The first version
+        # of this test "worked" only because _tick()'s periodic republish
+        # kept generating fresh live samples once both nodes were spun -
+        # exactly the thing Mohamed's review said this test could not tell
+        # apart from the real guarantee. To actually exercise durability,
+        # the probe has to request it: a TRANSIENT_LOCAL subscriber
+        # matched against a TRANSIENT_LOCAL publisher receives the
+        # retained sample on match, which is the one property this test is
+        # named for.
+        lock_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
         received = []
         self.probe.create_subscription(
-            Bool, '/safety/stop_lock', received.append, 1)
-        self._spin_both(timeout_s=0.2)
-        self.assertTrue(received, 'no retained lock sample seen')
+            Bool, '/safety/stop_lock', received.append, lock_qos)
+        deadline = time.monotonic() + 2.0
+        while not received and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.05)
+        self.assertTrue(
+            received,
+            'no lock sample ever reached a probe subscribed after '
+            'construction - the gate node was never spun, so this is not '
+            'a timing issue, the retained sample itself is missing')
         self.assertTrue(received[0].data)
+        # This only proves THIS node's own publisher/QoS behaves as
+        # intended. It is NOT evidence about twist_mux: its own lock
+        # subscriber uses SystemDefaultsQoS() (volatile), so it does NOT
+        # receive this retained sample at all (platform-sw#90) - only a
+        # live message published after it subscribes. That is the real
+        # mux's behavior, covered by test_twist_mux_startup_and_restart.py,
+        # not by anything that can be proven from this node in isolation.
 
 
 class TestReleaseAndEngage(NodeTestCase):

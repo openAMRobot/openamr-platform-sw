@@ -17,17 +17,29 @@ received or sent a single message:
   - self._locked is set True in __init__, before any publisher or
     subscription is created - there is no window where this node exists but
     has not yet decided it is locked.
-  - the /safety/stop_lock publisher uses TRANSIENT_LOCAL durability, so a
-    twist_mux that starts (or restarts) AFTER this node already has an
-    engaged lock gets that retained True immediately on subscribing, before
-    its first spin - durability does the "startup order" half of this for
-    free, in both start orders (gate first or mux first) and across a mux
-    restart specifically, since the retained sample lives with this node,
-    not the mux.
-  - belt-and-suspenders beyond durability alone: _tick() republishes the
-    current lock value at TICK_HZ regardless of whether it changed, so even
-    a QoS/transport hiccup that lost the retained sample is corrected within
-    one tick period, not left to rely on durability being perfect.
+  - the /safety/stop_lock publisher here uses TRANSIENT_LOCAL durability,
+    but that is NOT what makes a fresh or restarted twist_mux start locked.
+    Mohamed's review (platform-sw#90) caught this: twist_mux's own
+    LockTopicHandle subscribes with rclcpp::SystemDefaultsQoS() (volatile -
+    see twist_mux/topic_handle.hpp), so it never receives this publisher's
+    retained sample at all, only a live message published after it
+    subscribes. Durability was this node's own earlier (wrong) assumption,
+    written before checking the mux's actual subscriber QoS.
+  - the real fix is in twist_mux.yaml: locks.software_stop.timeout is
+    nonzero (0.3), so twist_mux's own hasExpired() - (now() - stamp_) >
+    timeout, with stamp_ starting at epoch 0 - reads expired, i.e. locked,
+    by default the instant the mux exists, before it has received anything
+    from this node. _tick()'s periodic republish (below) then lands a real
+    True well inside that 0.3s window, same as always. See twist_mux.yaml's
+    own comment for the full reasoning, including the use_sim_time
+    cold-start edge case and the launch-level stagger
+    (navigation_launch.py) that covers it.
+  - belt-and-suspenders beyond the timeout fix alone: _tick() republishes
+    the current lock value at TICK_HZ regardless of whether it changed, so
+    even a QoS/transport hiccup that lost a sample is corrected within one
+    tick period, and the TRANSIENT_LOCAL durability on this publisher still
+    helps any OTHER subscriber in the graph that (unlike twist_mux) actually
+    uses a durability-compatible QoS.
 
 [Release] "The mux directly accepts Bool messages on its configured lock
 topic, and false clears that lock. A ... helper ignoring false on the same
