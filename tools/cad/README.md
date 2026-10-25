@@ -61,7 +61,7 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
   underside, the rear sloped flange, the cover rear edge and the base plate, every chassis part
   within 60 mm, and the free space behind (BMS and power distribution zone, not modelled) and
   beside the envelope in `build/cad_checks.md` and `PROVENANCE.yaml components.battery.rear_deck_check`.
-- Envelope shapes (26 Oct 2026): the key base envelopes follow their documented shapes, built from
+- Envelope shapes (25 Oct 2026): the key base envelopes follow their documented shapes, built from
   boxes and cylinders only: battery as eight LF105 cell boxes (130 x 38 x 200 mm, 1 mm gaps from the
   5 mm allowance) with terminal studs inside a translucent envelope shell (GLB only, `stl: false`);
   J401 carrier, Orin NX module and an illustrative finned heatsink block; NUCLEO-144 board with the

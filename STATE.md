@@ -26,7 +26,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
 | GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |
-| Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (26 Oct 2026) | this PR | draft | work-package owner: adopt, adapt or reject |
+| Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | this PR | draft | work-package owner: adopt, adapt or reject |
 
 ## Decisions this repository implements
 
