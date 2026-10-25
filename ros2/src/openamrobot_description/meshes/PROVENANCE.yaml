@@ -5,8 +5,8 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: 6783056fbcdf46180a178ca5b0f0a43e079b3290d034449873003821574fa263
-  converter_sha256: e25d4683b4a4d56bb0d9a589b6605bd5c03cf96c4dc0e6775ddd1d141cc35583
+    sha256: 0a1978b662a0f5d5f3d2b102150bf5e6032560c0cb7faab58505ce7662eda2e5
+  converter_sha256: 4f65b68891d6b58bd960373bc5d03e90d2912d332a086ca30539a119c3b6dcd4
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
     python: 3.13.17
@@ -42,7 +42,7 @@ inputs:
   checkout_commit: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
   last_commit_for_file: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
   git_ref: refs/pull/28/head
-  note: 'brake variant; on the platform-hw PR #28 branch, not yet on main'
+  note: 'brake variant, brake side inboard (decided 25 Oct 2026); on the platform-hw PR #28 branch, not yet on main'
 parameters:
   tessellation:
     linear_deflection_mm: 0.5
@@ -114,7 +114,7 @@ outputs:
     - 1.0
   base_equipment:
     file: meshes/visual/base_equipment.stl
-    sha256: 54fea7611f5b0d99d4178387f2660de932e62dc75f6fb437a23da92acc5acb50
+    sha256: b6d9528561f34c7ccbccef2d222e9aaaa4dd31c35242846644a8609ffe3479cb
     bytes: 3684
     triangles: 72
     triangles_before_decimation: 72
@@ -218,22 +218,307 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: 7b3bb18896f3ae1bdc676a8f381279ba110ac96f9fc0cbb7637abfefcf44d852
-  bytes: 833412
-  triangles: 67992
-  primitives: 41
+  sha256: 955867ac34bc22fe678d2f7ef4ec82bfd37dea46fdd97250053cf570de68df24
+  bytes: 833144
+  triangles: 66592
+  primitives: 59
+  node_count: 44
+  nodes:
+  - id: base_camera
+    name: Base RGB-D camera
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.base_camera
+    bom_row: CAM-001
+    triangles: 24
+  - id: base_controller
+    name: Base controller
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.base_controller
+    bom_row: CTL-001
+    triangles: 12
+  - id: base_plate
+    name: Base plate (deck)
+    class: chassis
+    source: CAD v0.2 part MMP.02.00.00.001, instance MMP.02.00.00.001 Base_По умолчанию:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 10902
+  - id: battery
+    name: Battery cell-group envelope
+    class: envelope
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.battery
+    bom_row: PWR-001, PWR-028
+    provisional: true
+    triangles: 12
+  - id: camera_mount
+    name: Base camera mount
+    class: chassis
+    source: CAD v0.2 part MMP.01.00.00.003 (camera_mount v8), instance camera_mount v8:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-009
+    triangles: 1024
+  - id: castor_front_left
+    name: Swivel castor (front left)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
+    bom_row: MEC-002
+    triangles: 108
+  - id: castor_front_right
+    name: Swivel castor (front right)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
+    bom_row: MEC-002
+    triangles: 108
+  - id: castor_rear_left
+    name: Swivel castor (rear left)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
+    bom_row: MEC-002
+    triangles: 108
+  - id: castor_rear_right
+    name: Swivel castor (rear right)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
+    bom_row: MEC-002
+    triangles: 108
+  - id: centre_bracket
+    name: Centre bracket
+    class: chassis
+    source: CAD v0.2 part MMP.04.00.00.001, instance MMP.04.00.00.001 Center bracket_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 14322
+  - id: compute
+    name: Compute (Jetson Orin NX on J401 carrier)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.compute
+    bom_row: CMP-001, CMP-002
+    triangles: 36
+  - id: controller_plate
+    name: Base controller mount plate
+    class: chassis
+    source: CAD v0.2 part stm32_click_mount_plate (production file MMP.04.00.00.003 STM32 Click mount plate), instance
+      stm32_click_mount_plate:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    triangles: 1008
+  - id: cover
+    name: Cover
+    class: chassis
+    source: CAD v0.2 part MMP.01.00.00.001, instance MMP.01.00.00.001 Cover_00:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 2030
+  - id: cover_flange_front
+    name: Cover flange (front)
+    class: chassis
+    source: CAD v0.2 part MMP.01.00.00.002, instance MMP.01.00.00.002 Cover flange_00:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1032
+  - id: cover_flange_rear
+    name: Cover flange (rear)
+    class: chassis
+    source: CAD v0.2 part MMP.01.00.00.002, instance MMP.01.00.00.002 Cover flange_00:2 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1032
+  - id: driver_mount
+    name: Motor driver mount
+    class: chassis
+    source: CAD v0.2 part driver_mount v2 (production file MMP.02.00.00.002 Motor driver mount), instance driver_mount
+      v2:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    triangles: 828
+  - id: electronics_bracket
+    name: Electronics bracket
+    class: chassis
+    source: CAD v0.2 part electronics_bracket v19 (production file MMP.04.00.00.002 Electronics bracket), instance
+      electronics_bracket v19:2 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    triangles: 2100
+  - id: front_panel
+    name: Front panel
+    class: chassis
+    source: CAD v0.2 part MMP.00.00.00.001, instance MMP.00.00.00.001 Front panel_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 3946
+  - id: hub_motor_wheel_left
+    name: Hub motor wheel (left)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.hub_motor_wheel
+    bom_row: DRV-001
+    triangles: 2216
+  - id: hub_motor_wheel_right
+    name: Hub motor wheel (right)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.hub_motor_wheel
+    bom_row: DRV-001
+    triangles: 2216
+  - id: imu
+    name: IMU
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.imu
+    bom_row: IMU-001
+    triangles: 24
+  - id: lidar
+    name: 2D LiDAR
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.lidar
+    bom_row: NAV-001
+    triangles: 168
+  - id: lidar_spacer
+    name: LiDAR spacer 17.5 mm
+    class: chassis
+    source: CAD v0.2 part lidar_mount_spacer (production file MMP.07.00.00.002 Lidar mount spacer), instance lidar_mount_spacer:1
+      (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-008
+    triangles: 1196
+  - id: lidar_support
+    name: LiDAR support
+    class: chassis
+    source: CAD v0.2 part MMP.07.00.00.001, instance MMP.07.00.00.001 Lidar support_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-008
+    triangles: 2880
+  - id: motor_driver
+    name: Motor driver
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.motor_driver
+    bom_row: DRV-002
+    triangles: 12
+  - id: rear_panel
+    name: Rear panel
+    class: chassis
+    source: CAD v0.2 part MMP.00.00.00.002, instance MMP.00.00.00.002 Back panel_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 2916
+  - id: side_panel_left
+    name: Side panel (left)
+    class: chassis
+    source: CAD v0.2 part MMP.00.00.00.003, instance MMP.00.00.00.003 Side panel_По умолчанию:2 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 2710
+  - id: side_panel_right
+    name: Side panel (right)
+    class: chassis
+    source: CAD v0.2 part MMP.00.00.00.003, instance MMP.00.00.00.003 Side panel_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 2710
+  - id: support_front_left
+    name: Support (front left)
+    class: chassis
+    source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1758
+  - id: support_front_right
+    name: Support (front right)
+    class: chassis
+    source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_Зеркалка:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1758
+  - id: support_rear_left
+    name: Support (rear left)
+    class: chassis
+    source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_Зеркалка:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1758
+  - id: support_rear_right
+    name: Support (rear right)
+    class: chassis
+    source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_По умолчанию:1 (openamr-platform-hw
+      mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-001
+    triangles: 1758
+  - id: tof_front
+    name: ToF cliff sensor (front)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.tof
+    bom_row: SNS-001
+    triangles: 24
+  - id: tof_mount_front
+    name: TF-Luna mount (front)
+    class: chassis
+    source: CAD v0.2 part tf_luna_mount (production file MMP.00.00.00.005 TF-Luna mount), instance tf_luna_mount:1
+      (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    triangles: 562
+  - id: tof_mount_rear
+    name: TF-Luna mount (rear)
+    class: chassis
+    source: CAD v0.2 part tf_luna_mount (production file MMP.00.00.00.005 TF-Luna mount), instance tf_luna_mount:1
+      (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    triangles: 562
+  - id: tof_rear
+    name: ToF cliff sensor (rear)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.tof
+    bom_row: SNS-001
+    triangles: 24
+  - id: ultrasonic_front_left
+    name: Ultrasonic sensor (front left)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
+    bom_row: SNS-002
+    triangles: 252
+  - id: ultrasonic_front_right
+    name: Ultrasonic sensor (front right)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
+    bom_row: SNS-002
+    triangles: 252
+  - id: ultrasonic_mount_front_left
+    name: Ultrasonic mount (front left)
+    class: chassis
+    source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
+      v1:2 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-011
+    triangles: 398
+  - id: ultrasonic_mount_front_right
+    name: Ultrasonic mount (front right)
+    class: chassis
+    source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
+      v1:3 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-011
+    triangles: 398
+  - id: ultrasonic_mount_rear_left
+    name: Ultrasonic mount (rear left)
+    class: chassis
+    source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
+      v1:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-011
+    triangles: 398
+  - id: ultrasonic_mount_rear_right
+    name: Ultrasonic mount (rear right)
+    class: chassis
+    source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
+      v1:4 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
+    bom_row: MEC-011
+    triangles: 398
+  - id: ultrasonic_rear_left
+    name: Ultrasonic sensor (rear left)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
+    bom_row: SNS-002
+    triangles: 252
+  - id: ultrasonic_rear_right
+    name: Ultrasonic sensor (rear right)
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
+    bom_row: SNS-002
+    triangles: 252
 components:
   hub_motor_wheel:
     bom: ZLTECH ZLLG80ASM250-L-B hub motor wheel with brake (DRV-001)
+    name: Hub motor wheel
+    bom_row: DRV-001
     qty: 2
     status: modelled
     envelope: true
     output: hub_motor_wheel
     file: hub_motor_wheel.stl
-    position: axle on base_link at y +/-0.200 (track 0.400 placeholder, DRIVE-TRACK open); brake side inboard
+    position: axle on base_link at y +/-0.200 (track 0.400 placeholder, DRIVE-TRACK open); brake side inboard (decided
+      25 Oct 2026; the brake-inboard fit check below stays)
     position_decided: true
     dimension_source: ZLLG80ASM250-L-B2 V1.01 double-shaft STEP (tyre 200 x 49.4 mm, hub 136 mm, brake housing 75
       mm, shafts 20.8 and 15 mm)
+    class: component
+    brake_side: inboard
     links:
     - left_wheel_link
     - right_wheel_link
@@ -242,6 +527,9 @@ components:
       - 0.0
       - 0.0
       - 3.141592653589793
+    node_ids:
+    - hub_motor_wheel_left
+    - hub_motor_wheel_right
     step_check:
       component: hub_motor_wheel
       kind: local size
@@ -256,6 +544,8 @@ components:
       max_delta_mm: 0.0
   castor:
     bom: LPA-VSTH 35K swivel castor (MEC-002)
+    name: Swivel castor
+    bom_row: MEC-002
     qty: 4
     status: modelled
     envelope: true
@@ -264,13 +554,19 @@ components:
     position: existing caster links; the link origin is 54.167 mm above the floor
     position_decided: true
     dimension_source: STEP instances GH-LPA035_G15 (top plate 60 x 60 mm, top 52.0 mm above the floor) and VSTH_35_6K_G15
-      (wheel 35 x 30 mm); BOM 7.10 MEC-002 (52 mm overall height, 15 mm offset)
+      (wheel 35 x 30 mm); BOM 7.11 MEC-002 (52 mm overall height, 15 mm offset)
+    class: component
     links:
     - fl_caster_link
     - fr_caster_link
     - bl_caster_link
     - br_caster_link
     visual_rpy: {}
+    node_ids:
+    - castor_front_left
+    - castor_front_right
+    - castor_rear_left
+    - castor_rear_right
     step_check:
       component: castor
       kind: local size
@@ -285,6 +581,8 @@ components:
       max_delta_mm: 0.003
   motor_driver:
     bom: ZLAC8015D V4.2 motor driver (DRV-002)
+    name: Motor driver
+    bom_row: DRV-002
     qty: 1
     status: modelled
     envelope: true
@@ -293,7 +591,10 @@ components:
     position: as in the CAD, on the motor driver mount
     position_decided: true
     dimension_source: STEP instance ZLAC8015D-V4_0-20250902 (150 x 110.3 x 31 mm)
+    class: component
     frame: base_link
+    node_ids:
+    - motor_driver
     step_check:
       component: motor_driver
       kind: base_link box
@@ -314,6 +615,8 @@ components:
       max_delta_mm: 0.003
   ultrasonic:
     bom: MaxBotix MB7060 XL-MaxSonar-WR, housing -2XX, 3/4 inch NPS (SNS-002)
+    name: Ultrasonic sensor
+    bom_row: SNS-002
     qty: 4
     status: modelled
     envelope: true
@@ -323,14 +626,22 @@ components:
     position_decided: true
     dimension_source: 'MB7060 datasheet 11838ab, compact housing -200: face section 3/4-14 NPS 26.2 mm x 14.4 mm,
       body 34.7 mm x 17.9 mm, lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel'
+    class: component
     links:
     - us_front_left
     - us_front_right
     - us_rear_left
     - us_rear_right
     visual_rpy: {}
+    node_ids:
+    - ultrasonic_front_left
+    - ultrasonic_front_right
+    - ultrasonic_rear_left
+    - ultrasonic_rear_right
   tof:
     bom: Benewake TF-Luna ToF cliff sensor (SNS-001)
+    name: ToF cliff sensor
+    bom_row: SNS-001
     qty: 2
     status: modelled
     envelope: true
@@ -340,10 +651,14 @@ components:
     position_decided: true
     dimension_source: TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm); STEP instance BeneWake TF-LUNA (35 x 21.25 x
       13.5 mm including the lens caps)
+    class: component
     links:
     - tof_front
     - tof_rear
     visual_rpy: {}
+    node_ids:
+    - tof_front
+    - tof_rear
     step_check:
       component: tof
       kind: local size
@@ -358,6 +673,8 @@ components:
       max_delta_mm: 0.0
   lidar:
     bom: SLAMTEC RPLIDAR S3 (S3M1-R2) (NAV-001)
+    name: 2D LiDAR
+    bom_row: NAV-001
     qty: 1
     status: modelled
     envelope: true
@@ -368,9 +685,12 @@ components:
     position_decided: true
     dimension_source: STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3 mm
       overall)
+    class: component
     links:
     - lidar_link
     visual_rpy: {}
+    node_ids:
+    - lidar
     step_check:
       component: lidar
       kind: local size
@@ -385,6 +705,8 @@ components:
       max_delta_mm: 0.0
   base_camera:
     bom: Orbbec Gemini 336L (CAM-001)
+    name: Base RGB-D camera
+    bom_row: CAM-001
     qty: 1
     status: modelled
     envelope: true
@@ -394,9 +716,12 @@ components:
     position_decided: true
     dimension_source: STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the
       model origin)
+    class: component
     links:
     - base_camera_link
     visual_rpy: {}
+    node_ids:
+    - base_camera
     step_check:
       component: base_camera
       kind: local size
@@ -411,6 +736,8 @@ components:
       max_delta_mm: 0.005
   imu:
     bom: TDK ICM-42688-P on 6DOF IMU 14 Click MIKROE-4237 (IMU-001)
+    name: IMU
+    bom_row: IMU-001
     qty: 1
     status: modelled
     envelope: true
@@ -421,9 +748,12 @@ components:
     dimension_source: package 2.5 x 3.0 x 0.91 mm (TDK DS-000347 v1.9); board 25.4 x 42.9 x 1.6 mm and the package
       position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP; the repository holds
       only the click schematic
+    class: component
     links:
     - imu_link
     visual_rpy: {}
+    node_ids:
+    - imu
     step_check:
       component: imu
       kind: local size
@@ -438,6 +768,8 @@ components:
       max_delta_mm: 0.055
   compute:
     bom: NVIDIA Jetson Orin NX 16 GB on reComputer Robotics J401 carrier (CMP-001, CMP-002)
+    name: Compute (Jetson Orin NX on J401 carrier)
+    bom_row: CMP-001, CMP-002
     qty: 1
     status: modelled
     envelope: true
@@ -448,7 +780,10 @@ components:
     dimension_source: STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts 16.3
       mm) and its Orin NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm); heatsink and fan kit (CMP-005)
       not in the CAD
+    class: component
     frame: base_link
+    node_ids:
+    - compute
     step_check:
       component: compute
       kind: base_link box
@@ -469,6 +804,8 @@ components:
       max_delta_mm: 0.004
   base_controller:
     bom: STMicroelectronics NUCLEO-H723ZG (CTL-001)
+    name: Base controller
+    bom_row: CTL-001
     qty: 1
     status: modelled
     envelope: true
@@ -478,7 +815,10 @@ components:
     position_decided: true
     dimension_source: Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 mechanical dimensions; outline read from
       the MB1364 PCB in the STEP, the same board outline); components not modelled
+    class: component
     frame: base_link
+    node_ids:
+    - base_controller
     step_check:
       component: base_controller
       kind: base_link box
@@ -498,56 +838,193 @@ components:
       - 102.0
       max_delta_mm: 0.005
   battery:
-    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS (PWR-001, PWR-002, enclosure PWR-028)
+    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse (PWR-001, PWR-002, enclosure PWR-028)
+    name: Battery cell-group envelope
+    bom_row: PWR-001, PWR-028
     qty: 1
     status: modelled
     envelope: true
     output: base_equipment
     file: base_equipment.stl
-    position: 'position not decided: P-03 item 9 asks for the rear edge as close as practical and gives no coordinates;
-      centred on the 8S1P cell pack in the STEP (x -0.212, y 0), standing on the base plate top (54.0 mm above the
-      floor)'
-    position_decided: false
-    dimension_source: BOM 7.10 PWR-028 battery enclosure 340 x 250 x 260 mm (provisional allocation, not released);
-      340 across, 250 fore-aft, 260 high
+    position: 'rear section of the base deck, between the centre bracket and the left and right top-cover supports
+      (project-lead decision of 25 Oct 2026): standing on the base plate top (54.0 mm above the floor), centred
+      in y, front face 2 mm behind the rear face of the centre bracket so that the free space towards the rear panel
+      stays together. The converter computes the x of both faces and reports every clearance and the free space
+      behind and beside the envelope (build/cad_checks.md, PROVENANCE.yaml components.battery.rear_deck_check);
+      the envelope is not moved when a clearance is under 2 mm.'
+    position_decided: true
+    dimension_source: 'cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105
+      cells upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick across
+      the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm. Not the complete
+      battery assembly: the BMS, power distribution board, pack fuse, terminals and wiring are not modelled and
+      are never on top of the cells; dimensions not released'
+    class: envelope
+    provisional: true
     frame: base_link
-    step_check:
-      component: battery
-      kind: base_link box
-      step:
-      - -312.23
-      - -145.42
-      - -37.88
-      - -111.73
-      - 145.38
-      - 92.42
-      map:
-      - -312.23
-      - -145.42
-      - -37.88
-      - -111.73
-      - 145.38
-      - 92.42
-      max_delta_mm: 0.005
+    node_ids:
+    - battery
+    rear_deck_check:
+      envelope: cell-group envelope, provisional (not the complete battery assembly; dimensions not released)
+      envelope_mm:
+        x: 140.0
+        y: 314.0
+        z: 210.0
+        derivation: 8 cells x 38 mm across + 2 x 5 mm, 130 mm fore-aft + 2 x 5 mm, 200 mm high + 2 x 5 mm, rounded
+          up
+      rule: front face 2.0 mm behind the rear face of centre_bracket (its rear-most point within the envelope y
+        and z extent), centred in y, standing on the deck; 1.0 mm surface sampling; the envelope is not moved when
+        a clearance is under 2.0 mm
+      reference_rear_face_x_mm: -135.0
+      front_face_x_mm: -137.0
+      rear_face_x_mm: -277.0
+      fits_with_clearance: true
+      box_mm:
+        x:
+        - -277.0
+        - -137.0
+        y:
+        - -157.0
+        - 157.0
+        z_base_link:
+        - -44.0
+        - 166.0
+        z_floor:
+        - 54.0
+        - 264.0
+      smallest_clearance: &id001
+        part: centre_bracket
+        clearance_mm: 2.0
+        axis: x
+      clearances:
+      - subject: centre bracket
+        parts:
+        - centre_bracket
+        clearance_mm: 2.0
+        axis: x
+        verdict: ok
+      - subject: top-cover support left
+        parts:
+        - support_rear_left
+        clearance_mm: 21.51
+        axis: x
+        verdict: ok
+      - subject: top-cover support right
+        parts:
+        - support_rear_right
+        clearance_mm: 21.51
+        axis: x
+        verdict: ok
+      - subject: cover underside (above the envelope)
+        parts:
+        - cover
+        clearance_mm: 30.0
+        axis: z
+        verdict: ok
+      - subject: rear sloped cover flange
+        parts:
+        - cover_flange_rear
+        clearance_mm: 41.06
+        axis: x
+        verdict: ok
+      - subject: cover rear edge
+        parts:
+        - cover
+        clearance_mm: 37.81
+        axis: z
+        verdict: ok
+      - subject: base plate (above the deck top)
+        parts:
+        - base_plate
+        clearance_mm: 76.6
+        axis: x
+        verdict: ok
+      clearances_by_part:
+      - *id001
+      - part: support_rear_left
+        clearance_mm: 21.51
+        axis: x
+      - part: support_rear_right
+        clearance_mm: 21.51
+        axis: x
+      - part: cover
+        clearance_mm: 30.0
+        axis: z
+      - part: cover_flange_rear
+        clearance_mm: 41.06
+        axis: x
+      free_space:
+      - name: 'behind the envelope (-x, towards the rear panel): BMS and power distribution zone (not modelled)'
+        free: true
+        x_mm:
+        - -349.1
+        - -279.0
+        y_mm:
+        - -157.0
+        - 157.0
+        z_base_link_mm:
+        - -44.0
+        - 165.8
+        size_mm:
+          x: 70.1
+          y: 314.0
+          z: 209.8
+      - name: left of the envelope (+y)
+        free: true
+        x_mm:
+        - -277.0
+        - -137.0
+        y_mm:
+        - 159.0
+        - 250.4
+        z_base_link_mm:
+        - -44.0
+        - 165.8
+        size_mm:
+          x: 140.0
+          y: 91.4
+          z: 209.8
+      - name: right of the envelope (-y)
+        free: true
+        x_mm:
+        - -277.0
+        - -137.0
+        y_mm:
+        - -250.4
+        - -159.0
+        z_base_link_mm:
+        - -44.0
+        - 165.8
+        size_mm:
+          x: 140.0
+          y: 91.4
+          z: 209.8
   safety_relay_set:
     bom: Pilz PNOZ s3, 2 x Gigavac GX11CAC contactors, main fuse F0 (Class T), lockable disconnect (SAF, PWR-003,
       PWR-004)
+    name: Safety relay, contactors, main fuse and disconnect
+    bom_row: SAF-002, SAF-003, PWR-003, PWR-004
     qty: 1 set
     status: not modelled
     reason: P-03 rev19.7 and E-01 rev1.4 give no position (E-01 section 11 step 5 leaves the CAD space for both
       fuse blocks, contactors, PNOZ and disconnect to the mechanical owner)
   estop:
     bom: Schneider XB4BS8445 E-stop on the base (SAF-001)
+    name: Base E-stop
+    bom_row: SAF-001
     qty: 1
     status: not modelled
     reason: E-01 says "base front" only; no position is given (E-01 section 11 step 5)
   reset_button:
     bom: Schneider XB4BW36B5 RESET button (SAF-005)
+    name: RESET button
+    bom_row: SAF-005
     qty: 1
     status: not modelled
     reason: no position in P-03 rev19.7 or E-01 rev1.4 (E-01 section 11 step 5)
   wireless_charging_receiver:
-    bom: TZBOT WCM-500-24 receiver
+    bom: TZBOT WCM-500-24 receiver (WCH-002)
+    name: Wireless charging receiver
+    bom_row: WCH-002
     qty: 1
     status: not modelled
     reason: P-03 rev19.7 items 20 and 23 and E-01 rev1.4 section 7 give no receiver position; no docking design

@@ -2,7 +2,8 @@
 
 `step_to_description_meshes.py` regenerates the 2.0 base visual meshes of
 `ros2/src/openamrobot_description` from the hardware CAD. The chassis comes from the CAD; the
-components come from the 2.0 bill of materials (BOM Issue 7.10) and are simplified envelopes.
+components come from the 2.0 bill of materials (BOM Issue 7.11, 25 Oct 2026) and are simplified
+envelopes; the battery cell-group envelope follows the project-lead decision of 25 Oct 2026.
 
 - Input: the v0.2 full-assembly STEP in a checkout of `openAMRobot/openamr-platform-hw`
   (`mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip`), the production
@@ -12,7 +13,10 @@ components come from the 2.0 bill of materials (BOM Issue 7.10) and are simplifi
   The run fails while any instance is unclassified. It also holds the envelope parameters with
   their dimension source, the STEP corrections and the design values of the engineering checks.
 - Output: `meshes/visual/*.stl` (binary, metres), `meshes/PROVENANCE.yaml`,
-  `build/base_visual.glb` (base_link, for the docs robot page; not committed) and
+  `build/base_visual.glb` (base_link, for the docs roadmap pages; not committed; one node per
+  CAD part instance or component envelope, named by a stable id, with glTF `extras`: id, name,
+  class `chassis`, `component` or `envelope`, source, BOM 7.11 row and `provisional: true` for a
+  provisional allocation) and
   `build/cad_checks.md` / `build/cad_checks.yaml` (CAD versus design, reported only).
 
 ## Run
@@ -47,4 +51,16 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
 - Decimation: fast-simplification quadric decimation per part to a common ratio, so that every
   STL is at most 2 MB, all visual meshes at most 8 MB and the GLB at most 1.5 MB.
 - Engineering checks compare the transformed CAD with the register; they never change a frame
-  or a register value. The hub motor fit uses the B2 STEP solids against the chassis meshes.
+  or a register value. The hub motor fit uses the B2 STEP solids against the chassis meshes
+  (brake side inboard, decided 25 Oct 2026; the outboard case is still reported).
+- Battery cell-group envelope (provisional, 314 (y) x 140 (x) x 210 (z) mm: eight EVE LF105
+  cells upright in one row across the robot plus 5 mm per outer face; project-lead decision of
+  25 Oct 2026; not the complete battery assembly): the run places it on the deck, centred in y,
+  front face 2 mm behind the rear face of the centre bracket (`placement_rule`), and reports
+  both face positions, the clearances to the centre bracket, the top-cover supports, the cover
+  underside, the rear sloped flange, the cover rear edge and the base plate, every chassis part
+  within 60 mm, and the free space behind (BMS and power distribution zone, not modelled) and
+  beside the envelope in `build/cad_checks.md` and `PROVENANCE.yaml components.battery.rear_deck_check`.
+- GLB node ids: chassis rules carry `node` or `nodes` (id, name, CAD part, BOM row); instances
+  sharing an id get a position suffix (`_front`, `_rear`, `_left`, `_right`). Components carry
+  `node_ids` per placement link.

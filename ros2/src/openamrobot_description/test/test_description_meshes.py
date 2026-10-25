@@ -23,7 +23,7 @@ PROVENANCE = PKG / 'meshes' / 'PROVENANCE.yaml'
 FRAMES = PKG / 'config' / 'sensor_frames.yaml'
 PREFIX = 'package://openamrobot_description/'
 
-# The 2.0 base components of BOM Issue 7.10 that the model must account for.
+# The 2.0 base components of BOM Issue 7.11 that the model must account for.
 BOM_COMPONENTS = [
     'hub_motor_wheel', 'castor', 'motor_driver', 'ultrasonic', 'tof', 'lidar', 'base_camera',
     'imu', 'compute', 'base_controller', 'battery', 'safety_relay_set', 'estop', 'reset_button',
@@ -221,3 +221,50 @@ def test_urdf_materials_match_provenance(robot, provenance):
     for out in provenance['outputs'].values():
         np.testing.assert_allclose(colours[out['material']], out['rgba'], atol=1e-3,
                                    err_msg=out['material'])
+
+
+def test_glb_nodes_have_id_class_and_source(provenance):
+    """The docs GLB has one node per part with id, class and source (PROVENANCE.yaml glb.nodes)."""
+    glb = provenance['glb']
+    nodes = glb['nodes']
+    assert nodes and glb['node_count'] == len(nodes)
+    assert glb['bytes'] <= 1600000, glb['bytes']
+    ids = [n.get('id') for n in nodes]
+    assert all(ids) and len(ids) == len(set(ids)), ids
+    for node in nodes:
+        assert node.get('class') in ('chassis', 'component', 'envelope'), node
+        assert node.get('source', '').strip(), node
+    by_id = {n['id']: n for n in nodes}
+    for cid, comp in provenance['components'].items():
+        if comp['status'] != 'modelled':
+            continue
+        for nid in comp['node_ids']:
+            assert nid in by_id, '%s: no GLB node %s' % (cid, nid)
+            assert by_id[nid]['class'] == comp['class'], nid
+            assert by_id[nid].get('provisional', False) == comp.get('provisional', False), nid
+    assert by_id['battery']['class'] == 'envelope' and by_id['battery']['provisional'] is True
+
+
+def test_battery_cell_group_envelope_recorded(provenance):
+    """The cell-group envelope, its position behind the centre bracket, clearances and free space."""
+    rec = provenance['components']['battery']['rear_deck_check']
+    env = rec['envelope_mm']
+    assert (env['x'], env['y'], env['z']) == (140.0, 314.0, 210.0), env
+    assert rec['envelope'].startswith('cell-group envelope, provisional')
+    box = rec['box_mm']
+    assert box['x'] == [rec['rear_face_x_mm'], rec['front_face_x_mm']]
+    assert abs(rec['front_face_x_mm'] - rec['rear_face_x_mm'] - 140.0) < 1e-6
+    assert abs(rec['reference_rear_face_x_mm'] - rec['front_face_x_mm'] - 2.0) < 0.011
+    assert box['y'] == [-157.0, 157.0] and box['z_floor'] == [54.0, 264.0], box
+    subjects = {r['subject'] for r in rec['clearances']}
+    for s in ('centre bracket', 'top-cover support left', 'top-cover support right', 'rear sloped cover flange',
+              'cover rear edge', 'cover underside (above the envelope)', 'base plate (above the deck top)'):
+        assert s in subjects, s
+    smallest = min(r['clearance_mm'] for r in rec['clearances_by_part'])
+    assert rec['smallest_clearance']['clearance_mm'] == smallest
+    assert rec['fits_with_clearance'] == (smallest >= 2.0 and all(
+        r['clearance_mm'] is None or r['clearance_mm'] >= 2.0 for r in rec['clearances']))
+    assert [f['name'].split(' (')[0] for f in rec['free_space']] == ['behind the envelope', 'left of the envelope',
+                                                                     'right of the envelope']
+    assert 'BMS and power distribution zone (not modelled)' in rec['free_space'][0]['name']
+    assert provenance['components']['battery'].get('provisional') is True
