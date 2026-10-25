@@ -5,7 +5,7 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: 2b58443a8088bd2225e938ac4d479632a825a244d987abcd56ead3a548df65b3
+    sha256: 6783056fbcdf46180a178ca5b0f0a43e079b3290d034449873003821574fa263
   converter_sha256: e25d4683b4a4d56bb0d9a589b6605bd5c03cf96c4dc0e6775ddd1d141cc35583
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
@@ -25,7 +25,7 @@ inputs:
   sha256: c547de1f48af0fea27bc619bf35ab744a2846fce3bfea6d078b1b467eee07619
   checkout_commit: eaac115c583019214322b2a96998b37212755f31
   last_commit_for_file: 6c32fbabfd08491e74a9a2f601f1e14d07d44938
-  note: v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw
+  note: 'v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw #20)'
   member: MMP.00.00.00.000_full_assembly.STEP
   member_sha256: 217b1aae5c3ac2eb9ddbc308cd5589e3d73350f9b04132e86c407d9d6f80b91a
 - name: camera_mount
@@ -42,7 +42,7 @@ inputs:
   checkout_commit: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
   last_commit_for_file: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
   git_ref: refs/pull/28/head
-  note: brake variant; on the platform-hw PR
+  note: 'brake variant; on the platform-hw PR #28 branch, not yet on main'
 parameters:
   tessellation:
     linear_deflection_mm: 0.5

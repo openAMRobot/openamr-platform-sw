@@ -17,7 +17,7 @@ sources:
     repository: openAMRobot/openamr-platform-hw
     path: mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip
     member: MMP.00.00.00.000_full_assembly.STEP
-    note: v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw #20)
+    note: 'v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw #20)'
   camera_mount:
     repository: openAMRobot/openamr-platform-hw
     path: mechanical/cad/production_files/MMP.01.00.00.003 Camera mount.STEP
@@ -25,7 +25,7 @@ sources:
   hub_motor:
     repository: openAMRobot/openamr-platform-hw
     path: datasheets/ZLTech/wheel_ZLLG80ASM250/ZLLG80ASM250-L-B2 V1.01 double-shaft.STEP
-    note: brake variant; on the platform-hw PR #28 branch, not yet on main
+    note: 'brake variant; on the platform-hw PR #28 branch, not yet on main'
   documents:
     - BOM Issue 7.10 (OpenAMRobot 2.0 Detailed Hardware BOM, 20 Oct 2026)
     - P-03 Decision Addendum rev19.7 (20 Oct 2026)
