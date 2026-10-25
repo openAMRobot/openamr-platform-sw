@@ -12,3 +12,10 @@ Simulation and visualisation only; not real-robot, mechanical or safety evidence
 The box above the cover at the front is the legacy `camera_link` visual (0.35, 0, 0.20); the box
 above the cover at the rear is the BOM 7.10 provisional battery enclosure (260 mm high), whose
 position is not decided.
+
+Docs robot page (openamrobot-docs, robot.html with the base GLB from this converter), built with
+`mkdocs build --strict` from a copy of `mkdocs.yml` without the `social` plugin (its font download
+is blocked in the session network) and opened in headless Chromium (SwiftShader WebGL):
+`docs_robot_page_initial.png` (Overview), `docs_robot_page_side.png`, `docs_robot_page_top.png`
+(page presets), `docs_robot_page_orbit.png` (after a drag) and `docs_robot_page_zoom.png` (after
+wheel zoom). No console errors.
