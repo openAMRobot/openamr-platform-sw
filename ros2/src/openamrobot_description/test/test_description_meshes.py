@@ -245,19 +245,26 @@ def test_glb_nodes_have_id_class_and_source(provenance):
     assert by_id['battery']['class'] == 'envelope' and by_id['battery']['provisional'] is True
 
 
-def test_battery_cell_module_placement_recorded(provenance):
-    """The battery cell module envelope, its computed rear face, clearances and free space are recorded."""
+def test_battery_cell_group_envelope_recorded(provenance):
+    """The cell-group envelope, its position behind the centre bracket, clearances and free space."""
     rec = provenance['components']['battery']['rear_deck_check']
     env = rec['envelope_mm']
-    assert (env['x'], env['y'], env['z']) == (177.0, 291.0, 226.0), env
+    assert (env['x'], env['y'], env['z']) == (140.0, 314.0, 210.0), env
+    assert rec['envelope'].startswith('cell-group envelope, provisional')
     box = rec['box_mm']
-    assert abs(box['x'][0] - rec['rear_face_x_mm']) < 1e-6 and abs(box['x'][1] - box['x'][0] - 177.0) < 1e-6
-    assert box['y'] == [-145.5, 145.5] and box['z_floor'] == [54.0, 280.0], box
-    assert rec['clearances'] and rec['clearances_by_part'] and rec['smallest_clearance']['part']
+    assert box['x'] == [rec['rear_face_x_mm'], rec['front_face_x_mm']]
+    assert abs(rec['front_face_x_mm'] - rec['rear_face_x_mm'] - 140.0) < 1e-6
+    assert abs(rec['reference_rear_face_x_mm'] - rec['front_face_x_mm'] - 2.0) < 0.011
+    assert box['y'] == [-157.0, 157.0] and box['z_floor'] == [54.0, 264.0], box
+    subjects = {r['subject'] for r in rec['clearances']}
+    for s in ('centre bracket', 'top-cover support left', 'top-cover support right', 'rear sloped cover flange',
+              'cover rear edge', 'cover underside (above the envelope)', 'base plate (above the deck top)'):
+        assert s in subjects, s
     smallest = min(r['clearance_mm'] for r in rec['clearances_by_part'])
     assert rec['smallest_clearance']['clearance_mm'] == smallest
-    assert rec['fits_with_clearance'] == (smallest >= 2.0)
-    if not rec['fits_with_clearance']:
-        assert rec['largest_clearing_height_mm'] is not None
-    assert len(rec['free_space_beside_module']) == 3
+    assert rec['fits_with_clearance'] == (smallest >= 2.0 and all(
+        r['clearance_mm'] is None or r['clearance_mm'] >= 2.0 for r in rec['clearances']))
+    assert [f['name'].split(' (')[0] for f in rec['free_space']] == ['behind the envelope', 'left of the envelope',
+                                                                     'right of the envelope']
+    assert 'BMS and power distribution zone (not modelled)' in rec['free_space'][0]['name']
     assert provenance['components']['battery'].get('provisional') is True

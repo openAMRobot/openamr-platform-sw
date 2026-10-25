@@ -43,7 +43,7 @@ in the STEP are excluded, and the 2.0 components of BOM Issue 7.11 are simplifie
 |---|---|---|
 | `base_chassis.stl` | `base_link` | base plate, panels, supports, brackets, LiDAR support and spacer, sensor and camera mounts, motor driver mount, STM32 click mount plate |
 | `base_covers.stl` | `base_link` | plastic cover and flanges |
-| `base_equipment.stl` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery cell module on the rear deck (291 x 177 x 226 mm, rear-most position computed by the converter; provisional allocation, dimensions not released) |
+| `base_equipment.stl` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery cell-group envelope on the rear deck (314 x 140 x 210 mm, front face 2 mm behind the centre bracket, computed by the converter; provisional, dimensions not released) |
 | `hub_motor_wheel.stl` | `left_wheel_link`, `right_wheel_link` (yaw pi) | ZLLG80ASM250-L-B hub motor wheel, brake side inboard |
 | `caster.stl` | `fl/fr/bl/br_caster_link` | LPA-VSTH 35K castor with its wheel |
 | `lidar.stl`, `base_camera.stl`, `ultrasonic.stl`, `tof.stl`, `imu.stl` | sensor links | RPLIDAR S3, Gemini 336L, MB7060, TF-Luna, ICM-42688-P board; the pose is the frame |

@@ -356,8 +356,8 @@ components:
     check: {unit: '/ MB1364-H743ZI[^/]*:\d+ / Board:\d+$', base_link_box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]]}
 
   battery:
-    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse, in the removable battery enclosure (PWR-001, PWR-002, enclosure PWR-028)
-    name: Battery cell module
+    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse (PWR-001, PWR-002, enclosure PWR-028)
+    name: Battery cell-group envelope
     bom_row: PWR-001, PWR-028
     qty: 1
     status: modelled
@@ -366,41 +366,36 @@ components:
     output: base_equipment
     placement: {base_link: true}
     position: >-
-      rear base deck, as far rearward as the chassis allows (project-lead decision of 25 Oct 2026):
-      standing on the base plate top (54.0 mm above the floor), centred in y, slid forward from
-      the rear panel until every chassis part (the rear sloped cover flange, the cover rear edge,
-      the rear supports, the centre bracket at the front and all others) is at least 2 mm away;
-      when no position clears, the smallest total shortfall (placement_rule). The converter
-      computes the x of the rear face and reports it with the clearances (build/cad_checks.md,
-      PROVENANCE.yaml components.battery.rear_deck_check). The cover, chassis and register are unchanged.
+      rear section of the base deck, between the centre bracket and the left and right top-cover
+      supports (project-lead decision of 25 Oct 2026): standing on the base plate top (54.0 mm
+      above the floor), centred in y, front face 2 mm behind the rear face of the centre bracket so
+      that the free space towards the rear panel stays together. The converter computes the x of
+      both faces and reports every clearance and the free space behind and beside the envelope
+      (build/cad_checks.md, PROVENANCE.yaml components.battery.rear_deck_check); the envelope is
+      not moved when a clearance is under 2 mm.
     dimension_source: >-
-      cell-module envelope (project-lead decision of 25 Oct 2026): eight EVE LF105 cells in two
-      upright rows of four, raw 261 (y) x 147 (x) x 201 (z) mm, plus enclosure allowance 15 mm per
-      side horizontally and 25 mm vertically (floor, busbars, terminal covers, lid): 291 (y) x 177 (x)
-      x 226 (z) mm; replaces the 340 x 250 x 230 mm allocation of BOM 7.11 PWR-028 and B-02 rev18.8;
-      BMS, pack fuse and holder and battery wiring are never on top of the cells and are not
-      modelled (free space beside the module reported); provisional allocation, dimensions not released
+      cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105 cells
+      upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick
+      across the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm.
+      Not the complete battery assembly: the BMS, power distribution board, pack fuse, terminals and
+      wiring are not modelled and are never on top of the cells; dimensions not released
     parts:
       # x of the centre is computed by placement_rule (written into PROVENANCE.yaml)
-      - {shape: box, size_mm: [177.0, 291.0, 226.0], xyz_mm: [0.0, 0.0, 69.0], colour: [0.30, 0.33, 0.36]}
+      - {shape: box, size_mm: [140.0, 314.0, 210.0], xyz_mm: [0.0, 0.0, 61.0], colour: [0.30, 0.33, 0.36]}
     placement_rule:
-      derivation: raw cells 147 (x) x 261 (y) x 201 (z) mm + 2 x 15 mm horizontally + 25 mm vertically
+      derivation: 8 cells x 38 mm across + 2 x 5 mm, 130 mm fore-aft + 2 x 5 mm, 200 mm high + 2 x 5 mm, rounded up
       stand_z_mm: -44.0
-      clearance_mm: 2.0
-      x_from_mm: -390.0
-      x_to_mm: -100.0
-      step_mm: 0.5
-      refine_mm: 0.05
+      front_reference: centre_bracket
+      front_clearance_mm: 2.0
       sample_mm: 1.0
-      min_height_mm: 50.0
-    clearance_report:
-      cover underside (cover rear edge, MMP.01.00.00.001): '/ MMP\.01\.00\.00\.001 Cover_[^/]*$'
-      cover underside (rear sloped cover flange MMP.01.00.00.002): '/ MMP\.01\.00\.00\.002 Cover flange[^/]*:2$'
-      rear supports: '/ MMP\.05\.00\.00\.001 Support[^/]*$'
-      centre bracket (front): '/ MMP\.04\.00\.00\.001 Center bracket[^/]*$'
-      rear panel and its mounts: '/ (MMP\.00\.00\.00\.002 Back panel|ultrasonic_mount_ v\d+:|tf_luna_mount:)[^/]*$'
-      base plate (above the deck top): '/ MMP\.02\.00\.00\.001 Base_[^/]*$'
-    clearance_links: {rear castor mounts: [bl_caster_link, br_caster_link]}
+      clearance_report:
+        - {name: centre bracket, nodes: [centre_bracket]}
+        - {name: top-cover support left, nodes: [support_rear_left]}
+        - {name: top-cover support right, nodes: [support_rear_right]}
+        - {name: cover underside (above the envelope), nodes: [cover], above_module: true}
+        - {name: rear sloped cover flange, nodes: [cover_flange_rear]}
+        - {name: cover rear edge, nodes: [cover], x_below_mm: -300.0}
+        - {name: base plate (above the deck top), nodes: [base_plate], above_deck: true}
 
   safety_relay_set:
     bom: Pilz PNOZ s3, 2 x Gigavac GX11CAC contactors, main fuse F0 (Class T), lockable disconnect (SAF, PWR-003, PWR-004)

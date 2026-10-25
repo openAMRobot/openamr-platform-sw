@@ -5,8 +5,8 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: 2658916ffb0bef29e9178d4f8eaf85d6c267be760f8d568b6fe3e5270b3d8fff
-  converter_sha256: 5c9f93fd440d15d1cee72d9beea4ab3169d9040a9cd0f1c3a72c71bffa853451
+    sha256: 0a1978b662a0f5d5f3d2b102150bf5e6032560c0cb7faab58505ce7662eda2e5
+  converter_sha256: 4f65b68891d6b58bd960373bc5d03e90d2912d332a086ca30539a119c3b6dcd4
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
     python: 3.13.17
@@ -114,7 +114,7 @@ outputs:
     - 1.0
   base_equipment:
     file: meshes/visual/base_equipment.stl
-    sha256: 8d3df9dcecb583c9297d7bc3ee874d72de6807c0abd85c77654ab7c97e6b8562
+    sha256: b6d9528561f34c7ccbccef2d222e9aaaa4dd31c35242846644a8609ffe3479cb
     bytes: 3684
     triangles: 72
     triangles_before_decimation: 72
@@ -218,7 +218,7 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: 24fab40bdf1ecda5f2007b64a7b2b1a88f27199596a7fdfe3f5628d21917c070
+  sha256: 955867ac34bc22fe678d2f7ef4ec82bfd37dea46fdd97250053cf570de68df24
   bytes: 833144
   triangles: 66592
   primitives: 59
@@ -243,7 +243,7 @@ glb:
     bom_row: MEC-001
     triangles: 10902
   - id: battery
-    name: Battery cell module
+    name: Battery cell-group envelope
     class: envelope
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.battery
     bom_row: PWR-001, PWR-028
@@ -838,161 +838,166 @@ components:
       - 102.0
       max_delta_mm: 0.005
   battery:
-    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse, in the removable battery enclosure (PWR-001,
-      PWR-002, enclosure PWR-028)
-    name: Battery cell module
+    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse (PWR-001, PWR-002, enclosure PWR-028)
+    name: Battery cell-group envelope
     bom_row: PWR-001, PWR-028
     qty: 1
     status: modelled
     envelope: true
     output: base_equipment
     file: base_equipment.stl
-    position: 'rear base deck, as far rearward as the chassis allows (project-lead decision of 25 Oct 2026): standing
-      on the base plate top (54.0 mm above the floor), centred in y, slid forward from the rear panel until every
-      chassis part (the rear sloped cover flange, the cover rear edge, the rear supports, the centre bracket at
-      the front and all others) is at least 2 mm away; when no position clears, the smallest total shortfall (placement_rule).
-      The converter computes the x of the rear face and reports it with the clearances (build/cad_checks.md, PROVENANCE.yaml
-      components.battery.rear_deck_check). The cover, chassis and register are unchanged.'
+    position: 'rear section of the base deck, between the centre bracket and the left and right top-cover supports
+      (project-lead decision of 25 Oct 2026): standing on the base plate top (54.0 mm above the floor), centred
+      in y, front face 2 mm behind the rear face of the centre bracket so that the free space towards the rear panel
+      stays together. The converter computes the x of both faces and reports every clearance and the free space
+      behind and beside the envelope (build/cad_checks.md, PROVENANCE.yaml components.battery.rear_deck_check);
+      the envelope is not moved when a clearance is under 2 mm.'
     position_decided: true
-    dimension_source: 'cell-module envelope (project-lead decision of 25 Oct 2026): eight EVE LF105 cells in two
-      upright rows of four, raw 261 (y) x 147 (x) x 201 (z) mm, plus enclosure allowance 15 mm per side horizontally
-      and 25 mm vertically (floor, busbars, terminal covers, lid): 291 (y) x 177 (x) x 226 (z) mm; replaces the
-      340 x 250 x 230 mm allocation of BOM 7.11 PWR-028 and B-02 rev18.8; BMS, pack fuse and holder and battery
-      wiring are never on top of the cells and are not modelled (free space beside the module reported); provisional
-      allocation, dimensions not released'
+    dimension_source: 'cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105
+      cells upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick across
+      the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm. Not the complete
+      battery assembly: the BMS, power distribution board, pack fuse, terminals and wiring are not modelled and
+      are never on top of the cells; dimensions not released'
     class: envelope
     provisional: true
     frame: base_link
     node_ids:
     - battery
     rear_deck_check:
+      envelope: cell-group envelope, provisional (not the complete battery assembly; dimensions not released)
       envelope_mm:
-        x: 177.0
-        y: 291.0
-        z: 226.0
-        derivation: raw cells 147 (x) x 261 (y) x 201 (z) mm + 2 x 15 mm horizontally + 25 mm vertically
-      rule: rear-most rear face x with every chassis part at least 2.0 mm away (deck excluded), scanned from x -390.0
-        forward in 0.50 mm steps, 1.0 mm surface sampling; otherwise the smallest total shortfall against 2.0 mm,
-        then the largest smallest clearance, then the rear-most
-      rear_face_x_mm: -313.25
-      fits_with_clearance: false
+        x: 140.0
+        y: 314.0
+        z: 210.0
+        derivation: 8 cells x 38 mm across + 2 x 5 mm, 130 mm fore-aft + 2 x 5 mm, 200 mm high + 2 x 5 mm, rounded
+          up
+      rule: front face 2.0 mm behind the rear face of centre_bracket (its rear-most point within the envelope y
+        and z extent), centred in y, standing on the deck; 1.0 mm surface sampling; the envelope is not moved when
+        a clearance is under 2.0 mm
+      reference_rear_face_x_mm: -135.0
+      front_face_x_mm: -137.0
+      rear_face_x_mm: -277.0
+      fits_with_clearance: true
       box_mm:
         x:
-        - -313.25
-        - -136.25
+        - -277.0
+        - -137.0
         y:
-        - -145.5
-        - 145.5
+        - -157.0
+        - 157.0
         z_base_link:
         - -44.0
-        - 182.0
+        - 166.0
         z_floor:
         - 54.0
-        - 280.0
+        - 264.0
       smallest_clearance: &id001
         part: centre_bracket
-        clearance_mm: 1.25
+        clearance_mm: 2.0
         axis: x
       clearances:
-      - subject: cover underside (cover rear edge, MMP.01.00.00.001)
-        clearance_mm: 1.3
-        axis: x
-        verdict: under 2 mm
-      - subject: cover underside (rear sloped cover flange MMP.01.00.00.002)
-        clearance_mm: 2.04
+      - subject: centre bracket
+        parts:
+        - centre_bracket
+        clearance_mm: 2.0
         axis: x
         verdict: ok
-      - subject: rear supports
-        clearance_mm: 23.3
-        axis: y
+      - subject: top-cover support left
+        parts:
+        - support_rear_left
+        clearance_mm: 21.51
+        axis: x
         verdict: ok
-      - subject: centre bracket (front)
-        clearance_mm: 1.25
+      - subject: top-cover support right
+        parts:
+        - support_rear_right
+        clearance_mm: 21.51
         axis: x
-        verdict: under 2 mm
-      - subject: rear panel and its mounts
-        clearance_mm: 42.75
+        verdict: ok
+      - subject: cover underside (above the envelope)
+        parts:
+        - cover
+        clearance_mm: 30.0
+        axis: z
+        verdict: ok
+      - subject: rear sloped cover flange
+        parts:
+        - cover_flange_rear
+        clearance_mm: 41.06
         axis: x
+        verdict: ok
+      - subject: cover rear edge
+        parts:
+        - cover
+        clearance_mm: 37.81
+        axis: z
         verdict: ok
       - subject: base plate (above the deck top)
-        clearance_mm: 40.35
+        parts:
+        - base_plate
+        clearance_mm: 76.6
         axis: x
         verdict: ok
-      - subject: rear castor mounts
-        clearance_mm: 39.55
-        axis: y
-        verdict: ok
-      - subject: rear ultrasonic sensors
-        clearance_mm: 43.05
-        axis: x
-        verdict: ok
-      - subject: rear ToF cliff sensors
-        clearance_mm: null
-        axis: null
-        verdict: over 60 mm
       clearances_by_part:
       - *id001
-      - part: cover
-        clearance_mm: 1.3
-        axis: x
-      - part: cover_flange_rear
-        clearance_mm: 2.04
-        axis: x
       - part: support_rear_left
-        clearance_mm: 23.3
-        axis: y
+        clearance_mm: 21.51
+        axis: x
       - part: support_rear_right
-        clearance_mm: 23.3
-        axis: y
-      - part: base_plate
-        clearance_mm: 40.35
+        clearance_mm: 21.51
         axis: x
-      - part: ultrasonic_mount_rear_left
-        clearance_mm: 42.75
+      - part: cover
+        clearance_mm: 30.0
+        axis: z
+      - part: cover_flange_rear
+        clearance_mm: 41.06
         axis: x
-      - part: ultrasonic_mount_rear_right
-        clearance_mm: 42.75
-        axis: x
-      - part: rear_panel
-        clearance_mm: 56.75
-        axis: x
-      largest_clearing_height_mm: 222.0
-      height_independent_shortfall:
-      - centre_bracket
-      free_space_beside_module:
-      - name: left of the module (+y)
+      free_space:
+      - name: 'behind the envelope (-x, towards the rear panel): BMS and power distribution zone (not modelled)'
         free: true
         x_mm:
-        - -313.2
-        - -136.2
+        - -349.1
+        - -279.0
         y_mm:
-        - 147.5
-        - 166.8
+        - -157.0
+        - 157.0
         z_base_link_mm:
         - -44.0
-        - 194.0
+        - 165.8
         size_mm:
-          x: 177.0
-          y: 19.3
-          z: 238.0
-      - name: right of the module (-y)
+          x: 70.1
+          y: 314.0
+          z: 209.8
+      - name: left of the envelope (+y)
         free: true
         x_mm:
-        - -313.2
-        - -136.2
+        - -277.0
+        - -137.0
         y_mm:
-        - -166.8
-        - -147.5
+        - 159.0
+        - 250.4
         z_base_link_mm:
         - -44.0
-        - 194.0
+        - 165.8
         size_mm:
-          x: 177.0
-          y: 19.3
-          z: 238.0
-      - name: in front of the module (+x, up to the centre bracket)
-        free: false
-        note: no free space with 2 mm clearance
+          x: 140.0
+          y: 91.4
+          z: 209.8
+      - name: right of the envelope (-y)
+        free: true
+        x_mm:
+        - -277.0
+        - -137.0
+        y_mm:
+        - -250.4
+        - -159.0
+        z_base_link_mm:
+        - -44.0
+        - 165.8
+        size_mm:
+          x: 140.0
+          y: 91.4
+          z: 209.8
   safety_relay_set:
     bom: Pilz PNOZ s3, 2 x Gigavac GX11CAC contactors, main fuse F0 (Class T), lockable disconnect (SAF, PWR-003,
       PWR-004)

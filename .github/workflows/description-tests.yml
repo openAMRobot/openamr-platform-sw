@@ -4,7 +4,7 @@ name: description-tests
 # referenced mesh exists and none is unreferenced, the base visual sits in the chassis
 # envelope, wheels and castors touch the floor, sensor joints equal config/sensor_frames.yaml,
 # the 2.0 component inventory, the mesh provenance hashes, the GLB node extras and the battery
-# cell module record. No robot or simulator is used.
+# cell-group envelope record. No robot or simulator is used.
 
 on:
   pull_request:
