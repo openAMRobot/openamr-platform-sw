@@ -606,6 +606,32 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.assertEqual(out.reason, NavigationStatus.MAP_ID_MISMATCH)
         self.assertNotEqual(out.map_version, hash_a)
 
+    def test_map_identity_is_not_matched_before_any_live_map_has_arrived(self):
+        # Mohamed Sayed's platform-sw#73 review, fourth pass: self._map_hash
+        # used to be populated straight from disk at __init__, so a freshly
+        # started node reported MATCHED immediately - before _on_map had
+        # ever run once - whenever declared_map_version happened to equal
+        # the disk hash, which it normally does (both come from hashing the
+        # same file). declared_map_version here is deliberately set to the
+        # real disk hash of map_a, to show this isn't fixed by it merely
+        # being wrong; the point is that NO live message has been checked.
+        self.node._map_yaml_path = self.map_a_path
+        hash_a = self.node._compute_map_hash()
+        self.assertIsNotNone(hash_a)  # sanity: A itself is readable
+        self.node._site_config = {
+            'site_id': 's', 'map_id': 'm', 'map_version': hash_a,
+            'config_id': 'c', 'config_version': ''}
+        self.node._required_zones = frozenset()
+        self.node._optional_zones = frozenset()
+        self.node._zones_schema_valid = True
+        self.node._map_reload_pending = False
+
+        # no _on_map call at all - this is the very first tick after startup
+        self.assertIsNone(self.node._map_hash)
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertNotEqual(out.state, SiteConfigStatus.STATE_MATCHED)
+        self.assertEqual(out.reason, NavigationStatus.MAP_ID_MISMATCH)
+
     def test_live_map_matching_the_declared_file_still_confirms_normally(self):
         # the positive case: no reload has happened, the live message's own
         # resolution/origin agree with map_yaml_path's file, so the existing
