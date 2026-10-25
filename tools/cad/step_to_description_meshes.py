@@ -307,7 +307,11 @@ def box_clearance(lo, hi, tris, sample_edge=2.0, reach=60.0):
     samples lie inside the box, with the axis of that penetration; None when no part of the mesh
     is within reach of the box."""
     lo, hi = np.asarray(lo, float), np.asarray(hi, float)
-    pts = region_points(tris, lo - reach, hi + reach, sample_edge)
+    return points_box_clearance(lo, hi, region_points(tris, lo - reach, hi + reach, sample_edge))
+
+
+def points_box_clearance(lo, hi, pts):
+    """Signed clearance (mm) and axis from an axis-aligned box to sample points (see box_clearance)."""
     if not len(pts):
         return None, None
     inside = np.all((pts > lo) & (pts < hi), axis=1)
@@ -534,6 +538,7 @@ class Converter:
         self.chassis_mm = []
         # chassis meshes
         chassis_nodes = {}
+        self.chassis_ids = {}
         for lf in self.asm.leaves:
             if lf.cls != 'chassis':
                 continue
@@ -554,6 +559,7 @@ class Converter:
             centres = [(t.reshape(-1, 3).min(0) + t.reshape(-1, 3).max(0)) * 500.0 for _, _, t, _ in items]
             for (k, lf, _, node), suffix in zip(items, position_suffix(centres)):
                 nid = base + suffix
+                self.chassis_ids[lf.path] = nid
                 self.glb_parts[k][0] = nid
                 where = suffix.strip('_').replace('_', ' ')
                 meta = {'id': nid, 'name': node['name'] + (' (%s)' % where if where else ''), 'class': 'chassis',
@@ -570,6 +576,8 @@ class Converter:
                 self.colours[name] = list(max(areas, key=areas.get))
             else:
                 self.colours[name] = list(out['colour']) + [1.0]
+        # battery cell module: rear-most position against the chassis meshes, before the envelopes
+        self.place_battery()
         # component envelopes
         poses = self.link_poses()
         self.component_report = {}
@@ -818,7 +826,7 @@ class Converter:
         self.fit = fit
         bat = self.map['components']['battery']['parts'][0]
         top = bat['xyz_mm'][2] + bat['size_mm'][2] / 2 + self.map['frame']['base_link_height_mm']
-        row('equipment', 'battery enclosure top above the floor (BOM 7.11 provisional 230 mm high on the base plate)', top, None,
+        row('equipment', 'battery cell module top above the floor (provisional 226 mm high on the base plate)', top, None,
             note='at most the steel deck top 294 mm (DATUM-HEIGHT-STACK); clearances in the battery section below')
         self.battery_checks()
 
@@ -936,35 +944,121 @@ class Converter:
                 c['imu']['design_xyz_mm'][i])
         self.checks = res
 
-    def battery_checks(self):
-        """Rear-deck battery envelope: rear limit from the CAD, clearances, and the largest box that fits."""
+    # -- battery cell module: rear-most position, clearances, free space beside it
+    def battery_geometry(self):
+        """Module size (x, y, z), standing height, placement rule and the obstacle sample points (mm)."""
         comp = self.map['components']['battery']
-        bat = comp['parts'][0]
-        size, centre = np.array(bat['size_mm'], float), np.array(bat['xyz_mm'], float)
-        lo, hi = centre - size / 2, centre + size / 2
-        deck = lo[2]
-        rl = comp['rear_limit']
-        rx = re.compile(rl['parts'])
-        region = (np.array([-1e4, -size[1] / 2, deck + 0.1]), np.array([rl['x_below_mm'], size[1] / 2, hi[2]]))
-        p = np.concatenate([region_points(tris, *region) for lf, tris in self.chassis_mm if rx.search(lf.path)])
-        limit = float(p[:, 0].max())
-        want = round(limit + rl['clearance_mm'], 1)
-        if abs(lo[0] - want) > 0.5:
-            raise SystemExit('battery rear face x %.1f mm; the CAD rear limit %.2f mm + %.1f mm gives %.1f mm'
-                             % (lo[0], limit, rl['clearance_mm'], want))
+        rule = comp['placement_rule']
+        size = np.array(comp['parts'][0]['size_mm'], float)
+        deck = float(rule['stand_z_mm'])
+        if not hasattr(self, '_bat_pts'):
+            g, s = rule['clearance_mm'], rule['sample_mm']
+            # only the slab that can come within the clearance of the module
+            region = (np.array([rule['x_from_mm'] - g, -size[1] / 2 - g, deck + 0.1]),
+                      np.array([rule['x_to_mm'] + g, size[1] / 2 + g, deck + size[2] + g]))
+            pts = {}
+            for lf, tris in self.chassis_mm:
+                q = region_points(tris, region[0], region[1], s)
+                if len(q):
+                    nid = self.chassis_node_id(lf)
+                    pts[nid] = np.concatenate([pts[nid], q]) if nid in pts else q
+            self._bat_pts = {k: v[np.argsort(v[:, 0], kind='stable')] for k, v in sorted(pts.items())}
+        return comp, rule, size, deck, self._bat_pts
+
+    def battery_context(self):
+        """{node id: sample points} at 2 mm around the module path, for the part list and the free space."""
+        comp, rule, size, deck, _ = self.battery_geometry()
+        region = (np.array([rule['x_from_mm'] - 60.0, -size[1] / 2 - 260.0, deck + 0.1]),
+                  np.array([rule['x_to_mm'] + 60.0, size[1] / 2 + 260.0, deck + size[2] + 120.0]))
+        pts = {}
+        for lf, tris in self.chassis_mm:
+            q = region_points(tris, region[0], region[1], 2.0)
+            if len(q):
+                nid = self.chassis_node_id(lf)
+                pts[nid] = np.concatenate([pts[nid], q]) if nid in pts else q
+        return pts
+
+    def chassis_node_id(self, lf):
+        """GLB node id of a chassis instance (after the position suffix), for reports."""
+        return self.chassis_ids[lf.path]
+
+    def module_clearances(self, x0, height=None):
+        """{node id: (signed clearance mm, axis)} for the parts within the clearance of the module at rear face x0."""
+        comp, rule, size, deck, pts = self.battery_geometry()
+        g = rule['clearance_mm']
+        h = size[2] if height is None else height
+        lo = np.array([x0, -size[1] / 2, deck])
+        hi = np.array([x0 + size[0], size[1] / 2, deck + h])
+        out = {}
+        for nid, q in pts.items():
+            a, b = np.searchsorted(q[:, 0], [lo[0] - g, hi[0] + g])
+            q = q[a:b]
+            q = q[np.all((q[:, 1:] > lo[1:] - g) & (q[:, 1:] < hi[1:] + g), axis=1)]
+            if not len(q):
+                continue
+            inside = np.all((q > lo) & (q < hi), axis=1)
+            if inside.any():
+                depth = np.minimum(q[inside] - lo, hi - q[inside])
+                k = np.argmin(depth, axis=1)
+                dd = depth[np.arange(len(k)), k]
+                n = int(np.argmax(dd))
+                out[nid] = (-round(float(dd[n]), 2), 'xyz'[k[n]])
+            else:
+                gap = np.maximum(np.maximum(lo - q, q - hi), 0.0)
+                dist = np.linalg.norm(gap, axis=1)
+                n = int(np.argmin(dist))
+                if dist[n] < g:
+                    out[nid] = (round(float(dist[n]), 2), 'xyz'[int(np.argmax(gap[n]))])
+        return out
+
+    def place_battery(self):
+        """Rear-most rear face x of the cell module with every chassis part at least the clearance away.
+
+        Scans from the rear forward; when no position clears everything, takes the smallest total
+        shortfall against the clearance (sum over parts), then the largest smallest clearance, then
+        the rear-most position. Writes the x into the battery part of the map."""
+        comp, rule, size, deck, pts = self.battery_geometry()
+        g = rule['clearance_mm']
+
+        def score(x0):
+            c = self.module_clearances(x0)
+            return sum(g - d for d, _ in c.values()), min([d for d, _ in c.values()] + [g])
+        xs = np.arange(rule['x_from_mm'], rule['x_to_mm'] - size[0] + 1e-9, rule['step_mm'])
+        scores = [(score(float(x)), float(x)) for x in xs]
+        clear = [x for (s, _), x in scores if s <= 1e-9]
+        if clear:
+            x0, fits = clear[0], True
+        else:
+            fits = False
+            best = min(s for (s, _), _ in scores)
+            near = [x for (s, _), x in scores if s <= best + rule['step_mm']]
+            fine = np.arange(min(near) - rule['step_mm'], max(near) + rule['step_mm'] + 1e-9, rule['refine_mm'])
+            ranked = sorted((round(s, 3), -m, float(x)) for x in fine for s, m in [score(float(x))])
+            x0 = ranked[0][2]
+        x0 = round(x0, 2)
+        part = comp['parts'][0]
+        part['xyz_mm'] = [round(x0 + size[0] / 2, 3), 0.0, round(deck + size[2] / 2, 3)]
+        self.battery_place = {'rear_face_x_mm': x0, 'fits_with_clearance': fits}
+        self.log('battery cell module: rear face x %.2f mm, fits with %.1f mm clearance: %s' % (x0, g, fits))
+
+    def battery_checks(self):
+        """Clearances of the placed cell module, the largest clearing height and the free space beside it."""
+        comp, rule, size, deck, pts = self.battery_geometry()
+        g = rule['clearance_mm']
+        x0 = self.battery_place['rear_face_x_mm']
+        lo = np.array([x0, -size[1] / 2, deck])
+        hi = lo + size
         rows = []
 
-        def add(name, tris, frame='base_link'):
-            d, axis = box_clearance(lo, hi, tris)
-            if d is None:
-                rows.append({'subject': name, 'clearance_mm': None, 'axis': None, 'verdict': 'over 60 mm'})
-            else:
-                rows.append({'subject': name, 'clearance_mm': d, 'axis': axis,
-                             'verdict': 'overlap' if d < 0 else ('under 5 mm' if d < 5.0 else 'ok')})
+        def add(name, tris):
+            d, axis = box_clearance(lo, hi, tris, sample_edge=rule['sample_mm'])
+            rows.append({'subject': name, 'clearance_mm': d, 'axis': axis,
+                         'verdict': 'over 60 mm' if d is None else (
+                             'overlap' if d < 0 else ('under %.0f mm' % g if d < g else 'ok'))})
         for name, pattern in comp['clearance_report'].items():
             rxp = re.compile(pattern)
             sel = [t for lf, t in self.chassis_mm if rxp.search(lf.path)]
-            if name == 'base plate':  # the deck the box stands on: only its parts above the deck top
+            if name.startswith('base plate'):  # the deck the module stands on: only its parts above the deck top
                 sel = [t[np.all(t[:, :, 2] > deck + 0.1, axis=1)] for t in sel]
             add(name, np.concatenate(sel) if sel else np.zeros((0, 3, 3)))
         castor = self.map['components']['castor']
@@ -985,40 +1079,93 @@ class Converter:
                 m[:3, 3] *= 1000.0
                 tris += [cadlib.transform(part_tris(q, self.tess), m) for q in c['parts']]
             add('rear %ss' % c['name'].lower().replace('tof', 'ToF'), np.concatenate(tris))
+        # every chassis part within 60 mm, by GLB node id (2 mm sampling; the slab parts at 1 mm)
+        ctx = self.battery_context()
+        by_part = []
+        for nid in sorted(set(ctx) | set(pts)):
+            q = pts[nid] if nid in pts and nid not in ctx else (np.concatenate([pts[nid], ctx[nid]]) if nid in pts else ctx[nid])
+            q = q[np.all((q > lo - 60.0) & (q < hi + 60.0), axis=1)]
+            d, axis = points_box_clearance(lo, hi, q)
+            if d is not None and d <= 60.0:
+                by_part.append({'part': nid, 'clearance_mm': d, 'axis': axis})
+        by_part.sort(key=lambda r: (r['clearance_mm'], r['part']))
+        smallest = by_part[0] if by_part else None
 
-        # largest box that fits with zero clearance: rear face, deck and y centring kept
-        region = (np.array([lo[0], -hi[1] - 50.0, deck + 0.1]), np.array([hi[0] + 50.0, hi[1] + 50.0, hi[2] + 50.0]))
-        allp = np.concatenate([region_points(tris, *region) for lf, tris in self.chassis_mm])
-        x0 = lo[0]
+        # largest module height that clears at this position: the parts still short at the lowest
+        # height (horizontal neighbours such as the centre bracket) do not depend on the height
+        short = lambda h: {k for k, (d, _) in self.module_clearances(x0, h).items() if d < g}  # noqa: E731
+        base = short(rule['min_height_mm'])
+        height = None
+        for h in np.arange(size[2], rule['min_height_mm'] - 1e-9, -0.5):
+            if short(float(h)) <= base:
+                height = round(float(h), 1)
+                break
 
-        def blocking(depth, half_w, height):
-            box_lo, box_hi = np.array([x0, -half_w, deck]), np.array([x0 + depth, half_w, deck + height])
-            return allp[np.all((allp > box_lo + 1e-3) & (allp < box_hi - 1e-3), axis=1)]  # touching does not block
-        depth, half_w, height = size[0], size[1] / 2, size[2]
-        for _ in range(4):
-            q = blocking(1e6, half_w, min(height, 100.0))
-            ahead = q[q[:, 0] > x0 + 1.0]
-            depth = min(size[0], float(ahead[:, 0].min() - x0)) if len(ahead) else size[0]
-            q = blocking(depth, 1e3, min(height, 100.0))
-            side = np.abs(q[:, 1])
-            half_w = min(size[1] / 2, float(side.min())) if len(side) else size[1] / 2
-            q = blocking(depth, half_w, 1e3)
-            height = min(size[2], float(q[:, 2].min() - deck)) if len(q) else size[2]
+        # free space beside the module for the BMS, fuse and wiring (never on top of the cells)
+        obst = list(ctx.values()) + list(pts.values())
+        for cid, c in self.map['components'].items():
+            if cid != 'battery' and c.get('status') == 'modelled' and c['placement'].get('base_link'):
+                tris = np.concatenate([part_tris(q, self.tess) for q in c['parts']])
+                obst.append(region_points(tris, np.array([-1e4, -1e4, deck + 0.1]), np.array([1e4, 1e4, 1e4]), 2.0))
+        allp = np.concatenate(obst)
+
+        def first(box_lo, box_hi, axis, sign):
+            q = allp[np.all((allp > box_lo) & (allp < box_hi), axis=1)]
+            if not len(q):
+                return None
+            return float(q[:, axis].min() if sign > 0 else q[:, axis].max())
+
+        def space(name, x_rng, y_rng, grow_axis, sign):
+            """Grow from the module face along one axis to the first obstacle, then up to the first obstacle."""
+            blo = np.array([x_rng[0], y_rng[0], deck + 0.1])
+            bhi = np.array([x_rng[1], y_rng[1], deck + size[2]])
+            reach = 1e3
+            if sign > 0:
+                bhi[grow_axis] = blo[grow_axis] + reach
+            else:
+                blo[grow_axis] = bhi[grow_axis] - reach
+            f = first(blo, bhi, grow_axis, sign)
+            if f is not None:
+                if sign > 0:
+                    bhi[grow_axis] = f - g
+                else:
+                    blo[grow_axis] = f + g
+            if bhi[grow_axis] - blo[grow_axis] <= 0:
+                return {'name': name, 'free': False, 'note': 'no free space with %.0f mm clearance' % g}
+            top = first(np.array([blo[0], blo[1], deck + 0.1]), np.array([bhi[0], bhi[1], 1e4]), 2, 1)
+            bhi[2] = (top - g) if top is not None else deck + size[2]
+            r = lambda v: [round(float(a), 1) for a in v]  # noqa: E731
+            return {'name': name, 'free': True, 'x_mm': r([blo[0], bhi[0]]), 'y_mm': r([blo[1], bhi[1]]),
+                    'z_base_link_mm': r([deck, bhi[2]]),
+                    'size_mm': {'x': round(float(bhi[0] - blo[0]), 1), 'y': round(float(bhi[1] - blo[1]), 1),
+                                'z': round(float(bhi[2] - deck), 1)}}
+        free = [space('left of the module (+y)', (lo[0], hi[0]), (hi[1] + g, hi[1] + g + 1.0), 1, 1),
+                space('right of the module (-y)', (lo[0], hi[0]), (lo[1] - g - 1.0, lo[1] - g), 1, -1),
+                space('in front of the module (+x, up to the centre bracket)', (hi[0] + g, hi[0] + g + 1.0),
+                      (lo[1], hi[1]), 0, 1)]
+        bl = self.map['frame']['base_link_height_mm']
         self.battery_report = {
-            'rear_limit_x_mm': round(limit, 2), 'rear_face_x_mm': float(lo[0]), 'rear_clearance_mm': rl['clearance_mm'],
+            'envelope_mm': {'x': float(size[0]), 'y': float(size[1]), 'z': float(size[2]),
+                            'derivation': ' '.join(rule['derivation'].split())},
+            'rule': 'rear-most rear face x with every chassis part at least %.1f mm away (deck excluded), scanned '
+                    'from x %.1f forward in %.2f mm steps, %.1f mm surface sampling; otherwise the smallest total '
+                    'shortfall against %.1f mm, then the largest smallest clearance, then the rear-most'
+                    % (g, rule['x_from_mm'], rule['step_mm'], rule['sample_mm'], g),
+            'rear_face_x_mm': x0, 'fits_with_clearance': self.battery_place['fits_with_clearance'],
             'box_mm': {'x': [float(lo[0]), float(hi[0])], 'y': [float(lo[1]), float(hi[1])],
-                       'z_base_link': [float(lo[2]), float(hi[2])],
-                       'z_floor': [float(lo[2]) + self.map['frame']['base_link_height_mm'],
-                                   float(hi[2]) + self.map['frame']['base_link_height_mm']]},
+                       'z_base_link': [float(lo[2]), float(hi[2])], 'z_floor': [float(lo[2]) + bl, float(hi[2]) + bl]},
+            'smallest_clearance': smallest,
             'clearances': rows,
-            'largest_box_that_fits_mm': {
-                'note': 'zero clearance, same rear face, standing on the deck, centred in y; depth along x, '
-                        'width along y; computed in this order and repeated: depth (deck to 100 mm), width, height',
-                'depth_x': round(depth, 1), 'width_y': round(2 * half_w, 1), 'height_z': round(height, 1)},
+            'clearances_by_part': by_part,
+            'largest_clearing_height_mm': height,
+            'height_independent_shortfall': sorted(base),
+            'free_space_beside_module': free,
         }
         for r in rows:
             self.log('battery clearance:', r)
-        self.log('battery largest box:', self.battery_report['largest_box_that_fits_mm'])
+        self.log('battery smallest clearance:', smallest, 'largest clearing height:', height)
+        for f in free:
+            self.log('battery free space:', f)
 
     # -- reports
     def write_reports(self):
@@ -1035,18 +1182,35 @@ class Converter:
                 fmt(r['delta']) + (' deg' if r['unit'] == 'deg' and r['delta'] is not None else ''),
                 'drift' if r['drift'] else '', r['note']))
         br = self.battery_report
-        lines += ['', '## Battery enclosure on the rear deck (provisional allocation, dimensions not released)', '',
-                  'Box %s mm in base_link (floor z %s mm); rear face %.1f mm = CAD rear limit %.2f mm '
-                  '(base plate rear tab, ultrasonic and TF-Luna mounts at deck level) + %.1f mm. '
-                  'Negative clearance = overlap, depth along the axis given.'
-                  % (br['box_mm'], br['box_mm']['z_floor'], br['rear_face_x_mm'], br['rear_limit_x_mm'], br['rear_clearance_mm']),
+        fmt2 = lambda v: '' if v is None else '%.2f' % v  # noqa: E731
+        lines += ['', '## Battery cell module on the rear deck (provisional allocation, dimensions not released)', '',
+                  'Envelope %.0f (x) x %.0f (y) x %.0f (z) mm: %s.' % (
+                      br['envelope_mm']['x'], br['envelope_mm']['y'], br['envelope_mm']['z'], br['envelope_mm']['derivation']),
+                  '', 'Placement: %s.' % br['rule'], '',
+                  'Rear face x %.2f mm; box %s mm in base_link (floor z %s mm). Fits with the clearance: %s. '
+                  'Smallest clearance %s mm to %s (%s). Negative clearance = overlap, depth along the axis given.'
+                  % (br['rear_face_x_mm'], {k: v for k, v in br['box_mm'].items() if k != 'z_floor'}, br['box_mm']['z_floor'],
+                     'yes' if br['fits_with_clearance'] else 'no',
+                     fmt2(br['smallest_clearance']['clearance_mm']) if br['smallest_clearance'] else '',
+                     br['smallest_clearance']['part'] if br['smallest_clearance'] else '',
+                     br['smallest_clearance']['axis'] if br['smallest_clearance'] else ''),
                   '', '| Subject | Clearance mm | Axis | Verdict |', '|---|---|---|---|']
         for r in br['clearances']:
-            lines.append('| %s | %s | %s | %s |' % (r['subject'], '' if r['clearance_mm'] is None else '%.2f' % r['clearance_mm'],
-                                                    r['axis'] or '', r['verdict']))
-        fit = br['largest_box_that_fits_mm']
-        lines += ['', 'Largest box that fits at this rear face (%s): %.1f mm along x, %.1f mm along y, %.1f mm high.'
-                  % (fit['note'], fit['depth_x'], fit['width_y'], fit['height_z'])]
+            lines.append('| %s | %s | %s | %s |' % (r['subject'], fmt2(r['clearance_mm']), r['axis'] or '', r['verdict']))
+        lines += ['', 'Every chassis part within 60 mm (GLB node id):', '', '| Part | Clearance mm | Axis |', '|---|---|---|']
+        for r in br['clearances_by_part']:
+            lines.append('| %s | %.2f | %s |' % (r['part'], r['clearance_mm'], r['axis']))
+        lines += ['', 'Largest module height that clears at this position: %s mm (parts short at any height: %s).'
+                  % (br['largest_clearing_height_mm'], ', '.join(br['height_independent_shortfall']) or 'none'),
+                  '', 'Free space beside the module for the BMS, pack fuse and holder and the battery wiring (never on '
+                  'top of the cells), with the same clearance to the module and the parts around it:', '',
+                  '| Space | x mm | y mm | z mm (base_link) | Size x, y, z mm |', '|---|---|---|---|---|']
+        for f in br['free_space_beside_module']:
+            if f['free']:
+                lines.append('| %s | %s | %s | %s | %.1f, %.1f, %.1f |' % (f['name'], f['x_mm'], f['y_mm'], f['z_base_link_mm'],
+                                                                     f['size_mm']['x'], f['size_mm']['y'], f['size_mm']['z']))
+            else:
+                lines.append('| %s | | | | %s |' % (f['name'], f['note']))
         lines += ['', '## Fit against the chassis parts (hub motor from the ZLLG80ASM250-L-B2 STEP at track 0.400; '
                   'base_link envelopes)', '',
                   '| Subject | Link | Brake side | Chassis part | Clearance mm | Verdict |', '|---|---|---|---|---|---|']

@@ -3,7 +3,7 @@
 `step_to_description_meshes.py` regenerates the 2.0 base visual meshes of
 `ros2/src/openamrobot_description` from the hardware CAD. The chassis comes from the CAD; the
 components come from the 2.0 bill of materials (BOM Issue 7.11, 25 Oct 2026) and are simplified
-envelopes; the battery position comes from B-02 Battery Guide rev18.8.
+envelopes; the battery cell module follows the project-lead decision of 25 Oct 2026.
 
 - Input: the v0.2 full-assembly STEP in a checkout of `openAMRobot/openamr-platform-hw`
   (`mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip`), the production
@@ -53,11 +53,13 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
 - Engineering checks compare the transformed CAD with the register; they never change a frame
   or a register value. The hub motor fit uses the B2 STEP solids against the chassis meshes
   (brake side inboard, decided 25 Oct 2026; the outboard case is still reported).
-- Battery enclosure (provisional, 340 x 250 x 230 mm): the run recomputes the rear limit from
-  the CAD (base plate rear tab and rear panel mounts at deck level), fails when the map's rear
-  face no longer sits 5 mm ahead of it, and reports the clearances to the cover underside,
-  supports, centre bracket, rear panel parts and rear castor mounts, with the largest box that
-  fits when a clearance is negative (`build/cad_checks.md`).
+- Battery cell module (provisional, 291 (y) x 177 (x) x 226 (z) mm: eight EVE LF105 cells in two
+  upright rows of four plus enclosure allowance; project-lead decision of 25 Oct 2026): the run
+  places it on the deck, centred in y, as far rearward as every chassis part stays at least 2 mm
+  away (`placement_rule`); when no position clears, it takes the smallest total shortfall. It
+  reports the rear-face x, the clearances per part, the largest module height that clears there
+  and the free space beside the module for the BMS, fuse and wiring (never on top of the cells)
+  in `build/cad_checks.md` and `PROVENANCE.yaml components.battery.rear_deck_check`.
 - GLB node ids: chassis rules carry `node` or `nodes` (id, name, CAD part, BOM row); instances
   sharing an id get a position suffix (`_front`, `_rear`, `_left`, `_right`). Components carry
   `node_ids` per placement link.

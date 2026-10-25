@@ -357,7 +357,7 @@ components:
 
   battery:
     bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse, in the removable battery enclosure (PWR-001, PWR-002, enclosure PWR-028)
-    name: Battery enclosure
+    name: Battery cell module
     bom_row: PWR-001, PWR-028
     qty: 1
     status: modelled
@@ -366,29 +366,40 @@ components:
     output: base_equipment
     placement: {base_link: true}
     position: >-
-      rear base deck (B-02 Battery Guide rev18.8 and BOM Issue 7.11, 25 Oct 2026): standing on
-      the base plate top (54.0 mm above the floor), centred in y, rear face 5 mm ahead of the
-      rear-most deck-level part behind it (the rear tab of the base plate at x -353.6, the rear
-      ultrasonic mounts end at -356.0, the rear panel inner face is at -370.0); the converter
-      recomputes this limit and reports the clearances (build/cad_checks.md)
+      rear base deck, as far rearward as the chassis allows (project-lead decision of 25 Oct 2026):
+      standing on the base plate top (54.0 mm above the floor), centred in y, slid forward from
+      the rear panel until every chassis part (the rear sloped cover flange, the cover rear edge,
+      the rear supports, the centre bracket at the front and all others) is at least 2 mm away;
+      when no position clears, the smallest total shortfall (placement_rule). The converter
+      computes the x of the rear face and reports it with the clearances (build/cad_checks.md,
+      PROVENANCE.yaml components.battery.rear_deck_check). The cover, chassis and register are unchanged.
     dimension_source: >-
-      BOM 7.11 PWR-028 and B-02 rev18.8: reduced provisional allocation 340 x 250 x 230 mm
-      (decided 25 Oct 2026; cells in two upright rows of four, raw 261 x 147 x 201 mm, BMS and
-      pack fuse beside the cells, not on top), 340 along y, 250 along x from the rear, 230 high;
-      provisional allocation, dimensions not released
+      cell-module envelope (project-lead decision of 25 Oct 2026): eight EVE LF105 cells in two
+      upright rows of four, raw 261 (y) x 147 (x) x 201 (z) mm, plus enclosure allowance 15 mm per
+      side horizontally and 25 mm vertically (floor, busbars, terminal covers, lid): 291 (y) x 177 (x)
+      x 226 (z) mm; replaces the 340 x 250 x 230 mm allocation of BOM 7.11 PWR-028 and B-02 rev18.8;
+      BMS, pack fuse and holder and battery wiring are never on top of the cells and are not
+      modelled (free space beside the module reported); provisional allocation, dimensions not released
     parts:
-      - {shape: box, size_mm: [250.0, 340.0, 230.0], xyz_mm: [-223.6, 0.0, 71.0], colour: [0.30, 0.33, 0.36]}
-    rear_limit:
-      parts: '/ (MMP\.02\.00\.00\.001 Base_|ultrasonic_mount_ v\d+:|tf_luna_mount:)[^/]*$'
-      x_below_mm: -300.0
-      clearance_mm: 5.0
+      # x of the centre is computed by placement_rule (written into PROVENANCE.yaml)
+      - {shape: box, size_mm: [177.0, 291.0, 226.0], xyz_mm: [0.0, 0.0, 69.0], colour: [0.30, 0.33, 0.36]}
+    placement_rule:
+      derivation: raw cells 147 (x) x 261 (y) x 201 (z) mm + 2 x 15 mm horizontally + 25 mm vertically
+      stand_z_mm: -44.0
+      clearance_mm: 2.0
+      x_from_mm: -390.0
+      x_to_mm: -100.0
+      step_mm: 0.5
+      refine_mm: 0.05
+      sample_mm: 1.0
+      min_height_mm: 50.0
     clearance_report:
-      cover underside (cover MMP.01.00.00.001): '/ MMP\.01\.00\.00\.001 Cover_[^/]*$'
+      cover underside (cover rear edge, MMP.01.00.00.001): '/ MMP\.01\.00\.00\.001 Cover_[^/]*$'
       cover underside (rear sloped cover flange MMP.01.00.00.002): '/ MMP\.01\.00\.00\.002 Cover flange[^/]*:2$'
-      supports: '/ MMP\.05\.00\.00\.001 Support[^/]*$'
-      centre bracket: '/ MMP\.04\.00\.00\.001 Center bracket[^/]*$'
+      rear supports: '/ MMP\.05\.00\.00\.001 Support[^/]*$'
+      centre bracket (front): '/ MMP\.04\.00\.00\.001 Center bracket[^/]*$'
       rear panel and its mounts: '/ (MMP\.00\.00\.00\.002 Back panel|ultrasonic_mount_ v\d+:|tf_luna_mount:)[^/]*$'
-      base plate: '/ MMP\.02\.00\.00\.001 Base_[^/]*$'
+      base plate (above the deck top): '/ MMP\.02\.00\.00\.001 Base_[^/]*$'
     clearance_links: {rear castor mounts: [bl_caster_link, br_caster_link]}
 
   safety_relay_set:

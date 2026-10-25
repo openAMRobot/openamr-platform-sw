@@ -3,8 +3,8 @@ name: description-tests
 # Hardware-free checks of openamrobot_description: the xacro expands and parses, every
 # referenced mesh exists and none is unreferenced, the base visual sits in the chassis
 # envelope, wheels and castors touch the floor, sensor joints equal config/sensor_frames.yaml,
-# the 2.0 component inventory, the mesh provenance hashes and the GLB node extras. No robot
-# or simulator is used.
+# the 2.0 component inventory, the mesh provenance hashes, the GLB node extras and the battery
+# cell module record. No robot or simulator is used.
 
 on:
   pull_request:
@@ -53,7 +53,7 @@ jobs:
             ros2/src/openamrobot_description/test/test_description_meshes.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all fifteen description tests ran
+      - name: Check that all sixteen description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -61,5 +61,5 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 15 and skipped == 0, 'expected 15 description tests, none skipped'
+          assert tests == 16 and skipped == 0, 'expected 16 description tests, none skipped'
           EOF
