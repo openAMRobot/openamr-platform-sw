@@ -114,7 +114,10 @@ def launch_setup(context, *args, **kwargs):
         gazebo = get_package_share_directory('openamrobot_gazebo')
         actions.append(IncludeLaunchDescription(
             src(gazebo, 'gz_simulator.launch.py'),
-            launch_arguments={'gui': gui}.items()))
+            launch_arguments={
+                'gui': gui,
+                'legacy_camera': 'true' if _truthy(use_docking) else 'false',
+            }.items()))
         # Scan filtering is a DATA-SOURCE responsibility (Raj review PR1): the SIM profile owns its
         # laser_filters chain here (the REAL profile owns it via openamrobot_perception). This
         # keeps exactly ONE /scan_filtered publisher per profile; navigation_launch only consumes
