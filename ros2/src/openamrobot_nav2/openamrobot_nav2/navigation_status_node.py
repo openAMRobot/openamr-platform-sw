@@ -265,15 +265,22 @@ class NavigationStatusNode(Node):
         self._required_zones = required_zones or frozenset()
         self._optional_zones = optional_zones or frozenset()
 
-        # map identity: read straight from disk up front, so a match can be
-        # confirmed on the very first tick rather than waiting for /map to
-        # arrive (see _compute_map_hash's docstring for why this no longer
-        # needs the live OccupancyGrid payload at all).
+        # map identity: NOT read from disk up front any more. It used to be
+        # (so a match could be confirmed on the very first tick), but that
+        # let the producer report MATCHED before any live /map message had
+        # ever been checked - a disk-only hash trivially equals
+        # declared_map_version, since both come from hashing the same file
+        # (Mohamed Sayed's platform-sw#73 review, fourth pass: "the producer
+        # also reports MATCHED before any live map is received"). self._map_hash
+        # now only ever gets a value through _on_map, once a live message's
+        # geometry has actually been checked against map_yaml_path - see
+        # _on_map / _map_source_matches. Until the first /map arrives, it stays
+        # None, which _site_config_status already treats as not-matched.
         default_map_yaml_path = os.path.join(
             get_package_share_directory('openamrobot_nav2'), 'maps', 'my_map.yaml')
         self.declare_parameter('map_yaml_path', default_map_yaml_path)
         self._map_yaml_path = self.get_parameter('map_yaml_path').value
-        self._map_hash = self._compute_map_hash()  # None if unreadable
+        self._map_hash = None  # set only once a live message is confirmed - see above
         self._map_hash_confirmed = None   # hash the last published result ran against
         self._map_reload_pending = False  # True for exactly one tick after a change
         self._live_content_fp = None  # content fingerprint last trusted - see _on_map
