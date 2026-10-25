@@ -61,5 +61,5 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 16 and skipped == 0, 'expected 16 description tests, none skipped'
+          assert tests == 26 and skipped == 0, 'expected 26 description tests, none skipped'
           EOF
