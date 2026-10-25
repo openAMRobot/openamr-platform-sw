@@ -75,6 +75,33 @@ class TestStaleCommandsAreDropped(NodeTestCase):
         self._spin_both()
         self.assertEqual(self.received, [])
 
+    def test_a_future_dated_command_is_dropped(self):
+        # platform-sw#35 (Mohamed's review, relayed via Parth): a stamp
+        # claiming to be ahead of this node's clock used to pass through
+        # unconditionally, since age_s = now - stamp is negative and was
+        # never checked against the staleness window at all.
+        self.ui_pub.publish(_stamped(x=0.7, age_s=-1.0))  # 1s in the future
+        self._spin_both()
+        self.assertEqual(self.received, [])
+
+    def test_a_command_slightly_in_the_future_within_clock_skew_tolerance_is_forwarded(self):
+        # A few milliseconds of clock skew between co-located processes is
+        # expected and must not flap a genuinely fresh command.
+        self.ui_pub.publish(_stamped(x=0.2, age_s=-0.005))  # 5ms in the future
+        self._spin_both()
+        self.assertEqual(len(self.received), 1)
+        self.assertAlmostEqual(self.received[0].linear.x, 0.2, places=3)
+
+    def test_a_zero_or_missing_stamp_is_dropped(self):
+        # Regression: confirms the pre-existing (and already-correct)
+        # missing/never-set-stamp case stays rejected now that the
+        # staleness check has a second branch.
+        msg = TwistStamped()
+        msg.twist = Twist(linear=Vector3(x=0.5))
+        self.ui_pub.publish(msg)
+        self._spin_both()
+        self.assertEqual(self.received, [])
+
     def test_a_late_delivered_stale_command_is_not_applied_once_fresh_data_resumes(self):
         # Simulates a connectivity gap: an old message and a fresh one both
         # sitting in the publisher's queue, delivered back-to-back once the

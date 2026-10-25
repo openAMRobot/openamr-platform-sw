@@ -29,6 +29,27 @@ suggests a limit of this design worth being explicit about on the cross-repo
 contract Nik asked for: the UI and this relay need to share the SAME clock
 source (both on use_sim_time false in the real world, or both on the same
 /clock in sim) for the 0.25 s window to mean the same thing on both ends.
+
+Future-dated stamps (platform-sw#35, Mohamed's review relayed via Parth):
+`_is_stale()` used to check only age_s > STALE_AFTER_S, so a stamp claiming
+to be AHEAD of this node's clock produced a negative age_s, which is never
+greater than STALE_AFTER_S - any future-dated command passed as "fresh" no
+matter how far ahead it claimed to be. A command this far out of the
+expected domain (clock skew gone wrong, a corrupted stamp, a replayed or
+forged message) is exactly as untrustworthy as a stale one and is now
+rejected the same way. A small FUTURE_TOLERANCE_S absorbs ordinary clock
+skew between co-located processes (NOT network latency between the browser
+and this node - that only ever makes a message look OLDER, never younger)
+so genuinely fresh traffic does not flap on sub-millisecond jitter.
+
+This still does not resolve the broader cross-repo contract Mohamed asked
+for: whether the browser's own wall-clock stamp can be trusted at all
+(his stated preference is stamping at the robot-side ROS publisher/bridge
+instead), explicit stale/session/replay rejection on the browser-to-bridge
+path, or behavior across a clock change, a delayed-delivery/reconnect
+queue, or a real-vs-sim clock mismatch. Those need the contract record
+linked and matching UI-side tests before this interface is frozen - not
+something this file alone can settle.
 """
 from geometry_msgs.msg import Twist, TwistStamped
 import rclpy
@@ -36,6 +57,13 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 STALE_AFTER_S = 0.25
+
+# Absorbs ordinary clock skew between co-located processes only - never
+# network latency (that only makes a stamp look older, not younger). A
+# stamp this far ahead of this node's own clock is out-of-domain and is
+# rejected exactly like a too-old one. See the future-dated-stamps note
+# in the module docstring.
+FUTURE_TOLERANCE_S = 0.01
 
 
 class UiCmdVelRelayNode(Node):
@@ -54,7 +82,11 @@ class UiCmdVelRelayNode(Node):
     def _is_stale(self, msg: TwistStamped) -> bool:
         stamp_s = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         now_s = self.get_clock().now().nanoseconds * 1e-9
-        return (now_s - stamp_s) > STALE_AFTER_S
+        age_s = now_s - stamp_s
+        # age_s > STALE_AFTER_S: too old. age_s < -FUTURE_TOLERANCE_S: a
+        # future-dated stamp beyond ordinary clock-skew slack - just as
+        # out-of-domain as a stale one (platform-sw#35).
+        return age_s > STALE_AFTER_S or age_s < -FUTURE_TOLERANCE_S
 
 
 def main(args=None):
