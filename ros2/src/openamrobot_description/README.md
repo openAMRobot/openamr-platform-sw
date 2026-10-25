@@ -11,8 +11,9 @@ openamrobot_description/
 ├── launch/
 │   └── launch.py               ← RViz + robot_state_publisher (no simulator)
 ├── meshes/
-│   ├── collision/              ← simplified STL meshes for physics
-│   └── visual/                 ← full-detail STL meshes for rendering
+│   ├── collision/              ← legacy SolidWorks STLs (not used by the URDF; robot.sdf only)
+│   ├── visual/                 ← 2.0 base visual meshes, generated (see below)
+│   └── PROVENANCE.yaml         ← inputs, versions, parameters and classes of the visual meshes
 ├── urdf/
 │   ├── robo_urdf.urdf.xacro    ← main robot model (includes camera_link + camera_optical_frame)
 │   ├── gazebo_control.xacro    ← Gazebo plugins (diff-drive, LiDAR, RGB camera) + friction
@@ -30,6 +31,26 @@ ros2 launch openamrobot_description launch.py
 ```
 
 For Gazebo simulation, see the `openamrobot_gazebo` package.
+
+## Visual meshes
+
+The visual meshes are generated from the hardware CAD by `tools/cad/step_to_description_meshes.py`
+(see `tools/cad/README.md`); do not edit them by hand. The chassis comes from the v0.2
+full-assembly STEP of `openamr-platform-hw` (Rev B panels, 2.0 sensor mounts). Release 001 parts
+in the STEP are excluded, and the 2.0 components of BOM Issue 7.10 are simplified envelopes:
+
+| Mesh | Link | Content |
+|---|---|---|
+| `base_chassis.stl` | `base_link` | base plate, panels, supports, brackets, LiDAR support and spacer, sensor and camera mounts, motor driver mount, STM32 click mount plate |
+| `base_covers.stl` | `base_link` | plastic cover and flanges |
+| `base_equipment.stl` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery enclosure (position not decided) |
+| `hub_motor_wheel.stl` | `left_wheel_link`, `right_wheel_link` (yaw pi) | ZLLG80ASM250-L-B hub motor wheel, brake side inboard |
+| `caster.stl` | `fl/fr/bl/br_caster_link` | LPA-VSTH 35K castor with its wheel |
+| `lidar.stl`, `base_camera.stl`, `ultrasonic.stl`, `tof.stl`, `imu.stl` | sensor links | RPLIDAR S3, Gemini 336L, MB7060, TF-Luna, ICM-42688-P board; the pose is the frame |
+
+Not modelled (no position in P-03 rev19.7 or E-01): safety relay, contactors, main fuse and
+disconnect, E-stop and RESET buttons, wireless charging receiver. Collision geometry, inertials
+and frames are unchanged. Test: `python3 -m pytest test/test_description_meshes.py`.
 
 ## Robot Model
 
