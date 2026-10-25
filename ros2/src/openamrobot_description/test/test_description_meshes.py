@@ -23,7 +23,7 @@ PROVENANCE = PKG / 'meshes' / 'PROVENANCE.yaml'
 FRAMES = PKG / 'config' / 'sensor_frames.yaml'
 PREFIX = 'package://openamrobot_description/'
 
-# The 2.0 base components of BOM Issue 7.10 that the model must account for.
+# The 2.0 base components of BOM Issue 7.11 that the model must account for.
 BOM_COMPONENTS = [
     'hub_motor_wheel', 'castor', 'motor_driver', 'ultrasonic', 'tof', 'lidar', 'base_camera',
     'imu', 'compute', 'base_controller', 'battery', 'safety_relay_set', 'estop', 'reset_button',
@@ -221,3 +221,25 @@ def test_urdf_materials_match_provenance(robot, provenance):
     for out in provenance['outputs'].values():
         np.testing.assert_allclose(colours[out['material']], out['rgba'], atol=1e-3,
                                    err_msg=out['material'])
+
+
+def test_glb_nodes_have_id_class_and_source(provenance):
+    """The docs GLB has one node per part with id, class and source (PROVENANCE.yaml glb.nodes)."""
+    glb = provenance['glb']
+    nodes = glb['nodes']
+    assert nodes and glb['node_count'] == len(nodes)
+    assert glb['bytes'] <= 1600000, glb['bytes']
+    ids = [n.get('id') for n in nodes]
+    assert all(ids) and len(ids) == len(set(ids)), ids
+    for node in nodes:
+        assert node.get('class') in ('chassis', 'component', 'envelope'), node
+        assert node.get('source', '').strip(), node
+    by_id = {n['id']: n for n in nodes}
+    for cid, comp in provenance['components'].items():
+        if comp['status'] != 'modelled':
+            continue
+        for nid in comp['node_ids']:
+            assert nid in by_id, '%s: no GLB node %s' % (cid, nid)
+            assert by_id[nid]['class'] == comp['class'], nid
+            assert by_id[nid].get('provisional', False) == comp.get('provisional', False), nid
+    assert by_id['battery']['class'] == 'envelope' and by_id['battery']['provisional'] is True

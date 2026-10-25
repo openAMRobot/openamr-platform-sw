@@ -10,7 +10,8 @@ of the assembly must be classified by the map, or the run fails.
 Outputs:
   ros2/src/openamrobot_description/meshes/visual/*.stl   binary STL, metres, per link and material
   ros2/src/openamrobot_description/meshes/PROVENANCE.yaml inputs, versions, parameters, classes
-  build/base_visual.glb                                   same geometry in base_link, for the docs
+  build/base_visual.glb                                   same geometry in base_link, for the docs;
+                                                          one node per part with glTF extras
   build/cad_checks.md, build/cad_checks.yaml              engineering checks (reported only)
 
 Usage, from the repository root:
@@ -211,40 +212,48 @@ def write_stl(path, tris):
         stream.write(rec.tobytes())
 
 
-def write_glb(path, primitives, extras):
-    """Minimal glTF 2.0 binary: one node per primitive, positions float32, indices uint16/32.
+def write_glb(path, nodes, extras):
+    """Minimal glTF 2.0 binary: one node and mesh per part, one primitive per colour.
 
-    Positions are base_link metres (x forward, y left, z up); the root node rotates them into
-    the glTF y-up convention for generic viewers."""
+    nodes: [(extras dict with 'id', [(rgba, tris), ...]), ...]. Positions float32, indices
+    uint16/32. Positions are base_link metres (x forward, y left, z up); the root node rotates
+    them into the glTF y-up convention for generic viewers."""
     buf = bytearray()
-    views, accessors, meshes, materials, nodes = [], [], [], [], []
-    for name, tris, rgba in primitives:
-        verts, faces = merge_vertices(tris)
-        pos = verts.astype('<f4').tobytes()
-        itype, idt = (5123, '<u2') if len(verts) < 65536 else (5125, '<u4')
-        idx = faces.astype(idt).tobytes()
-        for data, target in ((pos, 34962), (idx, 34963)):
-            while len(buf) % 4:
-                buf.append(0)
-            views.append({'buffer': 0, 'byteOffset': len(buf), 'byteLength': len(data), 'target': target})
-            buf.extend(data)
-        accessors.append({'bufferView': len(views) - 2, 'componentType': 5126, 'count': len(verts), 'type': 'VEC3',
-                          'min': [float(v) for v in verts.min(0)], 'max': [float(v) for v in verts.max(0)]})
-        accessors.append({'bufferView': len(views) - 1, 'componentType': itype, 'count': int(faces.size),
-                          'type': 'SCALAR'})
-        materials.append({'name': name, 'pbrMetallicRoughness': {
-            'baseColorFactor': [float(c) for c in rgba], 'metallicFactor': 0.0, 'roughnessFactor': 0.7}})
-        meshes.append({'name': name, 'primitives': [{'attributes': {'POSITION': len(accessors) - 2},
-                                                     'indices': len(accessors) - 1,
-                                                     'material': len(materials) - 1}]})
-        nodes.append({'name': name, 'mesh': len(meshes) - 1})
+    views, accessors, meshes, materials, out_nodes = [], [], [], [], []
+    material_index = {}
+    for meta, prims in nodes:
+        gl_prims = []
+        for rgba, tris in prims:
+            verts, faces = merge_vertices(tris)
+            pos = verts.astype('<f4').tobytes()
+            itype, idt = (5123, '<u2') if len(verts) < 65536 else (5125, '<u4')
+            idx = faces.astype(idt).tobytes()
+            for data, target in ((pos, 34962), (idx, 34963)):
+                while len(buf) % 4:
+                    buf.append(0)
+                views.append({'buffer': 0, 'byteOffset': len(buf), 'byteLength': len(data), 'target': target})
+                buf.extend(data)
+            accessors.append({'bufferView': len(views) - 2, 'componentType': 5126, 'count': len(verts),
+                              'type': 'VEC3', 'min': [float(v) for v in verts.min(0)],
+                              'max': [float(v) for v in verts.max(0)]})
+            accessors.append({'bufferView': len(views) - 1, 'componentType': itype, 'count': int(faces.size),
+                              'type': 'SCALAR'})
+            key = tuple(round(float(c), 6) for c in rgba)
+            if key not in material_index:
+                material_index[key] = len(materials)
+                materials.append({'name': ','.join('%.3f' % c for c in key), 'pbrMetallicRoughness': {
+                    'baseColorFactor': list(key), 'metallicFactor': 0.0, 'roughnessFactor': 0.7}})
+            gl_prims.append({'attributes': {'POSITION': len(accessors) - 2}, 'indices': len(accessors) - 1,
+                             'material': material_index[key]})
+        meshes.append({'name': meta['id'], 'primitives': gl_prims})
+        out_nodes.append({'name': meta['id'], 'mesh': len(meshes) - 1, 'extras': meta})
     root = {'name': 'base_link', 'rotation': [-math.sqrt(0.5), 0.0, 0.0, math.sqrt(0.5)],
-            'children': list(range(len(nodes))), 'extras': extras}
-    nodes.append(root)
+            'children': list(range(len(out_nodes))), 'extras': extras}
+    out_nodes.append(root)
     while len(buf) % 4:
         buf.append(0)
     doc = {'asset': {'version': '2.0', 'generator': 'openamr-platform-sw tools/cad/step_to_description_meshes.py'},
-           'scene': 0, 'scenes': [{'nodes': [len(nodes) - 1]}], 'nodes': nodes, 'meshes': meshes,
+           'scene': 0, 'scenes': [{'nodes': [len(out_nodes) - 1]}], 'nodes': out_nodes, 'meshes': meshes,
            'materials': materials, 'accessors': accessors, 'bufferViews': views,
            'buffers': [{'byteLength': len(buf)}]}
     js = json.dumps(doc, separators=(',', ':'), sort_keys=True).encode()
@@ -256,12 +265,63 @@ def write_glb(path, primitives, extras):
         stream.write(struct.pack('<II', len(buf), 0x004E4942) + bytes(buf))
 
 
-def glb_size(primitives):
+def glb_size(nodes):
     size = 0
-    for _, tris, _ in primitives:
-        verts, faces = merge_vertices(tris)
-        size += 12 * len(verts) + faces.size * (2 if len(verts) < 65536 else 4) + 400
+    for meta, prims in nodes:
+        size += len(json.dumps(meta)) + 200
+        for _, tris in prims:
+            verts, faces = merge_vertices(tris)
+            size += 12 * len(verts) + faces.size * (2 if len(verts) < 65536 else 4) + 400
     return size
+
+
+def region_points(tris, lo, hi, sample_edge=2.0):
+    """Sample points (vertices and centroids of the subdivided triangles) inside the box lo, hi."""
+    if not len(tris):
+        return np.zeros((0, 3))
+    s = cadlib.subdivide(tris, sample_edge, keep=(lo, hi))
+    pts = np.concatenate([s.reshape(-1, 3), s.mean(1)])
+    return pts[np.all((pts >= lo) & (pts <= hi), axis=1)]
+
+
+def position_suffix(centres):
+    """Suffixes (front/rear, left/right) that tell instances of one part apart by position."""
+    c = np.asarray(centres, float)
+    if len(c) == 1:
+        return ['']
+    words = [[] for _ in c]
+    for axis, (pos, neg) in ((0, ('front', 'rear')), (1, ('left', 'right'))):
+        if np.ptp(c[:, axis]) > 20.0:
+            for w, v in zip(words, c[:, axis]):
+                w.append(pos if v > 0 else neg)
+    out = ['_' + '_'.join(w) if w else '' for w in words]
+    if len(set(out)) != len(out):
+        raise SystemExit('instances at the same position cannot get distinct node ids: %s' % out)
+    return out
+
+
+def box_clearance(lo, hi, tris, sample_edge=2.0, reach=60.0):
+    """Signed clearance (mm) from an axis-aligned box to a mesh, and its axis.
+
+    The smallest distance from the box to the mesh samples, or minus the deepest penetration when
+    samples lie inside the box, with the axis of that penetration; None when no part of the mesh
+    is within reach of the box."""
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    pts = region_points(tris, lo - reach, hi + reach, sample_edge)
+    if not len(pts):
+        return None, None
+    inside = np.all((pts > lo) & (pts < hi), axis=1)
+    if inside.any():
+        q = pts[inside]
+        depth = np.minimum(q - lo, hi - q)       # distance to each face pair, per axis
+        k = np.argmin(depth, axis=1)
+        d = depth[np.arange(len(q)), k]
+        i = int(np.argmax(d))
+        return -round(float(d[i]), 2), 'xyz'[k[i]]
+    gap = np.maximum(np.maximum(lo - pts, pts - hi), 0.0)
+    dist = np.linalg.norm(gap, axis=1)
+    i = int(np.argmin(dist))
+    return round(float(dist[i]), 2), 'xyz'[int(np.argmax(gap[i]))]
 
 
 # ---------------------------------------------------------------- converter
@@ -456,12 +516,24 @@ class Converter:
             poses[k] = pose_matrix(v['xyz'], v['rpy'])
         return poses
 
+    def chassis_node(self, lf):
+        """Node id, name, CAD part and BOM row of a chassis instance, from its rule."""
+        rule = lf.rule
+        if 'node' in rule:
+            return rule['node']
+        for node in rule.get('nodes', []):
+            if node['match'] in lf.path:
+                return node
+        raise SystemExit('chassis instance without a node id in %s: %s' % (self.args.map, lf.path))
+
     def build(self):
         self.groups = {name: [] for name in self.map['outputs']}  # link-frame or base_link tris (m) per output
-        self.glb_parts = []                                       # (name, tris in base_link m, rgba)
+        self.glb_parts = []                                       # (node id, tris in base_link m, rgba)
+        self.glb_nodes = {}                                       # node id: glTF extras
         chassis_colour_area = {}
         self.chassis_mm = []
         # chassis meshes
+        chassis_nodes = {}
         for lf in self.asm.leaves:
             if lf.cls != 'chassis':
                 continue
@@ -472,10 +544,25 @@ class Converter:
             self.groups[out].append(tris)
             self.chassis_mm.append((lf, tris * 1000.0))
             rgba = list(lf.colour or (0.6, 0.6, 0.6)) + [1.0]
-            self.glb_parts.append(('%s|%s' % (out, ','.join('%.3f' % c for c in rgba)), tris, rgba))
+            node = self.chassis_node(lf)
+            chassis_nodes.setdefault(node['id'], []).append((len(self.glb_parts), lf, tris, node))
+            self.glb_parts.append([node['id'], tris, rgba])
             area = float(np.sum(np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1)) / 2)
             chassis_colour_area.setdefault(out, {}).setdefault(tuple(rgba), 0.0)
             chassis_colour_area[out][tuple(rgba)] += area
+        for base, items in chassis_nodes.items():
+            centres = [(t.reshape(-1, 3).min(0) + t.reshape(-1, 3).max(0)) * 500.0 for _, _, t, _ in items]
+            for (k, lf, _, node), suffix in zip(items, position_suffix(centres)):
+                nid = base + suffix
+                self.glb_parts[k][0] = nid
+                where = suffix.strip('_').replace('_', ' ')
+                meta = {'id': nid, 'name': node['name'] + (' (%s)' % where if where else ''), 'class': 'chassis',
+                        'source': 'CAD v0.2 part %s, instance %s (openamr-platform-hw %s)' % (
+                            node['part'], lf.names[-1], self.map['sources']['assembly']['path']),
+                        'output': lf.rule['output']}
+                if node.get('bom_row'):
+                    meta['bom_row'] = node['bom_row']
+                self.glb_nodes[nid] = meta
         self.colours = {}
         for name, out in self.map['outputs'].items():
             if out['colour'] == 'from_cad':
@@ -487,7 +574,8 @@ class Converter:
         poses = self.link_poses()
         self.component_report = {}
         for cid, comp in self.map['components'].items():
-            rec = {'bom': comp['bom'], 'qty': comp['qty'], 'status': comp['status']}
+            rec = {'bom': comp['bom'], 'name': comp['name'], 'bom_row': comp['bom_row'], 'qty': comp['qty'],
+                   'status': comp['status']}
             if comp['status'] != 'modelled':
                 rec['reason'] = ' '.join(comp['reason'].split())
                 self.component_report[cid] = rec
@@ -495,26 +583,42 @@ class Converter:
             rec.update({'envelope': True, 'output': comp['output'], 'file': self.map['outputs'][comp['output']]['file'],
                         'position': ' '.join(comp['position'].split()),
                         'position_decided': comp.get('position_decided', True),
-                        'dimension_source': ' '.join(comp['dimension_source'].split())})
+                        'dimension_source': ' '.join(comp['dimension_source'].split()),
+                        'class': comp.get('class', 'component')})
+            if comp.get('provisional'):
+                rec['provisional'] = True
+            if comp.get('brake_side'):
+                rec['brake_side'] = comp['brake_side']
+            meta = {'name': comp['name'], 'class': comp.get('class', 'component'),
+                    'source': 'openamr-platform-sw meshes/PROVENANCE.yaml components.%s' % cid,
+                    'bom_row': comp['bom_row'], 'output': comp['output']}
+            if comp.get('provisional'):
+                meta['provisional'] = True
             local = np.concatenate([part_tris(p, self.tess) for p in comp['parts']]) / 1000.0
             place = comp['placement']
             if place.get('base_link'):
                 self.groups[comp['output']].append(local)
                 rec['frame'] = 'base_link'
+                rec['node_ids'] = [cid]
+                self.glb_nodes[cid] = dict(meta, id=cid)
                 for p in comp['parts']:
-                    self.glb_parts.append(('%s|%s' % (cid, p.get('note', p['shape'])),
-                                           part_tris(p, self.tess) / 1000.0, list(p['colour']) + [1.0]))
+                    self.glb_parts.append([cid, part_tris(p, self.tess) / 1000.0, list(p['colour']) + [1.0]])
             else:
                 rec['links'] = place['links']
                 rec['visual_rpy'] = place.get('visual_rpy', {})
                 self.groups[comp['output']] = [local]
+                rec['node_ids'] = [comp['node_ids'][link] for link in place['links']]
                 for link in place['links']:
+                    nid = comp['node_ids'][link]
+                    where = ''
+                    if len(place['links']) > 1:
+                        where = ' (%s)' % nid[len(cid):].strip('_').replace('_', ' ') if nid.startswith(cid) else ''
+                    self.glb_nodes[nid] = dict(meta, id=nid, name=comp['name'] + where, link=link)
                     vis = pose_matrix([0, 0, 0], place.get('visual_rpy', {}).get(link, [0, 0, 0]))
                     m = poses[link] @ vis
                     for p in comp['parts']:
-                        self.glb_parts.append(('%s|%s|%s' % (cid, link, p.get('note', p['shape'])),
-                                               cadlib.transform(part_tris(p, self.tess) / 1000.0, m),
-                                               list(p['colour']) + [1.0]))
+                        self.glb_parts.append([nid, cadlib.transform(part_tris(p, self.tess) / 1000.0, m),
+                                               list(p['colour']) + [1.0]])
             self.component_report[cid] = rec
         self.poses = poses
 
@@ -579,29 +683,36 @@ class Converter:
     def write_glb(self):
         b = self.map['budgets']
         os.makedirs(self.args.build, exist_ok=True)
-        names = [n for n, _, _ in self.glb_parts]
-        rgbas = {n: c for n, _, c in self.glb_parts}
         cap = sum(len(t) for _, t, _ in self.glb_parts)
         while True:
             parts = decimate_parts([t for _, t, _ in self.glb_parts], cap)
             groups = {}
-            for name, tris in zip(names, parts):
-                groups.setdefault(name, []).append(tris)
-            dec = [(n, np.concatenate(v), rgbas[n]) for n, v in sorted(groups.items())]
+            for (nid, _, rgba), tris in zip(self.glb_parts, parts):
+                groups.setdefault(nid, {}).setdefault(tuple(rgba), []).append(tris)
+            dec = [(self.glb_nodes[nid], [(list(c), np.concatenate(v)) for c, v in prims.items()])
+                   for nid, prims in sorted(groups.items())]
             size = glb_size(dec)
             if size <= b['glb_target_bytes']:
                 break
             cap = int(sum(len(t) for t in parts) * 0.9 * b['glb_target_bytes'] / size)
         path = os.path.join(self.args.build, 'base_visual.glb')
         extras = {'frame': 'base_link, metres, x forward, y left, z up (the root node rotates to glTF y-up)',
-                  'source': 'openamr-platform-sw meshes/PROVENANCE.yaml'}
+                  'source': 'openamr-platform-sw meshes/PROVENANCE.yaml',
+                  'nodes': 'one node per CAD part instance or component envelope; extras: id, name, class '
+                           '(chassis, component, envelope), source, bom_row (BOM Issue 7.11), provisional'}
         write_glb(path, dec, extras)
         size = os.path.getsize(path)
         if size > b['glb_max_bytes']:
             raise SystemExit('GLB is %d bytes, over the budget' % size)
+        node_rows = []
+        for meta, prims in dec:
+            row = {k: meta[k] for k in ('id', 'name', 'class', 'source', 'bom_row', 'provisional') if k in meta}
+            row['triangles'] = int(sum(len(t) for _, t in prims))
+            node_rows.append(row)
         self.glb_report = {'file': 'build/base_visual.glb (not committed)', 'sha256': sha256(path), 'bytes': size,
-                           'triangles': int(sum(len(t) for _, t, _ in dec)), 'primitives': len(dec)}
-        self.log('wrote', path, self.glb_report)
+                           'triangles': int(sum(r['triangles'] for r in node_rows)),
+                           'primitives': int(sum(len(p) for _, p in dec)), 'node_count': len(dec), 'nodes': node_rows}
+        self.log('wrote', path, {k: v for k, v in self.glb_report.items() if k != 'nodes'})
 
     # -- engineering checks
     def hub_motor(self):
@@ -707,8 +818,9 @@ class Converter:
         self.fit = fit
         bat = self.map['components']['battery']['parts'][0]
         top = bat['xyz_mm'][2] + bat['size_mm'][2] / 2 + self.map['frame']['base_link_height_mm']
-        row('equipment', 'battery enclosure top above the floor (BOM 7.10 provisional 260 mm high on the base plate)', top, 294.0,
-            note='steel deck top 294 mm (DATUM-HEIGHT-STACK)')
+        row('equipment', 'battery enclosure top above the floor (BOM 7.11 provisional 230 mm high on the base plate)', top, None,
+            note='at most the steel deck top 294 mm (DATUM-HEIGHT-STACK); clearances in the battery section below')
+        self.battery_checks()
 
         # castors
         for key, (loc, leaves) in sorted(self.unit_frames(c['castors']['unit']).items()):
@@ -824,6 +936,90 @@ class Converter:
                 c['imu']['design_xyz_mm'][i])
         self.checks = res
 
+    def battery_checks(self):
+        """Rear-deck battery envelope: rear limit from the CAD, clearances, and the largest box that fits."""
+        comp = self.map['components']['battery']
+        bat = comp['parts'][0]
+        size, centre = np.array(bat['size_mm'], float), np.array(bat['xyz_mm'], float)
+        lo, hi = centre - size / 2, centre + size / 2
+        deck = lo[2]
+        rl = comp['rear_limit']
+        rx = re.compile(rl['parts'])
+        region = (np.array([-1e4, -size[1] / 2, deck + 0.1]), np.array([rl['x_below_mm'], size[1] / 2, hi[2]]))
+        p = np.concatenate([region_points(tris, *region) for lf, tris in self.chassis_mm if rx.search(lf.path)])
+        limit = float(p[:, 0].max())
+        want = round(limit + rl['clearance_mm'], 1)
+        if abs(lo[0] - want) > 0.5:
+            raise SystemExit('battery rear face x %.1f mm; the CAD rear limit %.2f mm + %.1f mm gives %.1f mm'
+                             % (lo[0], limit, rl['clearance_mm'], want))
+        rows = []
+
+        def add(name, tris, frame='base_link'):
+            d, axis = box_clearance(lo, hi, tris)
+            if d is None:
+                rows.append({'subject': name, 'clearance_mm': None, 'axis': None, 'verdict': 'over 60 mm'})
+            else:
+                rows.append({'subject': name, 'clearance_mm': d, 'axis': axis,
+                             'verdict': 'overlap' if d < 0 else ('under 5 mm' if d < 5.0 else 'ok')})
+        for name, pattern in comp['clearance_report'].items():
+            rxp = re.compile(pattern)
+            sel = [t for lf, t in self.chassis_mm if rxp.search(lf.path)]
+            if name == 'base plate':  # the deck the box stands on: only its parts above the deck top
+                sel = [t[np.all(t[:, :, 2] > deck + 0.1, axis=1)] for t in sel]
+            add(name, np.concatenate(sel) if sel else np.zeros((0, 3, 3)))
+        castor = self.map['components']['castor']
+        for name, links in comp['clearance_links'].items():
+            tris = []
+            for link in links:
+                m = self.poses[link].copy()
+                m[:3, 3] *= 1000.0
+                tris += [cadlib.transform(part_tris(q, self.tess), m) for q in castor['parts']]
+            add(name, np.concatenate(tris))
+        for cid in ('ultrasonic', 'tof'):
+            c = self.map['components'][cid]
+            tris = []
+            for link in c['placement']['links']:
+                if 'rear' not in link:
+                    continue
+                m = self.poses[link].copy()
+                m[:3, 3] *= 1000.0
+                tris += [cadlib.transform(part_tris(q, self.tess), m) for q in c['parts']]
+            add('rear %ss' % c['name'].lower().replace('tof', 'ToF'), np.concatenate(tris))
+
+        # largest box that fits with zero clearance: rear face, deck and y centring kept
+        region = (np.array([lo[0], -hi[1] - 50.0, deck + 0.1]), np.array([hi[0] + 50.0, hi[1] + 50.0, hi[2] + 50.0]))
+        allp = np.concatenate([region_points(tris, *region) for lf, tris in self.chassis_mm])
+        x0 = lo[0]
+
+        def blocking(depth, half_w, height):
+            box_lo, box_hi = np.array([x0, -half_w, deck]), np.array([x0 + depth, half_w, deck + height])
+            return allp[np.all((allp > box_lo + 1e-3) & (allp < box_hi - 1e-3), axis=1)]  # touching does not block
+        depth, half_w, height = size[0], size[1] / 2, size[2]
+        for _ in range(4):
+            q = blocking(1e6, half_w, min(height, 100.0))
+            ahead = q[q[:, 0] > x0 + 1.0]
+            depth = min(size[0], float(ahead[:, 0].min() - x0)) if len(ahead) else size[0]
+            q = blocking(depth, 1e3, min(height, 100.0))
+            side = np.abs(q[:, 1])
+            half_w = min(size[1] / 2, float(side.min())) if len(side) else size[1] / 2
+            q = blocking(depth, half_w, 1e3)
+            height = min(size[2], float(q[:, 2].min() - deck)) if len(q) else size[2]
+        self.battery_report = {
+            'rear_limit_x_mm': round(limit, 2), 'rear_face_x_mm': float(lo[0]), 'rear_clearance_mm': rl['clearance_mm'],
+            'box_mm': {'x': [float(lo[0]), float(hi[0])], 'y': [float(lo[1]), float(hi[1])],
+                       'z_base_link': [float(lo[2]), float(hi[2])],
+                       'z_floor': [float(lo[2]) + self.map['frame']['base_link_height_mm'],
+                                   float(hi[2]) + self.map['frame']['base_link_height_mm']]},
+            'clearances': rows,
+            'largest_box_that_fits_mm': {
+                'note': 'zero clearance, same rear face, standing on the deck, centred in y; depth along x, '
+                        'width along y; computed in this order and repeated: depth (deck to 100 mm), width, height',
+                'depth_x': round(depth, 1), 'width_y': round(2 * half_w, 1), 'height_z': round(height, 1)},
+        }
+        for r in rows:
+            self.log('battery clearance:', r)
+        self.log('battery largest box:', self.battery_report['largest_box_that_fits_mm'])
+
     # -- reports
     def write_reports(self):
         os.makedirs(self.args.build, exist_ok=True)
@@ -838,6 +1034,19 @@ class Converter:
                 r['group'], r['item'], fmt(r['measured']), fmt(r['design']),
                 fmt(r['delta']) + (' deg' if r['unit'] == 'deg' and r['delta'] is not None else ''),
                 'drift' if r['drift'] else '', r['note']))
+        br = self.battery_report
+        lines += ['', '## Battery enclosure on the rear deck (provisional allocation, dimensions not released)', '',
+                  'Box %s mm in base_link (floor z %s mm); rear face %.1f mm = CAD rear limit %.2f mm '
+                  '(base plate rear tab, ultrasonic and TF-Luna mounts at deck level) + %.1f mm. '
+                  'Negative clearance = overlap, depth along the axis given.'
+                  % (br['box_mm'], br['box_mm']['z_floor'], br['rear_face_x_mm'], br['rear_limit_x_mm'], br['rear_clearance_mm']),
+                  '', '| Subject | Clearance mm | Axis | Verdict |', '|---|---|---|---|']
+        for r in br['clearances']:
+            lines.append('| %s | %s | %s | %s |' % (r['subject'], '' if r['clearance_mm'] is None else '%.2f' % r['clearance_mm'],
+                                                    r['axis'] or '', r['verdict']))
+        fit = br['largest_box_that_fits_mm']
+        lines += ['', 'Largest box that fits at this rear face (%s): %.1f mm along x, %.1f mm along y, %.1f mm high.'
+                  % (fit['note'], fit['depth_x'], fit['width_y'], fit['height_z'])]
         lines += ['', '## Fit against the chassis parts (hub motor from the ZLLG80ASM250-L-B2 STEP at track 0.400; '
                   'base_link envelopes)', '',
                   '| Subject | Link | Brake side | Chassis part | Clearance mm | Verdict |', '|---|---|---|---|---|---|']
@@ -857,7 +1066,8 @@ class Converter:
             stream.write('\n'.join(lines) + '\n')
         with open(os.path.join(self.args.build, 'cad_checks.yaml'), 'w', encoding='utf-8') as stream:
             yaml.safe_dump({'checks': self.checks, 'hub_motor_fit': self.fit, 'frame': self.frame_report,
-                            'component_checks': self.component_checks}, stream, sort_keys=False, allow_unicode=True)
+                            'component_checks': self.component_checks, 'battery': self.battery_report},
+                           stream, sort_keys=False, allow_unicode=True)
 
     def write_provenance(self):
         groups = []
@@ -902,7 +1112,8 @@ class Converter:
             'corrections': self.corrections,
             'outputs': self.output_report,
             'glb': self.glb_report,
-            'components': self.component_report,
+            'components': dict(self.component_report, battery=dict(self.component_report['battery'],
+                                                                     rear_deck_check=self.battery_report)),
             'groups': groups,
         }
         path = os.path.join(self.args.out, 'PROVENANCE.yaml')

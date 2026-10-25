@@ -2,7 +2,8 @@
 
 `step_to_description_meshes.py` regenerates the 2.0 base visual meshes of
 `ros2/src/openamrobot_description` from the hardware CAD. The chassis comes from the CAD; the
-components come from the 2.0 bill of materials (BOM Issue 7.10) and are simplified envelopes.
+components come from the 2.0 bill of materials (BOM Issue 7.11, 25 Oct 2026) and are simplified
+envelopes; the battery position comes from B-02 Battery Guide rev18.8.
 
 - Input: the v0.2 full-assembly STEP in a checkout of `openAMRobot/openamr-platform-hw`
   (`mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip`), the production
@@ -12,7 +13,10 @@ components come from the 2.0 bill of materials (BOM Issue 7.10) and are simplifi
   The run fails while any instance is unclassified. It also holds the envelope parameters with
   their dimension source, the STEP corrections and the design values of the engineering checks.
 - Output: `meshes/visual/*.stl` (binary, metres), `meshes/PROVENANCE.yaml`,
-  `build/base_visual.glb` (base_link, for the docs robot page; not committed) and
+  `build/base_visual.glb` (base_link, for the docs roadmap pages; not committed; one node per
+  CAD part instance or component envelope, named by a stable id, with glTF `extras`: id, name,
+  class `chassis`, `component` or `envelope`, source, BOM 7.11 row and `provisional: true` for a
+  provisional allocation) and
   `build/cad_checks.md` / `build/cad_checks.yaml` (CAD versus design, reported only).
 
 ## Run
@@ -47,4 +51,13 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
 - Decimation: fast-simplification quadric decimation per part to a common ratio, so that every
   STL is at most 2 MB, all visual meshes at most 8 MB and the GLB at most 1.5 MB.
 - Engineering checks compare the transformed CAD with the register; they never change a frame
-  or a register value. The hub motor fit uses the B2 STEP solids against the chassis meshes.
+  or a register value. The hub motor fit uses the B2 STEP solids against the chassis meshes
+  (brake side inboard, decided 25 Oct 2026; the outboard case is still reported).
+- Battery enclosure (provisional, 340 x 250 x 230 mm): the run recomputes the rear limit from
+  the CAD (base plate rear tab and rear panel mounts at deck level), fails when the map's rear
+  face no longer sits 5 mm ahead of it, and reports the clearances to the cover underside,
+  supports, centre bracket, rear panel parts and rear castor mounts, with the largest box that
+  fits when a clearance is negative (`build/cad_checks.md`).
+- GLB node ids: chassis rules carry `node` or `nodes` (id, name, CAD part, BOM row); instances
+  sharing an id get a position suffix (`_front`, `_rear`, `_left`, `_right`). Components carry
+  `node_ids` per placement link.
