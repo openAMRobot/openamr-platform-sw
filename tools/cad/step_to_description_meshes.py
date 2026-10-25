@@ -149,7 +149,7 @@ def part_tris(part, tess):
         size = np.asarray(part['size_mm'], float)
         tris = box_tris(-size / 2, size / 2)
     elif shape == 'cylinder':
-        tris = cylinder_tris(part['radius_mm'], part['length_mm'], tess['cylinder_sections'])
+        tris = cylinder_tris(part['radius_mm'], part['length_mm'], part.get('sections', tess['cylinder_sections']))
         tris = tris @ axis_frame(part['axis']).T
     elif shape == 'revolve':
         tris = revolve_tris(part['profile_mm'], tess['revolve_sections'])
@@ -158,6 +158,30 @@ def part_tris(part, tess):
         raise ValueError('unknown envelope shape %s' % shape)
     m = pose_matrix(part.get('xyz_mm', [0, 0, 0]), part.get('rpy', [0, 0, 0]))
     return cadlib.transform(tris, m)
+
+
+def expand_parts(parts):
+    """Envelope parts with each repeat {count, step_mm} written out as separate parts.
+
+    Separate parts keep small boxes out of the decimation (a part of 12 triangles is never reduced)."""
+    out = []
+    for part in parts:
+        rep = part.get('repeat')
+        if not rep:
+            out.append(part)
+            continue
+        base = [float(v) for v in part.get('xyz_mm', part.get('xyz_rel_mm', [0.0, 0.0, 0.0]))]
+        key = 'xyz_rel_mm' if 'xyz_rel_mm' in part else 'xyz_mm'
+        for i in range(int(rep['count'])):
+            p = {k: v for k, v in part.items() if k != 'repeat'}
+            p[key] = [round(b + i * float(d), 6) for b, d in zip(base, rep['step_mm'])]
+            p['index'] = i
+            out.append(p)
+    return out
+
+
+def part_rgba(part):
+    return list(part['colour']) + [float(part.get('alpha', 1.0))]
 
 
 def merge_vertices(tris):
@@ -243,6 +267,8 @@ def write_glb(path, nodes, extras):
                 material_index[key] = len(materials)
                 materials.append({'name': ','.join('%.3f' % c for c in key), 'pbrMetallicRoughness': {
                     'baseColorFactor': list(key), 'metallicFactor': 0.0, 'roughnessFactor': 0.7}})
+                if key[3] < 1.0:
+                    materials[-1].update({'alphaMode': 'BLEND', 'doubleSided': True})
             gl_prims.append({'attributes': {'POSITION': len(accessors) - 2}, 'indices': len(accessors) - 1,
                              'material': material_index[key]})
         meshes.append({'name': meta['id'], 'primitives': gl_prims})
@@ -330,6 +356,9 @@ class Converter:
         with open(args.map, encoding='utf-8') as stream:
             self.map = yaml.safe_load(stream)
         self.tess = self.map['tessellation']
+        for comp in self.map['components'].values():
+            if 'parts' in comp:
+                comp['parts'] = expand_parts(comp['parts'])
         self.inputs = []
         self.corrections = []
         self.findings = []
@@ -595,7 +624,13 @@ class Converter:
                     'bom_row': comp['bom_row'], 'output': comp['output']}
             if comp.get('provisional'):
                 meta['provisional'] = True
-            local = np.concatenate([part_tris(p, self.tess) for p in comp['parts']]) / 1000.0
+            local = np.concatenate([part_tris(p, self.tess) for p in comp['parts'] if p.get('stl', True)]) / 1000.0
+            feats = {}
+            for p in comp['parts']:
+                if 'feature' in p:
+                    feats[p['feature']] = feats.get(p['feature'], 0) + 1
+            if feats:
+                rec['features'] = feats
             place = comp['placement']
             if place.get('base_link'):
                 self.groups[comp['output']].append(local)
@@ -603,7 +638,7 @@ class Converter:
                 rec['node_ids'] = [cid]
                 self.glb_nodes[cid] = dict(meta, id=cid)
                 for p in comp['parts']:
-                    self.glb_parts.append([cid, part_tris(p, self.tess) / 1000.0, list(p['colour']) + [1.0]])
+                    self.glb_parts.append([cid, part_tris(p, self.tess) / 1000.0, part_rgba(p)])
             else:
                 rec['links'] = place['links']
                 rec['visual_rpy'] = place.get('visual_rpy', {})
@@ -619,7 +654,7 @@ class Converter:
                     m = poses[link] @ vis
                     for p in comp['parts']:
                         self.glb_parts.append([nid, cadlib.transform(part_tris(p, self.tess) / 1000.0, m),
-                                               list(p['colour']) + [1.0]])
+                                               part_rgba(p)])
             self.component_report[cid] = rec
         self.poses = poses
 
@@ -972,7 +1007,20 @@ class Converter:
         ref = float(pts[band][:, 0].min())
         x1 = round(float(ref - rule['front_clearance_mm']), 2)
         x0 = round(float(x1 - size[0]), 2)
-        comp['parts'][0]['xyz_mm'] = [round((x0 + x1) / 2, 3), 0.0, round(deck + size[2] / 2, 3)]
+        centre = [round((x0 + x1) / 2, 3), 0.0, round(deck + size[2] / 2, 3)]
+        comp['parts'][0]['xyz_mm'] = centre
+        # parts given relative to the envelope centre (cells and terminals) follow the envelope
+        for p in comp['parts'][1:]:
+            if 'xyz_rel_mm' in p:
+                p['xyz_mm'] = [round(c + float(r), 3) for c, r in zip(centre, p['xyz_rel_mm'])]
+        self.battery_cells = []
+        for p in comp['parts']:
+            if p.get('feature') == 'cell':
+                half = np.array(p['size_mm'], float) / 2
+                c = np.array(p['xyz_mm'], float)
+                self.battery_cells.append({'x': [round(float(c[0] - half[0]), 2), round(float(c[0] + half[0]), 2)],
+                                           'y': [round(float(c[1] - half[1]), 2), round(float(c[1] + half[1]), 2)],
+                                           'z': [round(float(c[2] - half[2]), 2), round(float(c[2] + half[2]), 2)]})
         self.battery_place = {'reference_rear_face_x_mm': round(ref, 2), 'front_face_x_mm': x1, 'rear_face_x_mm': x0}
         self.log('battery cell-group envelope: %s rear face x %.2f, front face x %.2f, rear face x %.2f mm'
                  % (rule['front_reference'], ref, x1, x0))
@@ -1067,6 +1115,8 @@ class Converter:
             'front_face_x_mm': x1, 'rear_face_x_mm': x0, 'fits_with_clearance': fits,
             'box_mm': {'x': [float(lo[0]), float(hi[0])], 'y': [float(lo[1]), float(hi[1])],
                        'z_base_link': [float(lo[2]), float(hi[2])], 'z_floor': [float(lo[2]) + bl, float(hi[2]) + bl]},
+            'cells_mm': {'note': 'the eight cell boxes drawn inside the envelope (base_link, mm); terminal positions '
+                                 'are schematic', 'boxes': self.battery_cells},
             'smallest_clearance': smallest,
             'clearances': rows,
             'clearances_by_part': by_part,

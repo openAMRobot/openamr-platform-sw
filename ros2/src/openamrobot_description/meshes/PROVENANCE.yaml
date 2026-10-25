@@ -5,8 +5,8 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: 0a1978b662a0f5d5f3d2b102150bf5e6032560c0cb7faab58505ce7662eda2e5
-  converter_sha256: 4f65b68891d6b58bd960373bc5d03e90d2912d332a086ca30539a119c3b6dcd4
+    sha256: 0a7a67976863a408760ee3d2b8700cf1042a944aca32c33c6379f799aca52930
+  converter_sha256: 83c02f1c9da7346654dce09607642a4501b0a043fe56c69aa60c554e6b3132a2
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
     python: 3.13.17
@@ -114,10 +114,10 @@ outputs:
     - 1.0
   base_equipment:
     file: meshes/visual/base_equipment.stl
-    sha256: b6d9528561f34c7ccbccef2d222e9aaaa4dd31c35242846644a8609ffe3479cb
-    bytes: 3684
-    triangles: 72
-    triangles_before_decimation: 72
+    sha256: 73e77d3c15c9af981a50d4ea18a13ab66883d76fe47a09fa3575bc40481222f6
+    bytes: 127084
+    triangles: 2540
+    triangles_before_decimation: 2540
     frame: base_link
     material: equipment_dark
     rgba:
@@ -153,33 +153,7 @@ outputs:
     - 1.0
   lidar:
     file: meshes/visual/lidar.stl
-    sha256: 48c2f3b406af53d2c477c3136c87a8c1aeef15cd589d1ea1b4a1cdd514a54c49
-    bytes: 12884
-    triangles: 256
-    triangles_before_decimation: 256
-    frame: link
-    material: sensor_black
-    rgba:
-    - 0.1
-    - 0.1
-    - 0.1
-    - 1.0
-  base_camera:
-    file: meshes/visual/base_camera.stl
-    sha256: eade5dfa5aa5f3efc0c4fa29c076e970ab93b52c8b661e5aa9a17219c41e4993
-    bytes: 1284
-    triangles: 24
-    triangles_before_decimation: 24
-    frame: link
-    material: sensor_black
-    rgba:
-    - 0.1
-    - 0.1
-    - 0.1
-    - 1.0
-  ultrasonic:
-    file: meshes/visual/ultrasonic.stl
-    sha256: f40a53e172f7e635ae96ce00f1bd11b137872f9738b8be08a85a3991a1135b65
+    sha256: 421b2dfa45a743527c53c61b0fb5cf206a4b7f7a259f5457a483f4489f18611b
     bytes: 19284
     triangles: 384
     triangles_before_decimation: 384
@@ -190,12 +164,38 @@ outputs:
     - 0.1
     - 0.1
     - 1.0
+  base_camera:
+    file: meshes/visual/base_camera.stl
+    sha256: 26dd5d0899140ef7db660a41544e2d21b763d03f0dddf07e07524d06e43c6391
+    bytes: 20484
+    triangles: 408
+    triangles_before_decimation: 408
+    frame: link
+    material: sensor_black
+    rgba:
+    - 0.1
+    - 0.1
+    - 0.1
+    - 1.0
+  ultrasonic:
+    file: meshes/visual/ultrasonic.stl
+    sha256: bf7b746729a7fbe30a56ae172ac09ee9fba2a1f6a93c349150e4ae5fa12de09f
+    bytes: 20484
+    triangles: 408
+    triangles_before_decimation: 408
+    frame: link
+    material: sensor_black
+    rgba:
+    - 0.1
+    - 0.1
+    - 0.1
+    - 1.0
   tof:
     file: meshes/visual/tof.stl
-    sha256: c8ad1985913e785a000acfabbc0de1a76b32ee78f12ce63466d6206a5ebff8fd
-    bytes: 1284
-    triangles: 24
-    triangles_before_decimation: 24
+    sha256: 2a64dcb271f41c4f7aeaa510c0b5762b78d498a3eca0e327dbc0014d9e473fb6
+    bytes: 14084
+    triangles: 280
+    triangles_before_decimation: 280
     frame: link
     material: sensor_black
     rgba:
@@ -218,10 +218,10 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: 955867ac34bc22fe678d2f7ef4ec82bfd37dea46fdd97250053cf570de68df24
-  bytes: 833144
-  triangles: 66592
-  primitives: 59
+  sha256: fb41c555b1e429804e2794355a08d61bce8315ed0454b4957e3f435d0796b7b0
+  bytes: 844332
+  triangles: 66732
+  primitives: 76
   node_count: 44
   nodes:
   - id: base_camera
@@ -229,81 +229,81 @@ glb:
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.base_camera
     bom_row: CAM-001
-    triangles: 24
+    triangles: 264
   - id: base_controller
     name: Base controller
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.base_controller
     bom_row: CTL-001
-    triangles: 12
+    triangles: 48
   - id: base_plate
     name: Base plate (deck)
     class: chassis
     source: CAD v0.2 part MMP.02.00.00.001, instance MMP.02.00.00.001 Base_По умолчанию:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 10902
+    triangles: 10458
   - id: battery
     name: Battery cell-group envelope
     class: envelope
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.battery
     bom_row: PWR-001, PWR-028
     provisional: true
-    triangles: 12
+    triangles: 1388
   - id: camera_mount
     name: Base camera mount
     class: chassis
     source: CAD v0.2 part MMP.01.00.00.003 (camera_mount v8), instance camera_mount v8:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-009
-    triangles: 1024
+    triangles: 984
   - id: castor_front_left
     name: Swivel castor (front left)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
     bom_row: MEC-002
-    triangles: 108
+    triangles: 104
   - id: castor_front_right
     name: Swivel castor (front right)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
     bom_row: MEC-002
-    triangles: 108
+    triangles: 104
   - id: castor_rear_left
     name: Swivel castor (rear left)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
     bom_row: MEC-002
-    triangles: 108
+    triangles: 104
   - id: castor_rear_right
     name: Swivel castor (rear right)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.castor
     bom_row: MEC-002
-    triangles: 108
+    triangles: 104
   - id: centre_bracket
     name: Centre bracket
     class: chassis
     source: CAD v0.2 part MMP.04.00.00.001, instance MMP.04.00.00.001 Center bracket_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 14322
+    triangles: 13742
   - id: compute
     name: Compute (Jetson Orin NX on J401 carrier)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.compute
     bom_row: CMP-001, CMP-002
-    triangles: 36
+    triangles: 192
   - id: controller_plate
     name: Base controller mount plate
     class: chassis
     source: CAD v0.2 part stm32_click_mount_plate (production file MMP.04.00.00.003 STM32 Click mount plate), instance
       stm32_click_mount_plate:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
-    triangles: 1008
+    triangles: 968
   - id: cover
     name: Cover
     class: chassis
     source: CAD v0.2 part MMP.01.00.00.001, instance MMP.01.00.00.001 Cover_00:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 2030
+    triangles: 1948
   - id: cover_flange_front
     name: Cover flange (front)
     class: chassis
@@ -321,7 +321,7 @@ glb:
     class: chassis
     source: CAD v0.2 part driver_mount v2 (production file MMP.02.00.00.002 Motor driver mount), instance driver_mount
       v2:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
-    triangles: 828
+    triangles: 794
   - id: electronics_bracket
     name: Electronics bracket
     class: chassis
@@ -334,19 +334,19 @@ glb:
     source: CAD v0.2 part MMP.00.00.00.001, instance MMP.00.00.00.001 Front panel_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 3946
+    triangles: 3786
   - id: hub_motor_wheel_left
     name: Hub motor wheel (left)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.hub_motor_wheel
     bom_row: DRV-001
-    triangles: 2216
+    triangles: 2126
   - id: hub_motor_wheel_right
     name: Hub motor wheel (right)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.hub_motor_wheel
     bom_row: DRV-001
-    triangles: 2216
+    triangles: 2126
   - id: imu
     name: IMU
     class: component
@@ -358,7 +358,7 @@ glb:
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.lidar
     bom_row: NAV-001
-    triangles: 168
+    triangles: 240
   - id: lidar_spacer
     name: LiDAR spacer 17.5 mm
     class: chassis
@@ -372,20 +372,20 @@ glb:
     source: CAD v0.2 part MMP.07.00.00.001, instance MMP.07.00.00.001 Lidar support_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-008
-    triangles: 2880
+    triangles: 2762
   - id: motor_driver
     name: Motor driver
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.motor_driver
     bom_row: DRV-002
-    triangles: 12
+    triangles: 156
   - id: rear_panel
     name: Rear panel
     class: chassis
     source: CAD v0.2 part MMP.00.00.00.002, instance MMP.00.00.00.002 Back panel_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 2916
+    triangles: 2798
   - id: side_panel_left
     name: Side panel (left)
     class: chassis
@@ -406,102 +406,102 @@ glb:
     source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 1758
+    triangles: 1686
   - id: support_front_right
     name: Support (front right)
     class: chassis
     source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_Зеркалка:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 1758
+    triangles: 1686
   - id: support_rear_left
     name: Support (rear left)
     class: chassis
     source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_Зеркалка:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 1758
+    triangles: 1686
   - id: support_rear_right
     name: Support (rear right)
     class: chassis
     source: CAD v0.2 part MMP.05.00.00.001, instance MMP.05.00.00.001 Support_По умолчанию:1 (openamr-platform-hw
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
-    triangles: 1758
+    triangles: 1686
   - id: tof_front
     name: ToF cliff sensor (front)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.tof
     bom_row: SNS-001
-    triangles: 24
+    triangles: 184
   - id: tof_mount_front
     name: TF-Luna mount (front)
     class: chassis
     source: CAD v0.2 part tf_luna_mount (production file MMP.00.00.00.005 TF-Luna mount), instance tf_luna_mount:1
       (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
-    triangles: 562
+    triangles: 538
   - id: tof_mount_rear
     name: TF-Luna mount (rear)
     class: chassis
     source: CAD v0.2 part tf_luna_mount (production file MMP.00.00.00.005 TF-Luna mount), instance tf_luna_mount:1
       (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
-    triangles: 562
+    triangles: 538
   - id: tof_rear
     name: ToF cliff sensor (rear)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.tof
     bom_row: SNS-001
-    triangles: 24
+    triangles: 184
   - id: ultrasonic_front_left
     name: Ultrasonic sensor (front left)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
     bom_row: SNS-002
-    triangles: 252
+    triangles: 254
   - id: ultrasonic_front_right
     name: Ultrasonic sensor (front right)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
     bom_row: SNS-002
-    triangles: 252
+    triangles: 254
   - id: ultrasonic_mount_front_left
     name: Ultrasonic mount (front left)
     class: chassis
     source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
       v1:2 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-011
-    triangles: 398
+    triangles: 382
   - id: ultrasonic_mount_front_right
     name: Ultrasonic mount (front right)
     class: chassis
     source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
       v1:3 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-011
-    triangles: 398
+    triangles: 382
   - id: ultrasonic_mount_rear_left
     name: Ultrasonic mount (rear left)
     class: chassis
     source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
       v1:1 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-011
-    triangles: 398
+    triangles: 382
   - id: ultrasonic_mount_rear_right
     name: Ultrasonic mount (rear right)
     class: chassis
     source: CAD v0.2 part ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), instance ultrasonic_mount_
       v1:4 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-011
-    triangles: 398
+    triangles: 382
   - id: ultrasonic_rear_left
     name: Ultrasonic sensor (rear left)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
     bom_row: SNS-002
-    triangles: 252
+    triangles: 254
   - id: ultrasonic_rear_right
     name: Ultrasonic sensor (rear right)
     class: component
     source: openamr-platform-sw meshes/PROVENANCE.yaml components.ultrasonic
     bom_row: SNS-002
-    triangles: 252
+    triangles: 254
 components:
   hub_motor_wheel:
     bom: ZLTECH ZLLG80ASM250-L-B hub motor wheel with brake (DRV-001)
@@ -590,8 +590,15 @@ components:
     file: base_equipment.stl
     position: as in the CAD, on the motor driver mount
     position_decided: true
-    dimension_source: STEP instance ZLAC8015D-V4_0-20250902 (150 x 110.3 x 31 mm)
+    dimension_source: 'ZLAC8015D manual V1.03 Fig. 1 (housing 150 x 97 x 31 mm); STEP instance ZLAC8015D-V4_0-20250902
+      for the placement and the 5 mm base plate on the +x face (150 x 110.3 x 31 mm with the connectors). Heatsink
+      fins on the -x face, connector strip on top: schematic (count and pitch not documented), inside the STEP box'
     class: component
+    features:
+      housing: 1
+      base plate: 1
+      heatsink fin: 10
+      connector strip: 1
     frame: base_link
     node_ids:
     - motor_driver
@@ -625,8 +632,14 @@ components:
     position: frame at the sensor face; body through the panel hole, lock nut on the inner panel face
     position_decided: true
     dimension_source: 'MB7060 datasheet 11838ab, compact housing -200: face section 3/4-14 NPS 26.2 mm x 14.4 mm,
-      body 34.7 mm x 17.9 mm, lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel'
+      body 34.7 mm x 17.9 mm, hex lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel;
+      transducer face diameter schematic'
     class: component
+    features:
+      threaded face section: 1
+      transducer face: 1
+      body: 1
+      hex lock nut: 1
     links:
     - us_front_left
     - us_front_right
@@ -649,9 +662,14 @@ components:
     file: tof.stl
     position: frame at the lens face on mount MMP.00.00.00.005, pitch from the frame
     position_decided: true
-    dimension_source: TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm); STEP instance BeneWake TF-LUNA (35 x 21.25 x
-      13.5 mm including the lens caps)
+    dimension_source: 'TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm; body 26.5 mm wide, mounting ears to 35 mm, 9
+      mm high, holes on 30.5 mm; two lenses 10.5 mm diameter on 10.5 mm centres); STEP instance BeneWake TF-LUNA
+      (35 x 21.25 x 13.5 mm including the lens caps). Ear thickness 3 mm: schematic'
     class: component
+    features:
+      body: 1
+      mounting ears: 1
+      lens: 2
     links:
     - tof_front
     - tof_rear
@@ -683,9 +701,13 @@ components:
     position: lidar_link at the scan plane; base on the 17.5 mm spacer, scan plane 30.55 mm above the base (NAV-LIDAR
       stack 174.0 + 17.5 + 30.55)
     position_decided: true
-    dimension_source: STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3 mm
-      overall)
+    dimension_source: 'STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3
+      mm overall); window band 7 mm high around the scan plane: schematic'
     class: component
+    features:
+      base: 1
+      rotating head: 1
+      window band: 1
     links:
     - lidar_link
     visual_rpy: {}
@@ -714,9 +736,14 @@ components:
     file: base_camera.stl
     position: base_camera_link at the front glass, 10 deg up (bt10), on the camera mount
     position_decided: true
-    dimension_source: STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the
-      model origin)
+    dimension_source: 'STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the
+      model origin); the three lens window centres (y -47.6, +23.6 and +47.3 mm) are read from that instance, positions
+      only; lens diameter 9 mm: schematic'
     class: component
+    features:
+      body: 1
+      front glass: 1
+      lens: 3
     links:
     - base_camera_link
     visual_rpy: {}
@@ -777,10 +804,17 @@ components:
     file: base_equipment.stl
     position: as in the CAD
     position_decided: true
-    dimension_source: STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts 16.3
-      mm) and its Orin NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm); heatsink and fan kit (CMP-005)
-      not in the CAD
+    dimension_source: 'STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts
+      16.3 mm) and its Orin NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm). Heatsink block on the
+      module (CMP-005 heatsink and fan kit, not in the CAD): illustrative, module footprint, 3 mm base and 12 fins
+      15 mm high, fan not drawn; dimensions not documented'
     class: component
+    features:
+      J401 carrier board: 1
+      underside parts: 1
+      Orin NX module: 1
+      heatsink base: 1
+      heatsink fin: 12
     frame: base_link
     node_ids:
     - compute
@@ -813,9 +847,16 @@ components:
     file: base_equipment.stl
     position: on the STM32 click mount plate, at the placement of the NUCLEO-144 board model in the STEP
     position_decided: true
-    dimension_source: Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 mechanical dimensions; outline read from
-      the MB1364 PCB in the STEP, the same board outline); components not modelled
+    dimension_source: 'Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 Fig. 6; outline read from the MB1364 PCB
+      in the STEP, the same board outline); the two ST morpho header rows from UM2407 Fig. 6 (2 x 36 pins at 2.54
+      mm, outer pin rows 63.50 mm apart, first pin 12.70 mm from the USB end, the -x end in the STEP); header height
+      8.5 mm and the MCU square (position read from the STEP LQFP144 instance): schematic; other components not
+      modelled'
     class: component
+    features:
+      NUCLEO-144 board: 1
+      ST morpho header row: 2
+      MCU: 1
     frame: base_link
     node_ids:
     - base_controller
@@ -856,10 +897,17 @@ components:
     dimension_source: 'cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105
       cells upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick across
       the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm. Not the complete
-      battery assembly: the BMS, power distribution board, pack fuse, terminals and wiring are not modelled and
-      are never on top of the cells; dimensions not released'
+      battery assembly: the BMS, power distribution board, pack fuse, busbars and wiring are not modelled and are
+      never on top of the cells; dimensions not released. Drawn as eight separate LF105 cell boxes (130 fore-aft
+      x 38 across x 200 high, 1 mm gaps taken from the 5 mm allowance, so 1.5 mm to the envelope at the outer y
+      faces) with two terminal studs each (diameter 10 mm, 5 mm high, 70 mm apart: schematic, within the allowance
+      above the cells), inside a translucent envelope shell (GLB only)'
     class: envelope
     provisional: true
+    features:
+      envelope shell: 1
+      cell: 8
+      terminal stud: 16
     frame: base_link
     node_ids:
     - battery
@@ -891,6 +939,81 @@ components:
         z_floor:
         - 54.0
         - 264.0
+      cells_mm:
+        note: the eight cell boxes drawn inside the envelope (base_link, mm); terminal positions are schematic
+        boxes:
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - -155.5
+          - -117.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - -116.5
+          - -78.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - -77.5
+          - -39.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - -38.5
+          - -0.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - 0.5
+          - 38.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - 39.5
+          - 77.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - 78.5
+          - 116.5
+          z:
+          - -39.0
+          - 161.0
+        - x:
+          - -272.0
+          - -142.0
+          y:
+          - 117.5
+          - 155.5
+          z:
+          - -39.0
+          - 161.0
       smallest_clearance: &id001
         part: centre_bracket
         clearance_mm: 2.0

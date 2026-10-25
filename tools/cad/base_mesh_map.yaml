@@ -180,8 +180,11 @@ outputs:
 # 2.0 components (BOM Issue 7.11, 25 Oct 2026). Each is modelled as an envelope or listed as
 # not modelled with the reason. name, bom_row, node_ids (one GLB node per placement link),
 # class (component, or envelope for a space allocation) and provisional feed the GLB extras. Envelope parts: box (size_mm, xyz_mm, rpy), cylinder (radius_mm,
-# length_mm, axis, xyz_mm) or revolve (axis, profile_mm as [axial, radius] pairs), in the
-# placement frame: placement.link (the link frame) or placement.base_link (base_link, mm).
+# length_mm, axis, xyz_mm, optional sections: 6 for a hex) or revolve (axis, profile_mm as [axial, radius]
+# pairs), in the placement frame: placement.link (the link frame) or placement.base_link (base_link, mm).
+# Optional per part: repeat {count, step_mm} (written out as separate parts), feature (a name counted in
+# PROVENANCE.yaml components.<id>.features), alpha (GLB opacity, alphaMode BLEND), stl: false (GLB only),
+# xyz_rel_mm (battery: relative to the envelope centre placed by placement_rule).
 # check: the STEP instance the dimensions or placement were taken from; the converter
 # recomputes it and fails when it no longer matches (box in base_link or local size, mm).
 components:
@@ -239,9 +242,16 @@ components:
     output: base_equipment
     placement: {base_link: true}
     position: as in the CAD, on the motor driver mount
-    dimension_source: STEP instance ZLAC8015D-V4_0-20250902 (150 x 110.3 x 31 mm)
+    dimension_source: >-
+      ZLAC8015D manual V1.03 Fig. 1 (housing 150 x 97 x 31 mm); STEP instance ZLAC8015D-V4_0-20250902 for the
+      placement and the 5 mm base plate on the +x face (150 x 110.3 x 31 mm with the connectors). Heatsink fins on
+      the -x face, connector strip on top: schematic (count and pitch not documented), inside the STEP box
     parts:
-      - {shape: box, box_mm: [[-84.82, -76.83, -42.88], [-53.82, 73.17, 67.42]], colour: [0.70, 0.12, 0.12]}
+      - {shape: box, box_mm: [[-80.82, -76.83, -42.88], [-58.82, 73.17, 54.12]], colour: [0.20, 0.20, 0.22], feature: housing}
+      - {shape: box, box_mm: [[-58.82, -76.83, -42.88], [-53.82, 73.17, 54.12]], colour: [0.62, 0.63, 0.65], feature: base plate}
+      - {shape: box, size_mm: [4.0, 150.0, 4.0], xyz_mm: [-82.82, -1.83, -40.88], colour: [0.62, 0.63, 0.65], feature: heatsink fin,
+         repeat: {count: 10, step_mm: [0.0, 0.0, 10.333]}}
+      - {shape: box, box_mm: [[-78.82, -34.83, 54.12], [-62.82, 12.17, 67.42]], colour: [0.08, 0.30, 0.16], feature: connector strip}
     check: {unit: '/ ZLAC8015D-V4[^/]*:\d+$', base_link_box_mm: [[-84.82, -76.83, -42.88], [-53.82, 73.17, 67.42]]}
 
   ultrasonic:
@@ -255,11 +265,14 @@ components:
     node_ids: {us_front_left: ultrasonic_front_left, us_front_right: ultrasonic_front_right,
                us_rear_left: ultrasonic_rear_left, us_rear_right: ultrasonic_rear_right}
     position: frame at the sensor face; body through the panel hole, lock nut on the inner panel face
-    dimension_source: 'MB7060 datasheet 11838ab, compact housing -200: face section 3/4-14 NPS 26.2 mm x 14.4 mm, body 34.7 mm x 17.9 mm, lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel'
+    dimension_source: 'MB7060 datasheet 11838ab, compact housing -200: face section 3/4-14 NPS 26.2 mm x 14.4 mm, body 34.7 mm x 17.9 mm, hex lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel; transducer face diameter schematic'
     parts:
-      - {shape: cylinder, radius_mm: 13.1, length_mm: 14.4, axis: x, xyz_mm: [-7.2, 0.0, 0.0], colour: [0.35, 0.35, 0.36]}
-      - {shape: cylinder, radius_mm: 17.35, length_mm: 17.9, axis: x, xyz_mm: [-23.35, 0.0, 0.0], colour: [0.1, 0.1, 0.1]}
-      - {shape: cylinder, radius_mm: 17.4, length_mm: 5.0, axis: x, xyz_mm: [-4.5, 0.0, 0.0], colour: [0.1, 0.1, 0.1], note: lock nut}
+      - {shape: cylinder, radius_mm: 13.1, length_mm: 14.4, axis: x, xyz_mm: [-7.2, 0.0, 0.0], colour: [0.30, 0.31, 0.32], feature: threaded face section}
+      - {shape: cylinder, radius_mm: 10.0, length_mm: 0.3, axis: x, xyz_mm: [0.15, 0.0, 0.0], colour: [0.03, 0.03, 0.03], feature: transducer face,
+         note: transducer diameter schematic}
+      - {shape: cylinder, radius_mm: 17.35, length_mm: 17.9, axis: x, xyz_mm: [-23.35, 0.0, 0.0], colour: [0.1, 0.1, 0.1], feature: body}
+      - {shape: cylinder, radius_mm: 17.4, length_mm: 5.0, axis: x, sections: 6, xyz_mm: [-4.5, 0.0, 0.0], colour: [0.16, 0.16, 0.17], feature: hex lock nut,
+         note: 'hex, 34.8 mm across the corners (datasheet I)'}
 
   tof:
     bom: Benewake TF-Luna ToF cliff sensor (SNS-001)
@@ -271,10 +284,15 @@ components:
     placement: {links: [tof_front, tof_rear]}
     node_ids: {tof_front: tof_front, tof_rear: tof_rear}
     position: frame at the lens face on mount MMP.00.00.00.005, pitch from the frame
-    dimension_source: TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm); STEP instance BeneWake TF-LUNA (35 x 21.25 x 13.5 mm including the lens caps)
+    dimension_source: >-
+      TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm; body 26.5 mm wide, mounting ears to 35 mm, 9 mm high, holes on
+      30.5 mm; two lenses 10.5 mm diameter on 10.5 mm centres); STEP instance BeneWake TF-LUNA (35 x 21.25 x 13.5 mm
+      including the lens caps). Ear thickness 3 mm: schematic
     parts:
-      - {shape: box, size_mm: [12.5, 35.0, 21.25], xyz_mm: [-7.25, 0.0, 0.0], colour: [0.12, 0.14, 0.2]}
-      - {shape: box, size_mm: [1.0, 30.0, 12.0], xyz_mm: [-0.5, 0.0, 0.0], colour: [0.03, 0.03, 0.03], note: lens caps, 1 mm (13.5 minus 12.5)}
+      - {shape: box, size_mm: [12.5, 26.5, 21.25], xyz_mm: [-7.25, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: body}
+      - {shape: box, size_mm: [3.0, 35.0, 9.0], xyz_mm: [-12.0, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: mounting ears}
+      - {shape: cylinder, radius_mm: 5.25, length_mm: 1.0, axis: x, xyz_mm: [-0.5, 5.25, 0.0], colour: [0.03, 0.03, 0.04], feature: lens,
+         repeat: {count: 2, step_mm: [0.0, -10.5, 0.0]}, note: lens caps, 1 mm (13.5 minus 12.5)}
     check: {unit: '/ BeneWake TF-LUNA:\d+$', local_size_mm: [35.0, 13.5, 21.25]}
 
   lidar:
@@ -287,10 +305,13 @@ components:
     placement: {links: [lidar_link]}
     node_ids: {lidar_link: lidar}
     position: lidar_link at the scan plane; base on the 17.5 mm spacer, scan plane 30.55 mm above the base (NAV-LIDAR stack 174.0 + 17.5 + 30.55)
-    dimension_source: STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3 mm overall)
+    dimension_source: >-
+      STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3 mm overall); window
+      band 7 mm high around the scan plane: schematic
     parts:
-      - {shape: cylinder, radius_mm: 27.8, length_mm: 20.5, axis: z, xyz_mm: [0.0, 0.0, -20.3], colour: [0.21, 0.21, 0.27]}
-      - {shape: cylinder, radius_mm: 27.3, length_mm: 22.8, axis: z, xyz_mm: [0.0, 0.0, -0.65], colour: [0.08, 0.08, 0.08]}
+      - {shape: cylinder, radius_mm: 27.8, length_mm: 20.5, axis: z, xyz_mm: [0.0, 0.0, -20.3], colour: [0.16, 0.16, 0.18], feature: base}
+      - {shape: cylinder, radius_mm: 27.3, length_mm: 22.8, axis: z, xyz_mm: [0.0, 0.0, -0.65], colour: [0.10, 0.10, 0.11], feature: rotating head}
+      - {shape: cylinder, radius_mm: 27.45, length_mm: 7.0, axis: z, xyz_mm: [0.0, 0.0, 0.0], colour: [0.02, 0.02, 0.03], feature: window band}
     check: {unit: '/ s3_continue_[^/]*:\d+$', local_size_mm: [55.6, 41.3, 55.6]}
 
   base_camera:
@@ -303,10 +324,16 @@ components:
     placement: {links: [base_camera_link]}
     node_ids: {base_camera_link: base_camera}
     position: base_camera_link at the front glass, 10 deg up (bt10), on the camera mount
-    dimension_source: STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the model origin)
+    dimension_source: >-
+      STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the model origin); the
+      three lens window centres (y -47.6, +23.6 and +47.3 mm) are read from that instance, positions only; lens
+      diameter 9 mm: schematic
     parts:
-      - {shape: box, size_mm: [27.0, 124.0, 29.0], xyz_mm: [-13.5, 0.0, 0.0], colour: [0.16, 0.16, 0.17]}
-      - {shape: box, size_mm: [2.2, 110.0, 22.0], xyz_mm: [1.1, 0.0, 0.0], colour: [0.02, 0.02, 0.02], note: front glass}
+      - {shape: box, size_mm: [27.0, 124.0, 29.0], xyz_mm: [-13.5, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: body}
+      - {shape: box, size_mm: [2.2, 110.0, 22.0], xyz_mm: [1.1, 0.0, 0.0], colour: [0.02, 0.02, 0.02], note: front glass, feature: front glass}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, -47.6, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, 23.6, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, 47.3, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
     check: {unit: '/ 00_GEMINI_336L_3D_ALL_ASM_1_ASM:\d+$', local_size_mm: [124.02, 29.03, 29.18]}
 
   imu:
@@ -334,11 +361,18 @@ components:
     output: base_equipment
     placement: {base_link: true}
     position: as in the CAD
-    dimension_source: STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts 16.3 mm) and its Orin NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm); heatsink and fan kit (CMP-005) not in the CAD
+    dimension_source: >-
+      STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts 16.3 mm) and its Orin
+      NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm). Heatsink block on the module (CMP-005 heatsink
+      and fan kit, not in the CAD): illustrative, module footprint, 3 mm base and 12 fins 15 mm high, fan not drawn;
+      dimensions not documented
     parts:
-      - {shape: box, box_mm: [[120.43, -57.03, 102.59], [232.43, 57.97, 104.19]], colour: [0.10, 0.30, 0.12], note: carrier PCB}
-      - {shape: box, box_mm: [[118.12, -57.03, 86.29], [236.22, 57.97, 102.59]], colour: [0.25, 0.25, 0.27], note: underside connectors and parts}
-      - {shape: box, box_mm: [[153.10, -39.95, 104.19], [202.15, 36.90, 113.29]], colour: [0.08, 0.08, 0.08], note: Orin NX module}
+      - {shape: box, box_mm: [[120.43, -57.03, 102.59], [232.43, 57.97, 104.19]], colour: [0.06, 0.24, 0.12], note: carrier PCB, feature: J401 carrier board}
+      - {shape: box, box_mm: [[118.12, -57.03, 86.29], [236.22, 57.97, 102.59]], colour: [0.22, 0.22, 0.24], note: underside connectors and parts, feature: underside parts}
+      - {shape: box, box_mm: [[153.10, -39.95, 104.19], [202.15, 36.90, 113.29]], colour: [0.05, 0.18, 0.09], note: Orin NX module, feature: Orin NX module}
+      - {shape: box, box_mm: [[153.10, -39.95, 113.29], [202.15, 36.90, 116.29]], colour: [0.70, 0.71, 0.73], feature: heatsink base}
+      - {shape: box, size_mm: [49.05, 2.0, 15.0], xyz_mm: [177.625, -38.95, 123.79], colour: [0.70, 0.71, 0.73], feature: heatsink fin,
+         repeat: {count: 12, step_mm: [0.0, 6.8045, 0.0]}}
     check: {unit: '/ recomputer_robotics_j401_pcba[^/]*:\d+$', base_link_box_mm: [[118.12, -57.03, 86.29], [236.22, 57.97, 118.59]]}
 
   base_controller:
@@ -350,9 +384,16 @@ components:
     output: base_equipment
     placement: {base_link: true}
     position: on the STM32 click mount plate, at the placement of the NUCLEO-144 board model in the STEP
-    dimension_source: Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 mechanical dimensions; outline read from the MB1364 PCB in the STEP, the same board outline); components not modelled
+    dimension_source: >-
+      Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 Fig. 6; outline read from the MB1364 PCB in the STEP, the
+      same board outline); the two ST morpho header rows from UM2407 Fig. 6 (2 x 36 pins at 2.54 mm, outer pin
+      rows 63.50 mm apart, first pin 12.70 mm from the USB end, the -x end in the STEP); header height 8.5 mm and the
+      MCU square (position read from the STEP LQFP144 instance): schematic; other components not modelled
     parts:
-      - {shape: box, box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]], colour: [0.92, 0.92, 0.90]}
+      - {shape: box, box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]], colour: [0.06, 0.24, 0.12], feature: NUCLEO-144 board}
+      - {shape: box, box_mm: [[-28.14, -46.98, 102.00], [63.30, -41.90, 110.50]], colour: [0.05, 0.05, 0.05], feature: ST morpho header row}
+      - {shape: box, box_mm: [[-28.14, 13.98, 102.00], [63.30, 19.06, 110.50]], colour: [0.05, 0.05, 0.05], feature: ST morpho header row}
+      - {shape: box, box_mm: [[20.70, -25.10, 102.00], [42.70, -3.10, 103.60]], colour: [0.12, 0.12, 0.13], feature: MCU}
     check: {unit: '/ MB1364-H743ZI[^/]*:\d+ / Board:\d+$', base_link_box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]]}
 
   battery:
@@ -377,11 +418,23 @@ components:
       cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105 cells
       upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick
       across the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm.
-      Not the complete battery assembly: the BMS, power distribution board, pack fuse, terminals and
-      wiring are not modelled and are never on top of the cells; dimensions not released
+      Not the complete battery assembly: the BMS, power distribution board, pack fuse, busbars and
+      wiring are not modelled and are never on top of the cells; dimensions not released. Drawn as
+      eight separate LF105 cell boxes (130 fore-aft x 38 across x 200 high, 1 mm gaps taken from the
+      5 mm allowance, so 1.5 mm to the envelope at the outer y faces) with two terminal studs each
+      (diameter 10 mm, 5 mm high, 70 mm apart: schematic, within the allowance above the cells), inside a
+      translucent envelope shell (GLB only)
     parts:
-      # x of the centre is computed by placement_rule (written into PROVENANCE.yaml)
-      - {shape: box, size_mm: [140.0, 314.0, 210.0], xyz_mm: [0.0, 0.0, 61.0], colour: [0.30, 0.33, 0.36]}
+      # x of the centre is computed by placement_rule (written into PROVENANCE.yaml); the cells and
+      # studs are placed relative to that centre (xyz_rel_mm)
+      - {shape: box, size_mm: [140.0, 314.0, 210.0], xyz_mm: [0.0, 0.0, 61.0], colour: [0.30, 0.33, 0.36], alpha: 0.14, stl: false,
+         feature: envelope shell}
+      - {shape: box, size_mm: [130.0, 38.0, 200.0], xyz_rel_mm: [0.0, -136.5, 0.0], colour: [0.36, 0.43, 0.53], feature: cell,
+         repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
+      - {shape: cylinder, radius_mm: 5.0, length_mm: 5.0, axis: z, xyz_rel_mm: [35.0, -136.5, 102.5], colour: [0.72, 0.73, 0.75],
+         feature: terminal stud, repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
+      - {shape: cylinder, radius_mm: 5.0, length_mm: 5.0, axis: z, xyz_rel_mm: [-35.0, -136.5, 102.5], colour: [0.72, 0.73, 0.75],
+         feature: terminal stud, repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
     placement_rule:
       derivation: 8 cells x 38 mm across + 2 x 5 mm, 130 mm fore-aft + 2 x 5 mm, 200 mm high + 2 x 5 mm, rounded up
       stand_z_mm: -44.0

@@ -268,3 +268,30 @@ def test_battery_cell_group_envelope_recorded(provenance):
                                                                      'right of the envelope']
     assert 'BMS and power distribution zone (not modelled)' in rec['free_space'][0]['name']
     assert provenance['components']['battery'].get('provisional') is True
+
+
+def test_battery_drawn_as_eight_cells_inside_the_envelope(provenance):
+    """Eight separate LF105 cell boxes (130 x 38 x 200 mm) inside the cell-group envelope, not touching."""
+    rec = provenance['components']['battery']['rear_deck_check']
+    box, cells = rec['box_mm'], rec['cells_mm']['boxes']
+    assert len(cells) == 8, cells
+    for c in cells:
+        size = [round(c[k][1] - c[k][0], 2) for k in ('x', 'y', 'z')]
+        assert size == [130.0, 38.0, 200.0], size
+        assert box['x'][0] <= c['x'][0] and c['x'][1] <= box['x'][1], c
+        assert box['y'][0] <= c['y'][0] and c['y'][1] <= box['y'][1], c
+        assert box['z_base_link'][0] <= c['z'][0] and c['z'][1] <= box['z_base_link'][1], c
+    ys = sorted(cells, key=lambda c: c['y'][0])
+    assert all(b['y'][0] - a['y'][1] > 0.0 for a, b in zip(ys[:-1], ys[1:])), 'cells touch'
+    feats = provenance['components']['battery']['features']
+    assert feats['cell'] == 8 and feats['terminal stud'] == 16 and feats['envelope shell'] == 1, feats
+
+
+@pytest.mark.parametrize('cid, feature, count', [
+    ('compute', 'heatsink fin', 12), ('compute', 'Orin NX module', 1), ('compute', 'J401 carrier board', 1),
+    ('base_controller', 'ST morpho header row', 2), ('motor_driver', 'heatsink fin', 10),
+    ('lidar', 'window band', 1), ('base_camera', 'lens', 3), ('ultrasonic', 'hex lock nut', 1),
+    ('tof', 'lens', 2)])
+def test_component_envelope_features(provenance, cid, feature, count):
+    """The key base envelopes carry the features that make them recognisable (base_mesh_map.yaml)."""
+    assert provenance['components'][cid].get('features', {}).get(feature) == count, cid
