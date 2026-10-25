@@ -61,6 +61,17 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
   underside, the rear sloped flange, the cover rear edge and the base plate, every chassis part
   within 60 mm, and the free space behind (BMS and power distribution zone, not modelled) and
   beside the envelope in `build/cad_checks.md` and `PROVENANCE.yaml components.battery.rear_deck_check`.
+- Envelope shapes (26 Oct 2026): the key base envelopes follow their documented shapes, built from
+  boxes and cylinders only: battery as eight LF105 cell boxes (130 x 38 x 200 mm, 1 mm gaps from the
+  5 mm allowance) with terminal studs inside a translucent envelope shell (GLB only, `stl: false`);
+  J401 carrier, Orin NX module and an illustrative finned heatsink block; NUCLEO-144 board with the
+  two ST morpho header rows (UM2407); ZLAC8015D housing with base plate and fins (manual V1.03);
+  RPLIDAR S3 base, head and window band; Gemini 336L bar with three lens windows; MB7060 with hex lock
+  nut; TF-Luna body, ears and two lenses. Part options: `repeat` (written out as separate parts so
+  that small boxes are not decimated), `feature` (counted in `PROVENANCE.yaml components.<id>.features`),
+  `alpha`, `stl`, `sections` (6 for a hex) and `xyz_rel_mm` (relative to the battery envelope centre).
+  Schematic details (fin count, lens and terminal diameters, header height) are marked as such in each
+  `dimension_source`. No vendor geometry is imported; positions read from the STEP are stated.
 - GLB node ids: chassis rules carry `node` or `nodes` (id, name, CAD part, BOM row); instances
   sharing an id get a position suffix (`_front`, `_rear`, `_left`, `_right`). Components carry
   `node_ids` per placement link.
