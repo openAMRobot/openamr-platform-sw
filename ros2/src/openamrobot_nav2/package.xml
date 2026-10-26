@@ -25,7 +25,7 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
-  <exec_depend>laser_filters</exec_depend>
+  <exec_depend>openamrobot_perception</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
