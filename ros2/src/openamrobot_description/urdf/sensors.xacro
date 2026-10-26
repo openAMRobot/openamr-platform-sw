@@ -20,12 +20,14 @@
     value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
 
   <!-- Origin of the Gemini 336L model in the CAD, front glass, centre of the body.
-       Body 0.029 x 0.124 x 0.029 m behind it. -->
+       Visual: envelope from the STEP instance, body 0.027 x 0.124 x 0.029 m behind the
+       frame and 2.2 mm of glass ahead of it (meshes/PROVENANCE.yaml); was a
+       0.029 x 0.124 x 0.029 m box, superseded. -->
   <link name="base_camera_link">
     <visual>
-      <origin xyz="-0.0124 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="0.029 0.124 0.029"/>
+        <mesh filename="package://openamrobot_description/meshes/visual/base_camera.stl"/>
       </geometry>
       <material name="sensor_black"/>
     </visual>
@@ -65,7 +67,17 @@
        publishes in it and must not remap the axes as well.
        Was (0.0544, 0, 0.133) rpy 0 (16 Oct; 177 mm was measured against a
        displaced base plate) and (0.195, 0, -0.044) (Alex decision 2026-10-12). -->
-  <link name="imu_link"/>
+  <!-- Visual: ICM-42688-P package (2.5 x 3.0 x 0.91 mm) on the MIKROE-4237 board,
+       envelope in meshes/visual/imu.stl -->
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://openamrobot_description/meshes/visual/imu.stl"/>
+      </geometry>
+      <material name="imu_board"/>
+    </visual>
+  </link>
   <joint name="imu_joint" type="fixed">
     <origin xyz="0.0544 0 0.1210" rpy="0 0 ${-pi/2}"/>
     <parent link="base_link"/>
@@ -75,12 +87,13 @@
   <!-- Near-field range sensors. The frame sits at the centre of the sensor face,
        x along the beam; positive pitch tilts the beam down. -->
   <xacro:macro name="tof_frame" params="name x y z pitch yaw:=0">
-    <!-- TF-Luna body 0.014 x 0.031 x 0.021 m behind the lens face -->
+    <!-- TF-Luna envelope, 0.035 x 0.02125 m, 0.0135 m deep behind the lens face (datasheet
+         A05 and the STEP instance); was a 0.014 x 0.031 x 0.021 m box, superseded -->
     <link name="${name}">
       <visual>
-        <origin xyz="-0.007 0 0" rpy="0 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <box size="0.014 0.031 0.021"/>
+          <mesh filename="package://openamrobot_description/meshes/visual/tof.stl"/>
         </geometry>
         <material name="sensor_black"/>
       </visual>
@@ -93,12 +106,14 @@
   </xacro:macro>
 
   <xacro:macro name="ultrasonic_frame" params="name x y z yaw:=0">
-    <!-- MaxSonar WR housing, cylinder 0.031 m diameter, 0.0385 m long behind the face -->
+    <!-- MB7060 -2XX compact housing envelope (datasheet 11838ab): 3/4 inch NPS section
+         0.0262 x 0.0144 m and body 0.0347 x 0.0179 m behind the face, lock nut behind the
+         panel; was a 0.031 m x 0.0385 m cylinder, superseded -->
     <link name="${name}">
       <visual>
-        <origin xyz="-0.01925 0 0" rpy="0 ${pi/2} 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <cylinder radius="0.0155" length="0.0385"/>
+          <mesh filename="package://openamrobot_description/meshes/visual/ultrasonic.stl"/>
         </geometry>
         <material name="sensor_black"/>
       </visual>

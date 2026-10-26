@@ -1,0 +1,508 @@
+# SPDX-License-Identifier: MIT
+# Map from the v0.2 full-assembly STEP to the openamrobot_description visual meshes.
+# Read by tools/cad/step_to_description_meshes.py; see tools/cad/README.md.
+#
+# Principle: the chassis comes from the CAD; the components come from the 2.0 bill of
+# materials (BOM Issue 7.11, 25 Oct 2026). The STEP is the release 001 build with some 2.0 parts fitted.
+# Its chassis parts are exported as meshes; release 001 parts are dropped; every 2.0
+# component is a simplified envelope built from the parameters below, placed on its
+# URDF link (pose = frame) or, where the register gives no frame, as in the CAD.
+#
+# The GLB for the docs roadmap pages has one node per chassis part instance and per component
+# envelope instance, named by a stable id, with glTF extras (id, name, class, source, bom_row,
+# provisional). Chassis node ids come from the rules (node or nodes); instances sharing an id get
+# a position suffix (front or rear, left or right). Component node ids come from node_ids.
+#
+# Units: STEP and envelope dimensions in mm, link poses in m and rad.
+# STEP axes: X forward, Y up from the floor, Z right. base_link = (X, -Z, Y - 98 mm).
+schema: 1
+
+sources:
+  assembly:
+    repository: openAMRobot/openamr-platform-hw
+    path: mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip
+    member: MMP.00.00.00.000_full_assembly.STEP
+    note: 'v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw #20)'
+  camera_mount:
+    repository: openAMRobot/openamr-platform-hw
+    path: mechanical/cad/production_files/MMP.01.00.00.003 Camera mount.STEP
+    note: substituted for the empty camera_mount instance of the assembly
+  hub_motor:
+    repository: openAMRobot/openamr-platform-hw
+    path: datasheets/ZLTech/wheel_ZLLG80ASM250/ZLLG80ASM250-L-B2 V1.01 double-shaft.STEP
+    note: 'brake variant, brake side inboard (decided 25 Oct 2026); on the platform-hw PR #28 branch, not yet on main'
+  documents:
+    - BOM Issue 7.11 (OpenAMRobot 2.0 Detailed Hardware BOM, 25 Oct 2026), https://drive.google.com/file/d/1RJX6SHtSFA31atJCb60WgkH425V0Vxfm/view
+    - B-02 Battery Guide rev18.8 (25 Oct 2026), https://drive.google.com/file/d/1ymWSTrgK0N8nEEAuukMRyW6zffDhcpIE/view
+    - P-03 Decision Addendum rev19.7 (20 Oct 2026)
+    - E-01 Safety and Power Distribution Baseline rev1.4 (20 Oct 2026)
+    - openAMRobot/.github decisions.yaml (FRAMES-REP105, NEAR-FIELD-FRAMES, NAV-LIDAR, CAMERAS, DATUM-HEIGHT-STACK, DRIVE-TRACK)
+  datasheets:
+    mb7060: datasheets/MaxBotix/MB7060/11838.pdf (XL-MaxSonar-WR/WRC, code 11838ab, compact housing -200)
+    tf_luna: datasheets/Benewake/TF-Luna/Datasheet/en.pdf (PD-TF-Luna-Datasheet-A05)
+    icm42688p: datasheets/TDK/ICM-42688-P/DS-000347-ICM-42688-P-v1.9.pdf
+    nucleo144: datasheets/STMicroelectronics/STM32H723ZG/um2407-stm32h7-nucleo144-board-stmicroelectronics.pdf
+
+tessellation:
+  linear_deflection_mm: 0.5
+  angular_deflection_rad: 0.35
+  revolve_sections: 64
+  cylinder_sections: 32
+
+min_part_size_mm: 5.0
+
+budgets:
+  stl_max_bytes: 2000000
+  stl_total_max_bytes: 8000000
+  glb_max_bytes: 1500000
+  # robot.html may grow by at most 1.5 MB; the GLB is embedded as base64 (4/3 larger).
+  glb_target_bytes: 1000000
+
+# base_link from the release 001 drivetrain: the STEP has no 2.0 wheels. The two release
+# 001 wheels give the axle line and the axle height; the castor wheels give the floor.
+frame:
+  axle_wheels: '/ GEVN_200_30H7_G15:\d+$'
+  front: '/ MMP\.00\.00\.00\.001 Front panel[^/]*$'
+  up: '/ MMP\.01\.00\.00\.001 Cover_00:\d+$'
+  floor: '/ VSTH_35_6K_G15:\d+$'
+  base_link_height_mm: 98.0
+  tolerance_mm: 2.0
+
+# STEP defects, corrected before export and recorded in meshes/PROVENANCE.yaml.
+corrections:
+  - match: '/ camera_mount v8:\d+$'
+    substitute: camera_mount
+    reason: the camera_mount (Montaj) instance has no geometry in the assembly; the production part file is placed at that instance's placement
+  - match: '/ MMP\.02\.00\.00\.001 Base_[^/]*$'
+    set_origin_mm: [0.0, 52.0, 0.0]
+    reason: >-
+      the base plate is displaced in the assembly (origin at X +1.49, Y 43.22, Z -12.57 mm; top
+      face 45.22 mm above the floor, left edge 11.6 mm outside the side panel); placed centred
+      with its 2 mm sheet on the castor top plates, bottom 52.0 mm and top 54.0 mm above the
+      floor (base-plate top 54.0 mm, P-03 rev19.7 item 19 D5)
+
+classes:
+  chassis: our part (MMP.*), CERN-OHL-P-2.0, exported as a mesh
+  release_001: release 001 or superseded part, or not on the 2.0 list; excluded
+  component: 2.0 component in the STEP; excluded and replaced by its envelope below
+  fastener_small: fastener, PCB component, connector, wire, terminal block or part under 5 mm; excluded
+
+# Leaf instances, classified by their decoded assembly path. First match wins.
+rules:
+  # chassis
+  - name: 'front, back and side panels (Rev B)'
+    match: '/ MMP\.00\.00\.00\.00[123] [^/]*$'
+    class: chassis
+    output: base_chassis
+    nodes:
+      - {match: 'Front panel', id: front_panel, name: Front panel, part: MMP.00.00.00.001, bom_row: MEC-001}
+      - {match: 'Back panel', id: rear_panel, name: Rear panel, part: MMP.00.00.00.002, bom_row: MEC-001}
+      - {match: 'Side panel', id: side_panel, name: Side panel, part: MMP.00.00.00.003, bom_row: MEC-001}
+  - {name: plastic cover, match: '/ MMP\.01\.00\.00\.001 Cover_[^/]*$', class: chassis, output: base_covers,
+     node: {id: cover, name: Cover, part: MMP.01.00.00.001, bom_row: MEC-001}}
+  - {name: cover flange, match: '/ MMP\.01\.00\.00\.002 Cover flange[^/]*$', class: chassis, output: base_covers,
+     node: {id: cover_flange, name: Cover flange, part: MMP.01.00.00.002, bom_row: MEC-001}}
+  - {name: base plate, match: '/ MMP\.02\.00\.00\.001 Base_[^/]*$', class: chassis, output: base_chassis,
+     node: {id: base_plate, name: Base plate (deck), part: MMP.02.00.00.001, bom_row: MEC-001}}
+  - {name: centre bracket, match: '/ MMP\.04\.00\.00\.001 Center bracket[^/]*$', class: chassis, output: base_chassis,
+     node: {id: centre_bracket, name: Centre bracket, part: MMP.04.00.00.001, bom_row: MEC-001}}
+  - {name: electronics bracket, match: '/ electronics_bracket v\d+:\d+$', class: chassis, output: base_chassis,
+     node: {id: electronics_bracket, name: Electronics bracket, part: electronics_bracket v19 (production file MMP.04.00.00.002 Electronics bracket)}}
+  - {name: supports, match: '/ MMP\.05\.00\.00\.001 Support[^/]*$', class: chassis, output: base_chassis,
+     node: {id: support, name: Support, part: MMP.05.00.00.001, bom_row: MEC-001}}
+  - {name: LiDAR support MMP.07, match: '/ MMP\.07\.00\.00\.001 Lidar support[^/]*$', class: chassis, output: base_chassis,
+     node: {id: lidar_support, name: LiDAR support, part: MMP.07.00.00.001, bom_row: MEC-008}}
+  - {name: LiDAR spacer 17.5 mm, match: '/ lidar_mount_spacer:\d+$', class: chassis, output: base_chassis,
+     node: {id: lidar_spacer, name: LiDAR spacer 17.5 mm, part: lidar_mount_spacer (production file MMP.07.00.00.002 Lidar mount spacer), bom_row: MEC-008}}
+  - {name: camera mount MMP.01.00.00.003, match: '/ camera_mount v8:\d+$', class: chassis, output: base_chassis,
+     node: {id: camera_mount, name: Base camera mount, part: MMP.01.00.00.003 (camera_mount v8), bom_row: MEC-009}}
+  - {name: ultrasonic mounts, match: '/ ultrasonic_mount_ v\d+:\d+$', class: chassis, output: base_chassis,
+     node: {id: ultrasonic_mount, name: Ultrasonic mount, part: ultrasonic_mount_ v1 (production file MMP.00.00.00.006 Ultrasonic mount), bom_row: MEC-011}}
+  - {name: TF-Luna mounts MMP.00.00.00.005, match: '/ tf_luna_mount:\d+$', class: chassis, output: base_chassis,
+     node: {id: tof_mount, name: TF-Luna mount, part: tf_luna_mount (production file MMP.00.00.00.005 TF-Luna mount)}}
+  - {name: motor driver mount, match: '/ driver_mount v\d+:\d+$', class: chassis, output: base_chassis,
+     node: {id: driver_mount, name: Motor driver mount, part: driver_mount v2 (production file MMP.02.00.00.002 Motor driver mount)}}
+  - {name: STM32 click mount plate, match: '/ stm32_click_mount_plate:\d+$', class: chassis, output: base_chassis,
+     node: {id: controller_plate, name: Base controller mount plate, part: stm32_click_mount_plate (production file MMP.04.00.00.003 STM32 Click mount plate)}}
+  # 2.0 components in the STEP, replaced by their envelopes
+  - {name: LPA-VSTH 35K castors, match: '/ LPA-VSTH_35K_[^/]*:\d+ / ', class: component, component: castor}
+  - {name: ZLAC8015D V4 motor driver, match: '/ ZLAC8015D-V4[^/]*:\d+', class: component, component: motor_driver}
+  - {name: RPLIDAR S3, match: '/ s3_continue_[^/]*:\d+', class: component, component: lidar}
+  - {name: Gemini 336L, match: '/ \[3D\]\[STP\]Gemini 336L Asm[^/]*:\d+', class: component, component: base_camera}
+  - {name: TF-Luna, match: '/ AssemBeneWake TF-LUNA v2:\d+ / BeneWake TF-LUNA:\d+', class: component, component: tof}
+  - {name: 'ultrasonic sensor model (HRXL-MaxSonar-WR, 1 inch NPS; the 2.0 part is the MB7060 -2XX)', match: '/ HRXL-MaxSonar-WR[^/]*:\d+$', class: component, component: ultrasonic}
+  - {name: 6DOF IMU 14 Click (MIKROE-4237), match: '/ 6DOF_IMU_14_click[^/]*:\d+ / ', class: component, component: imu}
+  - {name: reComputer Robotics J401 with Orin NX, match: '/ recomputer_robotics_j401_pcba[^/]*:\d+', class: component, component: compute}
+  - {name: 'NUCLEO-144 board model MB1364-H743ZI (superseded by the NUCLEO-H723ZG, same outline)', match: '/ MB1364-H743ZI[^/]*:\d+', class: component, component: base_controller}
+  - {name: 8S1P cell pack, match: '/ 8S1P_Li-Ion_Package[^/]*:\d+$', class: component, component: battery}
+  # release 001, superseded or not on the 2.0 list
+  - {name: release 001 wheels GEVN 200, match: '/ GEVN_200_30H7_[^/]*:\d+', class: release_001, reason: release 001 drivetrain; replaced by the ZLLG80ASM250-L-B hub motor wheels}
+  - {name: release 001 gear motors, match: '/ Мотор-редуктор [^/]*:\d+', class: release_001, reason: release 001 drivetrain}
+  - {name: release 001 flange bearings, match: '/ Rexnord-UCFL[^/]*:\d+', class: release_001, reason: release 001 drivetrain}
+  - {name: 'release 001 wheel brackets, motor brackets and drive shafts (MMP.03)', match: '/ MMP\.03\.00\.00\.00[1-4] [^/]*$', class: release_001, reason: release 001 drivetrain; the 2.0 wheel assembly is not designed yet}
+  - {name: release 001 magnetic encoders PT1.00.00.240 to .243, match: '/ PT1\.00\.00\.240 Magnetic encoder[^/]*:\d+ / ', class: release_001, reason: release 001 drivetrain}
+  - {name: release 001 shaft keys, match: '/ (РТ1\.00\.00\.217 Шпонка|Шпонка 3-4x4x25)[^/]*:\d+$', class: release_001, reason: release 001 drivetrain}
+  - {name: 'release 001 push buttons (red mushroom B200MK, green D22 B100FY)', match: '/ Кнопка [^/]*:\d+$', class: release_001, reason: not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5}
+  - {name: 3 LED RGB modules, match: '/ 3 LED RGB Module[^/]*:\d+$', class: release_001, reason: not on the 2.0 list}
+  - {name: click shield for Nucleo-64 and its parts, match: '/ Click_Shield_for_Nucleo-64[^/]*:\d+ / (?!stm32_click_mount_plate)', class: release_001, reason: not on the 2.0 list (the 2.0 shield is CTL-002)}
+  # fasteners and small parts
+  - name: fasteners (screws, nuts, washers, rivets, rivet nuts, standoffs, dampers)
+    match: '(Винт|винт|Гайка|Шайба|шайба|Заклёпка|Стойка|[Ss]crew|SCREW|[Ww]asher|_NUT|NUT_|DIN \d|ISO \d|ГОСТ|gost|anti_vib_damper)[^/]*$'
+    class: fastener_small
+  - {name: connectors, match: '/ JST [^/]*:\d+$', class: fastener_small}
+
+# URDF poses of the links that carry component visuals, in base_link. Sensor link poses
+# are read from config/sensor_frames.yaml. tests/test_description_meshes.py checks both
+# against the URDF.
+sensor_frames: ros2/src/openamrobot_description/config/sensor_frames.yaml
+links:
+  left_wheel_link: {xyz: [0.0, 0.200, 0.0], rpy: [0.0, 0.0, 0.0]}
+  right_wheel_link: {xyz: [0.0, -0.200, 0.0], rpy: [0.0, 0.0, 0.0]}
+  fl_caster_link: {xyz: [0.27505, 0.215, -0.043833], rpy: [0.0, 0.0, 0.0]}
+  fr_caster_link: {xyz: [0.27505, -0.215, -0.043833], rpy: [0.0, 0.0, 0.0]}
+  bl_caster_link: {xyz: [-0.27495, 0.215, -0.043833], rpy: [0.0, 0.0, 0.0]}
+  br_caster_link: {xyz: [-0.27495, -0.215, -0.043833], rpy: [0.0, 0.0, 0.0]}
+
+# Output meshes in meshes/visual/. frame base_link: in base_link; otherwise in the frame of
+# each link listed (visual origin xyz 0, rpy as given in visual_rpy).
+outputs:
+  base_chassis: {file: base_chassis.stl, frame: base_link, material: chassis_steel, colour: from_cad}
+  base_covers: {file: base_covers.stl, frame: base_link, material: chassis_cover, colour: from_cad}
+  base_equipment: {file: base_equipment.stl, frame: base_link, material: equipment_dark, colour: [0.20, 0.20, 0.22]}
+  hub_motor_wheel: {file: hub_motor_wheel.stl, frame: link, material: hub_motor_dark, colour: [0.12, 0.12, 0.13]}
+  caster: {file: caster.stl, frame: link, material: caster_grey, colour: [0.55, 0.56, 0.58]}
+  lidar: {file: lidar.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}
+  base_camera: {file: base_camera.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}
+  ultrasonic: {file: ultrasonic.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}
+  tof: {file: tof.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}
+  imu: {file: imu.stl, frame: link, material: imu_board, colour: [0.05, 0.12, 0.07]}
+
+# 2.0 components (BOM Issue 7.11, 25 Oct 2026). Each is modelled as an envelope or listed as
+# not modelled with the reason. name, bom_row, node_ids (one GLB node per placement link),
+# class (component, or envelope for a space allocation) and provisional feed the GLB extras. Envelope parts: box (size_mm, xyz_mm, rpy), cylinder (radius_mm,
+# length_mm, axis, xyz_mm, optional sections: 6 for a hex) or revolve (axis, profile_mm as [axial, radius]
+# pairs), in the placement frame: placement.link (the link frame) or placement.base_link (base_link, mm).
+# Optional per part: repeat {count, step_mm} (written out as separate parts), feature (a name counted in
+# PROVENANCE.yaml components.<id>.features), alpha (GLB opacity, alphaMode BLEND), stl: false (GLB only),
+# xyz_rel_mm (battery: relative to the envelope centre placed by placement_rule).
+# check: the STEP instance the dimensions or placement were taken from; the converter
+# recomputes it and fails when it no longer matches (box in base_link or local size, mm).
+components:
+  hub_motor_wheel:
+    bom: ZLTECH ZLLG80ASM250-L-B hub motor wheel with brake (DRV-001)
+    name: Hub motor wheel
+    bom_row: DRV-001
+    qty: 2
+    status: modelled
+    output: hub_motor_wheel
+    placement: {links: [left_wheel_link, right_wheel_link], visual_rpy: {right_wheel_link: [0.0, 0.0, 3.141592653589793]}}
+    node_ids: {left_wheel_link: hub_motor_wheel_left, right_wheel_link: hub_motor_wheel_right}
+    brake_side: inboard
+    position: >-
+      axle on base_link at y +/-0.200 (track 0.400 placeholder, DRIVE-TRACK open); brake side
+      inboard (decided 25 Oct 2026; the brake-inboard fit check below stays)
+    dimension_source: ZLLG80ASM250-L-B2 V1.01 double-shaft STEP (tyre 200 x 49.4 mm, hub 136 mm, brake housing 75 mm, shafts 20.8 and 15 mm)
+    parts:
+      # axial coordinate along link y, 0 at the tyre centre, + outboard for the left wheel
+      - shape: revolve
+        axis: y
+        colour: [0.12, 0.12, 0.13]
+        profile_mm: [[54.4, 0.0], [54.4, 7.5], [49.4, 7.5], [49.4, 13.0], [29.6, 13.0], [29.6, 68.0],
+                     [24.7, 68.0], [24.7, 100.0], [-24.7, 100.0], [-24.7, 68.0], [-29.6, 68.0],
+                     [-29.6, 28.0], [-34.4, 28.0], [-34.4, 37.5], [-37.6, 37.5], [-37.6, 31.75],
+                     [-44.1, 31.75], [-44.1, 33.25], [-65.6, 33.25], [-65.6, 12.7], [-73.4, 12.7],
+                     [-73.4, 11.5], [-77.4, 11.5], [-77.4, 13.0], [-90.4, 13.0], [-90.4, 10.42],
+                     [-113.4, 10.42], [-113.4, 0.0]]
+    check: {step: hub_motor, local_size_mm: [260.85, 200.0, 200.0], note: whole model including the 112 mm lead stub}
+
+  castor:
+    bom: LPA-VSTH 35K swivel castor (MEC-002)
+    name: Swivel castor
+    bom_row: MEC-002
+    qty: 4
+    status: modelled
+    output: caster
+    placement: {links: [fl_caster_link, fr_caster_link, bl_caster_link, br_caster_link]}
+    node_ids: {fl_caster_link: castor_front_left, fr_caster_link: castor_front_right, bl_caster_link: castor_rear_left,
+               br_caster_link: castor_rear_right}
+    position: existing caster links; the link origin is 54.167 mm above the floor
+    dimension_source: STEP instances GH-LPA035_G15 (top plate 60 x 60 mm, top 52.0 mm above the floor) and VSTH_35_6K_G15 (wheel 35 x 30 mm); BOM 7.11 MEC-002 (52 mm overall height, 15 mm offset)
+    parts:
+      - {shape: box, size_mm: [60.0, 60.0, 3.4], xyz_mm: [0.0, 0.0, -3.867], colour: [0.55, 0.56, 0.58]}
+      - {shape: box, size_mm: [30.0, 36.0, 31.1], xyz_mm: [-7.5, 0.0, -21.117], colour: [0.55, 0.56, 0.58], note: fork, simplified from the plate and wheel positions}
+      - {shape: cylinder, radius_mm: 17.5, length_mm: 30.0, axis: y, xyz_mm: [-15.0, 0.0, -36.667], colour: [0.85, 0.85, 0.82]}
+    check: {unit: '/ VSTH_35_6K_G15:\d+$', local_size_mm: [30.0, 35.0, 35.0]}
+
+  motor_driver:
+    bom: ZLAC8015D V4.2 motor driver (DRV-002)
+    name: Motor driver
+    bom_row: DRV-002
+    qty: 1
+    status: modelled
+    output: base_equipment
+    placement: {base_link: true}
+    position: as in the CAD, on the motor driver mount
+    dimension_source: >-
+      ZLAC8015D manual V1.03 Fig. 1 (housing 150 x 97 x 31 mm); STEP instance ZLAC8015D-V4_0-20250902 for the
+      placement and the 5 mm base plate on the +x face (150 x 110.3 x 31 mm with the connectors). Heatsink fins on
+      the -x face, connector strip on top: schematic (count and pitch not documented), inside the STEP box
+    parts:
+      - {shape: box, box_mm: [[-80.82, -76.83, -42.88], [-58.82, 73.17, 54.12]], colour: [0.20, 0.20, 0.22], feature: housing}
+      - {shape: box, box_mm: [[-58.82, -76.83, -42.88], [-53.82, 73.17, 54.12]], colour: [0.62, 0.63, 0.65], feature: base plate}
+      - {shape: box, size_mm: [4.0, 150.0, 4.0], xyz_mm: [-82.82, -1.83, -40.88], colour: [0.62, 0.63, 0.65], feature: heatsink fin,
+         repeat: {count: 10, step_mm: [0.0, 0.0, 10.333]}}
+      - {shape: box, box_mm: [[-78.82, -34.83, 54.12], [-62.82, 12.17, 67.42]], colour: [0.08, 0.30, 0.16], feature: connector strip}
+    check: {unit: '/ ZLAC8015D-V4[^/]*:\d+$', base_link_box_mm: [[-84.82, -76.83, -42.88], [-53.82, 73.17, 67.42]]}
+
+  ultrasonic:
+    bom: MaxBotix MB7060 XL-MaxSonar-WR, housing -2XX, 3/4 inch NPS (SNS-002)
+    name: Ultrasonic sensor
+    bom_row: SNS-002
+    qty: 4
+    status: modelled
+    output: ultrasonic
+    placement: {links: [us_front_left, us_front_right, us_rear_left, us_rear_right]}
+    node_ids: {us_front_left: ultrasonic_front_left, us_front_right: ultrasonic_front_right,
+               us_rear_left: ultrasonic_rear_left, us_rear_right: ultrasonic_rear_right}
+    position: frame at the sensor face; body through the panel hole, lock nut on the inner panel face
+    dimension_source: 'MB7060 datasheet 11838ab, compact housing -200: face section 3/4-14 NPS 26.2 mm x 14.4 mm, body 34.7 mm x 17.9 mm, hex lock nut 34.8 mm; nut thickness 5 mm and panel thickness 2 mm from the STEP panel; transducer face diameter schematic'
+    parts:
+      - {shape: cylinder, radius_mm: 13.1, length_mm: 14.4, axis: x, xyz_mm: [-7.2, 0.0, 0.0], colour: [0.30, 0.31, 0.32], feature: threaded face section}
+      - {shape: cylinder, radius_mm: 10.0, length_mm: 0.3, axis: x, xyz_mm: [0.15, 0.0, 0.0], colour: [0.03, 0.03, 0.03], feature: transducer face,
+         note: transducer diameter schematic}
+      - {shape: cylinder, radius_mm: 17.35, length_mm: 17.9, axis: x, xyz_mm: [-23.35, 0.0, 0.0], colour: [0.1, 0.1, 0.1], feature: body}
+      - {shape: cylinder, radius_mm: 17.4, length_mm: 5.0, axis: x, sections: 6, xyz_mm: [-4.5, 0.0, 0.0], colour: [0.16, 0.16, 0.17], feature: hex lock nut,
+         note: 'hex, 34.8 mm across the corners (datasheet I)'}
+
+  tof:
+    bom: Benewake TF-Luna ToF cliff sensor (SNS-001)
+    name: ToF cliff sensor
+    bom_row: SNS-001
+    qty: 2
+    status: modelled
+    output: tof
+    placement: {links: [tof_front, tof_rear]}
+    node_ids: {tof_front: tof_front, tof_rear: tof_rear}
+    position: frame at the lens face on mount MMP.00.00.00.005, pitch from the frame
+    dimension_source: >-
+      TF-Luna datasheet A05 (35 x 21.25 x 12.5 mm; body 26.5 mm wide, mounting ears to 35 mm, 9 mm high, holes on
+      30.5 mm; two lenses 10.5 mm diameter on 10.5 mm centres); STEP instance BeneWake TF-LUNA (35 x 21.25 x 13.5 mm
+      including the lens caps). Ear thickness 3 mm: schematic
+    parts:
+      - {shape: box, size_mm: [12.5, 26.5, 21.25], xyz_mm: [-7.25, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: body}
+      - {shape: box, size_mm: [3.0, 35.0, 9.0], xyz_mm: [-12.0, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: mounting ears}
+      - {shape: cylinder, radius_mm: 5.25, length_mm: 1.0, axis: x, xyz_mm: [-0.5, 5.25, 0.0], colour: [0.03, 0.03, 0.04], feature: lens,
+         repeat: {count: 2, step_mm: [0.0, -10.5, 0.0]}, note: lens caps, 1 mm (13.5 minus 12.5)}
+    check: {unit: '/ BeneWake TF-LUNA:\d+$', local_size_mm: [35.0, 13.5, 21.25]}
+
+  lidar:
+    bom: SLAMTEC RPLIDAR S3 (S3M1-R2) (NAV-001)
+    name: 2D LiDAR
+    bom_row: NAV-001
+    qty: 1
+    status: modelled
+    output: lidar
+    placement: {links: [lidar_link]}
+    node_ids: {lidar_link: lidar}
+    position: lidar_link at the scan plane; base on the 17.5 mm spacer, scan plane 30.55 mm above the base (NAV-LIDAR stack 174.0 + 17.5 + 30.55)
+    dimension_source: >-
+      STEP instance s3_continue_20230605 (body 55.6 mm x 20.5 mm, head 54.6 mm x 22.8 mm, 41.3 mm overall); window
+      band 7 mm high around the scan plane: schematic
+    parts:
+      - {shape: cylinder, radius_mm: 27.8, length_mm: 20.5, axis: z, xyz_mm: [0.0, 0.0, -20.3], colour: [0.16, 0.16, 0.18], feature: base}
+      - {shape: cylinder, radius_mm: 27.3, length_mm: 22.8, axis: z, xyz_mm: [0.0, 0.0, -0.65], colour: [0.10, 0.10, 0.11], feature: rotating head}
+      - {shape: cylinder, radius_mm: 27.45, length_mm: 7.0, axis: z, xyz_mm: [0.0, 0.0, 0.0], colour: [0.02, 0.02, 0.03], feature: window band}
+    check: {unit: '/ s3_continue_[^/]*:\d+$', local_size_mm: [55.6, 41.3, 55.6]}
+
+  base_camera:
+    bom: Orbbec Gemini 336L (CAM-001)
+    name: Base RGB-D camera
+    bom_row: CAM-001
+    qty: 1
+    status: modelled
+    output: base_camera
+    placement: {links: [base_camera_link]}
+    node_ids: {base_camera_link: base_camera}
+    position: base_camera_link at the front glass, 10 deg up (bt10), on the camera mount
+    dimension_source: >-
+      STEP instance 00_GEMINI_336L_3D_ALL_ASM (124.0 x 29.0 x 29.2 mm, glass 2.2 mm ahead of the model origin); the
+      three lens window centres (y -47.6, +23.6 and +47.3 mm) are read from that instance, positions only; lens
+      diameter 9 mm: schematic
+    parts:
+      - {shape: box, size_mm: [27.0, 124.0, 29.0], xyz_mm: [-13.5, 0.0, 0.0], colour: [0.10, 0.10, 0.11], feature: body}
+      - {shape: box, size_mm: [2.2, 110.0, 22.0], xyz_mm: [1.1, 0.0, 0.0], colour: [0.02, 0.02, 0.02], note: front glass, feature: front glass}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, -47.6, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, 23.6, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
+      - {shape: cylinder, radius_mm: 4.5, length_mm: 0.4, axis: x, xyz_mm: [2.4, 47.3, 0.0], colour: [0.20, 0.22, 0.26], feature: lens}
+    check: {unit: '/ 00_GEMINI_336L_3D_ALL_ASM_1_ASM:\d+$', local_size_mm: [124.02, 29.03, 29.18]}
+
+  imu:
+    bom: TDK ICM-42688-P on 6DOF IMU 14 Click MIKROE-4237 (IMU-001)
+    name: IMU
+    bom_row: IMU-001
+    qty: 1
+    status: modelled
+    output: imu
+    placement: {links: [imu_link]}
+    node_ids: {imu_link: imu}
+    position: imu_link at the package centre (yaw -90 deg; link x = base -y, link y = base x)
+    dimension_source: package 2.5 x 3.0 x 0.91 mm (TDK DS-000347 v1.9); board 25.4 x 42.9 x 1.6 mm and the package position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP; the repository holds only the click schematic
+    parts:
+      - {shape: box, size_mm: [3.0, 2.5, 0.91], xyz_mm: [0.0, 0.0, 0.0], colour: [0.08, 0.08, 0.08]}
+      - {shape: box, size_mm: [25.4, 42.9, 1.6], xyz_mm: [0.0, -15.1, -1.255], colour: [0.05, 0.12, 0.07]}
+    check: {unit: '/ 6DOF_IMU_14_click[^/]*:\d+ / Board:\d+$', local_size_mm: [25.4, 42.9, 0.4], note: the board model is a 0.4 mm surface}
+
+  compute:
+    bom: NVIDIA Jetson Orin NX 16 GB on reComputer Robotics J401 carrier (CMP-001, CMP-002)
+    name: Compute (Jetson Orin NX on J401 carrier)
+    bom_row: CMP-001, CMP-002
+    qty: 1
+    status: modelled
+    output: base_equipment
+    placement: {base_link: true}
+    position: as in the CAD
+    dimension_source: >-
+      STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts 16.3 mm) and its Orin
+      NX module instance IMPORTED1-39732_4 (76.9 x 49.1 x 10.6 mm). Heatsink block on the module (CMP-005 heatsink
+      and fan kit, not in the CAD): illustrative, module footprint, 3 mm base and 12 fins 15 mm high, fan not drawn;
+      dimensions not documented
+    parts:
+      - {shape: box, box_mm: [[120.43, -57.03, 102.59], [232.43, 57.97, 104.19]], colour: [0.06, 0.24, 0.12], note: carrier PCB, feature: J401 carrier board}
+      - {shape: box, box_mm: [[118.12, -57.03, 86.29], [236.22, 57.97, 102.59]], colour: [0.22, 0.22, 0.24], note: underside connectors and parts, feature: underside parts}
+      - {shape: box, box_mm: [[153.10, -39.95, 104.19], [202.15, 36.90, 113.29]], colour: [0.05, 0.18, 0.09], note: Orin NX module, feature: Orin NX module}
+      - {shape: box, box_mm: [[153.10, -39.95, 113.29], [202.15, 36.90, 116.29]], colour: [0.70, 0.71, 0.73], feature: heatsink base}
+      - {shape: box, size_mm: [49.05, 2.0, 15.0], xyz_mm: [177.625, -38.95, 123.79], colour: [0.70, 0.71, 0.73], feature: heatsink fin,
+         repeat: {count: 12, step_mm: [0.0, 6.8045, 0.0]}}
+    check: {unit: '/ recomputer_robotics_j401_pcba[^/]*:\d+$', base_link_box_mm: [[118.12, -57.03, 86.29], [236.22, 57.97, 118.59]]}
+
+  base_controller:
+    bom: STMicroelectronics NUCLEO-H723ZG (CTL-001)
+    name: Base controller
+    bom_row: CTL-001
+    qty: 1
+    status: modelled
+    output: base_equipment
+    placement: {base_link: true}
+    position: on the STM32 click mount plate, at the placement of the NUCLEO-144 board model in the STEP
+    dimension_source: >-
+      Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 Fig. 6; outline read from the MB1364 PCB in the STEP, the
+      same board outline); the two ST morpho header rows from UM2407 Fig. 6 (2 x 36 pins at 2.54 mm, outer pin
+      rows 63.50 mm apart, first pin 12.70 mm from the USB end, the -x end in the STEP); header height 8.5 mm and the
+      MCU square (position read from the STEP LQFP144 instance): schematic; other components not modelled
+    parts:
+      - {shape: box, box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]], colour: [0.06, 0.24, 0.12], feature: NUCLEO-144 board}
+      - {shape: box, box_mm: [[-28.14, -46.98, 102.00], [63.30, -41.90, 110.50]], colour: [0.05, 0.05, 0.05], feature: ST morpho header row}
+      - {shape: box, box_mm: [[-28.14, 13.98, 102.00], [63.30, 19.06, 110.50]], colour: [0.05, 0.05, 0.05], feature: ST morpho header row}
+      - {shape: box, box_mm: [[20.70, -25.10, 102.00], [42.70, -3.10, 103.60]], colour: [0.12, 0.12, 0.13], feature: MCU}
+    check: {unit: '/ MB1364-H743ZI[^/]*:\d+ / Board:\d+$', base_link_box_mm: [[-39.57, -48.96, 100.40], [93.77, 21.04, 102.00]]}
+
+  battery:
+    bom: 8S1P LiFePO4 pack, EVE LF105 cells, with Daly BMS and pack fuse (PWR-001, PWR-002, enclosure PWR-028)
+    name: Battery cell-group envelope
+    bom_row: PWR-001, PWR-028
+    qty: 1
+    status: modelled
+    class: envelope
+    provisional: true
+    output: base_equipment
+    placement: {base_link: true}
+    position: >-
+      rear section of the base deck, between the centre bracket and the left and right top-cover
+      supports (project-lead decision of 25 Oct 2026): standing on the base plate top (54.0 mm
+      above the floor), centred in y, front face 2 mm behind the rear face of the centre bracket so
+      that the free space towards the rear panel stays together. The converter computes the x of
+      both faces and reports every clearance and the free space behind and beside the envelope
+      (build/cad_checks.md, PROVENANCE.yaml components.battery.rear_deck_check); the envelope is
+      not moved when a clearance is under 2 mm.
+    dimension_source: >-
+      cell-group envelope, provisional (project-lead decision of 25 Oct 2026): eight EVE LF105 cells
+      upright in one row across the robot, cell layout 200 mm high, 130 mm fore-aft and 38 mm thick
+      across the robot, 5 mm allowance on each outer face, rounded up: 314 (y) x 140 (x) x 210 (z) mm.
+      Not the complete battery assembly: the BMS, power distribution board, pack fuse, busbars and
+      wiring are not modelled and are never on top of the cells; dimensions not released. Drawn as
+      eight separate LF105 cell boxes (130 fore-aft x 38 across x 200 high, 1 mm gaps taken from the
+      5 mm allowance, so 1.5 mm to the envelope at the outer y faces) with two terminal studs each
+      (diameter 10 mm, 5 mm high, 70 mm apart: schematic, within the allowance above the cells), inside a
+      translucent envelope shell (GLB only)
+    parts:
+      # x of the centre is computed by placement_rule (written into PROVENANCE.yaml); the cells and
+      # studs are placed relative to that centre (xyz_rel_mm)
+      - {shape: box, size_mm: [140.0, 314.0, 210.0], xyz_mm: [0.0, 0.0, 61.0], colour: [0.30, 0.33, 0.36], alpha: 0.14, stl: false,
+         feature: envelope shell}
+      - {shape: box, size_mm: [130.0, 38.0, 200.0], xyz_rel_mm: [0.0, -136.5, 0.0], colour: [0.36, 0.43, 0.53], feature: cell,
+         repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
+      - {shape: cylinder, radius_mm: 5.0, length_mm: 5.0, axis: z, xyz_rel_mm: [35.0, -136.5, 102.5], colour: [0.72, 0.73, 0.75],
+         feature: terminal stud, repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
+      - {shape: cylinder, radius_mm: 5.0, length_mm: 5.0, axis: z, xyz_rel_mm: [-35.0, -136.5, 102.5], colour: [0.72, 0.73, 0.75],
+         feature: terminal stud, repeat: {count: 8, step_mm: [0.0, 39.0, 0.0]}}
+    placement_rule:
+      derivation: 8 cells x 38 mm across + 2 x 5 mm, 130 mm fore-aft + 2 x 5 mm, 200 mm high + 2 x 5 mm, rounded up
+      stand_z_mm: -44.0
+      front_reference: centre_bracket
+      front_clearance_mm: 2.0
+      sample_mm: 1.0
+      clearance_report:
+        - {name: centre bracket, nodes: [centre_bracket]}
+        - {name: top-cover support left, nodes: [support_rear_left]}
+        - {name: top-cover support right, nodes: [support_rear_right]}
+        - {name: cover underside (above the envelope), nodes: [cover], above_module: true}
+        - {name: rear sloped cover flange, nodes: [cover_flange_rear]}
+        - {name: cover rear edge, nodes: [cover], x_below_mm: -300.0}
+        - {name: base plate (above the deck top), nodes: [base_plate], above_deck: true}
+
+  safety_relay_set:
+    bom: Pilz PNOZ s3, 2 x Gigavac GX11CAC contactors, main fuse F0 (Class T), lockable disconnect (SAF, PWR-003, PWR-004)
+    name: Safety relay, contactors, main fuse and disconnect
+    bom_row: SAF-002, SAF-003, PWR-003, PWR-004
+    qty: 1 set
+    status: not modelled
+    reason: P-03 rev19.7 and E-01 rev1.4 give no position (E-01 section 11 step 5 leaves the CAD space for both fuse blocks, contactors, PNOZ and disconnect to the mechanical owner)
+
+  estop:
+    bom: Schneider XB4BS8445 E-stop on the base (SAF-001)
+    name: Base E-stop
+    bom_row: SAF-001
+    qty: 1
+    status: not modelled
+    reason: E-01 says "base front" only; no position is given (E-01 section 11 step 5)
+
+  reset_button:
+    bom: Schneider XB4BW36B5 RESET button (SAF-005)
+    name: RESET button
+    bom_row: SAF-005
+    qty: 1
+    status: not modelled
+    reason: no position in P-03 rev19.7 or E-01 rev1.4 (E-01 section 11 step 5)
+
+  wireless_charging_receiver:
+    bom: TZBOT WCM-500-24 receiver (WCH-002)
+    name: Wireless charging receiver
+    bom_row: WCH-002
+    qty: 1
+    status: not modelled
+    reason: P-03 rev19.7 items 20 and 23 and E-01 rev1.4 section 7 give no receiver position; no docking design places it
+
+# Engineering checks (reported, never applied). Design values from the register and P-03.
+checks:
+  panel_faces_mm: {front: '/ MMP\.00\.00\.00\.001 Front panel[^/]*$', back: '/ MMP\.00\.00\.00\.002 Back panel[^/]*$', design: 390.0}
+  chassis_width_mm: {side: '/ MMP\.00\.00\.00\.003 Side panel[^/]*$', design: 582.0}
+  hub_motor_fit:
+    exclude_leaf: '5G-shuang'
+    chassis_rules: true
+    min_clearance_mm: 5.0
+  wheel_radius_mm: {design: 100.0}
+  castors: {unit: '/ LPA-VSTH_35K_[^/]*:\d+$', design_xy_mm: [275.0, 215.0]}
+  lidar: {spacer: '/ lidar_mount_spacer:\d+$', s3_base_to_scan_plane_mm: 30.55, design_scan_plane_mm: 222.0, s3: '/ s3_continue_[^/]*:\d+$'}
+  gemini: {unit: '/ 00_GEMINI_336L_3D_ALL_ASM_1_ASM:\d+$', mount: '/ camera_mount v8:\d+$', design_xyz_mm: [387.0, 0.0, 46.0], design_pitch_deg: 10.0}
+  ultrasonic_holes: {panels: '/ MMP\.00\.00\.00\.00[12] [^/]*$', diameter_range_mm: [25.0, 32.0], design_x_mm: 390.0, design_y_mm: 130.0, design_z_mm: -6.6, design_diameter_mm: 27.5}
+  tof:
+    panels: '/ MMP\.00\.00\.00\.00[12] [^/]*$'
+    hole_diameter_range_mm: [8.0, 23.0]
+    hole_y_range_mm: [-25.0, 25.0]
+    unit: '/ BeneWake TF-LUNA:\d+$'
+    design_hole_x_mm: 390.0
+    design_lens_x_mm: 399.0
+    design_z_mm: -6.6
+    design_hole_diameter_mm: 22.0
+    design_pitch_deg: 10.0
+  imu: {unit: '/ 6DOF_IMU_14_click[^/]*:\d+ / U1:\d+$', design_xyz_mm: [54.4, 0.0, 121.0]}
