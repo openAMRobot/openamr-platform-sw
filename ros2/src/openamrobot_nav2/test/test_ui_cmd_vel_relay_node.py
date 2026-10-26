@@ -14,6 +14,8 @@ rclpy = pytest.importorskip('rclpy')
 from builtin_interfaces.msg import Time  # noqa: E402,I100
 from geometry_msgs.msg import Twist, TwistStamped, Vector3  # noqa: E402
 from openamrobot_nav2.ui_cmd_vel_relay_node import UiCmdVelRelayNode  # noqa: E402
+from rclpy.parameter import Parameter  # noqa: E402
+from rclpy.time import Time as RclpyTime  # noqa: E402
 
 
 def _stamped(x, age_s=0.0, now=None):
@@ -114,3 +116,47 @@ class TestStaleCommandsAreDropped(NodeTestCase):
         self._spin_both()
         self.assertEqual(len(self.received), 1)
         self.assertAlmostEqual(self.received[0].linear.x, 0.1, places=3)
+
+
+class TestZeroStampNearSimulationStartup(NodeTestCase):
+    """
+    Mohamed Sayed's platform-sw#90 review, third pass.
+
+    The previous zero-stamp regression (test_a_zero_or_missing_stamp_is_dropped)
+    only exercises a real wall clock, where now_s is already a huge number, so
+    age_s for a zero stamp comes out huge and the existing age > STALE_AFTER_S
+    branch alone happens to catch it - never actually exercising the new
+    explicit (0, 0) check. This uses rclpy's ROS-time override (the standard
+    way to control sim time in a test without a live /clock publisher) to put
+    the node's own clock at or just past zero, exactly his repro: "now=0,
+    stamp=0" and "now=0.1, stamp=0" both used to return not-stale.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.node.set_parameters([Parameter('use_sim_time', value=True)])
+        self._clock = self.node.get_clock()
+        self._clock._set_ros_time_is_active(True)
+
+    def _zero_stamp_msg(self):
+        msg = TwistStamped()
+        msg.header.stamp = Time(sec=0, nanosec=0)
+        msg.twist = Twist(linear=Vector3(x=0.6))
+        return msg
+
+    def test_zero_stamp_is_stale_when_the_sim_clock_is_at_exactly_zero(self):
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=0))
+        self.assertTrue(self.node._is_stale(self._zero_stamp_msg()))
+
+    def test_zero_stamp_is_stale_a_tenth_of_a_second_into_the_simulation(self):
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=int(0.1e9)))
+        self.assertTrue(self.node._is_stale(self._zero_stamp_msg()))
+
+    def test_a_genuinely_fresh_stamp_at_sim_time_near_zero_still_forwards(self):
+        # the fix must not become "reject everything near t=0" - a message
+        # legitimately stamped close to (but not exactly) zero is still fresh
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=int(0.05e9)))
+        msg = TwistStamped()
+        msg.header.stamp = Time(sec=0, nanosec=int(0.04e9))
+        msg.twist = Twist(linear=Vector3(x=0.2))
+        self.assertFalse(self.node._is_stale(msg))

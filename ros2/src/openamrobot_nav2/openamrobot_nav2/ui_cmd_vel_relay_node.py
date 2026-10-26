@@ -42,6 +42,14 @@ skew between co-located processes (NOT network latency between the browser
 and this node - that only ever makes a message look OLDER, never younger)
 so genuinely fresh traffic does not flap on sub-millisecond jitter.
 
+Zero/missing stamps near simulation startup (Mohamed Sayed's platform-sw#90
+review, third pass): the age-based checks above alone cannot tell a never-set
+(0, 0) stamp apart from a genuinely fresh message sent at t~=0, since both
+produce a small age_s when this node's own clock (use_sim_time) is itself
+still near zero. `_is_stale()` checks for a literal (0, 0) stamp explicitly,
+before any age math, so this holds at sim startup the same as it already did
+under a real wall clock (where a zero stamp is trivially far in the past).
+
 This still does not resolve the broader cross-repo contract Mohamed asked
 for: whether the browser's own wall-clock stamp can be trusted at all
 (his stated preference is stamping at the robot-side ROS publisher/bridge
@@ -80,6 +88,19 @@ class UiCmdVelRelayNode(Node):
         self._pub.publish(msg.twist)
 
     def _is_stale(self, msg: TwistStamped) -> bool:
+        # A never-set/zero stamp is invalid on its own terms, checked before
+        # any age math at all. Near simulation startup (use_sim_time, clock
+        # at or just past zero), now_s is itself close to zero, so
+        # age_s = now_s - 0 comes out small either way - indistinguishable
+        # from a genuinely fresh message actually sent at t~=0. The age-based
+        # check alone cannot catch this (Mohamed Sayed's platform-sw#90
+        # review, third pass): now=0/stamp=0 and now=0.1/stamp=0 both passed
+        # as fresh. This only ever rejects a literal (0, 0) stamp - a real
+        # clock publishing exactly second 0, nanosecond 0 is the one instant
+        # genuinely indistinguishable from "never set", and treating it as
+        # stale costs nothing a 1ns-later retry won't recover.
+        if msg.header.stamp.sec == 0 and msg.header.stamp.nanosec == 0:
+            return True
         stamp_s = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         now_s = self.get_clock().now().nanoseconds * 1e-9
         age_s = now_s - stamp_s
