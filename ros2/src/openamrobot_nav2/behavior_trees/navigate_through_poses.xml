@@ -12,12 +12,33 @@
   1. ClearEntireCostmap -> ClearCostmapAroundRobot (bounded) in all four places, same
      reset_distance values as navigate_to_pose.xml for consistency (3.0 m global /
      1.5 m local) - not re-derived here, see that file's own comment for the full
-     rationale. Still a starting point for real-robot tuning, not a measured constant.
+     rationale. These values, and the 2.0 s Wait below, are a starting point for
+     real-robot tuning, not measured constants: a planner failure caused by a
+     stale obstacle more than 1.5 m from the robot is not cleared by this bounded
+     radius and ends in escalation instead (BotshareAI's platform-sw#92 review).
   2. An explicit Wait inserted immediately before each inline (per-action) bounded
      clear, same 2.0 s duration as navigate_to_pose.xml, for the same reason: long
      enough for a transient obstacle to clear, short enough not to blow the outer
-     RecoveryNode's retry budget (6 retries, matching
-     navigation_status_profile.yaml's recovery_attempt_limit).
+     RecoveryNode's retry budget. That budget (number_of_retries="6" on
+     NavigateRecovery, above) is Nav2's own outer-retry count and is a separate
+     thing from RecoveryTracker's attempt_limit (navigation_status_profile.yaml's
+     recovery_attempt_limit, status_trackers.py) - Nav2 counts outer retries of
+     the whole NavigateRecovery node, RecoveryTracker counts BT node RUNNING
+     events one level down. They happen to both read "6" today, but nothing
+     keeps them in sync, and BotshareAI's platform-sw#92 review is exactly why
+     that distinction matters: each inline Wait is explicitly named below so it
+     is never mistaken for a RecoveryTracker-counted recovery action in the
+     first place (see point 3).
+  3. Both inline Waits above are named (WaitBeforeClear-GlobalContext,
+     WaitBeforeClear-LocalContext), not left as bare <Wait>. RecoveryTracker
+     matches the bare node name "Wait" to count a recovery attempt (same name
+     the outer round-robin's genuine recovery Wait(5.0) uses, unchanged below);
+     an unnamed inline Wait would be indistinguishable from that and would
+     count every ordinary inline clear toward the shared attempt_limit, not
+     just a real escalated recovery - reaching RECOVERY_LIMIT_REACHED around
+     Nav2's 2nd outer retry while Nav2 itself is still legitimately recovering
+     (BotshareAI's platform-sw#92 review). navigate_to_pose.xml needs the same
+     naming (#91).
 
   Left unchanged from stock, and out of scope here for the same reasons as
   navigate_to_pose.xml: the RateController hz="0.333" (through-poses' own lower
@@ -42,7 +63,7 @@
             </ReactiveSequence>
             <Sequence>
               <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-              <Wait wait_duration="2.0"/>
+              <Wait name="WaitBeforeClear-GlobalContext" wait_duration="2.0"/>
               <ClearCostmapAroundRobot name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
             </Sequence>
           </RecoveryNode>
@@ -51,7 +72,7 @@
           <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
           <Sequence>
             <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
-            <Wait wait_duration="2.0"/>
+            <Wait name="WaitBeforeClear-LocalContext" wait_duration="2.0"/>
             <ClearCostmapAroundRobot name="ClearLocalCostmap-Context" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
           </Sequence>
         </RecoveryNode>

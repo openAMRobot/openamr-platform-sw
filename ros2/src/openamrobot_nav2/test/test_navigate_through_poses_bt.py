@@ -67,15 +67,30 @@ def test_all_four_clears_are_bounded_with_expected_reset_distance():
             f'{name} has reset_distance={actual!r}, expected {reset_distance!r}.')
 
 
-def test_inline_clears_are_preceded_by_an_explicit_wait():
+def test_inline_clears_are_preceded_by_a_named_wait():
     """
-    Require wait-for-transient-obstacle as its own step, not folded in.
+    Require wait-for-transient-obstacle as its own, individually named step.
 
     #35/N4: each inline clear's immediately preceding sibling (within the
     same recovery <Sequence>) must be an explicit <Wait>, not the clear
     itself silently acting as the wait.
+
+    That Wait must also be named, not left as bare <Wait> (BotshareAI's
+    platform-sw#92 review): RecoveryTracker (status_trackers.py) matches
+    the bare node name "Wait" to count a recovery attempt - the same name
+    the outer round-robin's genuine recovery Wait(5.0) uses (see
+    test_outer_round_robin_recovery_actions_are_unchanged_from_stock). An
+    unnamed inline Wait would be indistinguishable from that and would
+    count every ordinary inline clear toward the shared attempt_limit,
+    reaching RECOVERY_LIMIT_REACHED around Nav2's 2nd outer retry while
+    Nav2 itself is still legitimately recovering.
+
+    checked_clears guards against this test silently passing vacuously if
+    the loop below ever stopped actually finding both inline clears (the
+    exact kind of positive control the earlier #90 review asked for).
     """
     root = _parse().getroot()
+    checked_clears = set()
     for parent in root.iter():
         children = list(parent)
         for i, child in enumerate(children):
@@ -84,6 +99,7 @@ def test_inline_clears_are_preceded_by_an_explicit_wait():
             name = child.get('name')
             if name not in INLINE_CLEARS:
                 continue
+            checked_clears.add(name)
             assert i > 0, f'{name} has no preceding sibling at all.'
             previous = children[i - 1]
             assert previous.tag == 'Wait', (
@@ -92,6 +108,17 @@ def test_inline_clears_are_preceded_by_an_explicit_wait():
             assert previous.get('wait_duration') == '2.0', (
                 f'The Wait preceding {name} has wait_duration='
                 f'{previous.get("wait_duration")!r}, expected 2.0.')
+            assert previous.get('name'), (
+                f'The Wait preceding {name} has no name attribute, so '
+                f'RecoveryTracker would count it as a bare "Wait" recovery '
+                f'action on every inline clear (platform-sw#92 review).')
+            assert previous.get('name') != 'Wait', (
+                f'The Wait preceding {name} is literally named "Wait", '
+                f'which RecoveryTracker matches the same as an unnamed one.')
+    assert checked_clears == set(INLINE_CLEARS), (
+        f'Expected to check the Wait preceding both {sorted(INLINE_CLEARS)}, '
+        f'actually checked {sorted(checked_clears)} - this test must not '
+        f'pass vacuously by silently checking fewer than both.')
 
 
 def test_outer_round_robin_recovery_actions_are_unchanged_from_stock():
