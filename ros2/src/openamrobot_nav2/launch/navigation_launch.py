@@ -126,9 +126,11 @@ def generate_launch_description():
         actions=[
             SetParameter('use_sim_time', use_sim_time),
             # NOTE: the scan body filter is NOT launched here. Filtering is a DATA-SOURCE
-            # responsibility (Raj review PR1): the sim profile starts the laser_filters chain in
-            # bringup.launch.py; the real profile starts openamrobot_perception. This launch only
-            # CONSUMES /scan_filtered, guaranteeing exactly one publisher per profile.
+            # responsibility (Raj review PR1): both the sim profile (sim_bringup_launch.py)
+            # and the real profile start openamrobot_perception/scan_body_filter (issue #74:
+            # sim switched off the laser_filters truncation chain, which couldn't mask an
+            # interior sector - see scan_body_filter_sim.yaml). This launch only CONSUMES
+            # /scan_filtered, guaranteeing exactly one publisher per profile.
             Node(
                 package='nav2_controller',
                 executable='controller_server',
