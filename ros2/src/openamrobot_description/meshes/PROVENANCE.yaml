@@ -5,8 +5,8 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: 0a7a67976863a408760ee3d2b8700cf1042a944aca32c33c6379f799aca52930
-  converter_sha256: 83c02f1c9da7346654dce09607642a4501b0a043fe56c69aa60c554e6b3132a2
+    sha256: b7d41e8c10ef309a9bd38cc0b3c3a870310e1687d8a4396f63038b7c3cf5f9f6
+  converter_sha256: 3c1e36a90505097aa014f0e3202b7b2353a7c264f6118583b98d8f8e009fc8ab
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
     python: 3.13.17
@@ -114,10 +114,10 @@ outputs:
     - 1.0
   base_equipment:
     file: meshes/visual/base_equipment.stl
-    sha256: 73e77d3c15c9af981a50d4ea18a13ab66883d76fe47a09fa3575bc40481222f6
-    bytes: 127084
-    triangles: 2540
-    triangles_before_decimation: 2540
+    sha256: 2cfe6d6b973e68cda68e36901a607703153335a653ab66e58d4cd5d7e80c267d
+    bytes: 153884
+    triangles: 3076
+    triangles_before_decimation: 3076
     frame: base_link
     material: equipment_dark
     rgba:
@@ -218,11 +218,11 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: fb41c555b1e429804e2794355a08d61bce8315ed0454b4957e3f435d0796b7b0
-  bytes: 844332
-  triangles: 66732
-  primitives: 76
-  node_count: 44
+  sha256: 4c126742d1048f875d20718d06d6b2f680958cfd11cf036f4a704b4dc8e391dd
+  bytes: 854136
+  triangles: 67268
+  primitives: 82
+  node_count: 46
   nodes:
   - id: base_camera
     name: Base RGB-D camera
@@ -328,6 +328,13 @@ glb:
     source: CAD v0.2 part electronics_bracket v19 (production file MMP.04.00.00.002 Electronics bracket), instance
       electronics_bracket v19:2 (openamr-platform-hw mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     triangles: 2100
+  - id: estop
+    name: Base E-stop
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.estop
+    bom_row: SAF-001
+    placeholder: true
+    triangles: 268
   - id: front_panel
     name: Front panel
     class: chassis
@@ -386,6 +393,13 @@ glb:
       mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip)
     bom_row: MEC-001
     triangles: 2798
+  - id: reset_button
+    name: RESET button
+    class: component
+    source: openamr-platform-sw meshes/PROVENANCE.yaml components.reset_button
+    bom_row: SAF-005
+    placeholder: true
+    triangles: 268
   - id: side_panel_left
     name: Side panel (left)
     class: chassis
@@ -1131,19 +1145,125 @@ components:
     reason: P-03 rev19.7 and E-01 rev1.4 give no position (E-01 section 11 step 5 leaves the CAD space for both
       fuse blocks, contactors, PNOZ and disconnect to the mechanical owner)
   estop:
-    bom: Schneider XB4BS8445 E-stop on the base (SAF-001)
+    bom: Schneider XB4BS8445 E-stop with ZBE-102 contact blocks (2NC + 1NO) on the base (SAF-001)
     name: Base E-stop
     bom_row: SAF-001
     qty: 1
-    status: not modelled
-    reason: E-01 says "base front" only; no position is given (E-01 section 11 step 5)
+    status: modelled
+    envelope: true
+    output: base_equipment
+    file: base_equipment.stl
+    position: base front panel, centred on the axis of the hole of the release 001 red mushroom button (B200MK),
+      robot left (+y), to the right of the base camera seen from the front. The converter finds the hole in the
+      STEP and writes the axis into PROVENANCE.yaml components.estop.panel_hole.
+    position_decided: true
+    dimension_source: 'XB4BS8445 (40 mm red mushroom head, 22 mm operator, overall 40 x 47 x 82 mm) with ZBE-102
+      contact blocks; red head 40 mm x 14 mm and chrome stem 22 mm x 20 mm in front of the panel, contact block
+      body 46 (depth) x 30 x 47 mm behind a 2 mm panel sheet: placeholder'
+    class: component
+    placeholder: true
+    placeholder_note: primitives from datasheet dimensions, not the Schneider STEP model (the Schneider and distributor
+      hosts were not reachable from the build environment). Mushroom head diameter 40 mm, 22 mm operator body, envelope
+      40 W x 47 H x 82 D mm from a distributor listing; the split of that depth into head, stem and contact blocks
+      and the 2 mm panel sheet are assumed
+    position_source: P-03 Decision Addendum rev20.0 item 24 (base E-stop in the former red mushroom button hole);
+      E-01 rev1.5 (base front)
+    features:
+      mushroom head: 1
+      operator body: 1
+      contact blocks: 1
+    frame: base_link
+    node_ids:
+    - estop
+    panel_hole:
+      release001_instance: Кнопка «Грибок» без фиксации (1НЗ) красная B200MK EMAS_По умолчанию:1
+      panel: MMP.00.00.00.001 Front panel_По умолчанию:1
+      release001_instance_centre_mm:
+      - 380.2
+      - 130.0
+      - 44.5
+      hole_axis_mm:
+        x_panel_outer_face: 390.0
+        y: 130.0
+        z: 44.5
+      hole_axis_z_floor_mm: 142.5
+      old_hole_diameter_mm: 22.5
+      parts_x_mm:
+      - 342.0
+      - 424.0
+      required_mounting_hole_mm: 22.4
+      required_tolerance_mm:
+      - 0.0
+      - 0.4
+      required_source: 'Harmony XB4 mounting hole 22.4 mm (+0.4/0) per Schneider data as stated in the task of 27
+        Oct 2026; not confirmed: the Schneider datasheet could not be fetched (host denied), distributor listings
+        give a 22 mm cutout'
+      hole_change_mm: -0.1
+      hole_within_required_band: true
+      hole_action: 'keep: the existing 22.50 mm hole is within 22.4 +0.4/-0.0 mm; confirm the tolerance against
+        the Schneider datasheet'
+      expected_side: +y (robot left)
+      measured_side: +y (robot left)
+      side_ok: true
   reset_button:
-    bom: Schneider XB4BW36B5 RESET button (SAF-005)
+    bom: Schneider XB4BW36B5 RESET button, blue, illuminated 24 V, momentary, 1NO + 1NC (SAF-005)
     name: RESET button
     bom_row: SAF-005
     qty: 1
-    status: not modelled
-    reason: no position in P-03 rev19.7 or E-01 rev1.4 (E-01 section 11 step 5)
+    status: modelled
+    envelope: true
+    output: base_equipment
+    file: base_equipment.stl
+    position: base front panel, centred on the axis of the hole of the release 001 green button (B100FY), robot
+      right (-y), to the left of the base camera seen from the front. The converter finds the hole in the STEP and
+      writes the axis into PROVENANCE.yaml components.reset_button.panel_hole.
+    position_decided: true
+    dimension_source: 'XB4BW36B5 (flush illuminated pushbutton, 22 mm): blue head 22 mm x 8 mm in front of the panel,
+      light and contact block body 50 (depth) x 30 x 40 mm behind a 2 mm panel sheet: placeholder'
+    class: component
+    placeholder: true
+    placeholder_note: primitives from datasheet dimensions, not the Schneider STEP model (the Schneider and distributor
+      hosts were not reachable from the build environment). Flush 22 mm illuminated head and 22 mm body; head height,
+      the light and contact block body and the 2 mm panel sheet are assumed
+    position_source: P-03 Decision Addendum rev20.0 item 24 (RESET in the former green button hole), item 20 (XB4BW36B5);
+      E-01 rev1.5
+    features:
+      illuminated head: 1
+      body through the panel: 1
+      light and contact blocks: 1
+    frame: base_link
+    node_ids:
+    - reset_button
+    panel_hole:
+      release001_instance: Кнопка нажимная круглая D22 (мм) с фиксацией (1НО) B100FY зелёная EMAS_По умолчанию:1
+      panel: MMP.00.00.00.001 Front panel_По умолчанию:1
+      release001_instance_centre_mm:
+      - 372.63
+      - -130.0
+      - 44.5
+      hole_axis_mm:
+        x_panel_outer_face: 390.0
+        y: -130.0
+        z: 44.5
+      hole_axis_z_floor_mm: 142.5
+      old_hole_diameter_mm: 22.5
+      parts_x_mm:
+      - 338.0
+      - 398.0
+      required_mounting_hole_mm: 22.4
+      required_tolerance_mm:
+      - 0.0
+      - 0.4
+      required_source: 'Harmony XB4 mounting hole 22.4 mm (+0.4/0) per Schneider data as stated in the task of 27
+        Oct 2026; not confirmed: the Schneider datasheet could not be fetched (host denied), distributor listings
+        give a 22 mm cutout'
+      hole_change_mm: -0.1
+      hole_within_required_band: true
+      hole_action: 'keep: the existing 22.50 mm hole is within 22.4 +0.4/-0.0 mm; confirm the tolerance against
+        the Schneider datasheet'
+      expected_side: -y (robot right)
+      measured_side: -y (robot right)
+      side_ok: true
   wireless_charging_receiver:
     bom: TZBOT WCM-500-24 receiver (WCH-002)
     name: Wireless charging receiver
@@ -1354,7 +1474,8 @@ groups:
   - MMP.00.00.00.000_full_assembly v26 / Кнопка «Грибок» без фиксации (1НЗ) красная B200MK EMAS_По умолчанию:1
   - MMP.00.00.00.000_full_assembly v26 / Кнопка нажимная круглая D22 (мм) с фиксацией (1НО) B100FY зелёная EMAS_По
     умолчанию:1
-  reason: not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5
+  reason: not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5; their panel holes are reused by estop and reset_button
+    (P-03 rev20.0 item 24)
   count: 2
 - group: 3 LED RGB modules
   class: release_001

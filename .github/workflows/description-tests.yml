@@ -53,7 +53,7 @@ jobs:
             ros2/src/openamrobot_description/test/test_description_meshes.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all sixteen description tests ran
+      - name: Check that all twenty-seven description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -61,5 +61,5 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 26 and skipped == 0, 'expected 26 description tests, none skipped'
+          assert tests == 27 and skipped == 0, 'expected 27 description tests, none skipped'
           EOF
