@@ -216,10 +216,14 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # #35: input comes from twist_mux's arbitrated output, not straight
-                # from the controller - every cmd_vel source (nav/dock/manual/stop)
-                # has to clear the mux first. Output stays cmd_vel_smoothed.
-                remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
+                # #35/#90: input is cmd_vel_gated, not twist_mux's raw cmd_vel_mux
+                # output directly - every cmd_vel source (nav/dock/manual/stop) has
+                # to clear the mux AND safety_stop_gate_node's post-mux lock check
+                # first (platform-sw#90, Alex's review: a nonzero Twist from some
+                # OTHER publisher on cmd_vel_stop would otherwise clear the mux at
+                # equal priority and reach here unmodified - see that node's own
+                # docstring). Output stays cmd_vel_smoothed.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_gated')],
             ),
             Node(
                 package='nav2_collision_monitor',
@@ -266,12 +270,14 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', log_level],
     )
 
-    # #35 command arbitration chain: every cmd_vel source -> twist_mux -> cmd_vel_mux
-    # -> velocity_smoother -> cmd_vel_smoothed -> collision_monitor -> cmd_vel (final).
-    # twist_mux is not a composable component, so - like status_node above - these
-    # three run as plain nodes unconditionally, outside either GroupAction, regardless
-    # of use_composition. None are nav2-lifecycle-managed, so none are in
-    # lifecycle_nodes. Config: config/twist_mux.yaml (posted on issue #35).
+    # #35/#90 command arbitration chain: every cmd_vel source -> twist_mux ->
+    # cmd_vel_mux -> safety_stop_gate_node (post-mux lock check) -> cmd_vel_gated
+    # -> velocity_smoother -> cmd_vel_smoothed -> collision_monitor -> cmd_vel
+    # (final). twist_mux is not a composable component, so - like status_node
+    # above - these three run as plain nodes unconditionally, outside either
+    # GroupAction, regardless of use_composition. None are nav2-lifecycle-managed,
+    # so none are in lifecycle_nodes. Config: config/twist_mux.yaml (posted on
+    # issue #35).
     twist_mux_node = Node(
         package='twist_mux',
         executable='twist_mux',
@@ -393,9 +399,10 @@ def generate_launch_description():
                         plugin='nav2_velocity_smoother::VelocitySmoother',
                         name='velocity_smoother',
                         parameters=[configured_params],
-                        # #35: see the non-composed velocity_smoother above - input
-                        # is the mux's arbitrated output, not the raw controller topic.
-                        remappings=remappings + [('cmd_vel', 'cmd_vel_mux')],
+                        # #35/#90: see the non-composed velocity_smoother above -
+                        # input is cmd_vel_gated (post-mux, post-lock-check), not
+                        # cmd_vel_mux or the raw controller topic.
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_gated')],
                     ),
                     ComposableNode(
                         package='nav2_collision_monitor',

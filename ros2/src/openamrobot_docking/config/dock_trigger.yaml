@@ -22,6 +22,25 @@
     undock_reverse_distance: 0.7        # m — straight-line reverse before turning
     undock_reverse_speed: 0.10          # m/s — reverse speed magnitude
 
+    # ─── Collision monitor during docking (platform-sw#90, Alex's review) ────
+    # dock_trigger.py's own declared default (pause_collision_monitor_during_dock:
+    # True) predates #35: before #35 this node published straight to /cmd_vel,
+    # so a live collision_monitor seeing the dock in its stop zone fought it on
+    # the SAME topic and stalled the approach ~15 cm out - pausing collision_monitor
+    # was the fix at the time. Since #35/#90, docking goes out on cmd_vel_dock,
+    # through twist_mux (priority 20) like every other source, then through
+    # collision_monitor like every other source - there is no longer a same-topic
+    # fight to avoid, so the decision is to keep collision_monitor ACTIVE through
+    # docking instead: overriding the node's own default here, not changing it,
+    # since the real hardware launch path falls back to the legacy
+    # opennav_docking pipeline (navigate_to_staging_pose/use_dock_id above),
+    # which still bypasses the mux and could still want the old default.
+    # Accepted consequence: collision_monitor's own stop zone may now cut the
+    # approach short before stop_lidar_distance/docking_distance are reached,
+    # same as it would for any other cmd_vel source nearing an obstacle - this
+    # is the explicitly accepted tradeoff, not a bug to chase.
+    pause_collision_monitor_during_dock: false
+
     # Legacy fields read by opennav_docking::SimpleChargingDock — kept so the
     # real-robot launch can fall back to the upstream pipeline. The 7-phase
     # sequencer ignores them and runs its own NavigateToPose + control loop.

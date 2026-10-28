@@ -19,7 +19,7 @@ velocity_smoother:
   min_velocity: [-0.20, 0.0, -0.5]
   max_accel:   [0.5, 0.0, 0.5]
   max_decel:   [-2.5, 0.0, -2.0]
-  velocity_timeout: 1.0
+  velocity_timeout: 0.3
 ```
 
 - The limits are pinned to the **same** approved real-robot limits as the DWB controller
@@ -29,9 +29,14 @@ velocity_smoother:
 - **`feedback: "OPEN_LOOP"`** — the smoother clamps *commands* using its own model, not measured
   wheel speed. It is a limiter, not a closed-loop safety device (see the gap in
   [`00_safety_overview.md`](00_safety_overview.md) §4).
-- **`velocity_timeout: 1.0`** — if commands stop arriving for 1 s the smoother ramps output to
-  zero rather than latching the last command. This is a *software* stop-on-silence; the firmware
-  watchdog (§2) is the independent backstop underneath it.
+- **`velocity_timeout: 0.3`** (platform-sw#90, Alex's review: was `1.0`, which let a stopped
+  publisher keep driving for up to a full second) — if commands stop arriving for 0.3 s the
+  smoother stops outputting the stale command rather than latching it indefinitely. This is a
+  *software* stop-on-silence; the firmware watchdog (§2) is the independent backstop underneath it.
+  0.3 s matches the software_stop lock's own timeout (`twist_mux.yaml` `locks.software_stop`), so
+  the smoother is not the longest link in the functional-stop chain. See
+  `test_velocity_smoother_publisher_loss_distance.py` for the measured distance bound after a lost
+  publisher.
 
 ---
 

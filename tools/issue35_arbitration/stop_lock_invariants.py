@@ -6,11 +6,18 @@ Mohamed Sayed's review: the mux's lock topic accepts a direct false from
 ANY publisher, and cmd_vel_stop's 255 priority means a nonzero Twist on it
 would be forwarded unchanged - neither is something safety_stop_gate_node.py
 can enforce from inside itself (ROS topics have no publisher ACL). What it
-CAN do is be the only node that ever publishes on either topic, which is an
-invariant checkable from outside, the same way Nik's own Gate A read checks
-/cmd_vel: "ros2 topic info /cmd_vel -v shows exactly 1 publisher,
-collision_monitor." This script is that same check applied to the two
-topics safety_stop_gate_node.py is supposed to solely own.
+CAN do is be the only node that ever publishes on any of these topics, which
+is an invariant checkable from outside, the same way Nik's own Gate A read
+checks /cmd_vel: "ros2 topic info /cmd_vel -v shows exactly 1 publisher,
+collision_monitor." This script is that same check applied to the topics
+safety_stop_gate_node.py is supposed to solely own.
+
+cmd_vel_gated (platform-sw#90, Alex's review) is the actual downstream
+enforcement point now - velocity_smoother listens there, not on cmd_vel_mux
+directly - so a second publisher on cmd_vel_gated would defeat the post-mux
+lock check the same way a second publisher on cmd_vel_stop would defeat the
+mux-level input, which is exactly why it is checked here too, not just
+cmd_vel_stop.
 
 Run against a live graph (sim or bench), after bringing up navigation_launch
 (which brings up safety_stop_gate_node). Exits nonzero and prints which
@@ -29,7 +36,7 @@ import time
 import rclpy
 from rclpy.node import Node
 
-TOPICS = ['/safety/stop_lock', 'cmd_vel_stop']
+TOPICS = ['/safety/stop_lock', 'cmd_vel_stop', 'cmd_vel_gated']
 
 
 def check(node: Node, expect_node: str):

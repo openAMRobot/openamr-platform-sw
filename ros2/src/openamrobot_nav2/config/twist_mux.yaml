@@ -17,7 +17,11 @@
 #     relayed down to plain Twist on cmd_vel_joy by
 #     openamrobot_nav2/ui_cmd_vel_relay_node.py before it ever reaches here.
 #
-# The output (cmd_vel_mux) feeds velocity_smoother, then collision_monitor,
+# The output (cmd_vel_mux) feeds openamrobot_nav2/safety_stop_gate_node.py
+# (platform-sw#90, Alex's review), which force-zeroes it while locked and
+# republishes it as cmd_vel_gated - the equal-priority nonzero-stop gap below
+# is closed there, by checking the lock directly, not by this arbitration
+# alone. cmd_vel_gated then feeds velocity_smoother, then collision_monitor,
 # which stays the only publisher of the final /cmd_vel to the base.
 twist_mux:
   ros__parameters:
@@ -37,6 +41,26 @@ twist_mux:
         priority: 100
       software_stop:         # zero Twist from safety_stop_gate_node while locked
         topic: cmd_vel_stop
+        # Must stay >= locks.software_stop.timeout (0.3, below). Both this
+        # input and the lock are republished by the same node
+        # (safety_stop_gate_node) on the same tick, so in normal operation
+        # they age in lockstep and the ordering is a no-op - it only matters
+        # once that node stops publishing (crash; see its own docstring,
+        # [Loss of the zero publisher while locked]). The lock expiring
+        # (at 0.3s) forces the mux into fail-closed/locked regardless of its
+        # last received value (see the locks.software_stop comment below);
+        # keeping this input's own timeout >= that means the last-known-zero
+        # Twist is still a valid, selectable candidate at the moment masking
+        # kicks in, so the mux has SOMETHING to select rather than going
+        # instantly silent the moment it re-engages. If this timeout were
+        # SHORTER than the lock's, the input would already have expired by
+        # the time the lock forces closed, moving the "mux has nothing valid
+        # to select, no cmd_vel_mux message at all" window earlier, not later.
+        # (The actual downstream safety fix no longer depends on this input
+        # winning arbitration at all - see cmd_vel_gated / safety_stop_gate_
+        # node.py's [Equal-priority nonzero stop] - but this ordering still
+        # bounds how long cmd_vel_mux itself goes silent while locked, which
+        # is what test_twist_mux_startup_and_restart.py measures.)
         timeout: 0.5
         priority: 255
     locks:

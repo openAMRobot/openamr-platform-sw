@@ -175,3 +175,78 @@ class TestStopChannelIsAlwaysZero(NodeTestCase):
         self.probe.create_subscription(Twist, 'cmd_vel_stop', received.append, 10)
         self._spin_both(timeout_s=0.3)
         self.assertEqual(received, [])
+
+
+class TestPostMuxGate(NodeTestCase):
+    """
+    cmd_vel_gated (platform-sw#90, Alex's review).
+
+    These reproduce Mohamed's/Nikolai's equal-priority case at node level: a
+    nonzero Twist arriving on cmd_vel_mux - exactly what the mux would
+    forward if some OTHER publisher won arbitration on cmd_vel_stop, which
+    this node cannot prevent (see the docstring's [Equal-priority nonzero
+    stop] section) - must never reach cmd_vel_gated while locked.
+    """
+
+    def _publish_mux(self, msg):
+        pub = self.probe.create_publisher(Twist, 'cmd_vel_mux', 10)
+        deadline = time.monotonic() + 1.0
+        # Wait for the gate's subscription to actually match before
+        # publishing, else the message can be sent into a graph with no
+        # matched subscriber yet and silently dropped (no retained sample -
+        # cmd_vel_mux has no special QoS here).
+        while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertGreater(
+            pub.get_subscription_count(), 0,
+            'gate node never subscribed to cmd_vel_mux')
+        pub.publish(msg)
+        pub.destroy()
+
+    def test_nonzero_on_cmd_vel_mux_comes_out_zero_on_cmd_vel_gated_while_locked(self):
+        nonzero = Twist()
+        nonzero.linear.x = 0.3
+        received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
+        self.assertTrue(self.node._locked)  # sanity: still locked (default)
+        self._publish_mux(nonzero)
+        self._spin_both(timeout_s=0.3)
+        self.assertTrue(
+            received, 'expected at least one cmd_vel_gated message '
+            '(the tick-driven zero, if nothing else)')
+        for msg in received:
+            self.assertEqual(
+                msg, Twist(),
+                'a nonzero Twist on cmd_vel_mux reached cmd_vel_gated while '
+                'locked - the post-mux gate did not hold (platform-sw#90)')
+
+    def test_cmd_vel_mux_is_forwarded_unchanged_while_unlocked(self):
+        self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(self.node._locked)
+        nonzero = Twist()
+        nonzero.linear.x = 0.3
+        nonzero.angular.z = -0.2
+        received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
+        self._publish_mux(nonzero)
+        deadline = time.monotonic() + 1.0
+        while not received and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertTrue(received, 'cmd_vel_mux message never reached cmd_vel_gated')
+        self.assertEqual(
+            received[-1], nonzero,
+            'unlocked pass-through must forward the mux output unchanged, '
+            'not substitute or drop fields')
+
+    def test_cmd_vel_gated_still_zero_if_mux_goes_silent_while_locked(self):
+        # No publish to cmd_vel_mux at all here - only _tick()'s own
+        # independent force-zero should be responsible for this.
+        received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
+        self.assertTrue(self.node._locked)
+        self._spin_both(timeout_s=0.3)
+        self.assertTrue(received, 'expected cmd_vel_gated while locked, even with a silent mux')
+        for msg in received:
+            self.assertEqual(msg, Twist())
