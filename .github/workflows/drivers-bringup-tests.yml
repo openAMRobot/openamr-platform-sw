@@ -67,8 +67,8 @@ jobs:
           colcon build --packages-select openamrobot_drivers openamrobot_bringup
 
       # Seven driver tests (default a1, s3, invalid-model rejection, one
-      # sllidar_node per model, port default) and two bringup tests (lidar_model
-      # declared with default a1, passed through to the drivers).
+      # sllidar_node per model, port default), two real bringup tests, and four
+      # legacy-camera forwarding cases in unified simulation bringup.
       - name: Run the driver and bringup launch tests
         shell: bash
         run: |
@@ -77,10 +77,11 @@ jobs:
           source ws/install/setup.bash
           python3 -m pytest -v -p no:cacheprovider --junitxml=launch-tests.xml \
             ros2/src/openamrobot_drivers/test/test_drivers_launch.py \
-            ros2/src/openamrobot_bringup/test/test_real_bringup_launch.py
+            ros2/src/openamrobot_bringup/test/test_real_bringup_launch.py \
+            ros2/src/openamrobot_bringup/test/test_sim_legacy_camera_forwarding.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all nine launch tests ran
+      - name: Check that all thirteen launch tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -88,7 +89,7 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 9 and skipped == 0, 'expected 9 launch tests, none skipped'
+          assert tests == 13 and skipped == 0, 'expected 13 launch tests, none skipped'
           EOF
 
   # Existing ament lint results for the same two packages, reported in their

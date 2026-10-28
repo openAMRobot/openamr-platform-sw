@@ -21,7 +21,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
-| Gemini 336L base camera simulation | #53 | draft | owner review |
+| Gemini 336L base camera simulation | #53, `feature/gemini-rgbd-camera` at `7672b4e` (28 Oct 2026) | draft; driver/bringup CI coverage update | owner review |
 
 ## Decisions this repository implements
 
