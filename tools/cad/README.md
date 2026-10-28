@@ -75,3 +75,12 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
 - GLB node ids: chassis rules carry `node` or `nodes` (id, name, CAD part, BOM row); instances
   sharing an id get a position suffix (`_front`, `_rear`, `_left`, `_right`). Components carry
   `node_ids` per placement link.
+- Base E-stop and RESET (P-03 rev20.0 item 24, 27 Oct 2026): `placement_rule: {mode: panel_hole}`
+  finds the cylindrical face of the front panel (axis along x) nearest the release 001 button it
+  replaces (B200MK for `estop`, B100FY for `reset_button`) and places the parts relative to that axis
+  at the panel outer face (`xyz_rel_mm`, x outward). The release 001 buttons stay excluded. The check
+  reports the old hole diameter against the required XB4 mounting hole and the expected side (+y
+  E-stop, -y RESET) in `build/cad_checks.md` and `PROVENANCE.yaml components.<id>.panel_hole`; a wrong
+  side is a finding, never a move. Geometry is a placeholder from datasheet dimensions
+  (`placeholder: true`); `glb_decimate: false` keeps these parts out of the GLB decimation so that
+  the other GLB nodes keep their triangles.

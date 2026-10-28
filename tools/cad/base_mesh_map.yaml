@@ -142,7 +142,7 @@ rules:
   - {name: 'release 001 wheel brackets, motor brackets and drive shafts (MMP.03)', match: '/ MMP\.03\.00\.00\.00[1-4] [^/]*$', class: release_001, reason: release 001 drivetrain; the 2.0 wheel assembly is not designed yet}
   - {name: release 001 magnetic encoders PT1.00.00.240 to .243, match: '/ PT1\.00\.00\.240 Magnetic encoder[^/]*:\d+ / ', class: release_001, reason: release 001 drivetrain}
   - {name: release 001 shaft keys, match: '/ (РТ1\.00\.00\.217 Шпонка|Шпонка 3-4x4x25)[^/]*:\d+$', class: release_001, reason: release 001 drivetrain}
-  - {name: 'release 001 push buttons (red mushroom B200MK, green D22 B100FY)', match: '/ Кнопка [^/]*:\d+$', class: release_001, reason: not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5}
+  - {name: 'release 001 push buttons (red mushroom B200MK, green D22 B100FY)', match: '/ Кнопка [^/]*:\d+$', class: release_001, reason: 'not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5; their panel holes are reused by estop and reset_button (P-03 rev20.0 item 24)'}
   - {name: 3 LED RGB modules, match: '/ 3 LED RGB Module[^/]*:\d+$', class: release_001, reason: not on the 2.0 list}
   - {name: click shield for Nucleo-64 and its parts, match: '/ Click_Shield_for_Nucleo-64[^/]*:\d+ / (?!stm32_click_mount_plate)', class: release_001, reason: not on the 2.0 list (the 2.0 shield is CTL-002)}
   # fasteners and small parts
@@ -459,20 +459,85 @@ components:
     reason: P-03 rev19.7 and E-01 rev1.4 give no position (E-01 section 11 step 5 leaves the CAD space for both fuse blocks, contactors, PNOZ and disconnect to the mechanical owner)
 
   estop:
-    bom: Schneider XB4BS8445 E-stop on the base (SAF-001)
+    bom: Schneider XB4BS8445 E-stop with ZBE-102 contact blocks (2NC + 1NO) on the base (SAF-001)
     name: Base E-stop
     bom_row: SAF-001
     qty: 1
-    status: not modelled
-    reason: E-01 says "base front" only; no position is given (E-01 section 11 step 5)
+    status: modelled
+    output: base_equipment
+    placement: {base_link: true}
+    position: >-
+      base front panel, centred on the axis of the hole of the release 001 red mushroom button
+      (B200MK), robot left (+y), to the right of the base camera seen from the front. The converter
+      finds the hole in the STEP and writes the axis into PROVENANCE.yaml components.estop.panel_hole.
+    position_source: P-03 Decision Addendum rev20.0 item 24 (base E-stop in the former red mushroom button hole); E-01 rev1.5 (base front)
+    placeholder: true
+    placeholder_note: >-
+      primitives from datasheet dimensions, not the Schneider STEP model (the Schneider and distributor
+      hosts were not reachable from the build environment). Mushroom head diameter 40 mm, 22 mm operator
+      body, envelope 40 W x 47 H x 82 D mm from a distributor listing; the split of that depth into head,
+      stem and contact blocks and the 2 mm panel sheet are assumed
+    dimension_source: >-
+      XB4BS8445 (40 mm red mushroom head, 22 mm operator, overall 40 x 47 x 82 mm) with ZBE-102 contact
+      blocks; red head 40 mm x 14 mm and chrome stem 22 mm x 20 mm in front of the panel, contact block
+      body 46 (depth) x 30 x 47 mm behind a 2 mm panel sheet: placeholder
+    glb_decimate: false
+    parts:
+      # xyz_rel_mm: relative to the hole axis at the panel outer face, x outward (placement_rule)
+      - {shape: cylinder, radius_mm: 20.0, length_mm: 14.0, axis: x, xyz_rel_mm: [27.0, 0.0, 0.0], colour: [0.75, 0.08, 0.08], feature: mushroom head}
+      - {shape: cylinder, radius_mm: 11.0, length_mm: 22.0, axis: x, xyz_rel_mm: [9.0, 0.0, 0.0], colour: [0.62, 0.63, 0.65], feature: operator body}
+      - {shape: box, size_mm: [46.0, 30.0, 47.0], xyz_rel_mm: [-25.0, 0.0, 0.0], colour: [0.45, 0.46, 0.48], feature: contact blocks}
+    placement_rule:
+      mode: panel_hole
+      instance: '/ Кнопка «Грибок»[^/]*B200MK[^/]*:\d+$'
+      panel: '/ MMP\.00\.00\.00\.001 Front panel[^/]*$'
+      diameter_range_mm: [15.0, 40.0]
+      search_radius_mm: 10.0
+      required_hole_mm: 22.4
+      required_tolerance_mm: [0.0, 0.4]
+      required_source: >-
+        Harmony XB4 mounting hole 22.4 mm (+0.4/0) per Schneider data as stated in the task of 27 Oct 2026;
+        not confirmed: the Schneider datasheet could not be fetched (host denied), distributor listings give a 22 mm cutout
+      expected_side: 1
 
   reset_button:
-    bom: Schneider XB4BW36B5 RESET button (SAF-005)
+    bom: Schneider XB4BW36B5 RESET button, blue, illuminated 24 V, momentary, 1NO + 1NC (SAF-005)
     name: RESET button
     bom_row: SAF-005
     qty: 1
-    status: not modelled
-    reason: no position in P-03 rev19.7 or E-01 rev1.4 (E-01 section 11 step 5)
+    status: modelled
+    output: base_equipment
+    placement: {base_link: true}
+    position: >-
+      base front panel, centred on the axis of the hole of the release 001 green button (B100FY),
+      robot right (-y), to the left of the base camera seen from the front. The converter finds the
+      hole in the STEP and writes the axis into PROVENANCE.yaml components.reset_button.panel_hole.
+    position_source: P-03 Decision Addendum rev20.0 item 24 (RESET in the former green button hole), item 20 (XB4BW36B5); E-01 rev1.5
+    placeholder: true
+    placeholder_note: >-
+      primitives from datasheet dimensions, not the Schneider STEP model (the Schneider and distributor
+      hosts were not reachable from the build environment). Flush 22 mm illuminated head and 22 mm body;
+      head height, the light and contact block body and the 2 mm panel sheet are assumed
+    dimension_source: >-
+      XB4BW36B5 (flush illuminated pushbutton, 22 mm): blue head 22 mm x 8 mm in front of the panel,
+      light and contact block body 50 (depth) x 30 x 40 mm behind a 2 mm panel sheet: placeholder
+    glb_decimate: false
+    parts:
+      - {shape: cylinder, radius_mm: 11.0, length_mm: 8.0, axis: x, xyz_rel_mm: [4.0, 0.0, 0.0], colour: [0.10, 0.30, 0.80], feature: illuminated head}
+      - {shape: cylinder, radius_mm: 11.0, length_mm: 2.0, axis: x, xyz_rel_mm: [-1.0, 0.0, 0.0], colour: [0.62, 0.63, 0.65], feature: body through the panel}
+      - {shape: box, size_mm: [50.0, 30.0, 40.0], xyz_rel_mm: [-27.0, 0.0, 0.0], colour: [0.45, 0.46, 0.48], feature: light and contact blocks}
+    placement_rule:
+      mode: panel_hole
+      instance: '/ Кнопка нажимная[^/]*B100FY[^/]*:\d+$'
+      panel: '/ MMP\.00\.00\.00\.001 Front panel[^/]*$'
+      diameter_range_mm: [15.0, 40.0]
+      search_radius_mm: 10.0
+      required_hole_mm: 22.4
+      required_tolerance_mm: [0.0, 0.4]
+      required_source: >-
+        Harmony XB4 mounting hole 22.4 mm (+0.4/0) per Schneider data as stated in the task of 27 Oct 2026;
+        not confirmed: the Schneider datasheet could not be fetched (host denied), distributor listings give a 22 mm cutout
+      expected_side: -1
 
   wireless_charging_receiver:
     bom: TZBOT WCM-500-24 receiver (WCH-002)

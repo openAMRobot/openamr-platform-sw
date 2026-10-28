@@ -140,10 +140,14 @@ def test_referenced_meshes_exist_and_none_unreferenced(robot):
         assert (PKG / uri.text.strip()[len(PREFIX):]).is_file(), 'robot.sdf: missing %s' % uri.text
 
 
-def test_base_link_visual_bounding_box(robot):
+def test_base_link_visual_bounding_box(robot, provenance):
     pts = link_points_in_base_link(robot, 'base_link')
     lo, hi = pts.min(0), pts.max(0)
-    assert lo[0] >= -0.393 and hi[0] <= 0.393, (lo, hi)
+    # only the front-panel buttons (P-03 rev20.0 item 24) may stand proud of the panel faces
+    front = max([0.393] + [c['panel_hole']['parts_x_mm'][1] / 1000.0 + 1e-4
+                           for c in provenance['components'].values() if 'panel_hole' in c])
+    assert front < 0.393 + 0.040, front
+    assert lo[0] >= -0.393 and hi[0] <= front, (lo, hi)
     assert lo[1] >= -0.294 and hi[1] <= 0.294, (lo, hi)
     assert lo[2] >= -0.050 and hi[2] <= 0.300, (lo, hi)
     assert lo[0] <= -0.385 and hi[0] >= 0.385, 'must span the panel faces: %s %s' % (lo, hi)
@@ -285,6 +289,26 @@ def test_battery_drawn_as_eight_cells_inside_the_envelope(provenance):
     assert all(b['y'][0] - a['y'][1] > 0.0 for a, b in zip(ys[:-1], ys[1:])), 'cells touch'
     feats = provenance['components']['battery']['features']
     assert feats['cell'] == 8 and feats['terminal stud'] == 16 and feats['envelope shell'] == 1, feats
+
+
+def test_estop_and_reset_in_release_001_button_holes(provenance):
+    """E-stop and RESET centred on the release 001 button hole axes, hole and side checks recorded."""
+    nodes = {n['id']: n for n in provenance['glb']['nodes']}
+    for cid, side, button in (('estop', 1, 'B200MK'), ('reset_button', -1, 'B100FY')):
+        comp = provenance['components'][cid]
+        assert comp['status'] == 'modelled' and comp['placeholder'] is True, cid
+        assert 'P-03 Decision Addendum rev20.0 item 24' in comp['position_source'], cid
+        hole = comp['panel_hole']
+        assert button in hole['release001_instance'], hole
+        axis = hole['hole_axis_mm']
+        assert abs(axis['y'] - side * 130.0) < 0.5 and abs(axis['z'] - 44.5) < 0.5, axis
+        assert abs(hole['old_hole_diameter_mm'] - 22.5) < 0.05, hole
+        assert hole['required_mounting_hole_mm'] == 22.4
+        assert hole['side_ok'] is True and 'finding' not in hole, hole
+        assert hole['parts_x_mm'][0] < axis['x_panel_outer_face'] < hole['parts_x_mm'][1], hole
+        assert hole['expected_side'].startswith('+y' if side > 0 else '-y')
+        assert any(nodes[n]['class'] == 'component' for n in comp['node_ids']), cid
+        assert all(nodes[n].get('placeholder') is True for n in comp['node_ids']), cid
 
 
 @pytest.mark.parametrize('cid, feature, count', [
