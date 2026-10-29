@@ -12,7 +12,7 @@ import unittest
 
 import pytest
 
-pytest.importorskip('openamr_nav_msgs')
+pytest.importorskip('openamr_nav_msgs')  # issues/102
 
 from openamr_nav_msgs.msg import SensorStatus  # noqa: E402,I100
 from openamrobot_nav2.status_trackers import SensorTracker  # noqa: E402

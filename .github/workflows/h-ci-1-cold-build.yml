@@ -1,0 +1,157 @@
+name: H-CI-1 Cold Hosted Build Test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/h-ci-1-cold-build.yml'
+      - '.devcontainer/**'
+      - 'ros2/**'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  cold-build-test:
+    name: Cold ROS 2 build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    # Replace this feature-branch candidate after .github#41 publishes from main.
+    container:
+      image: ghcr.io/openamrobot/ci-ros2-jazzy@sha256:1653d4bdadce9999a48f73315e2da7aa667d3777579a97b0f1c12146667892d2
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Check out platform source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Match the immutable interfaces dependency from nav-status-tests.yml.
+      - name: Check out pinned message interfaces
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: openAMRobot/openamrobot-interfaces
+          ref: 77950470a87f1f5815346b2f000a662ee8c56f94
+          path: interfaces-src
+          persist-credentials: false
+
+      - name: Stage pinned interfaces in ROS workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C interfaces-src rev-parse HEAD)" = "77950470a87f1f5815346b2f000a662ee8c56f94"
+          test -s interfaces-src/ros2/openamr_nav_msgs/package.xml
+          if [ -e ros2/src/openamr_nav_msgs ]; then
+            echo "::error::Refusing to overwrite ros2/src/openamr_nav_msgs"
+            exit 1
+          fi
+          cp -a interfaces-src/ros2/openamr_nav_msgs ros2/src/openamr_nav_msgs
+
+      - name: Build ROS 2 workspace
+        shell: bash
+        run: |
+          set -eo pipefail
+          source /opt/ros/jazzy/setup.bash
+          set -u
+          cd ros2
+          colcon build --event-handlers console_direct+
+
+      - name: Test ROS 2 packages and require navigation coverage
+        shell: bash
+        env:
+          OPENAMR_REQUIRE_INTERFACES: '1'
+        run: |
+          set -eo pipefail
+          source /opt/ros/jazzy/setup.bash
+          cd ros2
+          source install/setup.bash
+          set -u
+
+          # Never suppress test failures or interpret "0 failures" as failure.
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose | tee test-result.txt
+
+          # Verify that actual tests, including required navigation suites, ran.
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+
+          results = sorted(Path('build').glob('*/pytest.xml'))
+          if not results:
+              sys.exit('FAIL: no pytest JUnit XML evidence produced')
+
+          total = skipped = failed = 0
+          nav_cases = []
+          for path in results:
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError as exc:
+                  sys.exit(f'FAIL: malformed JUnit XML {path}: {exc}')
+              cases = list(root.iter('testcase'))
+              total += len(cases)
+              skipped += sum(any(e.tag == 'skipped' for e in c) for c in cases)
+              failed += sum(any(e.tag in ('failure', 'error') for e in c) for c in cases)
+              if path.parent.name == 'openamrobot_nav2':
+                  nav_cases = cases
+
+          if total - skipped <= 0 or failed:
+              sys.exit(f'FAIL: executed={total-skipped}, failed={failed}')
+
+          required = (
+              'test_sensor_tracker',
+              'test_status_trackers',
+              'test_status_rules',
+              'test_navigation_status_node',
+          )
+          for name in required:
+              ran = [
+                  c for c in nav_cases
+                  if name in ' '.join(c.attrib.values())
+                  and not any(e.tag == 'skipped' for e in c)
+              ]
+              if not ran:
+                  sys.exit(f'FAIL: required nav tests did not execute: {name}')
+
+          summary = f'JUnit cases={total}, executed={total-skipped}, skipped={skipped}, failures={failed}'
+          print(summary)
+          Path('test-evidence-summary.txt').write_text(
+              summary + '\nRequired navigation suites: ' + ', '.join(required) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Record test evidence
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### H-CI-1 cold hosted contributor gate'
+            echo "PR head: ${{ github.event.pull_request.head.sha }}"
+            echo "Tested merge: ${{ github.sha }}"
+            echo 'Image: feature-branch candidate digest (replace after .github#41 merge)'
+            echo 'See GitHub Actions job start/end times for full cold duration, including image pull.'
+            if [ -f ros2/test-evidence-summary.txt ]; then
+              cat ros2/test-evidence-summary.txt
+            else
+              echo 'No passing test summary; inspect the failed stage and artifacts.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build and test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: h-ci-1-cold-gate-evidence
+          path: |
+            ros2/build/**/pytest.xml
+            ros2/build/**/test_results/**
+            ros2/log/**
+            ros2/test-result.txt
+            ros2/test-evidence-summary.txt
+          include-hidden-files: true
+          if-no-files-found: warn
