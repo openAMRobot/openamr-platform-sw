@@ -250,7 +250,7 @@ def test_glb_nodes_have_id_class_and_source(provenance):
 
 
 def test_battery_cell_group_envelope_recorded(provenance):
-    """The cell-group envelope, its position behind the centre bracket, clearances and free space."""
+    """Check the cell-group envelope, rear position, clearances, and free space."""
     rec = provenance['components']['battery']['rear_deck_check']
     env = rec['envelope_mm']
     assert (env['x'], env['y'], env['z']) == (140.0, 314.0, 210.0), env
@@ -261,21 +261,25 @@ def test_battery_cell_group_envelope_recorded(provenance):
     assert abs(rec['reference_rear_face_x_mm'] - rec['front_face_x_mm'] - 2.0) < 0.011
     assert box['y'] == [-157.0, 157.0] and box['z_floor'] == [54.0, 264.0], box
     subjects = {r['subject'] for r in rec['clearances']}
-    for s in ('centre bracket', 'top-cover support left', 'top-cover support right', 'rear sloped cover flange',
-              'cover rear edge', 'cover underside (above the envelope)', 'base plate (above the deck top)'):
+    for s in (
+        'centre bracket', 'top-cover support left', 'top-cover support right',
+        'rear sloped cover flange', 'cover rear edge',
+        'cover underside (above the envelope)', 'base plate (above the deck top)',
+    ):
         assert s in subjects, s
     smallest = min(r['clearance_mm'] for r in rec['clearances_by_part'])
     assert rec['smallest_clearance']['clearance_mm'] == smallest
     assert rec['fits_with_clearance'] == (smallest >= 2.0 and all(
         r['clearance_mm'] is None or r['clearance_mm'] >= 2.0 for r in rec['clearances']))
-    assert [f['name'].split(' (')[0] for f in rec['free_space']] == ['behind the envelope', 'left of the envelope',
-                                                                     'right of the envelope']
+    assert [f['name'].split(' (')[0] for f in rec['free_space']] == [
+        'behind the envelope', 'left of the envelope', 'right of the envelope',
+    ]
     assert 'BMS and power distribution zone (not modelled)' in rec['free_space'][0]['name']
     assert provenance['components']['battery'].get('provisional') is True
 
 
 def test_battery_drawn_as_eight_cells_inside_the_envelope(provenance):
-    """Eight separate LF105 cell boxes (130 x 38 x 200 mm) inside the cell-group envelope, not touching."""
+    """Eight LF105 cell boxes fit inside the envelope without touching."""
     rec = provenance['components']['battery']['rear_deck_check']
     box, cells = rec['box_mm'], rec['cells_mm']['boxes']
     assert len(cells) == 8, cells
@@ -288,11 +292,15 @@ def test_battery_drawn_as_eight_cells_inside_the_envelope(provenance):
     ys = sorted(cells, key=lambda c: c['y'][0])
     assert all(b['y'][0] - a['y'][1] > 0.0 for a, b in zip(ys[:-1], ys[1:])), 'cells touch'
     feats = provenance['components']['battery']['features']
-    assert feats['cell'] == 8 and feats['terminal stud'] == 16 and feats['envelope shell'] == 1, feats
+    assert (
+        feats['cell'] == 8
+        and feats['terminal stud'] == 16
+        and feats['envelope shell'] == 1
+    ), feats
 
 
 def test_estop_and_reset_in_release_001_button_holes(provenance):
-    """E-stop and RESET centred on the release 001 button hole axes, hole and side checks recorded."""
+    """Check release 001 E-stop and RESET button-hole axes and side clearances."""
     nodes = {n['id']: n for n in provenance['glb']['nodes']}
     for cid, side, button in (('estop', 1, 'B200MK'), ('reset_button', -1, 'B100FY')):
         comp = provenance['components'][cid]
@@ -312,10 +320,12 @@ def test_estop_and_reset_in_release_001_button_holes(provenance):
 
 
 @pytest.mark.parametrize('cid, feature, count', [
-    ('compute', 'heatsink fin', 12), ('compute', 'Orin NX module', 1), ('compute', 'J401 carrier board', 1),
+    ('compute', 'heatsink fin', 12),
+    ('compute', 'Orin NX module', 1),
+    ('compute', 'J401 carrier board', 1),
     ('base_controller', 'ST morpho header row', 2), ('motor_driver', 'heatsink fin', 10),
     ('lidar', 'window band', 1), ('base_camera', 'lens', 3), ('ultrasonic', 'hex lock nut', 1),
     ('tof', 'lens', 2)])
 def test_component_envelope_features(provenance, cid, feature, count):
-    """The key base envelopes carry the features that make them recognisable (base_mesh_map.yaml)."""
+    """Check recognisable base features defined by base_mesh_map.yaml."""
     assert provenance['components'][cid].get('features', {}).get(feature) == count, cid
