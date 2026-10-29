@@ -126,19 +126,22 @@
   </xacro:macro>
 
   <!-- Ultrasonic, 4 x MaxBotix MB7060 (-2XX, 3/4 in NPS) in the panel edge holes,
-       y +-0.130, 91.4 mm above the floor (P-03 rev19.0 item 19). x at the sensor face
-       from the CAD 2026-10-15 full assembly. Tilt 0 until the bench test. -->
-  <xacro:ultrasonic_frame name="us_front_left" x="0.3906" y="0.130" z="-0.0066"/>
-  <xacro:ultrasonic_frame name="us_front_right" x="0.3906" y="-0.130" z="-0.0066"/>
-  <xacro:ultrasonic_frame name="us_rear_left" x="-0.3886" y="0.130" z="-0.0066" yaw="${pi}"/>
-  <xacro:ultrasonic_frame name="us_rear_right" x="-0.3886" y="-0.130" z="-0.0066" yaw="${pi}"/>
+       y +-0.130, 91.4 mm above the floor (P-03 rev19.0 item 19). x +-0.390 at the panel
+       outer face (register NEAR-FIELD-FRAMES, 20 Oct 2026); the CAD offsets +0.6 / -1.4 mm
+       (0.3906 / -0.3886) only reflect the sensor depth in the lock nut, the register wins.
+       Tilt 0 until the bench test. -->
+  <xacro:ultrasonic_frame name="us_front_left" x="0.390" y="0.130" z="-0.0066"/>
+  <xacro:ultrasonic_frame name="us_front_right" x="0.390" y="-0.130" z="-0.0066"/>
+  <xacro:ultrasonic_frame name="us_rear_left" x="-0.390" y="0.130" z="-0.0066" yaw="${pi}"/>
+  <xacro:ultrasonic_frame name="us_rear_right" x="-0.390" y="-0.130" z="-0.0066" yaw="${pi}"/>
 
   <!-- Cliff ToF, 2 x Benewake TF-Luna in the front and rear centre openings,
        91.4 mm above the floor (P-03 rev19.0 item 19). x at the lens face from the
-       CAD 2026-10-15 full assembly. 20 deg down is the screening value until the
-       bench test (Alex decision 2026-10-12); the CAD mount face is 10 deg. -->
-  <xacro:tof_frame name="tof_front" x="0.399" y="0" z="-0.0066" pitch="0.3491"/>
-  <xacro:tof_frame name="tof_rear" x="-0.399" y="0" z="-0.0066" pitch="0.3491" yaw="${pi}"/>
+       CAD 2026-10-15 full assembly. Pitched 10 deg down (register NEAR-FIELD-FRAMES,
+       Alex decision 2026-10-20; the CAD mount face is 10 deg), pending the bench test
+       on real floors; was 20 deg down (screening value, superseded). -->
+  <xacro:tof_frame name="tof_front" x="0.399" y="0" z="-0.0066" pitch="0.174533"/>
+  <xacro:tof_frame name="tof_rear" x="-0.399" y="0" z="-0.0066" pitch="0.174533" yaw="${pi}"/>
 
   <!-- ── Gazebo range sensors (simulation only) ─────────────────────────── -->
   <xacro:macro name="range_sensor_gazebo" params="name topic samples half_angle range_min range_max rate">

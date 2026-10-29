@@ -4,18 +4,12 @@ name: drivers-bringup-tests
 # openamrobot_bringup. No serial device, LiDAR or robot is used: the launch
 # tests only introspect the launch descriptions.
 
+# No path filter (PSW-01): test_bringup_sim_scan_filter.py reads openamrobot_nav2 configuration,
+# so a nav2 configuration change must run the bringup tests too.
 on:
   pull_request:
-    paths:
-      - 'ros2/src/openamrobot_drivers/**'
-      - 'ros2/src/openamrobot_bringup/**'
-      - '.github/workflows/drivers-bringup-tests.yml'
   push:
     branches: [main]
-    paths:
-      - 'ros2/src/openamrobot_drivers/**'
-      - 'ros2/src/openamrobot_bringup/**'
-      - '.github/workflows/drivers-bringup-tests.yml'
   workflow_dispatch:
 
 permissions:

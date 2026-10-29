@@ -1,0 +1,99 @@
+name: ros-workspace-tests
+
+# PSW-01: build the whole ROS 2 workspace and run `colcon test` for all seven packages
+# (unit, launch-description and ament lint tests, including
+# openamrobot_nav2/test/test_scan_body_filter_sim_config.py), on every pull request and
+# on main, with no path filter. Per-package counts go to the job summary; the job fails
+# when a test fails, when the workspace executes zero tests, or when a package other than
+# the ones listed with --allow-empty executes zero tests. SKIP is not PASS.
+# No simulator, robot or hardware is started: simulation launch tests run in
+# sim-launch-tests.yml (nightly and on dispatch).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Same pinned revisions as nav-status-tests.yml and drivers-bringup-tests.yml.
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 77950470a87f1f5815346b2f000a662ee8c56f94
+  SLLIDAR_REPO: https://github.com/Slamtec/sllidar_ros2.git
+  SLLIDAR_REF: 34300099fadfc772965962dec837bf436706188f
+
+jobs:
+  colcon-test:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 60
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: ext/openamrobot-interfaces
+
+      - name: Check out sllidar_ros2 at the pinned commit
+        run: |
+          apt-get update
+          apt-get install -y git
+          git clone "$SLLIDAR_REPO" ext/sllidar_ros2
+          git -C ext/sllidar_ros2 checkout "$SLLIDAR_REF"
+          test "$(git -C ext/sllidar_ros2 rev-parse HEAD)" = "$SLLIDAR_REF"
+
+      - name: Install the workspace dependencies with rosdep
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          apt-get install -y python3-colcon-common-extensions python3-pytest
+          rosdep update --rosdistro jazzy
+          rosdep install -y --rosdistro jazzy --ignore-src \
+            --from-paths ros2/src ext/openamrobot-interfaces/ros2/openamr_nav_msgs ext/sllidar_ros2
+
+      - name: Build the whole workspace
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --symlink-install --event-handlers console_cohesion+ \
+            --base-paths src ../ext/openamrobot-interfaces/ros2/openamr_nav_msgs ../ext/sllidar_ros2
+
+      # OPENAMR_REQUIRE_INTERFACES turns a missing openamr_nav_msgs into an error instead of
+      # skipped openamrobot_nav2 producer tests.
+      - name: Run colcon test for the seven packages
+        shell: bash
+        working-directory: ros2
+        env:
+          OPENAMR_REQUIRE_INTERFACES: '1'
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          packages=$(colcon list --names-only --base-paths src | tr '\n' ' ')
+          echo "packages: $packages"
+          test "$(echo $packages | wc -w)" -eq 7
+          colcon test --event-handlers console_direct+ --base-paths src --packages-select $packages
+
+      - name: Per-package test counts and the zero-test guard
+        if: always()
+        shell: bash
+        working-directory: ros2
+        run: |
+          python3 ../tools/ci/colcon_test_counts.py --build-base build \
+            --allow-empty "openamrobot_docking=no tests in the package (protected path, PSW-01)" \
+            $(colcon list --names-only --base-paths src)
+
+      - name: colcon test-result
+        if: always()
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon test-result --all --verbose

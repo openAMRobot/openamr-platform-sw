@@ -1,0 +1,117 @@
+name: sim-launch-tests
+
+# Headless simulation launch tests of openamrobot_bringup (nightly and on dispatch):
+#   PSW-03 test/sim/single_cmd_vel_publisher.launch.py: Nav2 lifecycle active, collision_monitor
+#          active for a 60 s idle window, /cmd_vel has exactly one publisher (collision_monitor).
+#          The publisher check is a strict expected failure until #35 lands (#88).
+#   PSW-15 test/sim/bringup_start_stop.launch.py: three start and stop cycles, all managed
+#          nodes active within a bound, exit codes recorded, no leftover ros2 or gz process;
+#          the apriltag_node crash on stop is an expected failure in a cycle where it happens (#84).
+# Not run on every pull request: the job installs the full Gazebo and Nav2 stack with rosdep
+# and builds the workspace before the run; its hosted-runner time is not yet measured. The
+# PSW-03 run itself took 93 s and PSW-15 (three cycles) 144 s (local runs, 29 Oct 2026).
+# launch_testing writes an expected failure to JUnit as a pass, so the unittest result lines
+# (including "expected failure") are copied to the job summary from the console log.
+# Simulation results are not physical acceptance and not safety evidence
+# (register TELEMETRY-NOT-SAFETY-EVIDENCE).
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 77950470a87f1f5815346b2f000a662ee8c56f94
+  SLLIDAR_REPO: https://github.com/Slamtec/sllidar_ros2.git
+  SLLIDAR_REF: 34300099fadfc772965962dec837bf436706188f
+
+jobs:
+  sim-launch-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: single_cmd_vel_publisher.launch.py
+            domain: 61
+          - test: bringup_start_stop.launch.py
+            domain: 62
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: ext/openamrobot-interfaces
+
+      - name: Check out sllidar_ros2 at the pinned commit
+        run: |
+          apt-get update
+          apt-get install -y git
+          git clone "$SLLIDAR_REPO" ext/sllidar_ros2
+          git -C ext/sllidar_ros2 checkout "$SLLIDAR_REF"
+          test "$(git -C ext/sllidar_ros2 rev-parse HEAD)" = "$SLLIDAR_REF"
+
+      - name: Install the workspace dependencies with rosdep
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          apt-get install -y python3-colcon-common-extensions python3-pytest procps
+          rosdep update --rosdistro jazzy
+          rosdep install -y --rosdistro jazzy --ignore-src \
+            --from-paths ros2/src ext/openamrobot-interfaces/ros2/openamr_nav_msgs ext/sllidar_ros2
+
+      - name: Build the whole workspace
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --symlink-install \
+            --base-paths src ../ext/openamrobot-interfaces/ros2/openamr_nav_msgs ../ext/sllidar_ros2
+
+      - name: Run ${{ matrix.test }} with launch_test
+        shell: bash
+        working-directory: ros2
+        env:
+          ROS_DOMAIN_ID: ${{ matrix.domain }}
+          ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          start=$(date +%s)
+          set +e -o pipefail
+          launch_test --package-name openamrobot_bringup --junit-xml "$GITHUB_WORKSPACE/sim-launch.xml" \
+            src/openamrobot_bringup/test/sim/${{ matrix.test }} 2>&1 | tee "$GITHUB_WORKSPACE/sim-launch.log"
+          rc=$?
+          set -e
+          {
+            echo "### ${{ matrix.test }}"
+            echo '```'
+            grep -E '^PSW-|expected failure|unexpected success|^(Ran|OK|FAILED)' "$GITHUB_WORKSPACE/sim-launch.log" || true
+            echo '```'
+            echo "wall time: $(( $(date +%s) - start )) s, exit code $rc"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      # A launch test that executed no test case must not pass.
+      - name: Check that the launch test executed test cases
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('sim-launch.xml').getroot()
+          cases = list(root.iter('testcase'))
+          print(f'{len(cases)} test cases')
+          for c in cases:
+              print(' ', c.get('classname'), c.get('name'))
+          assert cases, 'the launch test executed zero test cases'
+          EOF
