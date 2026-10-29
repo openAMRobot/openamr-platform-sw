@@ -17,8 +17,8 @@ import unittest
 
 import pytest
 
-pytest.importorskip('openamr_nav_msgs')  #102
-rclpy = pytest.importorskip('rclpy')  #102
+pytest.importorskip('openamr_nav_msgs')  # issues/102
+rclpy = pytest.importorskip('rclpy')  # issues/102
 
 from openamr_nav_msgs.msg import NavigationStatus, NavStackStatus  # noqa: E402,I100
 from openamrobot_nav2.navigation_status_node import (  # noqa: E402
