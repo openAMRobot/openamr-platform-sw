@@ -180,6 +180,15 @@ def expand_parts(parts):
     return out
 
 
+def part_half_x(part):
+    """Half extent along x of a box or a cylinder part (mm)."""
+    if part['shape'] == 'box':
+        return float(part['size_mm'][0]) / 2
+    if part.get('axis') == 'x':
+        return float(part['length_mm']) / 2
+    return float(part['radius_mm'])
+
+
 def part_rgba(part):
     return list(part['colour']) + [float(part.get('alpha', 1.0))]
 
@@ -556,6 +565,7 @@ class Converter:
         self.groups = {name: [] for name in self.map['outputs']}  # link-frame or base_link tris (m) per output
         self.glb_parts = []                                       # (node id, tris in base_link m, rgba)
         self.glb_nodes = {}                                       # node id: glTF extras
+        self.glb_fixed = set()                                    # node ids kept out of the GLB decimation
         chassis_colour_area = {}
         self.chassis_mm = []
         # chassis meshes
@@ -598,7 +608,8 @@ class Converter:
                 self.colours[name] = list(max(areas, key=areas.get))
             else:
                 self.colours[name] = list(out['colour']) + [1.0]
-        # battery cell-group envelope: placed against the chassis meshes, before the envelopes
+        # panel buttons on the release 001 hole axes, battery against the chassis meshes, before the envelopes
+        self.place_panel_parts()
         self.place_battery()
         # component envelopes
         poses = self.link_poses()
@@ -617,6 +628,11 @@ class Converter:
                         'class': comp.get('class', 'component')})
             if comp.get('provisional'):
                 rec['provisional'] = True
+            if comp.get('placeholder'):
+                rec['placeholder'] = True
+                rec['placeholder_note'] = ' '.join(comp['placeholder_note'].split())
+            if cid in getattr(self, 'panel_place', {}):
+                rec['position_source'] = ' '.join(comp['position_source'].split())
             if comp.get('brake_side'):
                 rec['brake_side'] = comp['brake_side']
             meta = {'name': comp['name'], 'class': comp.get('class', 'component'),
@@ -624,6 +640,10 @@ class Converter:
                     'bom_row': comp['bom_row'], 'output': comp['output']}
             if comp.get('provisional'):
                 meta['provisional'] = True
+            if comp.get('placeholder'):
+                meta['placeholder'] = True
+            if comp.get('glb_decimate') is False:
+                self.glb_fixed.add(cid)
             local = np.concatenate([part_tris(p, self.tess) for p in comp['parts'] if p.get('stl', True)]) / 1000.0
             feats = {}
             for p in comp['parts']:
@@ -719,11 +739,15 @@ class Converter:
     def write_glb(self):
         b = self.map['budgets']
         os.makedirs(self.args.build, exist_ok=True)
-        cap = sum(len(t) for _, t, _ in self.glb_parts)
+        # parts of components with glb_decimate: false keep their triangles and stay out of the size target,
+        # so adding them leaves the decimation of every other node unchanged
+        fixed = [e for e in self.glb_parts if e[0] in self.glb_fixed]
+        dec_parts = [e for e in self.glb_parts if e[0] not in self.glb_fixed]
+        cap = sum(len(t) for _, t, _ in dec_parts)
         while True:
-            parts = decimate_parts([t for _, t, _ in self.glb_parts], cap)
+            parts = decimate_parts([t for _, t, _ in dec_parts], cap)
             groups = {}
-            for (nid, _, rgba), tris in zip(self.glb_parts, parts):
+            for (nid, _, rgba), tris in zip(dec_parts, parts):
                 groups.setdefault(nid, {}).setdefault(tuple(rgba), []).append(tris)
             dec = [(self.glb_nodes[nid], [(list(c), np.concatenate(v)) for c, v in prims.items()])
                    for nid, prims in sorted(groups.items())]
@@ -731,6 +755,10 @@ class Converter:
             if size <= b['glb_target_bytes']:
                 break
             cap = int(sum(len(t) for t in parts) * 0.9 * b['glb_target_bytes'] / size)
+        for nid, tris, rgba in fixed:
+            groups.setdefault(nid, {}).setdefault(tuple(rgba), []).append(tris)
+        dec = [(self.glb_nodes[nid], [(list(c), np.concatenate(v)) for c, v in prims.items()])
+               for nid, prims in sorted(groups.items())]
         path = os.path.join(self.args.build, 'base_visual.glb')
         extras = {'frame': 'base_link, metres, x forward, y left, z up (the root node rotates to glTF y-up)',
                   'source': 'openamr-platform-sw meshes/PROVENANCE.yaml',
@@ -742,7 +770,7 @@ class Converter:
             raise SystemExit('GLB is %d bytes, over the budget' % size)
         node_rows = []
         for meta, prims in dec:
-            row = {k: meta[k] for k in ('id', 'name', 'class', 'source', 'bom_row', 'provisional') if k in meta}
+            row = {k: meta[k] for k in ('id', 'name', 'class', 'source', 'bom_row', 'provisional', 'placeholder') if k in meta}
             row['triangles'] = int(sum(len(t) for _, t in prims))
             node_rows.append(row)
         self.glb_report = {'file': 'build/base_visual.glb (not committed)', 'sha256': sha256(path), 'bytes': size,
@@ -897,28 +925,7 @@ class Converter:
 
         # panel holes
         def holes(pattern, dmin, dmax):
-            out = []
-            for lf in self.asm.find(pattern):
-                shape = lf.shape.Moved(lf.loc)
-                exp = TopExp_Explorer(shape, TopAbs_FACE)
-                seen = set()
-                while exp.More():
-                    s = BRepAdaptor_Surface(TopoDS.Face(exp.Current()))
-                    exp.Next()
-                    if s.GetType() != GeomAbs_Cylinder:
-                        continue
-                    cyl = s.Cylinder()
-                    d = 2 * cyl.Radius()
-                    ax = cyl.Axis().Direction()
-                    p = cyl.Axis().Location()
-                    if not (dmin <= d <= dmax) or abs(ax.X()) < 0.99:
-                        continue
-                    q = self.to_base_link_mm(np.array([[p.X(), p.Y(), p.Z()]]))[0]
-                    k = (round(d, 2), round(q[1], 2), round(q[2], 2))
-                    if k not in seen:
-                        seen.add(k)
-                        out.append((lf, d, q))
-            return out
+            return self.panel_holes(pattern, dmin, dmax)
 
         us = c['ultrasonic_holes']
         for lf, d, q in sorted(holes(us['panels'], *us['diameter_range_mm']), key=lambda h: (-h[2][0], -h[2][1])):
@@ -971,6 +978,105 @@ class Converter:
             row('mounts', 'ICM-42688-P package centre %s (on the click board in the STEP)' % ax, uc[i],
                 c['imu']['design_xyz_mm'][i])
         self.checks = res
+        self.panel_button_checks()
+
+    def panel_holes(self, pattern, dmin, dmax):
+        """[(leaf, diameter mm, axis point in base_link mm)] of the cylindrical faces along x of the matching panels."""
+        out = []
+        for lf in self.asm.find(pattern):
+            shape = lf.shape.Moved(lf.loc)
+            exp = TopExp_Explorer(shape, TopAbs_FACE)
+            seen = set()
+            while exp.More():
+                s = BRepAdaptor_Surface(TopoDS.Face(exp.Current()))
+                exp.Next()
+                if s.GetType() != GeomAbs_Cylinder:
+                    continue
+                cyl = s.Cylinder()
+                d = 2 * cyl.Radius()
+                ax = cyl.Axis().Direction()
+                p = cyl.Axis().Location()
+                if not (dmin <= d <= dmax) or abs(ax.X()) < 0.99:
+                    continue
+                q = self.to_base_link_mm(np.array([[p.X(), p.Y(), p.Z()]]))[0]
+                k = (round(d, 2), round(q[1], 2), round(q[2], 2))
+                if k not in seen:
+                    seen.add(k)
+                    out.append((lf, d, q))
+        return out
+
+    # -- panel components centred on the axis of a release 001 panel hole
+    def place_panel_parts(self):
+        """Centre each panel-hole component on the axis of the hole of the release 001 part it replaces.
+
+        The hole is the cylindrical face of the panel (axis along x, diameter in range) nearest the
+        centre of the release 001 instance; parts are given relative to the hole axis at the panel
+        outer face (xyz_rel_mm, x outward). The release 001 instance itself stays excluded."""
+        self.panel_place = {}
+        for cid, comp in self.map['components'].items():
+            rule = comp.get('placement_rule', {})
+            if comp.get('status') != 'modelled' or rule.get('mode') != 'panel_hole':
+                continue
+            rx = re.compile(rule['instance'])
+            inst = [lf for lf in self.asm.leaves if rx.search(lf.path)]
+            if len(inst) != 1:
+                raise SystemExit('%s: expected one release 001 instance, found %d (%s)' % (cid, len(inst), rule['instance']))
+            ib = self.unit_box_bl(inst)
+            ic = (ib[0] + ib[1]) / 2
+            near = [(lf, d, q) for lf, d, q in self.panel_holes(rule['panel'], *rule['diameter_range_mm'])
+                    if np.hypot(q[1] - ic[1], q[2] - ic[2]) <= rule['search_radius_mm']]
+            if not near:
+                raise SystemExit('%s: no panel hole within %.1f mm of the release 001 instance' % (cid, rule['search_radius_mm']))
+            lf, d, q = min(near, key=lambda h: (np.hypot(h[2][1] - ic[1], h[2][2] - ic[2]), -h[1]))
+            pb = self.unit_box_bl([lf])
+            face = float(pb[1][0] if pb[1][0] > 0 else pb[0][0])
+            out = 1.0 if face > 0 else -1.0
+            axis = np.array([face, float(q[1]), float(q[2])])
+            xs = []
+            for p in comp['parts']:
+                rel = np.array(p['xyz_rel_mm'], float)
+                p['xyz_mm'] = [round(float(v), 3) for v in axis + np.array([out * rel[0], rel[1], rel[2]])]
+                xs.append(p['xyz_mm'])
+            self.panel_place[cid] = {
+                'release001_instance': inst[0].names[-1], 'panel': lf.names[-1],
+                'release001_instance_centre_mm': [round(float(v), 2) for v in ic],
+                'hole_axis_mm': {'x_panel_outer_face': round(face, 2), 'y': round(float(q[1]), 2), 'z': round(float(q[2]), 2)},
+                'hole_axis_z_floor_mm': round(float(q[2]) + self.map['frame']['base_link_height_mm'], 2),
+                'old_hole_diameter_mm': round(float(d), 3),
+                'parts_x_mm': [round(float(min(c[0] - part_half_x(p) for c, p in zip(xs, comp['parts']))), 2),
+                               round(float(max(c[0] + part_half_x(p) for c, p in zip(xs, comp['parts']))), 2)]}
+            self.log('%s: hole of %s on %s, axis y %.2f z %.2f, diameter %.3f mm' % (cid, inst[0].names[-1], lf.names[-1],
+                                                                                   q[1], q[2], d))
+
+    def panel_button_checks(self):
+        """Old hole diameter against the required mounting hole, and the expected side of each button."""
+        self.panel_report = {}
+        for cid, rec in self.panel_place.items():
+            rule = self.map['components'][cid]['placement_rule']
+            req, (tmin, tplus) = rule['required_hole_mm'], rule['required_tolerance_mm']
+            d = rec['old_hole_diameter_mm']
+            y = rec['hole_axis_mm']['y']
+            side = 1 if y > 0 else -1
+            ok_side = side == rule['expected_side']
+            in_band = req - tmin - 1e-9 <= d <= req + tplus + 1e-9
+            r = dict(rec, required_mounting_hole_mm=req, required_tolerance_mm=[tmin, tplus],
+                     required_source=' '.join(rule['required_source'].split()),
+                     hole_change_mm=round(req - d, 3),
+                     hole_within_required_band=bool(in_band),
+                     hole_action=('keep: the existing %.2f mm hole is within %.1f +%.1f/-%.1f mm; confirm the tolerance '
+                                  'against the Schneider datasheet' % (d, req, tplus, tmin)) if in_band else
+                                 ('resize the hole from %.2f mm to %.1f mm (+%.1f/-%.1f)' % (d, req, tplus, tmin)),
+                     expected_side='+y (robot left)' if rule['expected_side'] > 0 else '-y (robot right)',
+                     measured_side='+y (robot left)' if side > 0 else '-y (robot right)',
+                     side_ok=bool(ok_side))
+            if not ok_side:
+                msg = '%s: the release 001 hole is on %s, P-03 rev20.0 item 24 expects %s; not moved' % (
+                    cid, r['measured_side'], r['expected_side'])
+                self.findings.append(msg)
+                r['finding'] = msg
+            self.panel_report[cid] = r
+            self.log('panel button check:', cid, {k: r[k] for k in ('old_hole_diameter_mm', 'required_mounting_hole_mm',
+                                                                     'hole_action', 'side_ok')})
 
     # -- battery cell-group envelope: front face behind the centre bracket, clearances, free space
     def battery_points(self, sample, margin):
@@ -1142,6 +1248,22 @@ class Converter:
                 r['group'], r['item'], fmt(r['measured']), fmt(r['design']),
                 fmt(r['delta']) + (' deg' if r['unit'] == 'deg' and r['delta'] is not None else ''),
                 'drift' if r['drift'] else '', r['note']))
+        lines += ['', '## Base E-stop and RESET in the release 001 button holes (P-03 rev20.0 item 24)', '',
+                  'Each 2.0 part is centred on the axis of the front-panel hole of the release 001 button it replaces; '
+                  'the hole axis is read from the panel (cylindrical face along x nearest the release 001 instance). '
+                  'Geometry is a placeholder from datasheet dimensions (Schneider STEP not read).', '',
+                  '| Component | Release 001 button | Hole axis y, z mm (z above floor) | Old hole mm | Required mm | '
+                  'Hole action | Side measured (expected) | Side ok | Parts x mm (panel outer face) |',
+                  '|---|---|---|---|---|---|---|---|---|']
+        for cid, r in self.panel_report.items():
+            lines.append('| %s | %s | %.2f, %.2f (%.2f) | %.3f | %.1f +%.1f/-%.1f | %s | %s (%s) | %s | %.2f to %.2f (%.2f) |' % (
+                cid, r['release001_instance'], r['hole_axis_mm']['y'], r['hole_axis_mm']['z'], r['hole_axis_z_floor_mm'],
+                r['old_hole_diameter_mm'], r['required_mounting_hole_mm'], r['required_tolerance_mm'][1],
+                r['required_tolerance_mm'][0], r['hole_action'], r['measured_side'], r['expected_side'],
+                'yes' if r['side_ok'] else 'NO (finding)', r['parts_x_mm'][0], r['parts_x_mm'][1],
+                r['hole_axis_mm']['x_panel_outer_face']))
+        if self.findings:
+            lines += ['', 'Findings:', ''] + ['- ' + f for f in self.findings]
         br = self.battery_report
         fmt2 = lambda v: '' if v is None else '%.2f' % v  # noqa: E731
         sm = br['smallest_clearance'] or {}
@@ -1191,7 +1313,8 @@ class Converter:
             stream.write('\n'.join(lines) + '\n')
         with open(os.path.join(self.args.build, 'cad_checks.yaml'), 'w', encoding='utf-8') as stream:
             yaml.safe_dump({'checks': self.checks, 'hub_motor_fit': self.fit, 'frame': self.frame_report,
-                            'component_checks': self.component_checks, 'battery': self.battery_report},
+                            'component_checks': self.component_checks, 'battery': self.battery_report,
+                            'panel_buttons': self.panel_report, 'findings': self.findings},
                            stream, sort_keys=False, allow_unicode=True)
 
     def write_provenance(self):
@@ -1238,7 +1361,9 @@ class Converter:
             'outputs': self.output_report,
             'glb': self.glb_report,
             'components': dict(self.component_report, battery=dict(self.component_report['battery'],
-                                                                     rear_deck_check=self.battery_report)),
+                                                                     rear_deck_check=self.battery_report),
+                               **{cid: dict(self.component_report[cid], panel_hole=r)
+                                  for cid, r in self.panel_report.items()}),
             'groups': groups,
         }
         path = os.path.join(self.args.out, 'PROVENANCE.yaml')
