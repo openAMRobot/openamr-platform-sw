@@ -30,8 +30,10 @@ from sensor_msgs.msg import LaserScan
 
 
 def _pairs_rad(flat, name='sectors'):
-    """Validate a flat ``[lo1,hi1,lo2,hi2,...]`` degree list and return ``[(lo,hi),...]`` radians.
+    """
+    Validate a flat degree list and return angle pairs in radians.
 
+    Expects ``[lo1,hi1,lo2,hi2,...]``; returns ``[(lo,hi),...]``.
     Rejects malformed input (Raj review PR1): odd length, non-finite values, and reversed/wrapped
     pairs (``lo > hi``). Wrap-around sectors are explicitly NOT supported — split them in two.
     """
@@ -123,7 +125,9 @@ def main():
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # Ctrl+C has already shut the context down (PSW-15: exit code 1 on stop otherwise)
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

@@ -117,10 +117,12 @@ This downloads the ROS 2 Jazzy base image and installs every dependency. First b
 
 ```bash
 docker compose run --rm openamr \
-  ros2 launch openamrobot_docking bringup_sim.launch.py
+  ros2 launch openamrobot_bringup bringup.launch.py sim:=true
 ```
 
-Gazebo and RViz windows will appear on your host screen. Jump to [Drive the robot](#drive-the-robot) once the stack is up.
+This starts Gazebo, Nav2 and docking headless. Add `gui:=true use_rviz:=true` to open the
+Gazebo and RViz windows on your host screen. The legacy
+`openamrobot_docking bringup_sim.launch.py` still works but is no longer the entry point. Jump to [Drive the robot](#drive-the-robot) once the stack is up.
 
 ### A.6 Open an interactive shell (for development)
 
@@ -206,20 +208,19 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ### 3a. Launch everything with one command
 
 ```bash
-ros2 launch openamrobot_docking bringup_sim.launch.py
+ros2 launch openamrobot_bringup bringup.launch.py sim:=true
 ```
 
-This brings up the whole stack in the right order with a delay between each layer (Gazebo, then Nav2 at +8 s, then docking at +16 s). On a slower machine, widen the gaps:
+This brings up the whole simulation stack (Gazebo, localization, Nav2 and docking) headless,
+the same command the nightly simulation launch tests use. To open the windows:
 
 ```bash
-ros2 launch openamrobot_docking bringup_sim.launch.py nav2_delay:=10 docking_delay:=22
+ros2 launch openamrobot_bringup bringup.launch.py sim:=true gui:=true use_rviz:=true
 ```
 
-For headless simulation without Gazebo GUI or RViz:
-
-```bash
-ros2 launch openamrobot_docking bringup_sim.launch.py gazebo_gui:=false use_rviz:=false
-```
+The legacy layered launch `ros2 launch openamrobot_docking bringup_sim.launch.py` (with
+`nav2_delay:=`, `docking_delay:=`, `gazebo_gui:=` and `use_rviz:=`) is kept for backwards
+compatibility.
 
 ### 3b. …or run the three layers separately
 
@@ -288,7 +289,7 @@ openamr-platform-sw/
 │       ├── openamrobot_gazebo/           Gazebo Harmonic bringup + ros↔gz bridge + worlds
 │       ├── openamrobot_nav2/             Nav2 stack + AMCL + map + RViz layout
 │       ├── openamrobot_docking/          AprilTag + dock/undock sequencer + dock model
-│       ├── openamrobot_bringup/          (placeholder) top-level launch compositions
+│       ├── openamrobot_bringup/          top-level launch compositions (bringup.launch.py)
 │       ├── openamrobot_control/          (placeholder) ros2_control + low-level control
 │       ├── openamrobot_drivers/          (placeholder) hardware drivers (lidar, camera, IMU…)
 │       └── openamrobot_perception/       (placeholder) perception beyond docking
