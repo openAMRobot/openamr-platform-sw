@@ -169,6 +169,29 @@
     </sensor>
   </gazebo>
 
+  <!-- ── Link-level: imu_link — simulated IMU (from #69) ─────────────── -->
+  <!-- Publishes gz topic "imu", which config/gz_bridge.yaml bridges to /imu.
+       The sensor sits on imu_link with no pose offset; the frame (sensor axes,
+       yaw -90 deg) is declared in sensors.xacro. The rate matches the 0.02 s
+       nominal period in openamrobot_nav2 navigation_status_profile.yaml. No noise
+       model: simulation only, not the ICM-42688-P's characteristics. -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <pose relative_to="imu_link">0 0 0 0 0 0</pose>
+      <topic>imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <update_rate>50</update_rate>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+    </sensor>
+  </gazebo>
+
+  <!-- The IMU system updates every imu sensor; neither walled_world.sdf nor
+       a world that composes this model loads it, so the model does. -->
+  <gazebo>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+  </gazebo>
+
   <!-- ── Link-level: lidar_link — sensor ONLY here ─────────────────── -->
   <gazebo reference="lidar_link">
     <material>Gazebo/Black</material>

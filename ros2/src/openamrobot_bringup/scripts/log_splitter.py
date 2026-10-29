@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Split /rosout into per-node topics under /logs/<node>.
+"""
+Split /rosout into per-node topics under /logs/<node>.
 
 Every ROS 2 node already publishes its logs to /rosout. This node fans that
 firehose out into ONE topic per source, so you can watch a single subsystem
@@ -15,9 +16,10 @@ echo the one topic you care about from the PC). Levels are prefixed in each line
 ([INFO]/[WARN]/[ERROR]/…). Ctrl-C to stop.
 """
 import re
+
+from rcl_interfaces.msg import Log
 import rclpy
 from rclpy.node import Node
-from rcl_interfaces.msg import Log
 from std_msgs.msg import String
 
 LEVELS = {10: 'DEBUG', 20: 'INFO', 30: 'WARN', 40: 'ERROR', 50: 'FATAL'}

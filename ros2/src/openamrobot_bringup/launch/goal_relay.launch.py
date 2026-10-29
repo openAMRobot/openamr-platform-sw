@@ -14,8 +14,9 @@ USE EXACTLY ONE FORWARDER — never two on /goal_pose_nav at once (double goals)
   * DOCKING   -> run the docking layer instead (its ``dock_trigger`` IS the forwarder); do NOT run
                  this relay. As soon as docking is up, it owns the goal routing.
 
-The one-shot ``bringup.launch.py`` makes this choice automatically via ``use_docking``; this standalone
-launch is for the per-terminal / "do what you want" workflow where you compose layers by hand.
+The one-shot ``bringup.launch.py`` makes this choice automatically via ``use_docking``; this
+standalone launch is for the per-terminal / "do what you want" workflow where you compose
+layers by hand.
 """
 from launch import LaunchDescription
 from launch_ros.actions import Node

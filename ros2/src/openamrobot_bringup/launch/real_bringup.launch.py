@@ -52,8 +52,9 @@ def generate_launch_description():
     ekf_params = os.path.join(bringup, 'config', 'ekf.yaml')
 
     return LaunchDescription([
-        # use_camera:=false lightens the load (the IMX708 camera draws heavily on the Pi 5 -> possible
-        # power brownout at startup). Set to false to test motors+lidar alone / weak power supply.
+        # use_camera:=false lightens the load (the IMX708 camera draws heavily on the Pi 5 ->
+        # possible power brownout at startup). Set to false to test motors+lidar alone / weak
+        # power supply.
         DeclareLaunchArgument(
             'use_camera', default_value='true',
             description='Launches the IMX708 camera (false = no camera, reduced load).'),

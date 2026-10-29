@@ -1,0 +1,193 @@
+<?xml version="1.0"?>
+<!-- OpenAMRobot 2.0 base sensor frames (#49). Included by robo_urdf.urdf.xacro.
+     Poses are in base_link (REP 105: drive-axle midpoint, 0.098 m above the floor),
+     taken from the CAD Rev B full assembly STEP MMP.00.00.00.000 (2026-10-15,
+     openamr-platform-hw#20) and P-03 rev19.0 item 19. Each value, its CAD source and status are listed in
+     config/sensor_frames.yaml; keep both files in step. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <material name="sensor_black">
+    <color rgba="0.1 0.1 0.1 1"/>
+  </material>
+
+  <!-- Base camera, Orbbec Gemini 336L. Tilt is a configuration ID:
+       base_tilt:=bt05 / bt10 / bt15 -> pitch -0.0873 / -0.1745 / -0.2618 rad
+       (5 / 10 / 15 deg up), default bt10 (Alex decision 2026-10-12; the Rev B
+       camera mount MMP.01.00.00.003 is 10 deg up). An unknown base_tilt value
+       fails the xacro expansion. -->
+  <xacro:arg name="base_tilt" default="bt10"/>
+  <xacro:property name="base_camera_pitch"
+    value="${dict(bt05=-0.0873, bt10=-0.1745, bt15=-0.2618)['$(arg base_tilt)']}"/>
+
+  <!-- Origin of the Gemini 336L model in the CAD, front glass, centre of the body.
+       Visual: envelope from the STEP instance, body 0.027 x 0.124 x 0.029 m behind the
+       frame and 2.2 mm of glass ahead of it (meshes/PROVENANCE.yaml); was a
+       0.029 x 0.124 x 0.029 m box, superseded. -->
+  <link name="base_camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://openamrobot_description/meshes/visual/base_camera.stl"/>
+      </geometry>
+      <material name="sensor_black"/>
+    </visual>
+  </link>
+  <!-- xyz (0.387, 0, 0.046) on the 10 deg camera mount MMP.01.00.00.003
+       (CAD 2026-10-15 full assembly, opening 126 x 36 mm);
+       was (0.376, 0, 0.0445) (Alex decision 2026-10-12), superseded by the CAD -->
+  <joint name="base_camera_joint" type="fixed">
+    <origin xyz="0.387 0 0.046" rpy="0 ${base_camera_pitch} 0"/>
+    <parent link="base_link"/>
+    <child link="base_camera_link"/>
+  </joint>
+
+  <!-- Optical frames: ROS optical convention, z forward, x right, y down
+       (Alex decision 2026-10-12) -->
+  <link name="base_camera_color_optical_frame"/>
+  <joint name="base_camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_color_optical_frame"/>
+  </joint>
+
+  <link name="base_camera_depth_optical_frame"/>
+  <joint name="base_camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    <parent link="base_camera_link"/>
+    <child link="base_camera_depth_optical_frame"/>
+  </joint>
+
+  <!-- IMU, ICM-42688-P on the MIKROE-4237 Click board, electronics bracket
+       MMP.04.00.00.002. Origin at the centre of the ICM-42688-P package: on the
+       centreline, 54.4 mm in front of the drive axle, 165.043 mm above the
+       base-plate top (54.0 mm), i.e. 219.04 mm above the floor (CAD 2026-10-16).
+       Orientation: board flat, component side up, pin 1 at the front-left corner;
+       sensor X -> base -y, Y -> +x, Z -> +z, so yaw -90 deg (datasheet axis check
+       by Evans, CAD check 2026-10-16). imu_link is the sensor frame; the firmware
+       publishes in it and must not remap the axes as well.
+       Was (0.0544, 0, 0.133) rpy 0 (16 Oct; 177 mm was measured against a
+       displaced base plate) and (0.195, 0, -0.044) (Alex decision 2026-10-12). -->
+  <!-- Visual: ICM-42688-P package (2.5 x 3.0 x 0.91 mm) on the MIKROE-4237 board,
+       envelope in meshes/visual/imu.stl -->
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://openamrobot_description/meshes/visual/imu.stl"/>
+      </geometry>
+      <material name="imu_board"/>
+    </visual>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <origin xyz="0.0544 0 0.1210" rpy="0 0 ${-pi/2}"/>
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+
+  <!-- Near-field range sensors. The frame sits at the centre of the sensor face,
+       x along the beam; positive pitch tilts the beam down. -->
+  <xacro:macro name="tof_frame" params="name x y z pitch yaw:=0">
+    <!-- TF-Luna envelope, 0.035 x 0.02125 m, 0.0135 m deep behind the lens face (datasheet
+         A05 and the STEP instance); was a 0.014 x 0.031 x 0.021 m box, superseded -->
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://openamrobot_description/meshes/visual/tof.stl"/>
+        </geometry>
+        <material name="sensor_black"/>
+      </visual>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <origin xyz="${x} ${y} ${z}" rpy="0 ${pitch} ${yaw}"/>
+      <parent link="base_link"/>
+      <child link="${name}"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="ultrasonic_frame" params="name x y z yaw:=0">
+    <!-- MB7060 -2XX compact housing envelope (datasheet 11838ab): 3/4 inch NPS section
+         0.0262 x 0.0144 m and body 0.0347 x 0.0179 m behind the face, lock nut behind the
+         panel; was a 0.031 m x 0.0385 m cylinder, superseded -->
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://openamrobot_description/meshes/visual/ultrasonic.stl"/>
+        </geometry>
+        <material name="sensor_black"/>
+      </visual>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 ${yaw}"/>
+      <parent link="base_link"/>
+      <child link="${name}"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Ultrasonic, 4 x MaxBotix MB7060 (-2XX, 3/4 in NPS) in the panel edge holes,
+       y +-0.130, 91.4 mm above the floor (P-03 rev19.0 item 19). x at the sensor face
+       from the CAD 2026-10-15 full assembly. Tilt 0 until the bench test. -->
+  <xacro:ultrasonic_frame name="us_front_left" x="0.3906" y="0.130" z="-0.0066"/>
+  <xacro:ultrasonic_frame name="us_front_right" x="0.3906" y="-0.130" z="-0.0066"/>
+  <xacro:ultrasonic_frame name="us_rear_left" x="-0.3886" y="0.130" z="-0.0066" yaw="${pi}"/>
+  <xacro:ultrasonic_frame name="us_rear_right" x="-0.3886" y="-0.130" z="-0.0066" yaw="${pi}"/>
+
+  <!-- Cliff ToF, 2 x Benewake TF-Luna in the front and rear centre openings,
+       91.4 mm above the floor (P-03 rev19.0 item 19). x at the lens face from the
+       CAD 2026-10-15 full assembly. 20 deg down is the screening value until the
+       bench test (Alex decision 2026-10-12); the CAD mount face is 10 deg. -->
+  <xacro:tof_frame name="tof_front" x="0.399" y="0" z="-0.0066" pitch="0.3491"/>
+  <xacro:tof_frame name="tof_rear" x="-0.399" y="0" z="-0.0066" pitch="0.3491" yaw="${pi}"/>
+
+  <!-- ── Gazebo range sensors (simulation only) ─────────────────────────── -->
+  <xacro:macro name="range_sensor_gazebo" params="name topic samples half_angle range_min range_max rate">
+    <gazebo reference="${name}">
+      <sensor name="${name}_sensor" type="gpu_lidar">
+        <pose relative_to="${name}">0 0 0 0 0 0</pose>
+        <topic>${topic}</topic>
+        <gz_frame_id>${name}</gz_frame_id>
+        <update_rate>${rate}</update_rate>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${-half_angle}</min_angle>
+              <max_angle>${half_angle}</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>${range_min}</min>
+            <max>${range_max}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </lidar>
+        <visualize>false</visualize>
+        <always_on>true</always_on>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- TF-Luna: 2 deg field of view, 0.2 to 8 m -->
+  <xacro:range_sensor_gazebo name="tof_front" topic="/tof/front"
+    samples="3" half_angle="0.0175" range_min="0.20" range_max="8.0" rate="50"/>
+  <xacro:range_sensor_gazebo name="tof_rear" topic="/tof/rear"
+    samples="3" half_angle="0.0175" range_min="0.20" range_max="8.0" rate="50"/>
+
+  <!-- MB7060: approximated as a narrow horizontal fan, 0.2 to 7.65 m, 10 Hz -->
+  <xacro:range_sensor_gazebo name="us_front_left" topic="/ultrasonic/front_left"
+    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
+  <xacro:range_sensor_gazebo name="us_front_right" topic="/ultrasonic/front_right"
+    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
+  <xacro:range_sensor_gazebo name="us_rear_left" topic="/ultrasonic/rear_left"
+    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
+  <xacro:range_sensor_gazebo name="us_rear_right" topic="/ultrasonic/rear_right"
+    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
+
+</robot>

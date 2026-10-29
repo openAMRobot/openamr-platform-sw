@@ -1,0 +1,65 @@
+name: description-tests
+
+# Hardware-free checks of openamrobot_description: the xacro expands and parses, every
+# referenced mesh exists and none is unreferenced, the base visual sits in the chassis
+# envelope, wheels and castors touch the floor, sensor joints equal config/sensor_frames.yaml,
+# the 2.0 component inventory, the mesh provenance hashes, the GLB node extras and the battery
+# cell-group envelope record. No robot or simulator is used.
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_description/**'
+      - 'tools/cad/**'
+      - '.github/workflows/description-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_description/**'
+      - 'tools/cad/**'
+      - '.github/workflows/description-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  description-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install test tools
+        run: |
+          apt-get update
+          apt-get install -y python3-colcon-common-extensions python3-pytest python3-yaml \
+            python3-numpy ros-jazzy-xacro ros-jazzy-urdfdom
+
+      - name: Build openamrobot_description
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --packages-select openamrobot_description
+
+      - name: Run the description tests
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ros2/install/setup.bash
+          python3 -m pytest -v -p no:cacheprovider --junitxml=description-tests.xml \
+            ros2/src/openamrobot_description/test/test_description_meshes.py
+
+      # A missing or renamed test must not pass as an empty suite.
+      - name: Check that all twenty-seven description tests ran
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('description-tests.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          print(f'{tests} tests, {skipped} skipped')
+          assert tests == 27 and skipped == 0, 'expected 27 description tests, none skipped'
+          EOF

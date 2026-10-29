@@ -35,10 +35,21 @@ def generate_launch_description():
 
     # Scan filter for this (legacy / per-terminal) sim flow, now that navigation_launch no longer
     # runs it (filtering is a data-source responsibility — Raj review PR1). One /scan_filtered.
+    #
+    # issue #74: the previous laser_filters/scan_to_scan_filter_chain config
+    # (scan_body_filter.yaml) is a truncation filter - it can only keep one
+    # contiguous angular window and cannot mask an interior sector while
+    # keeping both wraparound ends. That shape fit the body footprint's old,
+    # rear-centered location, but not where it actually is after the 12 Oct
+    # 2026 LiDAR mount rotation (now ~0 deg, dead ahead - see
+    # scan_body_filter_sim.yaml for the full writeup and re-measured bounds).
+    # Switched to the same per-sector masking node already used and tested on
+    # the real robot (openamrobot_perception/scan_body_filter.py), which can
+    # express this topology, with sim-specific mask bounds.
+    scan_filter_config = os.path.join(pkg, 'config', 'scan_body_filter_sim.yaml')
     scan_filter = Node(
-        package='laser_filters', executable='scan_to_scan_filter_chain', name='scan_body_filter',
-        parameters=[os.path.join(pkg, 'config', 'scan_body_filter.yaml'), {'use_sim_time': True}],
-        remappings=[('scan', '/scan'), ('scan_filtered', '/scan_filtered')],
+        package='openamrobot_perception', executable='scan_body_filter', name='scan_body_filter',
+        parameters=[scan_filter_config, {'use_sim_time': True}],
     )
 
     rviz_config = os.path.join(pkg, 'rviz', 'nav2_view.rviz')

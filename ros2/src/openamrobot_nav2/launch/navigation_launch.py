@@ -125,9 +125,11 @@ def generate_launch_description():
         actions=[
             SetParameter('use_sim_time', use_sim_time),
             # NOTE: the scan body filter is NOT launched here. Filtering is a DATA-SOURCE
-            # responsibility (Raj review PR1): the sim profile starts the laser_filters chain in
-            # bringup.launch.py; the real profile starts openamrobot_perception. This launch only
-            # CONSUMES /scan_filtered, guaranteeing exactly one publisher per profile.
+            # responsibility (Raj review PR1): both the sim profile (sim_bringup_launch.py)
+            # and the real profile start openamrobot_perception/scan_body_filter (issue #74:
+            # sim switched off the laser_filters truncation chain, which couldn't mask an
+            # interior sector - see scan_body_filter_sim.yaml). This launch only CONSUMES
+            # /scan_filtered, guaranteeing exactly one publisher per profile.
             Node(
                 package='nav2_controller',
                 executable='controller_server',
@@ -171,7 +173,12 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                # Recovery/teleop behaviors (spin, backup, drive_on_heading,
+                # assisted_teleop) must go through the same reactive-safety chain
+                # as the controller (#35, GATE-A): without this remap they publish
+                # straight to the final /cmd_vel, bypassing velocity_smoother AND
+                # collision_monitor entirely.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
             ),
             Node(
                 package='nav2_bt_navigator',
@@ -220,7 +227,8 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel
+                # (set in nav2_params.yaml).
                 remappings=remappings,
             ),
             Node(
@@ -229,7 +237,11 @@ def generate_launch_description():
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
+                parameters=[
+                    {'autostart': autostart},
+                    {'node_names': lifecycle_nodes},
+                    {'bond_timeout': 60.0},
+                ],
             ),
         ],
     )
@@ -285,7 +297,8 @@ def generate_launch_description():
                         plugin='behavior_server::BehaviorServer',
                         name='behavior_server',
                         parameters=[configured_params],
-                        remappings=remappings,
+                        # See the non-composed behavior_server above (#35, GATE-A).
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
                     ),
                     ComposableNode(
                         package='nav2_bt_navigator',
@@ -322,7 +335,11 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
+                            {
+                                'autostart': autostart,
+                                'node_names': lifecycle_nodes,
+                                'bond_timeout': 60.0,
+                            }
                         ],
                     ),
                 ],

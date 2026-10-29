@@ -25,7 +25,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/base_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/base_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -35,7 +35,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/base_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/base_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -82,7 +82,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/bl_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/bl_caster_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -91,7 +91,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/bl_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/bl_caster_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -135,7 +135,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/bl_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/bl_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -144,7 +144,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/bl_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/bl_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -191,7 +191,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/br_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/br_caster_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -200,7 +200,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/br_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/br_caster_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -244,7 +244,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/br_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/br_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -253,7 +253,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/br_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/br_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -300,7 +300,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fl_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fl_caster_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -309,7 +309,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fl_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fl_caster_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -353,7 +353,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fl_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fl_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -362,7 +362,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fl_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fl_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -409,7 +409,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fr_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fr_caster_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -418,7 +418,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fr_caster_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fr_caster_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -462,7 +462,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fr_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fr_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -471,7 +471,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/fr_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/fr_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -518,7 +518,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/left_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/left_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -527,7 +527,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/left_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/left_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -537,7 +537,7 @@
       </visual>
     </link>
     <joint name="lidar_joint" type="fixed">
-      <!-- lidar_link at the scan-plane centre, 222.0 mm above the floor, yaw pi
+      <!-- lidar_link at the scan-plane centre, 222.05 mm above the floor, yaw pi
            (Alex decision 2026-10-12, STEP MMP.00.00.00.000); was
            0.35135 -0.0010250999999999999 0.16830000000000001 0 0 0, superseded by Alex decision 2026-10-12 -->
       <pose relative_to="base_link">0.330 0 0.124 0 0 3.141592653589793</pose>
@@ -574,7 +574,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/lidar_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/lidar_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -583,7 +583,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/lidar_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/lidar_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -630,7 +630,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/right_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/right_wheel_link.STL</uri>
           </mesh>
         </geometry>
       </collision>
@@ -639,7 +639,7 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>package://openamrobot_description/meshes/visual/right_wheel_link.STL</uri>
+            <uri>package://openamrobot_description/meshes/collision/right_wheel_link.STL</uri>
           </mesh>
         </geometry>
         <material>
@@ -666,14 +666,16 @@
       <child_frame_id>base_footprint</child_frame_id>
     </plugin>
 
-    <!-- OpenAMRobot 2.0 frames (Alex decision 2026-10-12, STEP MMP.00.00.00.000).
-         Same values as robo_urdf.urdf.xacro; this static SDF uses the default
-         base camera tilt bt10 (pitch -0.1745). -->
+    <!-- OpenAMRobot 2.0 frames (Alex decision 2026-10-12, P-03 rev19.0 item 19; poses from
+         the CAD Rev B full assembly 2026-10-15, #49). Same values as sensors.xacro and
+         config/sensor_frames.yaml; this static SDF uses the default base camera tilt
+         bt10 (pitch -0.1745). -->
     <frame name="base_footprint" attached_to="base_link">
       <pose relative_to="base_link">0 0 -0.098 0 0 0</pose>
     </frame>
+    <!-- was 0.376 0 0.0445 (Alex decision 2026-10-12) -->
     <frame name="base_camera_link" attached_to="base_link">
-      <pose relative_to="base_link">0.376 0 0.0445 0 -0.1745 0</pose>
+      <pose relative_to="base_link">0.387 0 0.046 0 -0.1745 0</pose>
     </frame>
     <frame name="base_camera_color_optical_frame" attached_to="base_camera_link">
       <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
@@ -681,29 +683,30 @@
     <frame name="base_camera_depth_optical_frame" attached_to="base_camera_link">
       <pose relative_to="base_camera_link">0 0 0 -1.5707963267948966 0 -1.5707963267948966</pose>
     </frame>
-    <!-- IMU ICM-42688-P: base plate top; board stack height added from the mount drawing. -->
+    <!-- IMU ICM-42688-P package centre on the electronics bracket, yaw -90 deg
+         (sensor X -> base -y); was 0.0544 0 0.133 rpy 0 and 0.195 0 -0.044 -->
     <frame name="imu_link" attached_to="base_link">
-      <pose relative_to="base_link">0.195 0 -0.044 0 0 0</pose>
+      <pose relative_to="base_link">0.0544 0 0.1210 0 0 -1.5707963267948966</pose>
     </frame>
+    <!-- MB7060 x4 in the panel edge holes -->
     <frame name="us_front_left" attached_to="base_link">
-      <pose relative_to="base_link">0.390 0.130 -0.0066 0 0 0</pose>
+      <pose relative_to="base_link">0.3906 0.130 -0.0066 0 0 0</pose>
     </frame>
     <frame name="us_front_right" attached_to="base_link">
-      <pose relative_to="base_link">0.390 -0.130 -0.0066 0 0 0</pose>
+      <pose relative_to="base_link">0.3906 -0.130 -0.0066 0 0 0</pose>
     </frame>
     <frame name="us_rear_left" attached_to="base_link">
-      <pose relative_to="base_link">-0.390 0.130 -0.0066 0 0 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.3886 0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
     <frame name="us_rear_right" attached_to="base_link">
-      <pose relative_to="base_link">-0.390 -0.130 -0.0066 0 0 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.3886 -0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
-    <!-- 20 degree down screening value until the bench test. -->
+    <!-- TF-Luna x2 (cliff) in the centre openings; 20 degree down screening value until the bench test. -->
     <frame name="tof_front" attached_to="base_link">
-      <pose relative_to="base_link">0.390 0 -0.0066 0 0.3491 0</pose>
+      <pose relative_to="base_link">0.399 0 -0.0066 0 0.3491 0</pose>
     </frame>
-    <!-- 20 degree down screening value until the bench test. -->
     <frame name="tof_rear" attached_to="base_link">
-      <pose relative_to="base_link">-0.390 0 -0.0066 0 0.3491 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.399 0 -0.0066 0 0.3491 3.141592653589793</pose>
     </frame>
   </model>
 </sdf>
