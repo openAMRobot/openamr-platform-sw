@@ -227,7 +227,8 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel
+                # (set in nav2_params.yaml).
                 remappings=remappings,
             ),
             Node(
@@ -236,7 +237,11 @@ def generate_launch_description():
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
+                parameters=[
+                    {'autostart': autostart},
+                    {'node_names': lifecycle_nodes},
+                    {'bond_timeout': 60.0},
+                ],
             ),
         ],
     )
@@ -330,7 +335,11 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
+                            {
+                                'autostart': autostart,
+                                'node_names': lifecycle_nodes,
+                                'bond_timeout': 60.0,
+                            }
                         ],
                     ),
                 ],
