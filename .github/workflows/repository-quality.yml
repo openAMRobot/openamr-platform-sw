@@ -12,3 +12,8 @@ jobs:
   repository-quality:
     name: repository-quality
     uses: openAMRobot/.github/.github/workflows/repository-quality-reusable.yml@main
+    with:
+      # #98: actually execute install/build/lint/tests and retain evidence.
+      # The shared verify job fails closed on zero executed tests.
+      verify: true
+      verify_container: ros:jazzy-ros-base
