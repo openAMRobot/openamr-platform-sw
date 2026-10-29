@@ -14,7 +14,7 @@ import unittest
 
 import pytest
 
-pytest.importorskip('openamr_nav_msgs')
+pytest.importorskip('openamr_nav_msgs')  #102
 
 from diagnostic_msgs.msg import DiagnosticStatus  # noqa: E402,I100
 from openamr_nav_msgs.msg import (  # noqa: E402,I100
