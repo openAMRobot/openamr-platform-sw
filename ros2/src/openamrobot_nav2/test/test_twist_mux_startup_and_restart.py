@@ -82,6 +82,27 @@ window directly against the real mux with a hand-controlled clock, with the
 that class's own docstring) - it does NOT touch or re-verify
 navigation_launch.py's own wall-clock mitigation, which is a separate,
 launch-level guarantee that a twist_mux-only test cannot exercise.
+
+Fourth review follow-up (live manual repro against the real mux binary, 30
+Oct 2026): the "forwarding positive control" sub-test below was written on
+the assumption that holding the sim clock near zero is a safe window in
+which cmd_vel_nav gets forwarded - true for the lock itself (confirmed via
+twist_mux's own /diagnostics: it reports "free"), but false for the actual
+forwarding result. In that window, every velocity input that has NEVER
+received a single message (cmd_vel_stop prio 255, cmd_vel_dock prio 20,
+cmd_vel_joy prio 100) reads "unmasked" too - not because anything is
+publishing on them, but because twist_mux's TopicHandle_::hasExpired()
+(topic_handle.hpp) is `(now() - stamp_) > timeout`, stamp_ defaults to 0,
+and a sim clock held under ~0.25s never ages a never-received handle past
+ITS OWN timeout either. Those phantom-valid, higher-priority handles
+outrank cmd_vel_nav (priority 10) in twist_mux's arbitration, so nav never
+wins - and since none of those higher-priority inputs ever actually
+publish anything either, the net result is total silence on cmd_vel_mux.
+There is no sim-time value, under this config's current timeouts, where a
+safe cold-start forwarding window for cmd_vel_nav actually exists; see
+pr90-found-during-review.md for the safety call this raises.
+TestMuxColdStartUnderSimClock below is rewritten to prove that silence
+directly, not the forwarding its name originally assumed.
 """
 from pathlib import Path
 import shutil
@@ -420,14 +441,18 @@ class TestMuxColdStartUnderSimClock(unittest.TestCase):
     exactly as its own comment says it does, under the clock source it was
     actually written for.
 
-    The forwarding positive control Mohamed asked for is the first sub-test
-    below, in a stronger form than finding 3's "is the mux even alive"
-    check: it is not merely a sanity check alongside the real assertion, it
-    IS the assertion - proving this harness can detect a real, expected
-    nonzero forward under the one condition where that is the known,
-    accepted, pre-mitigation behavior. Without it, the second sub-test's
-    "nothing forwarded" could not be trusted as anything more than a
-    harness that never forwards anything, under any clock, ever.
+    Fourth review follow-up (live manual repro, 30 Oct 2026): the first
+    sub-test below was originally the "forwarding positive control"
+    Mohamed asked for - written on the assumption that this window is the
+    one condition where a real, expected nonzero forward is known,
+    accepted, pre-mitigation behavior. That assumption is false: a live
+    manual repro against the real binary (both wall clock and sim clock)
+    found nothing is forwarded in this window either, for a different
+    reason than the lock (see the module docstring above and that test's
+    own docstring for the confirmed mechanism). It no longer serves as a
+    positive control for the second sub-test below - that test's docstring
+    now carries its own note on what it can and cannot currently prove as
+    a result.
     """
 
     @classmethod
@@ -511,18 +536,45 @@ class TestMuxColdStartUnderSimClock(unittest.TestCase):
             'twist_mux', names,
             f'the twist_mux node never became discoverable (saw {names})')
 
-    def test_forwarding_positive_control_under_zero_sim_clock(self):
+    def test_nothing_forwarded_under_zero_sim_clock_phantom_handles_mask_nav(self):
         """
         Mux boots with sim clock pinned at 0.05s - never crossing 0.3s.
 
-        This is the known, accepted, pre-mitigation window: no lock message
-        has ever been received (same as every class above), and the
-        generic timeout default has not had the simulated time it needs to
-        flip to "expired" (locked). The real guarantee against this on the
-        robot is navigation_launch.py's wall-clock TimerAction, not
-        anything tested here. Asserting forwarding happens is deliberate -
-        it is the positive control the next test's "nothing forwarded"
-        depends on.
+        Originally written as a "forwarding positive control", on the
+        assumption that holding the sim clock near zero is a safe window in
+        which cmd_vel_nav gets forwarded (no lock message ever received,
+        lock not yet expired-to-locked). That assumption is false, confirmed
+        against the real mux binary with a live manual repro (platform-sw#90,
+        30 Oct 2026) and with twist_mux's own /diagnostics captured directly
+        in this exact window:
+
+            lock locks.software_stop:      free   (as expected)
+            velocity topics.navigation:    unmasked, priority #10
+            velocity topics.software_stop: unmasked, priority #255  (never received ANY message)
+            velocity topics.docking:       unmasked, priority #20   (never received ANY message)
+            velocity topics.manual:        unmasked, priority #100  (never received ANY message)
+
+        The lock is correctly free - that is not what blocks forwarding.
+        twist_mux's TopicHandle_::hasExpired() (topic_handle.hpp) is
+        `(now() - stamp_) > timeout`, and stamp_ defaults to 0 for a topic
+        that has never received a single message. With the sim clock held
+        near zero, `now() - 0` never exceeds any of the configured timeouts
+        (0.25s-0.5s) - so cmd_vel_stop/cmd_vel_dock/cmd_vel_joy, despite
+        never publishing anything in this test, read as "unmasked" and
+        outrank cmd_vel_nav (priority 10) in twist_mux's own arbitration.
+        Nothing from navigation ever wins that comparison, and nothing from
+        the phantom-valid higher-priority handles is ever actually
+        published either (their own callbacks never fire without a real
+        message) - so the result at cmd_vel_mux is total silence, not nav
+        being forwarded and not any of the others either.
+
+        This test now proves that silence, not a successful forward: there
+        is no sim-time value, under this config's current timeouts, where a
+        safe cold-start forwarding window for cmd_vel_nav actually exists.
+        See pr90-found-during-review.md for the safety call this raises
+        (Mohamed Sayed / platform lead sign-off needed) - this file does
+        not change config/twist_mux.yaml or safety_stop_gate_node.py to
+        chase a fix on its own.
         """
         self._clock.set_seconds(0.05)
         self._clock.publish_once()
@@ -530,15 +582,16 @@ class TestMuxColdStartUnderSimClock(unittest.TestCase):
         self._run_for(real_seconds=1.0)  # sim clock held at 0.05s throughout
         self._assert_mux_alive_and_discoverable()
         nonzero = [m for m in self._mux_out if m != Twist()]
-        self.assertTrue(
-            nonzero,
-            'expected at least one nonzero command to be forwarded while '
-            'the sim clock is held under the 0.3s threshold with no lock '
-            'message ever received - if this now fails, something about '
-            'twist_mux.yaml\'s own timeout mechanism (or twist_mux itself) '
-            'changed in a way that needs re-checking before trusting it as '
-            'a positive control for the next test, not a reason to treat '
-            'the next test\'s pass as stronger than it is')
+        self.assertEqual(
+            nonzero, [],
+            f'twist_mux forwarded {len(nonzero)} nonzero command(s) while '
+            f'the sim clock was held under the 0.3s threshold with no lock '
+            f'message ever received: {nonzero[:3]} - if this now fails, '
+            f'something about the phantom-handle starvation documented '
+            f'above has changed (e.g. a timeout was shortened below '
+            f'another input\'s) and needs re-checking against a live '
+            f'manual repro before trusting it, not just taken as the '
+            f'original "positive control" assumption restored')
 
     def test_stays_locked_once_sim_clock_crosses_threshold(self):
         """
@@ -551,6 +604,25 @@ class TestMuxColdStartUnderSimClock(unittest.TestCase):
         epoch number happens to already be past it, which is true from the
         first instant under wall time and therefore cannot tell these two
         clock sources apart.
+
+        Fourth review follow-up (live manual repro, 30 Oct 2026): this
+        test's pass is currently UNFALSIFIABLE and should be read with that
+        limitation, not as proof the lock mechanism alone is doing its job
+        here. Below the lock's own 0.3s threshold, nothing is forwarded
+        either - not because the lock is engaged, but because the phantom
+        higher-priority handles documented on
+        test_nothing_forwarded_under_zero_sim_clock_phantom_handles_mask_nav
+        above dominate first (their timeouts, 0.25s-0.5s, are all >= the
+        lock's 0.3s). So this test currently cannot distinguish "the lock
+        correctly stayed engaged" from "the phantom-handle effect alone was
+        enough to silence everything, lock state notwithstanding" - both
+        produce the same observed nonzero=[] result, before AND after the
+        threshold this test crosses. Making this test falsifiable needs the
+        phantom-handle effect addressed first (see
+        pr90-found-during-review.md) - not a change to the assertion
+        below, which stays correct as a check on the OLD mux's continued
+        lock-after-restart behavior; it is just not currently proof of what
+        its own docstring above claims to isolate.
         """
         self._clock.set_seconds(0.0)
         self._clock.publish_once()
