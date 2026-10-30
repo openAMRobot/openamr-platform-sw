@@ -64,6 +64,24 @@ confirmed against the code and fixed here:
    skip guard below only checked for the `ros2` CLI, not the `twist_mux`
    package specifically. Both the workflow and the guard are fixed
    (workflow in the same patch as this file; guard below).
+
+Third review follow-up (Mohamed Sayed, platform-sw#90, 27 Oct 2026): the
+sim-clock cold-start finding he raised earlier - fixed at the config/launch
+level, see twist_mux.yaml's locks.software_stop.timeout comment and
+navigation_launch.py's delayed_ui_cmd_vel_relay_node - was never actually
+exercised by a test, because every class above runs the real wall clock.
+Under wall time, rclcpp::Time's default-constructed "stamp_ at epoch 0"
+baseline is already billions of seconds in the past the instant any process
+starts, so hasExpired() trips essentially instantly and trivially; none of
+that is true under use_sim_time, where now() genuinely starts at or near
+zero, and must climb the full 0.3s before the same check flips. No test
+here ever set use_sim_time or controlled /clock, so none of them could have
+told the difference. TestMuxColdStartUnderSimClock below reproduces that
+window directly against the real mux with a hand-controlled clock, with the
+"forwarding positive control" Mohamed asked for as its first sub-test (see
+that class's own docstring) - it does NOT touch or re-verify
+navigation_launch.py's own wall-clock mitigation, which is a separate,
+launch-level guarantee that a twist_mux-only test cannot exercise.
 """
 from pathlib import Path
 import shutil
@@ -102,8 +120,16 @@ pytestmark = pytest.mark.skipif(
     not _twist_mux_available(),
     reason='needs the real ros2 CLI AND the twist_mux package installed')
 
+from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402,I100
+
 from geometry_msgs.msg import Twist  # noqa: E402,I100
+
 from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode  # noqa: E402
+
+from rclpy.parameter import Parameter  # noqa: E402
+from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
+
+from rosgraph_msgs.msg import Clock  # noqa: E402
 
 # The actual shipped config, not a hand-maintained copy (finding 2). Package
 # root is this test file's grandparent (test/ -> openamrobot_nav2/).
@@ -327,3 +353,218 @@ class TestMuxRestart(TwistMuxLiveTestCase):
         self._publish_nonzero_nav_cmd(seconds=2.0)
         self._assert_mux_alive_and_discoverable()
         self._assert_nothing_nonzero_forwarded()
+
+
+class _ControlledClockPublisher:
+    """
+    Publishes a hand-controlled /clock, independent of wall time.
+
+    Mohamed's review (platform-sw#90, third round): none of the real-mux
+    tests above ever run with use_sim_time, so none of them could reproduce
+    the actual sim-time cold-start window the production fix (twist_mux.yaml
+    / navigation_launch.py) targets - under wall time, rclcpp::Time's
+    default-constructed "stamp_ at epoch 0" baseline is already billions of
+    seconds in the past the instant any process starts, so there is nothing
+    to reproduce there. This publishes real /clock messages (QoS: RELIABLE,
+    depth 1 - satisfies either a RELIABLE or a BEST_EFFORT reader, so it
+    does not matter which one rclcpp's internal TimeSource actually uses)
+    at a value this test controls directly, instead of whatever real time
+    happens to be.
+    """
+
+    def __init__(self, node):
+        self._pub = node.create_publisher(
+            Clock, '/clock',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE))
+        self._sec = 0
+        self._nanosec = 0
+
+    def set_seconds(self, seconds):
+        self._sec = int(seconds)
+        self._nanosec = int(round((seconds - self._sec) * 1e9))
+
+    def advance(self, delta_seconds):
+        self.set_seconds(self._sec + self._nanosec * 1e-9 + delta_seconds)
+
+    def publish_once(self):
+        msg = Clock()
+        msg.clock = TimeMsg(sec=self._sec, nanosec=self._nanosec)
+        self._pub.publish(msg)
+
+
+class TestMuxColdStartUnderSimClock(unittest.TestCase):
+    """
+    Reproduces the sim-time cold-start window directly against the real mux.
+
+    Mohamed's review (platform-sw#90, third round): the production fix for
+    this (locks.software_stop.timeout: 0.3 in twist_mux.yaml, plus the
+    wall-clock TimerAction delay on ui_cmd_vel_relay_node in
+    navigation_launch.py - see both files' own comments) was never actually
+    exercised under use_sim_time by any test in this file; every class
+    above runs on the real wall clock, where the fail-closed default is
+    trivially, instantly true (wall-clock now() is already huge), which
+    proves nothing about the sim-time path the fix exists for.
+
+    use_sim_time genuinely starts at or near zero and climbs - that is the
+    real window this class reproduces, directly against the real twist_mux
+    binary, with a hand-controlled /clock (_ControlledClockPublisher) this
+    test drives itself rather than trusting whatever wall time happens to
+    be.
+
+    This intentionally does NOT re-verify navigation_launch.py's own
+    mitigation (the wall-clock TimerAction that keeps every unmanaged raw
+    producer from publishing during this window on the real robot) - that
+    is a separate, launch-level guarantee a twist_mux-only test cannot
+    exercise. What this class proves is narrower and still worth having on
+    its own: that the generic timeout mechanism in twist_mux.yaml behaves
+    exactly as its own comment says it does, under the clock source it was
+    actually written for.
+
+    The forwarding positive control Mohamed asked for is the first sub-test
+    below, in a stronger form than finding 3's "is the mux even alive"
+    check: it is not merely a sanity check alongside the real assertion, it
+    IS the assertion - proving this harness can detect a real, expected
+    nonzero forward under the one condition where that is the known,
+    accepted, pre-mitigation behavior. Without it, the second sub-test's
+    "nothing forwarded" could not be trusted as anything more than a
+    harness that never forwards anything, under any clock, ever.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Every node constructed below without its own override defaults to
+        # sim time - see _ControlledClockPublisher, which must opt out.
+        rclpy.init(args=['--ros-args', '-p', 'use_sim_time:=true'])
+        shipped_timeout = _load_shipped_lock_timeout()
+        assert shipped_timeout > 0.0, (
+            'config/twist_mux.yaml locks.software_stop.timeout is %r - see '
+            'TwistMuxLiveTestCase.setUpClass above for why this must stay '
+            '> 0.0' % shipped_timeout)
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def setUp(self):
+        self.probe = rclpy.create_node('sim_clock_probe')
+        self.clock_node = rclpy.create_node(
+            'sim_clock_driver',
+            use_global_arguments=False,
+            parameter_overrides=[
+                Parameter('use_sim_time', Parameter.Type.BOOL, False)])
+        self._clock = _ControlledClockPublisher(self.clock_node)
+        self._nav_pub = self.probe.create_publisher(Twist, 'cmd_vel_nav', 10)
+        self._mux_out = []
+        self.probe.create_subscription(
+            Twist, 'cmd_vel_mux', self._mux_out.append, 10)
+        self._mux_proc = None
+        self._nonzero_twist = Twist()
+        self._nonzero_twist.linear.x = 0.3
+
+    def tearDown(self):
+        if self._mux_proc is not None:
+            _stop_mux(self._mux_proc)
+        self.probe.destroy_node()
+        self.clock_node.destroy_node()
+
+    def _start_mux_with_sim_time(self):
+        return subprocess.Popen(
+            ['ros2', 'run', 'twist_mux', 'twist_mux',
+             '--ros-args', '--params-file', str(_SHIPPED_PARAMS_PATH),
+             '-p', 'use_sim_time:=true',
+             '-r', 'cmd_vel_out:=cmd_vel_mux'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _run_for(self, real_seconds, sim_rate=0.0):
+        """
+        Spin for a fixed wall-clock duration, driving /clock and a nonzero
+        nav command every tick.
+
+        sim_rate: simulated seconds added each tick (0.0 keeps the sim
+        clock pinned at whatever set_seconds() last set - the cold-start
+        hold; a positive value climbs it across the loop instead, to cross
+        the 0.3s threshold without needing to wait that long in real time).
+        """
+        end = time.monotonic() + real_seconds
+        while time.monotonic() < end:
+            if sim_rate:
+                self._clock.advance(sim_rate)
+            self._clock.publish_once()
+            self._nav_pub.publish(self._nonzero_twist)
+            rclpy.spin_once(self.clock_node, timeout_sec=0.0)
+            rclpy.spin_once(self.probe, timeout_sec=0.01)
+
+    def _assert_mux_alive_and_discoverable(self):
+        self.assertIsNotNone(self._mux_proc, 'no mux process was ever started')
+        self.assertIsNone(
+            self._mux_proc.poll(),
+            f'the mux process exited early (code {self._mux_proc.poll()}) - '
+            f'a dead process trivially forwards nothing')
+        deadline = time.monotonic() + 3.0
+        names = []
+        while time.monotonic() < deadline:
+            names = self.probe.get_node_names()
+            if 'twist_mux' in names:
+                break
+            rclpy.spin_once(self.probe, timeout_sec=0.05)
+        self.assertIn(
+            'twist_mux', names,
+            f'the twist_mux node never became discoverable (saw {names})')
+
+    def test_forwarding_positive_control_under_zero_sim_clock(self):
+        """
+        Mux boots with sim clock pinned at 0.05s - never crossing 0.3s.
+
+        This is the known, accepted, pre-mitigation window: no lock message
+        has ever been received (same as every class above), and the
+        generic timeout default has not had the simulated time it needs to
+        flip to "expired" (locked). The real guarantee against this on the
+        robot is navigation_launch.py's wall-clock TimerAction, not
+        anything tested here. Asserting forwarding happens is deliberate -
+        it is the positive control the next test's "nothing forwarded"
+        depends on.
+        """
+        self._clock.set_seconds(0.05)
+        self._clock.publish_once()
+        self._mux_proc = self._start_mux_with_sim_time()
+        self._run_for(real_seconds=1.0)  # sim clock held at 0.05s throughout
+        self._assert_mux_alive_and_discoverable()
+        nonzero = [m for m in self._mux_out if m != Twist()]
+        self.assertTrue(
+            nonzero,
+            'expected at least one nonzero command to be forwarded while '
+            'the sim clock is held under the 0.3s threshold with no lock '
+            'message ever received - if this now fails, something about '
+            'twist_mux.yaml\'s own timeout mechanism (or twist_mux itself) '
+            'changed in a way that needs re-checking before trusting it as '
+            'a positive control for the next test, not a reason to treat '
+            'the next test\'s pass as stronger than it is')
+
+    def test_stays_locked_once_sim_clock_crosses_threshold(self):
+        """
+        Same boot, but the sim clock is allowed to actually climb past 0.3s.
+
+        Confirms the default-fail-closed invariant (already covered under
+        wall time by TestMuxStartsAfterGate/TestMuxStartsBeforeGate above)
+        also holds once a SIMULATED clock has genuinely had 0.3s to tick
+        past epoch zero - not just once some arbitrarily-large wall-clock
+        epoch number happens to already be past it, which is true from the
+        first instant under wall time and therefore cannot tell these two
+        clock sources apart.
+        """
+        self._clock.set_seconds(0.0)
+        self._clock.publish_once()
+        self._mux_proc = self._start_mux_with_sim_time()
+        # Let the mux come up at sim t=0 first - the fail-open window the
+        # test above measures - then climb well past the threshold.
+        self._run_for(real_seconds=0.2)
+        self._run_for(real_seconds=1.0, sim_rate=0.02)
+        self._mux_out.clear()
+        self._run_for(real_seconds=1.0)  # hold steady, now past the threshold
+        self._assert_mux_alive_and_discoverable()
+        nonzero = [m for m in self._mux_out if m != Twist()]
+        self.assertEqual(
+            nonzero, [],
+            f'twist_mux forwarded {len(nonzero)} nonzero command(s) after '
+            f'the sim clock had already climbed past the 0.3s timeout '
+            f'threshold with no lock message ever received: {nonzero[:3]}')
