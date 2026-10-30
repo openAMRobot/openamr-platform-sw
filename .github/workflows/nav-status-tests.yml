@@ -44,7 +44,9 @@ jobs:
             python3-pytest \
             python3-yaml \
             ros-jazzy-nav2-msgs \
-            ros-jazzy-tf2-ros-py
+            ros-jazzy-tf2-ros-py \
+            ros-jazzy-twist-mux \
+            ros-jazzy-nav2-velocity-smoother
 
       - name: Build openamr_nav_msgs and the producer
         shell: bash
@@ -70,4 +72,10 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_status_trackers.py \
             ros2/src/openamrobot_nav2/test/test_status_rules.py \
             ros2/src/openamrobot_nav2/test/test_navigation_status_node.py \
-            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py \
+            ros2/src/openamrobot_nav2/test/test_safety_stop_gate_node.py \
+            ros2/src/openamrobot_nav2/test/test_ui_cmd_vel_relay_node.py \
+            ros2/src/openamrobot_nav2/test/test_twist_mux_startup_and_restart.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_velocity_smoother_routing.py \
+            ros2/src/openamrobot_nav2/test/test_velocity_smoother_publisher_loss_distance.py \
+            ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py

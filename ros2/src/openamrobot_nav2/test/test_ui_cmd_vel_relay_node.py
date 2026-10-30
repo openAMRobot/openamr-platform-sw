@@ -1,0 +1,162 @@
+"""
+Node-level regression tests for ui_cmd_vel_relay_node.py (issue #35).
+
+Same convention as test_navigation_status_node.py: skipped if rclpy isn't
+installed here, run for real in a ROS 2 workspace.
+"""
+import time
+import unittest
+
+import pytest
+
+rclpy = pytest.importorskip('rclpy')
+
+from builtin_interfaces.msg import Time  # noqa: E402,I100
+from geometry_msgs.msg import Twist, TwistStamped, Vector3  # noqa: E402
+from openamrobot_nav2.ui_cmd_vel_relay_node import UiCmdVelRelayNode  # noqa: E402
+from rclpy.parameter import Parameter  # noqa: E402
+from rclpy.time import Time as RclpyTime  # noqa: E402
+
+
+def _stamped(x, age_s=0.0, now=None):
+    now = now if now is not None else time.time()
+    stamp_s = now - age_s
+    msg = TwistStamped()
+    msg.header.stamp = Time(sec=int(stamp_s), nanosec=int((stamp_s % 1) * 1e9))
+    msg.twist = Twist(linear=Vector3(x=x))
+    return msg
+
+
+class NodeTestCase(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        rclpy.init(args=[])
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def setUp(self):
+        self.node = UiCmdVelRelayNode()
+        self.probe = rclpy.create_node('ui_cmd_vel_relay_probe')
+
+    def tearDown(self):
+        self.node.destroy_node()
+        self.probe.destroy_node()
+
+    def _spin_both(self, timeout_s=0.3):
+        end = time.monotonic() + timeout_s
+        while time.monotonic() < end:
+            rclpy.spin_once(self.node, timeout_sec=0.01)
+            rclpy.spin_once(self.probe, timeout_sec=0.01)
+
+
+class TestStaleCommandsAreDropped(NodeTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.ui_pub = self.probe.create_publisher(TwistStamped, '/ui/cmd_vel', 1)
+        self.received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_joy', self.received.append, 10)
+        self._spin_both(0.1)  # let discovery settle before publishing
+
+    def test_a_fresh_command_is_forwarded_as_plain_twist(self):
+        self.ui_pub.publish(_stamped(x=0.3, age_s=0.0))
+        self._spin_both()
+        self.assertEqual(len(self.received), 1)
+        self.assertAlmostEqual(self.received[0].linear.x, 0.3, places=3)
+
+    def test_a_command_right_at_the_window_edge_is_forwarded(self):
+        self.ui_pub.publish(_stamped(x=0.4, age_s=0.24))
+        self._spin_both()
+        self.assertEqual(len(self.received), 1)
+
+    def test_a_command_older_than_the_window_is_dropped(self):
+        self.ui_pub.publish(_stamped(x=0.9, age_s=0.5))
+        self._spin_both()
+        self.assertEqual(self.received, [])
+
+    def test_a_future_dated_command_is_dropped(self):
+        # platform-sw#35 (Mohamed's review, relayed via Parth): a stamp
+        # claiming to be ahead of this node's clock used to pass through
+        # unconditionally, since age_s = now - stamp is negative and was
+        # never checked against the staleness window at all.
+        self.ui_pub.publish(_stamped(x=0.7, age_s=-1.0))  # 1s in the future
+        self._spin_both()
+        self.assertEqual(self.received, [])
+
+    def test_a_command_slightly_in_the_future_within_clock_skew_tolerance_is_forwarded(self):
+        # A few milliseconds of clock skew between co-located processes is
+        # expected and must not flap a genuinely fresh command.
+        self.ui_pub.publish(_stamped(x=0.2, age_s=-0.005))  # 5ms in the future
+        self._spin_both()
+        self.assertEqual(len(self.received), 1)
+        self.assertAlmostEqual(self.received[0].linear.x, 0.2, places=3)
+
+    def test_a_zero_or_missing_stamp_is_dropped(self):
+        # Regression: confirms the pre-existing (and already-correct)
+        # missing/never-set-stamp case stays rejected now that the
+        # staleness check has a second branch.
+        msg = TwistStamped()
+        msg.twist = Twist(linear=Vector3(x=0.5))
+        self.ui_pub.publish(msg)
+        self._spin_both()
+        self.assertEqual(self.received, [])
+
+    def test_a_late_delivered_stale_command_is_not_applied_once_fresh_data_resumes(self):
+        # Simulates a connectivity gap: an old message and a fresh one both
+        # sitting in the publisher's queue, delivered back-to-back once the
+        # link recovers. The relay must judge each one independently against
+        # the clock at receipt time, not forward the stale one just because
+        # a fresh one follows right behind it.
+        self.ui_pub.publish(_stamped(x=0.9, age_s=0.5))   # stale - must drop
+        self._spin_both(0.1)  # let it be received and judged before the next one
+        self.ui_pub.publish(_stamped(x=0.1, age_s=0.0))   # fresh - must forward
+        self._spin_both()
+        self.assertEqual(len(self.received), 1)
+        self.assertAlmostEqual(self.received[0].linear.x, 0.1, places=3)
+
+
+class TestZeroStampNearSimulationStartup(NodeTestCase):
+    """
+    Mohamed Sayed's platform-sw#90 review, third pass.
+
+    The previous zero-stamp regression (test_a_zero_or_missing_stamp_is_dropped)
+    only exercises a real wall clock, where now_s is already a huge number, so
+    age_s for a zero stamp comes out huge and the existing age > STALE_AFTER_S
+    branch alone happens to catch it - never actually exercising the new
+    explicit (0, 0) check. This uses rclpy's ROS-time override (the standard
+    way to control sim time in a test without a live /clock publisher) to put
+    the node's own clock at or just past zero, exactly his repro: "now=0,
+    stamp=0" and "now=0.1, stamp=0" both used to return not-stale.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.node.set_parameters([Parameter('use_sim_time', value=True)])
+        self._clock = self.node.get_clock()
+        self._clock._set_ros_time_is_active(True)
+
+    def _zero_stamp_msg(self):
+        msg = TwistStamped()
+        msg.header.stamp = Time(sec=0, nanosec=0)
+        msg.twist = Twist(linear=Vector3(x=0.6))
+        return msg
+
+    def test_zero_stamp_is_stale_when_the_sim_clock_is_at_exactly_zero(self):
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=0))
+        self.assertTrue(self.node._is_stale(self._zero_stamp_msg()))
+
+    def test_zero_stamp_is_stale_a_tenth_of_a_second_into_the_simulation(self):
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=int(0.1e9)))
+        self.assertTrue(self.node._is_stale(self._zero_stamp_msg()))
+
+    def test_a_genuinely_fresh_stamp_at_sim_time_near_zero_still_forwards(self):
+        # the fix must not become "reject everything near t=0" - a message
+        # legitimately stamped close to (but not exactly) zero is still fresh
+        self._clock.set_ros_time_override(RclpyTime(seconds=0, nanoseconds=int(0.05e9)))
+        msg = TwistStamped()
+        msg.header.stamp = Time(sec=0, nanosec=int(0.04e9))
+        msg.twist = Twist(linear=Vector3(x=0.2))
+        self.assertFalse(self.node._is_stale(msg))

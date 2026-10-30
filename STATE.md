@@ -21,8 +21,11 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
-| Nav2 behavior_server remap (#35) | #54 | in review | owner review |
+| Nav2 behavior_server remap (#35) | #54 | merged (8a7a5b1) | - |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
+| Nav2 behavior_server remap (#35) | #54 | merged (8a7a5b1) | - |
+| Gemini 336L base camera simulation | #53 | draft | owner review |
+| twist_mux command arbitration + stop gate (#35) | #90 | draft, needs adopt/adapt/reject | owner decision, then review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
 | GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |

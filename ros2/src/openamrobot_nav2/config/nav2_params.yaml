@@ -345,7 +345,15 @@ velocity_smoother:
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
-    velocity_timeout: 1.0
+    # platform-sw#90 (Alex's review): 1.0 s let a stopped teleop/any other
+    # source keep driving for up to a full second after its publisher went
+    # silent - too long for a functional stop. 0.3 s matches the
+    # software_stop lock's own timeout (twist_mux.yaml locks.software_stop),
+    # so the smoother itself does not become the longest link in the stop
+    # chain. See docs/safety/02_limits_and_watchdog.md and
+    # test_velocity_smoother_publisher_loss_distance.py (distance bound for
+    # a lost publisher, run against the real node).
+    velocity_timeout: 0.3
 
 collision_monitor:
   ros__parameters:

@@ -31,6 +31,8 @@ setup(
     entry_points={
         'console_scripts': [
             'navigation_status_node = openamrobot_nav2.navigation_status_node:main',
+            'safety_stop_gate_node = openamrobot_nav2.safety_stop_gate_node:main',
+            'ui_cmd_vel_relay_node = openamrobot_nav2.ui_cmd_vel_relay_node:main',
         ],
     },
 )
