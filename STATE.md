@@ -58,7 +58,10 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
   tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
 - Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
-- No `tools/verify.sh`; `quality/test` is skipped on main.
+- 31 Oct 2026, PR #101: shared `quality/test` enabled; implementation ced7d3c passed
+  hosted run 40884563081: 169 tests, 0 failures/errors, 6 copyright skips (#102).
+  This is branch evidence; main still needs #101. Required nav imports, duplicated
+  interface pins and consistent skip annotations remain tracked follow-ups in #102.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
 
