@@ -76,6 +76,10 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Clock contract (17 Nov 2026, ws1/time-injection): 3 inventory sites still `to_change`, all vendored (canopen_common tick, dt and SDO timeout; ZLAC8015D receipt time and 2000h link loss) until platform-fw #57; a Gazebo pause over 250 ms trips the emulated 2000h link loss on host time. Renode skew not reported yet. Open (xfail): #159 frames from before a reset act after it. #160 closed in the wrapper (ZLAC8015D unpowered before the first /clock, 17 Nov 2026, Proposed; platform lead to confirm).
+- 31 Oct 2026, PR #101: shared `quality/test` enabled; implementation ced7d3c passed
+  hosted run 40884563081: 169 tests, 0 failures/errors, 6 copyright skips (#102).
+  This is historical branch evidence, not current-head acceptance; main still needs #101. Required nav imports, duplicated
+  interface pins and consistent skip annotations remain tracked follow-ups in #102.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
 
