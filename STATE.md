@@ -10,7 +10,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Readiness: not yet assessed (17 Oct 2026, rollout step a)
 - Owner role: software-lead (maintainers.yaml)
 - Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
-  `description-tests` (added 24 Oct 2026, this PR) and `repository-quality`; no
+  `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026) and `repository-quality`; no
   `tools/verify.sh` yet. `repository-quality` PASS on main at
   dfd44a5 (16 Oct 2026).
 
@@ -27,10 +27,11 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Gemini 336L base camera simulation | #53 | draft | owner review |
 | twist_mux command arbitration + stop gate (#35) | #90 | draft, needs adopt/adapt/reject | owner decision, then review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
-| 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
-| GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |
+| 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
-| Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | this PR | draft | work-package owner: adopt, adapt or reject; mechanical owner: confirm the 22.4 mm hole |
+| Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
+| BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
+| Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | this PR | draft | work-package owner: adopt, adapt or reject; reaches the combined model with the upperbody PLATFORM-PIN move after upperbody PR #14 |
 
 ## Decisions this repository implements
 
@@ -45,11 +46,12 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Battery cell-group envelope (314 x 140 x 210 mm, provisional; project-lead decision 25 Oct
   2026) behind the centre bracket fits CAD v0.2 with at least 2 mm (build/cad_checks.md); BMS,
   power distribution, fuse and wiring are not modelled (free space reported). Register BOM-ISSUE-IN-FORCE
-  still names BOM Issue 7.10; the sources here cite BOM Issue 7.11 (25 Oct 2026).
+  still names BOM Issue 7.10; the sources here cite BOM Issue 7.14 with its 1 Nov changes (1 Nov 2026).
+- IMU board envelope (1 Nov 2026) is still the MIKROE-4237 outline from the STEP; the TDK
+  EV_ICM-42688-P outline is not modelled; imu_link pose and yaw unchanged (P-03 rev20.2 item 26).
 - Base E-stop and RESET (27 Oct 2026) are placeholders from datasheet dimensions in the
   release 001 button holes (22.5 mm in CAD v0.2); the Schneider STEP models and the XB4 hole
   tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
-
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15

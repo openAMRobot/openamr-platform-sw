@@ -37,7 +37,7 @@ For Gazebo simulation, see the `openamrobot_gazebo` package.
 The visual meshes are generated from the hardware CAD by `tools/cad/step_to_description_meshes.py`
 (see `tools/cad/README.md`); do not edit them by hand. The chassis comes from the v0.2
 full-assembly STEP of `openamr-platform-hw` (Rev B panels, 2.0 sensor mounts). Release 001 parts
-in the STEP are excluded, and the 2.0 components of BOM Issue 7.11 are simplified envelopes:
+in the STEP are excluded, and the 2.0 components of BOM Issue 7.14 (27 Oct 2026, with 1 Nov changes) are simplified envelopes:
 
 | Mesh | Link | Content |
 |---|---|---|
@@ -46,7 +46,7 @@ in the STEP are excluded, and the 2.0 components of BOM Issue 7.11 are simplifie
 | `base_equipment.stl` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery cell-group envelope on the rear deck (314 x 140 x 210 mm, front face 2 mm behind the centre bracket, computed by the converter; provisional, dimensions not released), base E-stop and RESET in the release 001 button holes (placeholders) |
 | `hub_motor_wheel.stl` | `left_wheel_link`, `right_wheel_link` (yaw pi) | ZLLG80ASM250-L-B hub motor wheel, brake side inboard |
 | `caster.stl` | `fl/fr/bl/br_caster_link` | LPA-VSTH 35K castor with its wheel |
-| `lidar.stl`, `base_camera.stl`, `ultrasonic.stl`, `tof.stl`, `imu.stl` | sensor links | RPLIDAR S3, Gemini 336L, MB7060, TF-Luna, ICM-42688-P board; the pose is the frame |
+| `lidar.stl`, `base_camera.stl`, `ultrasonic.stl`, `tof.stl`, `imu.stl` | sensor links | RPLIDAR S3, Gemini 336L, MB7060, TF-Luna, ICM-42688-P board (TDK EV_ICM-42688-P in 2.0; the board envelope is the outline of the 6DOF IMU 14 Click instance in the STEP); the pose is the frame |
 
 The base E-stop (XB4BS8445) and RESET button (XB4BW36B5) are in `base_equipment.stl`, centred on the
 axes of the release 001 red and green button holes in the front panel (P-03 rev20.0 item 24); their
@@ -54,7 +54,7 @@ geometry is a placeholder from datasheet dimensions. Not modelled (no position i
 E-01): safety relay, contactors, main fuse and disconnect, wireless charging receiver. Collision geometry, inertials
 and frames are unchanged. The converter also writes `build/base_visual.glb` for the docs roadmap
 pages, one node per CAD part or component envelope with glTF extras (id, name, class, source,
-BOM 7.11 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.nodes`. Test: `python3 -m pytest test/test_description_meshes.py`.
+BOM 7.14 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.nodes`. Test: `python3 -m pytest test/test_description_meshes.py`.
 
 ## Robot Model
 
@@ -65,7 +65,7 @@ BOM 7.11 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.
 | `fl/fr/bl/br_caster_link` (0.022 kg) | STL mesh |
 | `fl/fr/bl/br_wheel_link` (0.024–0.027 kg) | Sphere r=0.026 m |
 | `lidar_link` (0.168 kg) | STL mesh |
-| `camera_link` (0.05 kg) | Box 0.04×0.08×0.04 m |
+| `camera_link` (0.05 kg, legacy Gate A IMX708 frame) | none; no visual (box removed 1 Nov 2026, it stood above the 2.0 top cover) |
 | `camera_optical_frame` | — (optical convention frame) |
 
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.
