@@ -9,6 +9,10 @@ engineering + operations** series; for a first bring-up jump to
 
 ## What the real robot is
 
+This series records the existing robot (Gate A, release 001 / v0.0.1). OpenAMRobot 2.0:
+Jetson Orin NX 16 GB on J401, STM32H723ZG, ZLAC8015D on CAN1 with 200 mm wheels, Gemini
+336L, RPLIDAR S3, 25.6 V LiFePO4, no 12 V rail.
+
 A differential-drive AMR with **two brains** (the split is deliberate — see
 [`../architecture/ARCHITECTURE_OVERVIEW.md`](../architecture/ARCHITECTURE_OVERVIEW.md)):
 
