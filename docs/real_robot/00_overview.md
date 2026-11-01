@@ -71,7 +71,7 @@ TF: (map →) odom → base_link → {lidar_link, imu_link, base_footprint,
 
 | Node (real) | Package | Provides |
 |---|---|---|
-| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data`, `/debug/*` |
+| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (Gate A Teensy, EKF input; 2.0 firmware publishes `/imu/data_raw`), `/debug/*` |
 | `sllidar_node` (`sllidar_ros2`) | `openamrobot_drivers` | `/scan` (frame `lidar_link`) |
 | `scan_body_filter` | `openamrobot_perception` | `/scan_filtered` (robot body masked) |
 | `ekf_node` (`robot_localization`) | `openamrobot_bringup` cfg | `/odom` + TF `odom→base_link` (wheels + IMU gyro-Z) |
