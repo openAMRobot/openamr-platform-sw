@@ -9,7 +9,8 @@
 # Range sensor frames are at the centre of the sensor face with x along the beam.
 #
 # status: measured    = taken from the CAD Rev B assembly
-#         decision    = fixed by P-03 rev19.0 item 19 / Alex decision 2026-10-12
+#         decision    = fixed by P-03 rev19.0 item 19 / Alex decision 2026-10-12, or by the
+#                       register NEAR-FIELD-FRAMES (20 Oct 2026: us_* x, tof_* pitch)
 #         placeholder = not yet in the CAD
 
 frames:
@@ -40,38 +41,38 @@ frames:
 
   us_front_left:
     sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
-    xyz: [0.3906, 0.130, -0.0066]
+    xyz: [0.390, 0.130, -0.0066]
     rpy: [0.0, 0.0, 0.0]
-    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
-    status: measured
+    cad_source: x at the panel outer face per register NEAR-FIELD-FRAMES (CAD sensor face 0.3906 / -0.3886 reflects the depth in the lock nut; the register wins); y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
+    status: decision
   us_front_right:
     sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
-    xyz: [0.3906, -0.130, -0.0066]
+    xyz: [0.390, -0.130, -0.0066]
     rpy: [0.0, 0.0, 0.0]
-    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
-    status: measured
+    cad_source: x at the panel outer face per register NEAR-FIELD-FRAMES (CAD sensor face 0.3906 / -0.3886 reflects the depth in the lock nut; the register wins); y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
+    status: decision
   us_rear_left:
     sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
-    xyz: [-0.3886, 0.130, -0.0066]
+    xyz: [-0.390, 0.130, -0.0066]
     rpy: [0.0, 0.0, 3.141592653589793]
-    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
-    status: measured
+    cad_source: x at the panel outer face per register NEAR-FIELD-FRAMES (CAD sensor face 0.3906 / -0.3886 reflects the depth in the lock nut; the register wins); y and height from the panel edge hole (y 0.130, 91.4 mm above the floor)
+    status: decision
   us_rear_right:
     sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
-    xyz: [-0.3886, -0.130, -0.0066]
+    xyz: [-0.390, -0.130, -0.0066]
     rpy: [0.0, 0.0, 3.141592653589793]
-    cad_source: sensor face x from the CAD; y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
-    status: measured
+    cad_source: x at the panel outer face per register NEAR-FIELD-FRAMES (CAD sensor face 0.3906 / -0.3886 reflects the depth in the lock nut; the register wins); y and height from the panel edge hole (y -0.130, 91.4 mm above the floor)
+    status: decision
 
   tof_front:
     sensor: Benewake TF-Luna (cliff)
     xyz: [0.399, 0.0, -0.0066]
-    rpy: [0.0, 0.3491, 0.0]   # 20 deg down, screening value until the bench test
+    rpy: [0.0, 0.174533, 0.0]   # 10 deg down (register NEAR-FIELD-FRAMES), pending the bench test
     cad_source: lens face x from the CAD; height from the front centre opening (91.4 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)
   tof_rear:
     sensor: Benewake TF-Luna (cliff)
     xyz: [-0.399, 0.0, -0.0066]
-    rpy: [0.0, 0.3491, 3.141592653589793]   # 20 deg down, screening value until the bench test
+    rpy: [0.0, 0.174533, 3.141592653589793]   # 10 deg down (register NEAR-FIELD-FRAMES), pending the bench test
     cad_source: lens face x from the CAD; height from the rear centre opening (91.35 mm above the floor)
     status: measured   # position; pitch is the decision value (CAD mount face is 10 deg)

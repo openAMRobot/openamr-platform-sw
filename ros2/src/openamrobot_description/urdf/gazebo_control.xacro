@@ -1,6 +1,25 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Physics 7.6 Bullet Featherstone reads bullet/friction, not ode/mu. Its
+       spinning-friction default is 1: use explicit ideal point contacts here.
+       These are simulation approximations, not measured tyre or castor materials.
+       One parameter set feeds both engines; do not tune one behind the other. -->
+  <xacro:macro name="openamr_contact_friction" params="mu mu2 slip:=0 fdir:='0 0 0'">
+    <friction>
+      <ode>
+        <mu>${mu}</mu><mu2>${mu2}</mu2><fdir1>${fdir}</fdir1>
+        <slip1>${slip}</slip1><slip2>${slip}</slip2>
+      </ode>
+      <bullet>
+        <friction>${mu}</friction><friction2>${mu2}</friction2>
+        <rolling_friction>0</rolling_friction>
+      </bullet>
+      <torsional><coefficient>0</coefficient></torsional>
+    </friction>
+  </xacro:macro>
+
+
   <!-- ── World-level plugins (no reference attribute) ─────────────── -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
@@ -34,94 +53,41 @@
     <plugin filename="gz-sim-joint-state-publisher-system"
       name="gz::sim::systems::JointStatePublisher">
       <topic>/joint_states</topic>
+      <!-- Same sampling rate as odometry; avoid publishing at the physics iteration rate. -->
+      <update_rate>50</update_rate>
       <joint_name>left_wheel_joint</joint_name>
       <joint_name>right_wheel_joint</joint_name>
     </plugin>
   </gazebo>
 
+  <!-- Collision extensions are inserted into each collision surface by SDFormat.
+       A bare surface under a gazebo link is copied as link/surface and ignored.
+       Coefficients are explicit ideal-contact estimates, not material calibration.
+       Isotropic tyres avoid rotating anisotropy in the principal-inertia frame.
+       https://sdformat.org/tutorials/specification/sdformat_urdf_extensions/ -->
   <!-- ── Link-level: base_link ─────────────────────────────────────── -->
   <gazebo reference="base_link">
     <material>Gazebo/White</material>
     <gravity>true</gravity>
-    <surface>
-      <friction>
-        <ode>
-          <mu>0.2</mu>
-          <mu2>0.2</mu2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e6</kp>
-          <kd>100</kd>
-        </ode>
-      </contact>
-    </surface>
+    <collision>
+      <surface>
+        <xacro:openamr_contact_friction mu="0.2" mu2="0.2"/>
+        <contact>
+          <ode>
+            <kp>1e6</kp>
+            <kd>100</kd>
+          </ode>
+        </contact>
+      </surface>
+    </collision>
   </gazebo>
 
   <!-- ── Link-level: left_wheel_link ────────────────────────────────────── -->
   <gazebo reference="left_wheel_link">
     <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
-  </gazebo>
-
-  <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
-  <gazebo reference="right_wheel_link">
-    <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
-  </gazebo>
-
-  <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
-  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
-  <xacro:macro name="caster_gazebo" params="prefix">
-    <gazebo reference="${prefix}_caster_link">
-      <material>Gazebo/Grey</material>
-    </gazebo>
-    <gazebo reference="${prefix}_wheel_link">
-      <material>Gazebo/DarkGrey</material>
+    <collision>
       <surface>
-        <friction>
-          <ode>
-            <mu>0.0</mu>
-            <mu2>0.0</mu2>
-          </ode>
-        </friction>
+        <xacro:openamr_contact_friction mu="1.0" mu2="1.0" slip="0.001" fdir="1 0 0"/>
         <contact>
           <ode>
             <kp>1e7</kp>
@@ -131,6 +97,52 @@
           </ode>
         </contact>
       </surface>
+    </collision>
+  </gazebo>
+
+  <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
+  <gazebo reference="right_wheel_link">
+    <material>Gazebo/DarkGrey</material>
+    <collision>
+      <surface>
+        <xacro:openamr_contact_friction mu="1.0" mu2="1.0" slip="0.001" fdir="1 0 0"/>
+        <contact>
+          <ode>
+            <kp>1e7</kp>
+            <kd>1</kd>
+            <min_depth>0.001</min_depth>
+            <max_vel>0.5</max_vel>
+          </ode>
+        </contact>
+      </surface>
+    </collision>
+  </gazebo>
+
+  <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
+  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
+  <xacro:macro name="caster_gazebo" params="prefix">
+    <!-- Preserve the fixed contact body: Bullet has one collider/friction per link.
+         Lumping this sphere into the chassis discards its independent friction.
+         The existing positive castor mass/inertia is retained; no swivel authority added. -->
+    <gazebo reference="${prefix}_wheel_joint"><preserveFixedJoint>true</preserveFixedJoint></gazebo>
+    <gazebo reference="${prefix}_caster_link">
+      <material>Gazebo/Grey</material>
+    </gazebo>
+    <gazebo reference="${prefix}_wheel_link">
+      <material>Gazebo/DarkGrey</material>
+      <collision>
+        <surface>
+          <xacro:openamr_contact_friction mu="0.0" mu2="0.0"/>
+          <contact>
+            <ode>
+              <kp>1e7</kp>
+              <kd>1</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.5</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
     </gazebo>
   </xacro:macro>
 
@@ -149,6 +161,7 @@
         <gz_frame_id>camera_optical_frame</gz_frame_id>
         <update_rate>12</update_rate>
         <camera>
+          <camera_info_topic>/camera/camera_info</camera_info_topic>
           <horizontal_fov>1.047</horizontal_fov>
           <image>
             <width>640</width>

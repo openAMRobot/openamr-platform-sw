@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Reuse the base's existing envelope of the Schneider button at another mounting face.
+     Geometry only: no safety logic, mass claim, or new hardware specification. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="openamr_button_parts" params="parts">
+    <xacro:if value="${len(parts) > 0}">
+      <xacro:property name="p" value="${parts[0]}"/>
+      <xacro:property name="xyz" value="${p['xyz_rel_mm']}"/>
+      <xacro:macro name="button_shape">
+        <xacro:if value="${p['shape'] == 'box'}">
+          <box size="${p['size_mm'][0]/1000} ${p['size_mm'][1]/1000} ${p['size_mm'][2]/1000}"/>
+        </xacro:if>
+        <xacro:if value="${p['shape'] == 'cylinder'}">
+          <cylinder radius="${p['radius_mm']/1000}" length="${p['length_mm']/1000}"/>
+        </xacro:if>
+      </xacro:macro>
+      <visual>
+        <origin xyz="${xyz[0]/1000} ${xyz[1]/1000} ${xyz[2]/1000}" rpy="0 ${pi/2 if p['shape'] == 'cylinder' else 0} 0"/>
+        <geometry><xacro:button_shape/></geometry>
+        <material name="button_${p['feature'].replace(' ', '_')}">
+          <color rgba="${p['colour'][0]} ${p['colour'][1]} ${p['colour'][2]} 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="${xyz[0]/1000} ${xyz[1]/1000} ${xyz[2]/1000}" rpy="0 ${pi/2 if p['shape'] == 'cylinder' else 0} 0"/>
+        <geometry><xacro:button_shape/></geometry>
+      </collision>
+      <xacro:openamr_button_parts parts="${parts[1:]}"/>
+    </xacro:if>
+  </xacro:macro>
+  <xacro:macro name="openamr_estop_geometry">
+    <xacro:property name="button" value="${xacro.load_yaml('$(find openamrobot_description)/config/component_geometry.yaml')['estop']}"/>
+    <xacro:openamr_button_parts parts="${button['parts']}"/>
+  </xacro:macro>
+</robot>
