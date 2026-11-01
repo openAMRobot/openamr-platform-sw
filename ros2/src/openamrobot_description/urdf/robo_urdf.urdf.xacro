@@ -15,7 +15,9 @@ Stephen Brawner (brawner@gmail.com)
        in that old origin. They are shifted by z -0.034533 (0.063467 - 0.098) so they
        keep their height above the floor; the meshes themselves are unchanged. -->
   <!-- Visual materials of the 2.0 base meshes; the colours are listed per mesh in
-       meshes/PROVENANCE.yaml (chassis colours taken from the CAD). -->
+       meshes/PROVENANCE.yaml (original CAD colours retained there). The current
+       presentation uses the roadmap white shell and charcoal top cover; it is
+       a visual finish, not a changed CAD material/density or physical specification. -->
   <!-- Dimensions are generated from the same CAD map as the visual meshes.
        Preserve legacy joint frames and inertials until reviewed mass data exists. -->
   <xacro:property name="contact_geometry" value="${xacro.load_yaml('$(find openamrobot_description)/config/component_geometry.yaml')}"/>
@@ -36,11 +38,12 @@ Stephen Brawner (brawner@gmail.com)
     <collision><origin xyz="${' '.join(str(castor_parts[2]['xyz_mm'][i]/1000-legacy_castor_wheel_origin[i]) for i in python.range(3))}"/>
       <geometry><sphere radius="${castor_parts[2]['radius_mm']/1000}"/></geometry></collision>
   </xacro:macro>
+  <xacro:property name="visual_finishes" value="${xacro.load_yaml('$(find openamrobot_description)/config/visual_finishes.yaml')}"/>
   <material name="chassis_steel">
-    <color rgba="0.352 0.352 0.352 1"/>
+    <color rgba="${' '.join(str(v) for v in visual_finishes['chassis_steel'])}"/>
   </material>
   <material name="chassis_cover">
-    <color rgba="0.352 0.352 0.352 1"/>
+    <color rgba="${' '.join(str(v) for v in visual_finishes['chassis_cover'])}"/>
   </material>
   <material name="equipment_dark">
     <color rgba="0.2 0.2 0.22 1"/>

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Presentation only. No CAD geometry, density, mass or contact material changes.
+# Reference: openamrobot-docs cd780d6368625f4c653dfa287efc0688c37be82a,
+# docs/assets/roadmap/model/model.js assembled white shell / charcoal upper deck.
+# The generator's original CAD colours remain in meshes/PROVENANCE.yaml.
+chassis_steel: [0.82, 0.84, 0.86, 1.0]
+chassis_cover: [0.055, 0.065, 0.080, 1.0]

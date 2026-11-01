@@ -65,7 +65,8 @@
        https://sdformat.org/tutorials/specification/sdformat_urdf_extensions/ -->
   <!-- ── Link-level: base_link ─────────────────────────────────────── -->
   <gazebo reference="base_link">
-    <material>Gazebo/White</material>
+    <!-- Preserve each URDF visual's shell/deck/equipment colour; a link-wide
+         Gazebo/White override erased the charcoal cover and component finishes. -->
     <gravity>true</gravity>
     <collision>
       <surface>

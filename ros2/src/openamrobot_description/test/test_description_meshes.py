@@ -222,9 +222,14 @@ def test_provenance_sha256_matches_files(provenance, robot):
 def test_urdf_materials_match_provenance(robot, provenance):
     colours = {m.get('name'): [float(v) for v in m.find('color').get('rgba').split()]
                for m in robot.findall('material') if m.find('color') is not None}
+    finishes = yaml.safe_load((PKG / 'config/visual_finishes.yaml').read_text())
+    assert set(finishes) == {'chassis_steel', 'chassis_cover'}
+    assert finishes['chassis_steel'] == [0.82, 0.84, 0.86, 1.0]
+    assert finishes['chassis_cover'] == [0.055, 0.065, 0.080, 1.0]
     for out in provenance['outputs'].values():
-        np.testing.assert_allclose(colours[out['material']], out['rgba'], atol=1e-3,
-                                   err_msg=out['material'])
+        expected = finishes.get(out['material'], out['rgba'])
+        np.testing.assert_allclose(colours[out['material']], expected, atol=1e-3, err_msg=out['material'])
+    assert robot.find("gazebo[@reference='base_link']/material") is None, 'blanket white hides individual deck/equipment finishes'
 
 
 def test_glb_nodes_have_id_class_and_source(provenance):
