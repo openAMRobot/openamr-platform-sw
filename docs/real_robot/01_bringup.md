@@ -53,11 +53,11 @@ export ROS_DOMAIN_ID=0
 > sources nothing — always paste the full block.
 
 > ⚠️ **The `camera_ws` line is not optional (it breaks docking silently).** It provides the
-> Raspberry Pi **libcamera fork** — the only one that can enumerate the IMX708 (Cam Module 3). Skip
+> Raspberry Pi **libcamera fork** — the only one that can enumerate the IMX708, legacy (existing robot) (Cam Module 3). Skip
 > it and the camera component dies at load with **`no cameras available`** → `/camera/image_raw` has
 > **0 publishers** → AprilTag stays silent → **docking aborts with `tags not detected`**. This is
-> **not** a ribbon-cable fault: the kernel still shows `imx708_noir` on `/dev/video0`
-> (`sudo dmesg | grep imx708`). Fix: re-launch with the full block above and confirm
+> **not** a ribbon-cable fault: the kernel still shows `imx708_noir` (legacy camera) on `/dev/video0`
+> (`sudo dmesg | grep imx708`; legacy camera). Fix: re-launch with the full block above and confirm
 > `ros2 topic info /camera/image_raw` reports **Publisher count: 1**.
 
 Why this matters, and the Wi-Fi it rides on: [`02_networking_and_dds.md`](02_networking_and_dds.md).
@@ -66,7 +66,7 @@ Why this matters, and the Wi-Fi it rides on: [`02_networking_and_dds.md`](02_net
 
 ## 1. micro-ROS agent (Teensy telemetry) — ON THE PI
 
-The agent bridges the Teensy: `/cmd_vel`, `/odom/unfiltered`, `/imu/data`, `/debug/*`. The
+The agent bridges the Gate A Teensy: `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (EKF input; 2.0 firmware: `/imu/data_raw`), `/debug/*`. The
 full bring-up (§3) starts it automatically. Run it standalone **only** for a bare encoder
 calibration with nothing else up:
 
@@ -164,7 +164,7 @@ ros2 launch openamrobot_bringup bringup.launch.py \
 |---|---|---|
 | `sim` | `false` | `false` = real hardware; `true` = Gazebo. |
 | `map` | *(empty)* | **REQUIRED on real** — `sim:=false` refuses to start without an explicit map (no silent fallback to the bundled sim map). |
-| `use_camera` | `true` | Real only. `false` = no IMX708 → lighter load, no Wi-Fi camera flood, less brown-out risk. |
+| `use_camera` | `true` | Real only. `false` = no IMX708, legacy (existing robot) → lighter load, no Wi-Fi camera flood, less brown-out risk. |
 | `use_docking` | `true` | `true` = `dock_trigger` owns `/goal_pose` and forwards it to `/goal_pose_nav` (it **is** the goal forwarder + AprilTag docking). `false` = a plain `topic_tools` relay takes over the forwarding for nav-only debug. **Exactly one forwarder runs — never both.** |
 | `use_rviz` | `false` | Open RViz with the Nav2 view (usually run RViz on the PC instead). |
 

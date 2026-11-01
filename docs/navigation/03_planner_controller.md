@@ -2,7 +2,7 @@
 
 The reasoning behind the tuned planner and controller values in
 [`nav2_params.yaml`](../../ros2/src/openamrobot_nav2/config/nav2_params.yaml). This is a
-**heavy, slow diff-drive robot on a Raspberry Pi 5** — most of the tuning is about (a) not
+**heavy, slow diff-drive robot on a Raspberry Pi 5**, legacy (existing robot) — most of the tuning is about (a) not
 overshooting with a heavy base, and (b) not stalling the CPU-bound planner. Every number below
 is quoted from the file.
 

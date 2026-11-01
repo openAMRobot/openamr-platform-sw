@@ -119,7 +119,7 @@ It composes:
   `lidar_model:=s3` for the RPLIDAR S3; default `a1`, the legacy (existing robot) A1, until
   the S3 is mounted; passed through from this launch) → `/scan`;
 - `openamrobot_perception/scan_body_filter.launch.py` — `/scan` → `/scan_filtered`;
-- `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708);
+- `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708, legacy (existing robot));
 - `robot_localization` **EKF** (`config/ekf.yaml`) — wheels + IMU gyro-Z → `/odom` + TF
   `odom→base_link`;
 - **measured static TFs** for this unit (`base_link→{lidar_link, imu_link, base_footprint,
@@ -132,8 +132,9 @@ ros2 launch openamrobot_bringup real_bringup.launch.py
 ### EKF (`config/ekf.yaml`)
 
 Fuses `/odom/unfiltered` (wheel vx, vyaw) + `/imu/data` (**only** `angular_velocity.z`).
-The MPU-6500 has no valid orientation quaternion and a tilted accelerometer, so the EKF runs
-`two_d_mode: true` with gyro-Z only. `transform_time_offset: 0.2` dates the published TF
+The Gate A (legacy) IMU, the MPU-6500, has no valid orientation quaternion and a tilted
+accelerometer, so the EKF runs `two_d_mode: true` with gyro-Z only. The 2.0 IMU is the
+ICM-42688-P on the TDK EV_ICM-42688-P. `transform_time_offset: 0.2` dates the published TF
 forward because the LiDAR scan arrives ~0.14 s ahead of the TF (micro-ROS latency),
 preventing "extrapolation into the future" on the SLAM side.
 
