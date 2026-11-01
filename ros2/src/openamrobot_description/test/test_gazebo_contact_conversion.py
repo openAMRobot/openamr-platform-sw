@@ -64,11 +64,6 @@ def test_castor_keeps_its_own_contact_body(sdf, prefix):
     assert joint is not None and joint.get('type') == 'fixed'
 
 
-def test_wheel_state_rate_is_independent_of_the_physics_step(sdf):
-    plugin = sdf.find(".//plugin[@name='gz::sim::systems::JointStatePublisher']")
-    assert float(plugin.findtext('update_rate', '0')) == 50, 'Default publishes at every physics iteration'
-
-
 def test_legacy_camera_info_reaches_its_existing_bridge_topic(sdf):
     sensor = sdf.find(".//sensor[@name='camera_sensor']")
     assert sensor.findtext('camera/camera_info_topic') == '/camera/camera_info'

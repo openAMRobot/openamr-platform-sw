@@ -23,7 +23,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53, `13c1c05` | integrated locally 1 Nov 2026; preserves 15 driver/bringup tests | owner adoption and full combined retest |
-| Combined twin contacts, CAD collision dimensions and shared button geometry (1 Nov 2026) | task/twin-20261101 | local draft; 61 description checks pass; 15 driver/bringup and 110 nav-status checks pass; 6 CAD-contact checks fail on revert | final full-robot evidence and owner adoption |
+| Combined twin contacts, CAD collision dimensions and shared button geometry (1 Nov 2026) | task/twin-20261101 | local draft; 60 description checks pass; 15 driver/bringup and 110 nav-status checks pass; 6 CAD-contact checks fail on revert | final full-robot evidence and owner adoption |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
 | GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |
