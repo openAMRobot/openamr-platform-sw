@@ -618,23 +618,13 @@ Stephen Brawner (brawner@gmail.com)
 
   <!-- Camera link — mounted at front of robot, facing forward.
        legacy IMX708, Gate A. Kept unchanged with its consumers (Alex decision
-       2026-10-12); the 2.0 base camera is base_camera_link below. -->
+       2026-10-12); the 2.0 base camera is base_camera_link below.
+       Frame and inertial only: the 0.04 x 0.08 x 0.04 m placeholder box visual and
+       collision were removed (1 Nov 2026) because, at z 0.20 from base_link, the box
+       stood above the 2.0 base top cover (top 0.318 m from the floor) in RViz and the
+       combined model. camera_link is not 2.0 hardware. camera_joint, camera_optical_frame,
+       camera_optical_joint and the /rgb_image sensor in gazebo_control.xacro are unchanged. -->
   <link name="camera_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.04 0.08 0.04"/>
-      </geometry>
-      <material name="camera_black">
-        <color rgba="0.1 0.1 0.1 1"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.04 0.08 0.04"/>
-      </geometry>
-    </collision>
     <inertial>
       <mass value="0.05"/>
       <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
