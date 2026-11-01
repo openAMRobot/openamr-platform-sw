@@ -23,7 +23,7 @@ PROVENANCE = PKG / 'meshes' / 'PROVENANCE.yaml'
 FRAMES = PKG / 'config' / 'sensor_frames.yaml'
 PREFIX = 'package://openamrobot_description/'
 
-# The 2.0 base components of BOM Issue 7.11 that the model must account for.
+# The 2.0 base components of BOM Issue 7.14 that the model must account for.
 BOM_COMPONENTS = [
     'hub_motor_wheel', 'castor', 'motor_driver', 'ultrasonic', 'tof', 'lidar', 'base_camera',
     'imu', 'compute', 'base_controller', 'battery', 'safety_relay_set', 'estop', 'reset_button',
@@ -319,3 +319,31 @@ def test_estop_and_reset_in_release_001_button_holes(provenance):
 def test_component_envelope_features(provenance, cid, feature, count):
     """The key base envelopes carry the features that make them recognisable (base_mesh_map.yaml)."""
     assert provenance['components'][cid].get('features', {}).get(feature) == count, cid
+
+
+# Files that cite the BOM issue in force (P-03 Decision Addendum rev20.2 item 7).
+BOM_CITING = [PKG / 'README.md', FRAMES, PROVENANCE, URDF, PKG / 'urdf' / 'sensors.xacro',
+              Path(__file__), PKG.parents[2] / 'tools' / 'cad' / 'README.md',
+              PKG.parents[2] / 'tools' / 'cad' / 'base_mesh_map.yaml',
+              PKG.parents[2] / 'tools' / 'cad' / 'step_to_description_meshes.py',
+              PKG.parents[2] / 'NOTICE.md']
+
+
+def test_bom_issue_and_component_references(provenance):
+    """BOM Issue 7.14 is cited, no click shield in 2.0, and the IMU board is the TDK EV_ICM-42688-P."""
+    import re
+    stale = re.compile(r'BOM (Issue )?7\.(7|10|11)\b')
+    for path in BOM_CITING:
+        for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+            assert not stale.search(line), '%s:%d cites a superseded BOM issue' % (path.name, number)
+    with open(BOM_CITING[7], encoding='utf-8') as stream:
+        documents = yaml.safe_load(stream)['sources']['documents']
+    assert any(d.startswith('BOM Issue 7.14 ') for d in documents), documents
+    shield = [g for g in provenance['groups'] if g['group'].startswith('click shield for Nucleo-64')]
+    assert len(shield) == 1 and shield[0]['class'] == 'release_001', shield
+    assert 'not part of 2.0' in shield[0]['reason'], shield[0]['reason']
+    assert 'CTL-002 removed 1 Nov 2026' in shield[0]['reason'], shield[0]['reason']
+    assert 'P-03 rev20.2 item 26' in shield[0]['reason'], shield[0]['reason']
+    imu = provenance['components']['imu']
+    assert imu['bom'].startswith('TDK ICM-42688-P on the TDK EV_ICM-42688-P '), imu['bom']
+    assert 'on 6DOF IMU 14 Click' not in imu['bom'], imu['bom']

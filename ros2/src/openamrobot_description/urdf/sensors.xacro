@@ -57,7 +57,8 @@
     <child link="base_camera_depth_optical_frame"/>
   </joint>
 
-  <!-- IMU, ICM-42688-P on the MIKROE-4237 Click board, electronics bracket
+  <!-- IMU, ICM-42688-P on the TDK EV_ICM-42688-P board (P-03 rev20.2 item 26; was the
+       MIKROE-4237 Click, same sensor, pose and yaw unchanged), electronics bracket
        MMP.04.00.00.002. Origin at the centre of the ICM-42688-P package: on the
        centreline, 54.4 mm in front of the drive axle, 165.043 mm above the
        base-plate top (54.0 mm), i.e. 219.04 mm above the floor (CAD 2026-10-16).
@@ -67,7 +68,8 @@
        publishes in it and must not remap the axes as well.
        Was (0.0544, 0, 0.133) rpy 0 (16 Oct; 177 mm was measured against a
        displaced base plate) and (0.195, 0, -0.044) (Alex decision 2026-10-12). -->
-  <!-- Visual: ICM-42688-P package (2.5 x 3.0 x 0.91 mm) on the MIKROE-4237 board,
+  <!-- Visual: ICM-42688-P package (2.5 x 3.0 x 0.91 mm) on a board envelope with the
+       outline of the MIKROE-4237 instance in the STEP (EV_ICM-42688-P outline not modelled),
        envelope in meshes/visual/imu.stl -->
   <link name="imu_link">
     <visual>

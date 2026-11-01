@@ -2,7 +2,7 @@
 
 `step_to_description_meshes.py` regenerates the 2.0 base visual meshes of
 `ros2/src/openamrobot_description` from the hardware CAD. The chassis comes from the CAD; the
-components come from the 2.0 bill of materials (BOM Issue 7.11, 25 Oct 2026) and are simplified
+components come from the 2.0 bill of materials (BOM Issue 7.14, 27 Oct 2026, with 1 Nov changes) and are simplified
 envelopes; the battery cell-group envelope follows the project-lead decision of 25 Oct 2026.
 
 - Input: the v0.2 full-assembly STEP in a checkout of `openAMRobot/openamr-platform-hw`
@@ -15,7 +15,7 @@ envelopes; the battery cell-group envelope follows the project-lead decision of 
 - Output: `meshes/visual/*.stl` (binary, metres), `meshes/PROVENANCE.yaml`,
   `build/base_visual.glb` (base_link, for the docs roadmap pages; not committed; one node per
   CAD part instance or component envelope, named by a stable id, with glTF `extras`: id, name,
-  class `chassis`, `component` or `envelope`, source, BOM 7.11 row and `provisional: true` for a
+  class `chassis`, `component` or `envelope`, source, BOM 7.14 row and `provisional: true` for a
   provisional allocation) and
   `build/cad_checks.md` / `build/cad_checks.yaml` (CAD versus design, reported only).
 

@@ -763,7 +763,7 @@ class Converter:
         extras = {'frame': 'base_link, metres, x forward, y left, z up (the root node rotates to glTF y-up)',
                   'source': 'openamr-platform-sw meshes/PROVENANCE.yaml',
                   'nodes': 'one node per CAD part instance or component envelope; extras: id, name, class '
-                           '(chassis, component, envelope), source, bom_row (BOM Issue 7.11), provisional'}
+                           '(chassis, component, envelope), source, bom_row (BOM Issue 7.14), provisional'}
         write_glb(path, dec, extras)
         size = os.path.getsize(path)
         if size > b['glb_max_bytes']:

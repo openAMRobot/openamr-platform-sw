@@ -3,7 +3,7 @@
 # y left, z up. xyz in metres, rpy in radians. The URDF values are in
 # urdf/sensors.xacro; keep both files in step.
 #
-# Sources: P-03 Decision Addendum rev19.0 item 19 (12 Oct 2026), BOM Issue 7.7, and the
+# Sources: P-03 Decision Addendum rev19.0 item 19 (12 Oct 2026), BOM Issue 7.14 (27 Oct 2026, with 1 Nov changes), and the
 # CAD Rev B full assembly STEP MMP.00.00.00.000 (2026-10-15, openamr-platform-hw#20).
 # STEP axes: X forward, Y up from the floor, Z right; base_link = (X, -Z, Y - 98 mm).
 # Range sensor frames are at the centre of the sensor face with x along the beam.
@@ -23,7 +23,7 @@ frames:
     superseded: "(0.376, 0, 0.0445) (Alex decision 2026-10-12)"
 
   imu_link:
-    sensor: ICM-42688-P (MIKROE-4237 Click)
+    sensor: ICM-42688-P (TDK EV_ICM-42688-P board, P-03 rev20.2 item 26; was the MIKROE-4237 Click)
     xyz: [0.0544, 0.0, 0.1210]
     rpy: [0.0, 0.0, -1.5707963267948966]   # sensor X -> base -y, Y -> +x, Z -> +z
     cad_source: ICM-42688-P package centre on electronics bracket MMP.04.00.00.002, 165.043 mm above the base-plate top (54.0 mm), 219.04 mm above the floor; pin 1 front-left, component side up

@@ -28,7 +28,8 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
 | GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
-| Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | this PR | draft | work-package owner: adopt, adapt or reject; mechanical owner: confirm the 22.4 mm hole |
+| Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
+| BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | this PR | draft | work-package owner: adopt, adapt or reject |
 
 ## Decisions this repository implements
 
@@ -43,11 +44,12 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Battery cell-group envelope (314 x 140 x 210 mm, provisional; project-lead decision 25 Oct
   2026) behind the centre bracket fits CAD v0.2 with at least 2 mm (build/cad_checks.md); BMS,
   power distribution, fuse and wiring are not modelled (free space reported). Register BOM-ISSUE-IN-FORCE
-  still names BOM Issue 7.10; the sources here cite BOM Issue 7.11 (25 Oct 2026).
+  still names BOM Issue 7.10; the sources here cite BOM Issue 7.14 with its 1 Nov changes (1 Nov 2026).
+- IMU board envelope (1 Nov 2026) is still the MIKROE-4237 outline from the STEP; the TDK
+  EV_ICM-42688-P outline is not modelled; imu_link pose and yaw unchanged (P-03 rev20.2 item 26).
 - Base E-stop and RESET (27 Oct 2026) are placeholders from datasheet dimensions in the
   release 001 button holes (22.5 mm in CAD v0.2); the Schneider STEP models and the XB4 hole
   tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
-
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
@@ -56,3 +58,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 ## Not verified
 
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.
+
+## Twin continuation, 1 November 2026
+
+The task branch retains the attributed PR #53 camera integration and selected #103 near-field fixes, and merges main `b5dcb2d07f67229e32184634542edc731f1aec57` (PR #104). Its BOM Issue 7.14 / P-03 rev20.2 references and EV_ICM-42688-P identity are preserved. The board mesh remains the explicitly labelled earlier envelope; no chip frame, safety logic or component geometry changes in this merge. The description CI guard includes both new upstream checks and the existing twin tests (62 total). Combined A6/A7 and runtime evidence must identify the resulting paired source heads. DCO/owner adoption remain pending; draft only.
