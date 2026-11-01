@@ -105,9 +105,9 @@ Stephen Brawner (brawner@gmail.com)
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/base_equipment.stl"/>
+        <mesh filename="package://openamrobot_description/meshes/visual/base_equipment.dae"/>
       </geometry>
-      <material name="equipment_dark"/>
+      <!-- Per-part CAD-map materials are embedded in the sole canonical equipment mesh. -->
     </visual>
     <collision>
       <!-- Chassis box, CAD Rev B STEP MMP.00.00.00.000: x +-0.390 (panel faces),

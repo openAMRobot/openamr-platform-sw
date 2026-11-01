@@ -73,7 +73,14 @@ def origin(element):
     return m
 
 
-def read_stl(path):
+def read_mesh_vertices(path):
+    if Path(path).suffix == '.dae':
+        ns = {'c': 'http://www.collada.org/2005/11/COLLADASchema'}
+        root = ET.parse(path)
+        assert root.find('c:asset/c:unit', ns).get('meter') == '1'
+        assert root.find('c:asset/c:up_axis', ns).text == 'Z_UP'
+        return np.fromstring(root.find('.//c:source[@id="positions"]/c:float_array', ns).text,
+                             sep=' ', dtype='<f4').reshape(-1, 3).astype(np.float64)
     data = Path(path).read_bytes()
     count = struct.unpack('<I', data[80:84])[0]
     assert len(data) == 84 + 50 * count, '%s is not a binary STL' % path
@@ -103,7 +110,7 @@ def link_points_in_base_link(robot, link_name):
         mesh = vis.find('geometry/mesh')
         if mesh is None:
             continue
-        v = read_stl(mesh_file(mesh))
+        v = read_mesh_vertices(mesh_file(mesh))
         m = pose @ origin(vis)
         pts.append(v @ m[:3, :3].T + m[:3, 3])
     assert pts, 'no visual mesh on %s' % link_name
@@ -230,6 +237,24 @@ def test_urdf_materials_match_provenance(robot, provenance):
         expected = finishes.get(out['material'], out['rgba'])
         np.testing.assert_allclose(colours[out['material']], expected, atol=1e-3, err_msg=out['material'])
     assert robot.find("gazebo[@reference='base_link']/material") is None, 'blanket white hides individual deck/equipment finishes'
+    # Material-capable replacement, not an overlaid/duplicated mesh or changed geometry.
+    equipment = VISUAL / 'base_equipment.dae'
+    assert not (VISUAL / 'base_equipment.stl').exists()
+    points = read_mesh_vertices(equipment).astype('<f4')
+    assert points.shape == (3076 * 3, 3)
+    assert hashlib.sha256(points.tobytes()).hexdigest() == '31165023b45524ba60f4d17295ccdcf85f021e673f9bc8f5451eece179e5855b'
+    ns = {'c': 'http://www.collada.org/2005/11/COLLADASchema'}
+    dae = ET.parse(equipment)
+    for name, rgba in [('estop_0', [0.75, 0.08, 0.08, 1]), ('reset_button_0', [0.10, 0.30, 0.80, 1])]:
+        material = dae.find('.//c:material[@name="' + name + '"]', ns)
+        effect = material.find('c:instance_effect', ns).get('url')[1:]
+        color = dae.find('.//c:effect[@id="' + effect + '"]//c:diffuse/c:color', ns)
+        np.testing.assert_allclose([float(v) for v in color.text.split()], rgba, atol=1e-9)
+        assert dae.find('.//c:triangles[@material="' + material.get('id') + '"]', ns) is not None
+    visuals = robot.findall("link[@name='base_link']/visual")
+    target = next(v for v in visuals if v.find('geometry/mesh') is not None and v.find('geometry/mesh').get('filename').endswith('base_equipment.dae'))
+    assert target.find('material') is None, 'URDF material would override the embedded equipment colors'
+
 
 
 def test_glb_nodes_have_id_class_and_source(provenance):

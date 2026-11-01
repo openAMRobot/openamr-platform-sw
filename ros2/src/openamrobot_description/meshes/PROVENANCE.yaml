@@ -5,15 +5,16 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: bafa3b1eea3d2e7831d964d1e80c58c32cf20da2756964d24dbf6cf2d19c7be1
-  converter_sha256: 5c8ee13c35a825e5f0d4bbc701c29be9fda24d300236dda04d969f931ea0837f
+    sha256: 80017dc9d474733c788e7a5e813efc950dc7d2a5f74aecae50b8a6237d7783b0
+  converter_sha256: c81d90f6d3e4b324b17b95a6a634b84660a191ba3142f9f5ade38bbcffdc5b2f
+  colored_mesh_sha256: ffb8da327dca8dcd1ed983af868dd64a3fc71d9a4d740adc940bce7414806f06
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
-    python: 3.13.18
+    python: 3.12.3
     cadquery-ocp: 8.0.1.1.0
     trimesh: 5.2.0
     fast-simplification: 0.2.0
-    numpy: 2.5.3
+    numpy: 2.5.4
     pyyaml: 6.0.3
 licence:
   chassis_meshes: CERN-OHL-P-2.0, derived from openAMRobot/openamr-platform-hw CAD (MMP.* parts)
@@ -23,7 +24,7 @@ inputs:
   repository: openAMRobot/openamr-platform-hw
   path: mechanical/cad/Full_assembly_STEP/MMP.00.00.00.000_full_assembly.STEP.zip
   sha256: c547de1f48af0fea27bc619bf35ab744a2846fce3bfea6d078b1b467eee07619
-  checkout_commit: eaac115c583019214322b2a96998b37212755f31
+  checkout_commit: 8ed2b06a46115abe2dffadbf0d902ae731d278d1
   last_commit_for_file: 6c32fbabfd08491e74a9a2f601f1e14d07d44938
   note: 'v0.2 full assembly, Rev B front and back panels, 2.0 sensor mounts (platform-hw #20)'
   member: MMP.00.00.00.000_full_assembly.STEP
@@ -32,17 +33,16 @@ inputs:
   repository: openAMRobot/openamr-platform-hw
   path: mechanical/cad/production_files/MMP.01.00.00.003 Camera mount.STEP
   sha256: eb30a1fea67b86be19687d145975fc8749cef177de8d21dc16b3dc43f669dacf
-  checkout_commit: eaac115c583019214322b2a96998b37212755f31
+  checkout_commit: 8ed2b06a46115abe2dffadbf0d902ae731d278d1
   last_commit_for_file: 6c32fbabfd08491e74a9a2f601f1e14d07d44938
   note: substituted for the empty camera_mount instance of the assembly
 - name: hub_motor
   repository: openAMRobot/openamr-platform-hw
   path: datasheets/ZLTech/wheel_ZLLG80ASM250/ZLLG80ASM250-L-B2 V1.01 double-shaft.STEP
   sha256: d500fa3f6a2020edecdeadd6bba637a8e8ba5505ba777daf35c314466b5b42e8
-  checkout_commit: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
-  last_commit_for_file: 60bf6dc13ec1317db023d4a2f5b430b7cd773736
-  git_ref: refs/pull/28/head
-  note: 'brake variant, brake side inboard (decided 25 Oct 2026); on the platform-hw PR #28 branch, not yet on main'
+  checkout_commit: 8ed2b06a46115abe2dffadbf0d902ae731d278d1
+  last_commit_for_file: 8ed2b06a46115abe2dffadbf0d902ae731d278d1
+  note: 'brake variant, brake side inboard (decided 25 Oct 2026); platform-hw PR #28 input is now present on main at 8ed2b06a46115abe2dffadbf0d902ae731d278d1'
 parameters:
   tessellation:
     linear_deflection_mm: 0.5
@@ -113,9 +113,9 @@ outputs:
     - 0.352
     - 1.0
   base_equipment:
-    file: meshes/visual/base_equipment.stl
-    sha256: 2cfe6d6b973e68cda68e36901a607703153335a653ab66e58d4cd5d7e80c267d
-    bytes: 153884
+    file: meshes/visual/base_equipment.dae
+    sha256: d5dade41f25c486c51caef74372ab19149fb3d27175acce44f8149e2f637d17d
+    bytes: 547508
     triangles: 3076
     triangles_before_decimation: 3076
     frame: base_link
@@ -125,6 +125,450 @@ outputs:
     - 0.2
     - 0.22
     - 1.0
+    format: COLLADA 1.4.1, metres, Z_UP
+    geometry_sha256_float32: 31165023b45524ba60f4d17295ccdcf85f021e673f9bc8f5451eece179e5855b
+    embedded_materials:
+    - name: motor_driver_0
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_1
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_2
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_3
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_4
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_5
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_6
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_7
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_8
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_9
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_10
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_11
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: motor_driver_12
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_0
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_1
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_2
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_3
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_4
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_5
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_6
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_7
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_8
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_9
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_10
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_11
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_12
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_13
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_14
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: compute_15
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: base_controller_0
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: base_controller_1
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: base_controller_2
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: base_controller_3
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_1
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_2
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_3
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_4
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_5
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_6
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_7
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_8
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 12
+    - name: battery_9
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_10
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_11
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_12
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_13
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_14
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_15
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_16
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_17
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_18
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_19
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_20
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_21
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_22
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_23
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: battery_24
+      rgba:
+      - 0.2
+      - 0.2
+      - 0.22
+      - 1.0
+      triangles: 128
+    - name: estop_0
+      rgba:
+      - 0.75
+      - 0.08
+      - 0.08
+      - 1.0
+      triangles: 128
+    - name: estop_1
+      rgba:
+      - 0.62
+      - 0.63
+      - 0.65
+      - 1.0
+      triangles: 128
+    - name: estop_2
+      rgba:
+      - 0.45
+      - 0.46
+      - 0.48
+      - 1.0
+      triangles: 12
+    - name: reset_button_0
+      rgba:
+      - 0.1
+      - 0.3
+      - 0.8
+      - 1.0
+      triangles: 128
+    - name: reset_button_1
+      rgba:
+      - 0.62
+      - 0.63
+      - 0.65
+      - 1.0
+      triangles: 128
+    - name: reset_button_2
+      rgba:
+      - 0.45
+      - 0.46
+      - 0.48
+      - 1.0
+      triangles: 12
   hub_motor_wheel:
     file: meshes/visual/hub_motor_wheel.stl
     sha256: 638b308b212dd992b3bbd5331f49032119bea12ddd2656c8881680a5dd3af820
@@ -218,8 +662,8 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: c4a1187f4b0862a000eb263239390be3d0ceddc6e0552274a66221eae8986e90
-  bytes: 854136
+  sha256: d09b7cb6b320d183aac780d3d810345d2d66e0ce67e898d0c7c50e0e9fd3b510
+  bytes: 854116
   triangles: 67268
   primitives: 82
   node_count: 46
@@ -601,7 +1045,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: as in the CAD, on the motor driver mount
     position_decided: true
     dimension_source: 'ZLAC8015D manual V1.03 Fig. 1 (housing 150 x 97 x 31 mm); STEP instance ZLAC8015D-V4_0-20250902
@@ -817,7 +1261,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: as in the CAD
     position_decided: true
     dimension_source: 'STEP instance recomputer_robotics_j401_pcba (carrier 115 x 112 x 1.6 mm, underside parts
@@ -860,7 +1304,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: on the STM32 click mount plate, at the placement of the NUCLEO-144 board model in the STEP
     position_decided: true
     dimension_source: 'Nucleo-144 outline 70.0 x 133.34 x 1.6 mm (UM2407 Fig. 6; outline read from the MB1364 PCB
@@ -902,7 +1346,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: 'rear section of the base deck, between the centre bracket and the left and right top-cover supports
       (project-lead decision of 25 Oct 2026): standing on the base plate top (54.0 mm above the floor), centred
       in y, front face 2 mm behind the rear face of the centre bracket so that the free space towards the rear panel
@@ -1154,7 +1598,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: base front panel, centred on the axis of the hole of the release 001 red mushroom button (B200MK),
       robot left (+y), to the right of the base camera seen from the front. The converter finds the hole in the
       STEP and writes the axis into PROVENANCE.yaml components.estop.panel_hole.
@@ -1215,7 +1659,7 @@ components:
     status: modelled
     envelope: true
     output: base_equipment
-    file: base_equipment.stl
+    file: base_equipment.dae
     position: base front panel, centred on the axis of the hole of the release 001 green button (B100FY), robot
       right (-y), to the left of the base camera seen from the front. The converter finds the hole in the STEP and
       writes the axis into PROVENANCE.yaml components.reset_button.panel_hole.

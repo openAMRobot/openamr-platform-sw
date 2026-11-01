@@ -30,7 +30,7 @@ sources:
   hub_motor:
     repository: openAMRobot/openamr-platform-hw
     path: datasheets/ZLTech/wheel_ZLLG80ASM250/ZLLG80ASM250-L-B2 V1.01 double-shaft.STEP
-    note: 'brake variant, brake side inboard (decided 25 Oct 2026); on the platform-hw PR #28 branch, not yet on main'
+    note: 'brake variant, brake side inboard (decided 25 Oct 2026); platform-hw PR #28 input is now present on main at 8ed2b06a46115abe2dffadbf0d902ae731d278d1'
   documents:
     - BOM Issue 7.14 (OpenAMRobot 2.0 Detailed Hardware BOM, 27 Oct 2026, with the 1 Nov 2026 changes of P-03 rev20.2 item 26), https://drive.google.com/file/d/119H4wdVo1Mjx83xvw_iPK4jVZUuuUT5d/view
     - B-02 Battery Guide rev18.8 (25 Oct 2026), https://drive.google.com/file/d/1ymWSTrgK0N8nEEAuukMRyW6zffDhcpIE/view
@@ -169,7 +169,7 @@ links:
 outputs:
   base_chassis: {file: base_chassis.stl, frame: base_link, material: chassis_steel, colour: from_cad}
   base_covers: {file: base_covers.stl, frame: base_link, material: chassis_cover, colour: from_cad}
-  base_equipment: {file: base_equipment.stl, frame: base_link, material: equipment_dark, colour: [0.20, 0.20, 0.22]}
+  base_equipment: {file: base_equipment.dae, frame: base_link, material: equipment_dark, colour: [0.20, 0.20, 0.22]}
   hub_motor_wheel: {file: hub_motor_wheel.stl, frame: link, material: hub_motor_dark, colour: [0.12, 0.12, 0.13]}
   caster: {file: caster.stl, frame: link, material: caster_grey, colour: [0.55, 0.56, 0.58]}
   lidar: {file: lidar.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}

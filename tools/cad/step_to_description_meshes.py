@@ -9,6 +9,7 @@ of the assembly must be classified by the map, or the run fails.
 
 Outputs:
   ros2/src/openamrobot_description/meshes/visual/*.stl   binary STL, metres, per link and material
+  ros2/src/openamrobot_description/meshes/visual/base_equipment.dae  same envelope triangles, per-part materials
   ros2/src/openamrobot_description/meshes/PROVENANCE.yaml inputs, versions, parameters, classes
   build/base_visual.glb                                   same geometry in base_link, for the docs;
                                                           one node per part with glTF extras
@@ -36,6 +37,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cadlib  # noqa: E402
+from colored_mesh import write_dae  # noqa: E402
 
 from OCP.BRepAdaptor import BRepAdaptor_Surface  # noqa: E402
 from OCP.GeomAbs import GeomAbs_Cylinder  # noqa: E402
@@ -562,6 +564,7 @@ class Converter:
         raise SystemExit('chassis instance without a node id in %s: %s' % (self.args.map, lf.path))
 
     def build(self):
+        self.colored_equipment = []
         self.groups = {name: [] for name in self.map['outputs']}  # link-frame or base_link tris (m) per output
         self.glb_parts = []                                       # (node id, tris in base_link m, rgba)
         self.glb_nodes = {}                                       # node id: glTF extras
@@ -654,6 +657,11 @@ class Converter:
             place = comp['placement']
             if place.get('base_link'):
                 self.groups[comp['output']].append(local)
+                if comp['output'] == 'base_equipment':
+                    for index, part in enumerate(comp['parts']):
+                        if part.get('stl', True):
+                            colour = part_rgba(part) if cid in ('estop', 'reset_button') else self.colours['base_equipment']
+                            self.colored_equipment.append((part_tris(part, self.tess) / 1000.0, colour, cid + '_' + str(index)))
                 rec['frame'] = 'base_link'
                 rec['node_ids'] = [cid]
                 self.glb_nodes[cid] = dict(meta, id=cid)
@@ -724,12 +732,20 @@ class Converter:
             parts = decimate_parts(self.groups[name], counts[name])
             tris = np.concatenate(parts) if parts else np.zeros((0, 3, 3))
             path = os.path.join(vis, out['file'])
-            write_stl(path, tris)
+            extra = {}
+            if name == 'base_equipment':
+                # Per-part materials on the sole canonical mesh; no overlay or duplicate STL.
+                original = np.concatenate([p[0] for p in self.colored_equipment]).astype('<f4')
+                if not np.array_equal(tris.astype('<f4'), original):
+                    raise ValueError('Equipment geometry changed/decimated: review material mapping')
+                extra = write_dae(path, self.colored_equipment)
+            else:
+                write_stl(path, tris)
             self.output_report[name] = {
                 'file': 'meshes/visual/' + out['file'], 'sha256': sha256(path), 'bytes': os.path.getsize(path),
                 'triangles': int(len(tris)), 'triangles_before_decimation': before[name],
                 'frame': out['frame'], 'material': out['material'],
-                'rgba': [round(float(c), 3) for c in self.colours[name]]}
+                'rgba': [round(float(c), 3) for c in self.colours[name]], **extra}
             self.log('wrote %s: %d triangles (%d before), %d bytes' % (out['file'], len(tris), before[name],
                                                                        os.path.getsize(path)))
         total = sum(r['bytes'] for r in self.output_report.values())
@@ -1343,6 +1359,7 @@ class Converter:
                 'command': 'python3 tools/cad/step_to_description_meshes.py --hw-repo <openamr-platform-hw checkout> --hub-step <B2 STEP>',
                 'map': {'file': 'tools/cad/base_mesh_map.yaml', 'sha256': sha256(self.args.map)},
                 'converter_sha256': sha256(os.path.abspath(__file__)),
+                'colored_mesh_sha256': sha256(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'colored_mesh.py')),
                 'cadlib_sha256': sha256(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cadlib.py')),
                 'versions': {'python': platform.python_version(), 'cadquery-ocp': version('cadquery-ocp'),
                              'trimesh': version('trimesh'), 'fast-simplification': version('fast-simplification'),
