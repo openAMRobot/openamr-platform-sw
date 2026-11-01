@@ -15,7 +15,7 @@ A differential-drive AMR with **two brains** (the split is deliberate — see
 | Brain | Hardware | Runs | Talks |
 |---|---|---|---|
 | **Real-time** | Teensy 4.0 firmware @ 50 Hz | encoder read, IMU read, motor PID | **micro-ROS** over USB serial |
-| **High-level** | Raspberry Pi 5 (4× Cortex-A76, 8 GB), ROS 2 Jazzy | perception, localization, Nav2, docking | **CycloneDDS** on the LAN |
+| **High-level** | Raspberry Pi 5, legacy (existing robot) (4× Cortex-A76, 8 GB), ROS 2 Jazzy | perception, localization, Nav2, docking | **CycloneDDS** on the LAN |
 
 Keeping motion control on the Teensy means the wheels are never scheduled against vision
 or planning — the thing that repeatedly bites us on the Pi (see
@@ -25,7 +25,7 @@ or planning — the thing that repeatedly bites us on the Pi (see
 
 | Part | Detail | Port |
 |---|---|---|
-| Compute | Raspberry Pi 5 Model B Rev 1.1, 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
+| Compute | Raspberry Pi 5 Model B Rev 1.1, legacy (existing robot), 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
 | MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
 | LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`; the driver default stays `a1` until the S3 is mounted) | `/dev/ttyUSB0` (CP2102) |
 | Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
