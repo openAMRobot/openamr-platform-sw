@@ -120,7 +120,7 @@ It composes:
   `lidar_model:=s3` for the RPLIDAR S3; default `a1`, the legacy (existing robot) A1, until
   the S3 is mounted; passed through from this launch) → `/scan`;
 - `openamrobot_perception/scan_body_filter.launch.py` — `/scan` → `/scan_filtered`;
-- `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708);
+- `openamrobot_perception/camera.launch.py` — `camera_ros` (IMX708, legacy (existing robot));
 - `robot_localization` **EKF** (`config/ekf.yaml`) — wheels + IMU gyro-Z → `/odom` + TF
   `odom→base_link`;
 - **measured static TFs** for this unit (`base_link→{lidar_link, imu_link, base_footprint,

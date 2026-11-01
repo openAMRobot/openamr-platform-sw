@@ -32,7 +32,7 @@ or planning — the thing that repeatedly bites us on the Pi (see
 | Compute | Raspberry Pi 5 Model B Rev 1.1, legacy (existing robot), 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
 | MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
 | LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`; the driver default stays `a1` until the S3 is mounted) | `/dev/ttyUSB0` (CP2102) |
-| Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
+| Camera | Sony **IMX708**, legacy (existing robot) (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
 | Drive | 2× BLDC Z4BLD60-24GN-30S (60 W, 30:1), 2× ZBLD.C20-120L2R drivers | — |
 | Power | 2× 12 V lead-acid in series (24 V bus), 5 V buck to the Pi | — |
 
@@ -97,7 +97,7 @@ Everything else — the Nav2 stack, the `nav2_params.yaml`, the docking sequence
 | Clock | `use_sim_time:=true` | `use_sim_time:=false` |
 | Initial pose | AMCL `set_initial_pose:=true` at (0,0) (robot spawns at origin) | **disabled** — operator sets it with RViz **2D Pose Estimate** |
 | Map | bundled `my_map.yaml` (walled world) | **required** explicit `map:=…` (no silent fallback) |
-| AprilTag input | Gazebo `/rgb_image` | IMX708 `/camera/image_raw`, detector composed intra-process |
+| AprilTag input | Gazebo `/rgb_image` | IMX708, legacy (existing robot) `/camera/image_raw`, detector composed intra-process |
 | The dock | modelled in the world | **printed 3-tag bundle** (no physical dock) |
 | Compute headroom | a desktop | a Pi 5 that saturates / throttles — the recurring wall |
 | Transport | loopback | **CycloneDDS over Wi-Fi** — a fragile link (see [`02_networking_and_dds.md`](02_networking_and_dds.md)) |

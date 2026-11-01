@@ -99,7 +99,7 @@ Setting up PlatformIO on a PEP 668 ("externally managed") Ubuntu was non-trivial
   side posts masked only < 0.40 m (walls kept). Measured sectors (lidar frame).
 - **SLAM** (`slam_toolbox` on `/scan_filtered`) builds & saves maps. Low-res lidar (~270 pts) → drive slow;
   fast moves / in-place spins lose tracking. See [../software/navigation.md](../software/navigation.md).
-- **Camera fixed** (IMX708 NoIR): apt libcamera doesn't support Camera Module 3 on Pi 5 ("no cameras
+- **Camera fixed** (IMX708 NoIR, legacy (existing robot)): apt libcamera doesn't support Camera Module 3 on Pi 5 ("no cameras
   available" / "Unable to acquire a CFE instance"). Fix: build the **Raspberry Pi fork of libcamera** +
   `camera_ros` from source (`~/camera_ws`). ⚠️ Over WiFi use the **compressed** image only (raw 2.76 MB/frame
   lags everything). See [../hardware/camera.md](../hardware/camera.md).

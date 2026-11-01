@@ -108,7 +108,7 @@ The lidar sits at ~18 cm and sees only a horizontal slice. An obstacle **shorter
 (a low box, a table foot, a cable, a threshold) is **invisible to the costmap** — neither
 inflation nor an enlarged footprint can avoid something that was never marked. A head-on hit on a
 low object is this, not a tuning problem. There is **no software fix**; it needs hardware (a
-lower sensor, a down-tilted depth camera, or a physical bumper). Test avoidance with obstacles
+lower sensor or a physical bumper; the 2.0 Gemini 336L base camera tilts up (bt05/bt10/bt15)). Test avoidance with obstacles
 **taller than ~20 cm**.
 
 ---
