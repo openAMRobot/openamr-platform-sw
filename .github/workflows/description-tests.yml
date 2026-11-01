@@ -36,7 +36,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y python3-colcon-common-extensions python3-pytest python3-yaml \
-            python3-numpy ros-jazzy-xacro ros-jazzy-urdfdom
+            python3-numpy ros-jazzy-xacro ros-jazzy-urdfdom ros-jazzy-ros-gz
 
       - name: Build openamrobot_description
         shell: bash
@@ -51,10 +51,13 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           source ros2/install/setup.bash
           python3 -m pytest -v -p no:cacheprovider --junitxml=description-tests.xml \
-            ros2/src/openamrobot_description/test/test_description_meshes.py
+            ros2/src/openamrobot_description/test/test_description_meshes.py \
+            ros2/src/openamrobot_description/test/test_near_field_frames_register.py \
+            ros2/src/openamrobot_description/test/test_gazebo_contact_conversion.py \
+            ros2/src/openamrobot_description/test/test_cad_contacts.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all twenty-nine description tests ran
+      - name: Check that all sixty-two description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -62,5 +65,5 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 29 and skipped == 0, 'expected 29 description tests, none skipped'
+          assert tests == 62 and skipped == 0, 'expected 62 description tests, none skipped'
           EOF

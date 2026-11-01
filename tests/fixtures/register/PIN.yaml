@@ -1,0 +1,8 @@
+# Pinned copy of the decisions register (PSW-08). Tests parse register values from
+# decisions.yaml next to this file and never hardcode them. Refresh both files
+# together from openAMRobot/.github and update commit and sha256 on purpose.
+repository: openAMRobot/.github
+path: decisions.yaml
+commit: 71c439e3b6dc823589ba2020a7063cf4dce72c13
+sha256: a96714ecb3097973603354ff0feb0dbb1fc86bd1d6a7d8098d5bc86786141b79
+retrieved: 2026-10-29

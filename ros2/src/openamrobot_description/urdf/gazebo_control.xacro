@@ -1,6 +1,25 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Physics 7.6 Bullet Featherstone reads bullet/friction, not ode/mu. Its
+       spinning-friction default is 1: use explicit ideal point contacts here.
+       These are simulation approximations, not measured tyre or castor materials.
+       One parameter set feeds both engines; do not tune one behind the other. -->
+  <xacro:macro name="openamr_contact_friction" params="mu mu2 slip:=0 fdir:='0 0 0'">
+    <friction>
+      <ode>
+        <mu>${mu}</mu><mu2>${mu2}</mu2><fdir1>${fdir}</fdir1>
+        <slip1>${slip}</slip1><slip2>${slip}</slip2>
+      </ode>
+      <bullet>
+        <friction>${mu}</friction><friction2>${mu2}</friction2>
+        <rolling_friction>0</rolling_friction>
+      </bullet>
+      <torsional><coefficient>0</coefficient></torsional>
+    </friction>
+  </xacro:macro>
+
+
   <!-- ── World-level plugins (no reference attribute) ─────────────── -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
@@ -39,89 +58,35 @@
     </plugin>
   </gazebo>
 
+  <!-- Collision extensions are inserted into each collision surface by SDFormat.
+       A bare surface under a gazebo link is copied as link/surface and ignored.
+       Coefficients are explicit ideal-contact estimates, not material calibration.
+       Isotropic tyres avoid rotating anisotropy in the principal-inertia frame.
+       https://sdformat.org/tutorials/specification/sdformat_urdf_extensions/ -->
   <!-- ── Link-level: base_link ─────────────────────────────────────── -->
   <gazebo reference="base_link">
-    <material>Gazebo/White</material>
+    <!-- Preserve each URDF visual's shell/deck/equipment colour; a link-wide
+         Gazebo/White override erased the charcoal cover and component finishes. -->
     <gravity>true</gravity>
-    <surface>
-      <friction>
-        <ode>
-          <mu>0.2</mu>
-          <mu2>0.2</mu2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e6</kp>
-          <kd>100</kd>
-        </ode>
-      </contact>
-    </surface>
+    <collision>
+      <surface>
+        <xacro:openamr_contact_friction mu="0.2" mu2="0.2"/>
+        <contact>
+          <ode>
+            <kp>1e6</kp>
+            <kd>100</kd>
+          </ode>
+        </contact>
+      </surface>
+    </collision>
   </gazebo>
 
   <!-- ── Link-level: left_wheel_link ────────────────────────────────────── -->
   <gazebo reference="left_wheel_link">
     <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
-  </gazebo>
-
-  <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
-  <gazebo reference="right_wheel_link">
-    <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
-  </gazebo>
-
-  <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
-  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
-  <xacro:macro name="caster_gazebo" params="prefix">
-    <gazebo reference="${prefix}_caster_link">
-      <material>Gazebo/Grey</material>
-    </gazebo>
-    <gazebo reference="${prefix}_wheel_link">
-      <material>Gazebo/DarkGrey</material>
+    <collision>
       <surface>
-        <friction>
-          <ode>
-            <mu>0.0</mu>
-            <mu2>0.0</mu2>
-          </ode>
-        </friction>
+        <xacro:openamr_contact_friction mu="1.0" mu2="1.0" slip="0.001" fdir="1 0 0"/>
         <contact>
           <ode>
             <kp>1e7</kp>
@@ -131,6 +96,52 @@
           </ode>
         </contact>
       </surface>
+    </collision>
+  </gazebo>
+
+  <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
+  <gazebo reference="right_wheel_link">
+    <material>Gazebo/DarkGrey</material>
+    <collision>
+      <surface>
+        <xacro:openamr_contact_friction mu="1.0" mu2="1.0" slip="0.001" fdir="1 0 0"/>
+        <contact>
+          <ode>
+            <kp>1e7</kp>
+            <kd>1</kd>
+            <min_depth>0.001</min_depth>
+            <max_vel>0.5</max_vel>
+          </ode>
+        </contact>
+      </surface>
+    </collision>
+  </gazebo>
+
+  <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
+  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
+  <xacro:macro name="caster_gazebo" params="prefix">
+    <!-- Preserve the fixed contact body: Bullet has one collider/friction per link.
+         Lumping this sphere into the chassis discards its independent friction.
+         The existing positive castor mass/inertia is retained; no swivel authority added. -->
+    <gazebo reference="${prefix}_wheel_joint"><preserveFixedJoint>true</preserveFixedJoint></gazebo>
+    <gazebo reference="${prefix}_caster_link">
+      <material>Gazebo/Grey</material>
+    </gazebo>
+    <gazebo reference="${prefix}_wheel_link">
+      <material>Gazebo/DarkGrey</material>
+      <collision>
+        <surface>
+          <xacro:openamr_contact_friction mu="0.0" mu2="0.0"/>
+          <contact>
+            <ode>
+              <kp>1e7</kp>
+              <kd>1</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.5</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
     </gazebo>
   </xacro:macro>
 
@@ -140,14 +151,51 @@
   <xacro:caster_gazebo prefix="br" />
 
   <!-- ── Link-level: camera_link — forward-facing RGB camera ──────── -->
-  <gazebo reference="camera_link">
-    <material>Gazebo/Black</material>
-    <sensor name="camera_sensor" type="camera">
-      <pose relative_to="camera_link">0 0 0 0 0 0</pose>
-      <topic>/rgb_image</topic>
-      <gz_frame_id>camera_optical_frame</gz_frame_id>
+  <xacro:if value="$(arg legacy_camera)">
+    <gazebo reference="camera_link">
+      <material>Gazebo/Black</material>
+      <sensor name="camera_sensor" type="camera">
+        <pose relative_to="camera_link">0 0 0 0 0 0</pose>
+        <topic>/rgb_image</topic>
+        <gz_frame_id>camera_optical_frame</gz_frame_id>
+        <update_rate>12</update_rate>
+        <camera>
+          <camera_info_topic>/camera/camera_info</camera_info_topic>
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>15.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+      </sensor>
+    </gazebo>
+  </xacro:if>
+
+  <!-- Gemini RGB-D simulation sensor. This is an idealized Gazebo sensor;
+       mount pose, optical calibration, and RGB/depth baseline are TBD and
+       must not be interpreted as Gemini/A6 physical measurements. Gazebo's
+       native RGBD sensor publishes one shared camera_info and uses the same
+       optical_frame_id for its RGB and depth image headers. -->
+  <gazebo reference="base_camera_link">
+    <sensor name="gemini_rgbd_sensor" type="rgbd_camera">
+      <pose relative_to="base_camera_link">0 0 0 0 0 0</pose>
+      <topic>/base_camera/rgbd</topic>
+      <gz_frame_id>base_camera_color_optical_frame</gz_frame_id>
       <update_rate>12</update_rate>
       <camera>
+        <!-- Provisional simulation settings, using the existing sim camera profile. -->
         <horizontal_fov>1.047</horizontal_fov>
         <image>
           <width>640</width>
@@ -158,11 +206,7 @@
           <near>0.05</near>
           <far>15.0</far>
         </clip>
-        <noise>
-          <type>gaussian</type>
-          <mean>0.0</mean>
-          <stddev>0.005</stddev>
-        </noise>
+        <optical_frame_id>base_camera_color_optical_frame</optical_frame_id>
       </camera>
       <always_on>true</always_on>
       <visualize>false</visualize>

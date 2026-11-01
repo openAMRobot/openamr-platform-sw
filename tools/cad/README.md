@@ -84,3 +84,5 @@ python3 -m pytest ros2/src/openamrobot_description/test/test_description_meshes.
   side is a finding, never a move. Geometry is a placeholder from datasheet dimensions
   (`placeholder: true`); `glb_decimate: false` keeps these parts out of the GLB decimation so that
   the other GLB nodes keep their triangles.
+
+`base_equipment.dae` replaces the single-color equipment STL. `colored_mesh.py` writes the same ordered float32 triangles with the existing map colors for the E-stop/RESET parts; all other equipment keeps its dark material. No alternate mesh is generated or installed for recoloring. The converter refuses this material mapping if equipment decimation changes triangle order/coordinates. Existing per-file/total budgets, metre units and base_link coordinates are unchanged. Provenance includes its material table, geometry fingerprint and writer hash.

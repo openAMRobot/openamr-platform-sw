@@ -688,25 +688,25 @@
     <frame name="imu_link" attached_to="base_link">
       <pose relative_to="base_link">0.0544 0 0.1210 0 0 -1.5707963267948966</pose>
     </frame>
-    <!-- MB7060 x4 in the panel edge holes -->
+    <!-- MB7060 x4 in the panel edge holes, x +-0.390 at the panel outer face (register NEAR-FIELD-FRAMES) -->
     <frame name="us_front_left" attached_to="base_link">
-      <pose relative_to="base_link">0.3906 0.130 -0.0066 0 0 0</pose>
+      <pose relative_to="base_link">0.390 0.130 -0.0066 0 0 0</pose>
     </frame>
     <frame name="us_front_right" attached_to="base_link">
-      <pose relative_to="base_link">0.3906 -0.130 -0.0066 0 0 0</pose>
+      <pose relative_to="base_link">0.390 -0.130 -0.0066 0 0 0</pose>
     </frame>
     <frame name="us_rear_left" attached_to="base_link">
-      <pose relative_to="base_link">-0.3886 0.130 -0.0066 0 0 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.390 0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
     <frame name="us_rear_right" attached_to="base_link">
-      <pose relative_to="base_link">-0.3886 -0.130 -0.0066 0 0 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.390 -0.130 -0.0066 0 0 3.141592653589793</pose>
     </frame>
-    <!-- TF-Luna x2 (cliff) in the centre openings; 20 degree down screening value until the bench test. -->
+    <!-- TF-Luna x2 (cliff) in the centre openings, pitched 10 deg down (register NEAR-FIELD-FRAMES), pending the bench test. -->
     <frame name="tof_front" attached_to="base_link">
-      <pose relative_to="base_link">0.399 0 -0.0066 0 0.3491 0</pose>
+      <pose relative_to="base_link">0.399 0 -0.0066 0 0.174533 0</pose>
     </frame>
     <frame name="tof_rear" attached_to="base_link">
-      <pose relative_to="base_link">-0.399 0 -0.0066 0 0.3491 3.141592653589793</pose>
+      <pose relative_to="base_link">-0.399 0 -0.0066 0 0.174533 3.141592653589793</pose>
     </frame>
   </model>
 </sdf>

@@ -15,12 +15,35 @@ Stephen Brawner (brawner@gmail.com)
        in that old origin. They are shifted by z -0.034533 (0.063467 - 0.098) so they
        keep their height above the floor; the meshes themselves are unchanged. -->
   <!-- Visual materials of the 2.0 base meshes; the colours are listed per mesh in
-       meshes/PROVENANCE.yaml (chassis colours taken from the CAD). -->
+       meshes/PROVENANCE.yaml (original CAD colours retained there). The current
+       presentation uses the roadmap white shell and charcoal top cover; it is
+       a visual finish, not a changed CAD material/density or physical specification. -->
+  <!-- Dimensions are generated from the same CAD map as the visual meshes.
+       Preserve legacy joint frames and inertials until reviewed mass data exists. -->
+  <xacro:property name="contact_geometry" value="${xacro.load_yaml('$(find openamrobot_description)/config/component_geometry.yaml')}"/>
+  <xacro:property name="castor_parts" value="${contact_geometry['castor']['parts']}"/>
+  <xacro:property name="tyre_profile" value="${contact_geometry['hub_motor_wheel']['parts'][0]['profile_mm']}"/>
+  <xacro:property name="tyre_radius_mm" value="${max([p[1] for p in tyre_profile])}"/>
+  <xacro:property name="tyre_axial_mm" value="${[p[0] for p in tyre_profile if p[1] == tyre_radius_mm]}"/>
+  <xacro:property name="legacy_castor_wheel_origin" value="${[-0.015, 0, -0.027746]}"/>
+  <xacro:macro name="castor_housing_collisions">
+    <collision><origin xyz="${' '.join(str(v/1000) for v in castor_parts[0]['xyz_mm'])}"/>
+      <geometry><box size="${' '.join(str(v/1000) for v in castor_parts[0]['size_mm'])}"/></geometry></collision>
+    <collision><origin xyz="${' '.join(str(v/1000) for v in castor_parts[1]['xyz_mm'])}"/>
+      <geometry><box size="${' '.join(str(v/1000) for v in castor_parts[1]['size_mm'])}"/></geometry></collision>
+  </xacro:macro>
+  <xacro:macro name="castor_contact_collision">
+    <!-- Frictionless sphere at the CAD tyre centre: a fixed castor contact
+         approximation, not a simulated swivel/rolling bearing. -->
+    <collision><origin xyz="${' '.join(str(castor_parts[2]['xyz_mm'][i]/1000-legacy_castor_wheel_origin[i]) for i in python.range(3))}"/>
+      <geometry><sphere radius="${castor_parts[2]['radius_mm']/1000}"/></geometry></collision>
+  </xacro:macro>
+  <xacro:property name="visual_finishes" value="${xacro.load_yaml('$(find openamrobot_description)/config/visual_finishes.yaml')}"/>
   <material name="chassis_steel">
-    <color rgba="0.352 0.352 0.352 1"/>
+    <color rgba="${' '.join(str(v) for v in visual_finishes['chassis_steel'])}"/>
   </material>
   <material name="chassis_cover">
-    <color rgba="0.352 0.352 0.352 1"/>
+    <color rgba="${' '.join(str(v) for v in visual_finishes['chassis_cover'])}"/>
   </material>
   <material name="equipment_dark">
     <color rgba="0.2 0.2 0.22 1"/>
@@ -82,15 +105,15 @@ Stephen Brawner (brawner@gmail.com)
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/base_equipment.stl"/>
+        <mesh filename="package://openamrobot_description/meshes/visual/base_equipment.dae"/>
       </geometry>
-      <material name="equipment_dark"/>
+      <!-- Per-part CAD-map materials are embedded in the sole canonical equipment mesh. -->
     </visual>
     <collision>
       <!-- Chassis box, CAD Rev B STEP MMP.00.00.00.000: x +-0.390 (panel faces),
            y +-0.290 (base plate), 0.055 to 0.295 m above the floor (cover top).
            The bottom sits at 0.055, not the 0.050 panel bottom, so the box clears the
-           caster-wheel collision spheres (top 0.0524 m above the floor) by 2.6 mm;
+           CAD castor plate (top 0.052 m above the floor) by 3 mm;
            a permanent box/sphere overlap would be a self-collision for MoveIt.
            Was the base_link.STL visual mesh, superseded (#49). -->
       <origin xyz="0 0 0.077" rpy="0 0 0"/>
@@ -124,14 +147,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="caster_grey"/>
     </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
+    <xacro:castor_housing_collisions/>
   </link>
   <joint
     name="fl_caster_joint"
@@ -167,18 +183,13 @@ Stephen Brawner (brawner@gmail.com)
         izz="3.74071666197272E-06" />
     </inertial>
     <!-- no visual: the castor wheel is part of caster.stl on fl_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
+    <xacro:castor_contact_collision/>
   </link>
   <joint
     name="fl_wheel_joint"
     type="fixed">
     <origin
-      xyz="-0.015 0 -0.027746"
+      xyz="${' '.join(str(v) for v in legacy_castor_wheel_origin)}"
       rpy="0 0 0" />
     <parent
       link="fl_caster_link" />
@@ -213,14 +224,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="caster_grey"/>
     </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
+    <xacro:castor_housing_collisions/>
   </link>
   <joint
     name="fr_caster_joint"
@@ -256,18 +260,13 @@ Stephen Brawner (brawner@gmail.com)
         izz="3.25059576514846E-06" />
     </inertial>
     <!-- no visual: the castor wheel is part of caster.stl on fr_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
+    <xacro:castor_contact_collision/>
   </link>
   <joint
     name="fr_wheel_joint"
     type="fixed">
     <origin
-      xyz="-0.015 0 -0.027746"
+      xyz="${' '.join(str(v) for v in legacy_castor_wheel_origin)}"
       rpy="0 0 0" />
     <parent
       link="fr_caster_link" />
@@ -302,14 +301,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="caster_grey"/>
     </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
+    <xacro:castor_housing_collisions/>
   </link>
   <joint
     name="br_caster_joint"
@@ -345,18 +337,13 @@ Stephen Brawner (brawner@gmail.com)
         izz="3.25059576515051E-06" />
     </inertial>
     <!-- no visual: the castor wheel is part of caster.stl on br_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
+    <xacro:castor_contact_collision/>
   </link>
   <joint
     name="br_wheel_joint"
     type="fixed">
     <origin
-      xyz="-0.015 0 -0.027746"
+      xyz="${' '.join(str(v) for v in legacy_castor_wheel_origin)}"
       rpy="0 0 0" />
     <parent
       link="br_caster_link" />
@@ -391,14 +378,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="caster_grey"/>
     </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
+    <xacro:castor_housing_collisions/>
   </link>
   <joint
     name="bl_caster_joint"
@@ -434,18 +414,13 @@ Stephen Brawner (brawner@gmail.com)
         izz="3.25059576514932E-06" />
     </inertial>
     <!-- no visual: the castor wheel is part of caster.stl on bl_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
+    <xacro:castor_contact_collision/>
   </link>
   <joint
     name="bl_wheel_joint"
     type="fixed">
     <origin
-      xyz="-0.015 0 -0.027746"
+      xyz="${' '.join(str(v) for v in legacy_castor_wheel_origin)}"
       rpy="0 0 0" />
     <parent
       link="bl_caster_link" />
@@ -485,7 +460,7 @@ Stephen Brawner (brawner@gmail.com)
       <geometry>
         <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
              was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <cylinder radius="${tyre_radius_mm/1000}" length="${(max(tyre_axial_mm)-min(tyre_axial_mm))/1000}"/>
       </geometry>
     </collision>
   </link>
@@ -536,7 +511,7 @@ Stephen Brawner (brawner@gmail.com)
       <geometry>
         <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
              was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <cylinder radius="${tyre_radius_mm/1000}" length="${(max(tyre_axial_mm)-min(tyre_axial_mm))/1000}"/>
       </geometry>
     </collision>
   </link>
@@ -645,6 +620,8 @@ Stephen Brawner (brawner@gmail.com)
     <parent link="camera_link"/>
     <child link="camera_optical_frame"/>
   </joint>
+
+  <xacro:arg name="legacy_camera" default="true"/>
 
   <!-- OpenAMRobot 2.0 sensor frames: Gemini 336L, IMU, TF-Luna, MB7060 (#49) -->
   <xacro:include filename="sensors.xacro" />

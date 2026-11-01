@@ -43,12 +43,12 @@ in the STEP are excluded, and the 2.0 components of BOM Issue 7.14 (27 Oct 2026,
 |---|---|---|
 | `base_chassis.stl` | `base_link` | base plate, panels, supports, brackets, LiDAR support and spacer, sensor and camera mounts, motor driver mount, STM32 click mount plate |
 | `base_covers.stl` | `base_link` | plastic cover and flanges |
-| `base_equipment.stl` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery cell-group envelope on the rear deck (314 x 140 x 210 mm, front face 2 mm behind the centre bracket, computed by the converter; provisional, dimensions not released), base E-stop and RESET in the release 001 button holes (placeholders) |
+| `base_equipment.dae` | `base_link` | ZLAC8015D, Jetson Orin NX on J401, NUCLEO-H723ZG (as in the CAD), battery cell-group envelope on the rear deck (314 x 140 x 210 mm, front face 2 mm behind the centre bracket, computed by the converter; provisional, dimensions not released), base E-stop and RESET in the release 001 button holes (placeholders) |
 | `hub_motor_wheel.stl` | `left_wheel_link`, `right_wheel_link` (yaw pi) | ZLLG80ASM250-L-B hub motor wheel, brake side inboard |
 | `caster.stl` | `fl/fr/bl/br_caster_link` | LPA-VSTH 35K castor with its wheel |
 | `lidar.stl`, `base_camera.stl`, `ultrasonic.stl`, `tof.stl`, `imu.stl` | sensor links | RPLIDAR S3, Gemini 336L, MB7060, TF-Luna, ICM-42688-P board (TDK EV_ICM-42688-P in 2.0; the board envelope is the outline of the 6DOF IMU 14 Click instance in the STEP); the pose is the frame |
 
-The base E-stop (XB4BS8445) and RESET button (XB4BW36B5) are in `base_equipment.stl`, centred on the
+The base E-stop (XB4BS8445) and RESET button (XB4BW36B5) are in `base_equipment.dae`, centred on the
 axes of the release 001 red and green button holes in the front panel (P-03 rev20.0 item 24); their
 geometry is a placeholder from datasheet dimensions. Not modelled (no position in P-03 rev19.7 or
 E-01): safety relay, contactors, main fuse and disconnect, wireless charging receiver. Collision geometry, inertials
@@ -71,3 +71,5 @@ BOM 7.14 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.
 
 **Sensor — Camera:** Forward-facing RGB camera mounted at `xyz="0.35 0 0.20"` on `base_link` — 640×480, 30 Hz, 60° HFOV, 0.05–15 m range, topic `/rgb_image`, Gaussian noise σ=0.005. Frame `camera_optical_frame` follows ROS optical convention.
+
+The sole canonical equipment visual is COLLADA so the existing CAD-map E-stop red, RESET blue and operator-metal colors survive in Gazebo and RViz. It replaces the monochrome STL; no duplicate/overlay mesh is installed. All 3,076 triangles have the exact same float32 positions (geometry SHA256 `31165023b45524ba60f4d17295ccdcf85f021e673f9bc8f5451eece179e5855b`). Other equipment retains the existing dark finish. This changes visual materials only, with no button geometry, origin, collision or safety logic change. The CAD generator writes the asset and records the embedded materials and generator hash in PROVENANCE.yaml.
