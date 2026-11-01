@@ -8,7 +8,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Readiness: not yet assessed (17 Oct 2026, rollout step a)
 - Owner role: software-lead (maintainers.yaml)
 - Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
-  `description-tests` (added 24 Oct 2026, this PR) and `repository-quality`; no
+  `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026) and `repository-quality`; no
   `tools/verify.sh` yet. `repository-quality` PASS on main at
   dfd44a5 (16 Oct 2026).
 ## Current work
@@ -21,11 +21,11 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Gemini 336L base camera simulation | #53, `13c1c05` | integrated locally 1 Nov 2026; preserves 15 driver/bringup tests | owner adoption and full combined retest |
 | Combined twin contacts, CAD collision dimensions and shared button geometry (1 Nov 2026) | task/twin-20261101 | local draft; 60 description checks pass; 15 driver/bringup and 110 nav-status checks pass; 6 CAD-contact checks fail on revert | final full-robot evidence and owner adoption |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
-| 2.0 base visual meshes from CAD v0.2 (24 Oct 2026) | #94 | merged 25 Oct 2026 (1fc2a23) | none |
-| GLB one node per part, battery cell-group envelope on the rear deck (25 Oct 2026) | #95 | merged 25 Oct 2026 (4185a0a) | none |
+| 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
 | Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
-| BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | this PR | draft | work-package owner: adopt, adapt or reject |
+| BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
+| Legacy Gate A camera_link box removed; frame, inertial and sensor kept (1 Nov 2026) | #106 | merged (4926f40); integrated into #105 | coordinated upperbody pin and full combined retest |
 ## Decisions this repository implements
 FRAMES-REP105, NEAR-FIELD-FRAMES, NAV-LIDAR, CAMERAS, IMU-TOPIC-OWNERSHIP, DRIVE-TRACK,
 DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
@@ -53,3 +53,5 @@ The task branch retains the attributed PR #53 camera integration and selected #1
 1 November 2026 twin visual closeout: `config/visual_finishes.yaml` selects a light shell and charcoal top cover. Removing the blanket Gazebo white override preserves each component finish. Original meshes/provenance, transforms, collisions, inertias and friction are unchanged. All 61 description checks pass; full combined retest is recorded in draft #105/#27. Physical finish and as-built acceptance are not inferred.
 
 The final color closeout replaces the single monochrome equipment STL with one canonical COLLADA asset, using #100's existing per-part E-stop/RESET colors. All3,076 triangles are identical and the other nine meshes unchanged. No overlay, duplicate mesh, new physical dimension or safety logic; collision/inertia/frame data unchanged. The generator and provenance retain the source/licence and geometry hash. Paired upperbody pin and final installed A6/A7/Bullet evidence must identify this head.
+
+1 November 2026 reconciliation: merge main `4926f406d65dee1a55cf078fa45e4f34d7e33b02` without rewriting the signed twin history. Preserve #106's legacy camera visual/collision removal and its strict 0.296 m top-cover check; use the existing STL/COLLADA vertex reader so the check also covers the material-preserving equipment mesh. The CI guard includes all 62 integrated description cases. Frames, camera streams, contact settings and visual finishes are retained; exact-head combined verification is recorded in #105/#27.

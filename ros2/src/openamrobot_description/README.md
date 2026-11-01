@@ -65,7 +65,7 @@ BOM 7.14 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.
 | `fl/fr/bl/br_caster_link` (0.022 kg) | STL mesh |
 | `fl/fr/bl/br_wheel_link` (0.024–0.027 kg) | Sphere r=0.026 m |
 | `lidar_link` (0.168 kg) | STL mesh |
-| `camera_link` (0.05 kg) | Box 0.04×0.08×0.04 m |
+| `camera_link` (0.05 kg, legacy Gate A IMX708 frame) | none; no visual (box removed 1 Nov 2026, it stood above the 2.0 top cover) |
 | `camera_optical_frame` | — (optical convention frame) |
 
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.
