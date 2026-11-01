@@ -43,7 +43,7 @@
 
 > Honest limits, stated up front so the reader is not misled:
 >
-> - **No vendor recommendation.** Charger comparisons in §3 are reference data to bound the design budget, not buying advice.
+> - **No vendor recommendation.** Charger comparisons in §3 are reference data to bound the design budget, not buying advice. The 2.0 charging path is the TZBOT WCM-500-24 (register CHARGING); docking stays positioning only.
 > - **No lab-measured numbers.** All vendor figures come from public datasheets and integration guides. No bench validation has been performed by the OpenAMRobot team at the time of writing.
 > - **Yaw precision claims for tag bundles are qualitative.** The literature consistently reports that bundles improve yaw stability over single tags, but precise σ figures depend on bundle geometry, camera, and lighting and are not portable.
 > - **Contour-lidar and 3-D-lidar docking precision are not well standardized.** Only reflector-lidar (~1 cm / <0.05°) and the multi-sensor-fusion comparative studies are firmly documented.
@@ -56,7 +56,7 @@
 
 ### 2.1 Vendor-agnostic by construction
 
-The system is **not designed against a single charger's spec**. Vendor numbers are used as **reference data** to bound the precision budget. The system must therefore beat the **tightest** published tolerance of any plausible candidate charger, on every axis, with margin. This is the only way to keep the integration open to whichever charger the end customer selects.
+The system is **not designed against a single charger's spec**. Vendor numbers are used as **reference data** to bound the precision budget. The system must therefore beat the **tightest** published tolerance of any plausible candidate charger, on every axis, with margin. This is the only way to keep the integration open to whichever charger the end customer selects. The 2.0 charging path is the TZBOT WCM-500-24 (register CHARGING); docking stays positioning only.
 
 ### 2.2 Numerical targets
 
