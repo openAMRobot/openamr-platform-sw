@@ -114,7 +114,7 @@ import unittest
 import pytest
 import yaml
 
-rclpy = pytest.importorskip('rclpy')
+rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
 
 def _twist_mux_available():
@@ -139,7 +139,7 @@ def _twist_mux_available():
 
 pytestmark = pytest.mark.skipif(
     not _twist_mux_available(),
-    reason='needs the real ros2 CLI AND the twist_mux package installed')
+    reason='needs the real ros2 CLI AND the twist_mux package installed [#35]')
 
 from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402,I100
 

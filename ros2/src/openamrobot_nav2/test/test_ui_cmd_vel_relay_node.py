@@ -9,7 +9,7 @@ import unittest
 
 import pytest
 
-rclpy = pytest.importorskip('rclpy')
+rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
 from builtin_interfaces.msg import Time  # noqa: E402,I100
 from geometry_msgs.msg import Twist, TwistStamped, Vector3  # noqa: E402

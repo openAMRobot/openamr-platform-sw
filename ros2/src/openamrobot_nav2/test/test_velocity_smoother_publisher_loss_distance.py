@@ -74,7 +74,7 @@ import unittest
 import pytest
 import yaml
 
-rclpy = pytest.importorskip('rclpy')
+rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 
@@ -109,7 +109,7 @@ def _velocity_smoother_available():
 
 pytestmark = pytest.mark.skipif(
     not _velocity_smoother_available(),
-    reason='needs the real ros2 CLI AND the nav2_velocity_smoother package installed')
+    reason='needs the real ros2 CLI AND the nav2_velocity_smoother package installed [#35]')
 
 
 def _load_shipped_smoother_params():

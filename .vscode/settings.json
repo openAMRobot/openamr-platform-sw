@@ -1,4 +1,3 @@
 {
-    "ros.distro": "jazzy",
-    "cmake.sourceDirectory": "/home/kunal-jazzy/openamr-platform-sw/ros2/src/openamrobot_docking"
+    "ros.distro": "jazzy"
 }

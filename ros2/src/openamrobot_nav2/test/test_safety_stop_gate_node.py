@@ -15,7 +15,7 @@ import unittest
 
 import pytest
 
-rclpy = pytest.importorskip('rclpy')
+rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode  # noqa: E402
