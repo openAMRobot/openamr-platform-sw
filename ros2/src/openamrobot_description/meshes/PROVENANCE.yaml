@@ -5,11 +5,11 @@ generated_by:
     STEP>
   map:
     file: tools/cad/base_mesh_map.yaml
-    sha256: b7d41e8c10ef309a9bd38cc0b3c3a870310e1687d8a4396f63038b7c3cf5f9f6
-  converter_sha256: 3c1e36a90505097aa014f0e3202b7b2353a7c264f6118583b98d8f8e009fc8ab
+    sha256: bafa3b1eea3d2e7831d964d1e80c58c32cf20da2756964d24dbf6cf2d19c7be1
+  converter_sha256: 5c8ee13c35a825e5f0d4bbc701c29be9fda24d300236dda04d969f931ea0837f
   cadlib_sha256: f2d49c5d785a15d7031c4b5e296a6df900c155c8f696328c1844d61d90cfa920
   versions:
-    python: 3.13.17
+    python: 3.13.18
     cadquery-ocp: 8.0.1.1.0
     trimesh: 5.2.0
     fast-simplification: 0.2.0
@@ -218,7 +218,7 @@ outputs:
     - 1.0
 glb:
   file: build/base_visual.glb (not committed)
-  sha256: 4c126742d1048f875d20718d06d6b2f680958cfd11cf036f4a704b4dc8e391dd
+  sha256: c4a1187f4b0862a000eb263239390be3d0ceddc6e0552274a66221eae8986e90
   bytes: 854136
   triangles: 67268
   primitives: 82
@@ -568,7 +568,7 @@ components:
     position: existing caster links; the link origin is 54.167 mm above the floor
     position_decided: true
     dimension_source: STEP instances GH-LPA035_G15 (top plate 60 x 60 mm, top 52.0 mm above the floor) and VSTH_35_6K_G15
-      (wheel 35 x 30 mm); BOM 7.11 MEC-002 (52 mm overall height, 15 mm offset)
+      (wheel 35 x 30 mm); BOM 7.14 MEC-002 (52 mm overall height, 15 mm offset)
     class: component
     links:
     - fl_caster_link
@@ -776,7 +776,8 @@ components:
       - 29.18
       max_delta_mm: 0.005
   imu:
-    bom: TDK ICM-42688-P on 6DOF IMU 14 Click MIKROE-4237 (IMU-001)
+    bom: TDK ICM-42688-P on the TDK EV_ICM-42688-P evaluation board (IMU-001; replaces the MIKROE-4237 click, P-03
+      rev20.2 item 26)
     name: IMU
     bom_row: IMU-001
     qty: 1
@@ -787,8 +788,9 @@ components:
     position: imu_link at the package centre (yaw -90 deg; link x = base -y, link y = base x)
     position_decided: true
     dimension_source: package 2.5 x 3.0 x 0.91 mm (TDK DS-000347 v1.9); board 25.4 x 42.9 x 1.6 mm and the package
-      position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP; the repository holds
-      only the click schematic
+      position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP, kept as the board envelope
+      (the EV_ICM-42688-P outline is not modelled; chip at imu_link, pose and yaw unchanged, P-03 rev20.2 item 26);
+      the repository holds only the click schematic
     class: component
     links:
     - imu_link
@@ -2090,7 +2092,8 @@ groups:
   - MMP.00.00.00.000_full_assembly v26 / Click_Shield_for_Nucleo-64_v101 v8:1 / m3_anti_vib_damper v1:2
   - MMP.00.00.00.000_full_assembly v26 / Click_Shield_for_Nucleo-64_v101 v8:1 / m3_anti_vib_damper v1:3
   - MMP.00.00.00.000_full_assembly v26 / Click_Shield_for_Nucleo-64_v101 v8:1 / m3_anti_vib_damper v1:4
-  reason: not on the 2.0 list (the 2.0 shield is CTL-002)
+  reason: 'release 001 part from the STEP, not part of 2.0: no click shield in 2.0 (CTL-002 removed 1 Nov 2026,
+    P-03 rev20.2 item 26); geometry kept in the STEP, excluded from the meshes'
   count: 231
 - group: NUCLEO-144 board model MB1364-H743ZI (superseded by the NUCLEO-H723ZG, same outline)
   class: component
@@ -3910,7 +3913,7 @@ groups:
     1122351192:55 / Extruded (3):1
   replaced_by_envelope: base_controller
   count: 907
-- group: 6DOF IMU 14 Click (MIKROE-4237)
+- group: IMU board model 6DOF IMU 14 Click (MIKROE-4237; the 2.0 board is the TDK EV_ICM-42688-P, same sensor)
   class: component
   instances:
   - MMP.00.00.00.000_full_assembly v26 / Click_Shield_for_Nucleo-64_v101 v8:1 / 6DOF_IMU_14_click_v100 v1:1 / Board:1

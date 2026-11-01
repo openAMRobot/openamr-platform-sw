@@ -3,7 +3,7 @@
 # Read by tools/cad/step_to_description_meshes.py; see tools/cad/README.md.
 #
 # Principle: the chassis comes from the CAD; the components come from the 2.0 bill of
-# materials (BOM Issue 7.11, 25 Oct 2026). The STEP is the release 001 build with some 2.0 parts fitted.
+# materials (BOM Issue 7.14, 27 Oct 2026, with 1 Nov changes). The STEP is the release 001 build with some 2.0 parts fitted.
 # Its chassis parts are exported as meshes; release 001 parts are dropped; every 2.0
 # component is a simplified envelope built from the parameters below, placed on its
 # URDF link (pose = frame) or, where the register gives no frame, as in the CAD.
@@ -32,9 +32,10 @@ sources:
     path: datasheets/ZLTech/wheel_ZLLG80ASM250/ZLLG80ASM250-L-B2 V1.01 double-shaft.STEP
     note: 'brake variant, brake side inboard (decided 25 Oct 2026); on the platform-hw PR #28 branch, not yet on main'
   documents:
-    - BOM Issue 7.11 (OpenAMRobot 2.0 Detailed Hardware BOM, 25 Oct 2026), https://drive.google.com/file/d/1RJX6SHtSFA31atJCb60WgkH425V0Vxfm/view
+    - BOM Issue 7.14 (OpenAMRobot 2.0 Detailed Hardware BOM, 27 Oct 2026, with the 1 Nov 2026 changes of P-03 rev20.2 item 26), https://drive.google.com/file/d/119H4wdVo1Mjx83xvw_iPK4jVZUuuUT5d/view
     - B-02 Battery Guide rev18.8 (25 Oct 2026), https://drive.google.com/file/d/1ymWSTrgK0N8nEEAuukMRyW6zffDhcpIE/view
     - P-03 Decision Addendum rev19.7 (20 Oct 2026)
+    - P-03 Decision Addendum rev20.2 item 26 (1 Nov 2026; no click shield, TDK EV_ICM-42688-P IMU board)
     - E-01 Safety and Power Distribution Baseline rev1.4 (20 Oct 2026)
     - openAMRobot/.github decisions.yaml (FRAMES-REP105, NEAR-FIELD-FRAMES, NAV-LIDAR, CAMERAS, DATUM-HEIGHT-STACK, DRIVE-TRACK)
   datasheets:
@@ -131,7 +132,7 @@ rules:
   - {name: Gemini 336L, match: '/ \[3D\]\[STP\]Gemini 336L Asm[^/]*:\d+', class: component, component: base_camera}
   - {name: TF-Luna, match: '/ AssemBeneWake TF-LUNA v2:\d+ / BeneWake TF-LUNA:\d+', class: component, component: tof}
   - {name: 'ultrasonic sensor model (HRXL-MaxSonar-WR, 1 inch NPS; the 2.0 part is the MB7060 -2XX)', match: '/ HRXL-MaxSonar-WR[^/]*:\d+$', class: component, component: ultrasonic}
-  - {name: 6DOF IMU 14 Click (MIKROE-4237), match: '/ 6DOF_IMU_14_click[^/]*:\d+ / ', class: component, component: imu}
+  - {name: 'IMU board model 6DOF IMU 14 Click (MIKROE-4237; the 2.0 board is the TDK EV_ICM-42688-P, same sensor)', match: '/ 6DOF_IMU_14_click[^/]*:\d+ / ', class: component, component: imu}
   - {name: reComputer Robotics J401 with Orin NX, match: '/ recomputer_robotics_j401_pcba[^/]*:\d+', class: component, component: compute}
   - {name: 'NUCLEO-144 board model MB1364-H743ZI (superseded by the NUCLEO-H723ZG, same outline)', match: '/ MB1364-H743ZI[^/]*:\d+', class: component, component: base_controller}
   - {name: 8S1P cell pack, match: '/ 8S1P_Li-Ion_Package[^/]*:\d+$', class: component, component: battery}
@@ -144,7 +145,7 @@ rules:
   - {name: release 001 shaft keys, match: '/ (РТ1\.00\.00\.217 Шпонка|Шпонка 3-4x4x25)[^/]*:\d+$', class: release_001, reason: release 001 drivetrain}
   - {name: 'release 001 push buttons (red mushroom B200MK, green D22 B100FY)', match: '/ Кнопка [^/]*:\d+$', class: release_001, reason: 'not the 2.0 E-stop XB4BS8445 or RESET XB4BW36B5; their panel holes are reused by estop and reset_button (P-03 rev20.0 item 24)'}
   - {name: 3 LED RGB modules, match: '/ 3 LED RGB Module[^/]*:\d+$', class: release_001, reason: not on the 2.0 list}
-  - {name: click shield for Nucleo-64 and its parts, match: '/ Click_Shield_for_Nucleo-64[^/]*:\d+ / (?!stm32_click_mount_plate)', class: release_001, reason: not on the 2.0 list (the 2.0 shield is CTL-002)}
+  - {name: click shield for Nucleo-64 and its parts, match: '/ Click_Shield_for_Nucleo-64[^/]*:\d+ / (?!stm32_click_mount_plate)', class: release_001, reason: 'release 001 part from the STEP, not part of 2.0: no click shield in 2.0 (CTL-002 removed 1 Nov 2026, P-03 rev20.2 item 26); geometry kept in the STEP, excluded from the meshes'}
   # fasteners and small parts
   - name: fasteners (screws, nuts, washers, rivets, rivet nuts, standoffs, dampers)
     match: '(Винт|винт|Гайка|Шайба|шайба|Заклёпка|Стойка|[Ss]crew|SCREW|[Ww]asher|_NUT|NUT_|DIN \d|ISO \d|ГОСТ|gost|anti_vib_damper)[^/]*$'
@@ -177,7 +178,7 @@ outputs:
   tof: {file: tof.stl, frame: link, material: sensor_black, colour: [0.1, 0.1, 0.1]}
   imu: {file: imu.stl, frame: link, material: imu_board, colour: [0.05, 0.12, 0.07]}
 
-# 2.0 components (BOM Issue 7.11, 25 Oct 2026). Each is modelled as an envelope or listed as
+# 2.0 components (BOM Issue 7.14, 27 Oct 2026, with 1 Nov changes). Each is modelled as an envelope or listed as
 # not modelled with the reason. name, bom_row, node_ids (one GLB node per placement link),
 # class (component, or envelope for a space allocation) and provisional feed the GLB extras. Envelope parts: box (size_mm, xyz_mm, rpy), cylinder (radius_mm,
 # length_mm, axis, xyz_mm, optional sections: 6 for a hex) or revolve (axis, profile_mm as [axial, radius]
@@ -226,7 +227,7 @@ components:
     node_ids: {fl_caster_link: castor_front_left, fr_caster_link: castor_front_right, bl_caster_link: castor_rear_left,
                br_caster_link: castor_rear_right}
     position: existing caster links; the link origin is 54.167 mm above the floor
-    dimension_source: STEP instances GH-LPA035_G15 (top plate 60 x 60 mm, top 52.0 mm above the floor) and VSTH_35_6K_G15 (wheel 35 x 30 mm); BOM 7.11 MEC-002 (52 mm overall height, 15 mm offset)
+    dimension_source: STEP instances GH-LPA035_G15 (top plate 60 x 60 mm, top 52.0 mm above the floor) and VSTH_35_6K_G15 (wheel 35 x 30 mm); BOM 7.14 MEC-002 (52 mm overall height, 15 mm offset)
     parts:
       - {shape: box, size_mm: [60.0, 60.0, 3.4], xyz_mm: [0.0, 0.0, -3.867], colour: [0.55, 0.56, 0.58]}
       - {shape: box, size_mm: [30.0, 36.0, 31.1], xyz_mm: [-7.5, 0.0, -21.117], colour: [0.55, 0.56, 0.58], note: fork, simplified from the plate and wheel positions}
@@ -337,7 +338,7 @@ components:
     check: {unit: '/ 00_GEMINI_336L_3D_ALL_ASM_1_ASM:\d+$', local_size_mm: [124.02, 29.03, 29.18]}
 
   imu:
-    bom: TDK ICM-42688-P on 6DOF IMU 14 Click MIKROE-4237 (IMU-001)
+    bom: TDK ICM-42688-P on the TDK EV_ICM-42688-P evaluation board (IMU-001; replaces the MIKROE-4237 click, P-03 rev20.2 item 26)
     name: IMU
     bom_row: IMU-001
     qty: 1
@@ -346,7 +347,7 @@ components:
     placement: {links: [imu_link]}
     node_ids: {imu_link: imu}
     position: imu_link at the package centre (yaw -90 deg; link x = base -y, link y = base x)
-    dimension_source: package 2.5 x 3.0 x 0.91 mm (TDK DS-000347 v1.9); board 25.4 x 42.9 x 1.6 mm and the package position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP; the repository holds only the click schematic
+    dimension_source: package 2.5 x 3.0 x 0.91 mm (TDK DS-000347 v1.9); board 25.4 x 42.9 x 1.6 mm and the package position on it (6.35 mm from the board end) from the MIKROE-4237 instance in the STEP, kept as the board envelope (the EV_ICM-42688-P outline is not modelled; chip at imu_link, pose and yaw unchanged, P-03 rev20.2 item 26); the repository holds only the click schematic
     parts:
       - {shape: box, size_mm: [3.0, 2.5, 0.91], xyz_mm: [0.0, 0.0, 0.0], colour: [0.08, 0.08, 0.08]}
       - {shape: box, size_mm: [25.4, 42.9, 1.6], xyz_mm: [0.0, -15.1, -1.255], colour: [0.05, 0.12, 0.07]}
