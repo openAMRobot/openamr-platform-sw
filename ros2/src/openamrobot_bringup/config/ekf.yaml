@@ -1,7 +1,9 @@
 # EKF robot_localization — OpenAMRobot
 # Fuses wheel odometry (/odom/unfiltered) + the IMU Z gyro (/imu/data).
-# The MPU6500 IMU has NO valid orientation (null quaternion) nor reliable accelerometer
-# (~14deg tilted mounting) -> we use ONLY angular_velocity.z (yaw rate).
+# Gate A (legacy) IMU MPU6500: NO valid orientation (null quaternion) nor reliable
+# accelerometer (~14deg tilted mounting) -> we use ONLY angular_velocity.z (yaw rate).
+# The 2.0 IMU is the ICM-42688-P on the TDK EV_ICM-42688-P; the EKF fuses only
+# angular_velocity.z (P-03 item 24).
 # Output: TF odom->base_link + /odometry/filtered (remapped to /odom).
 ekf_filter_node:
   ros__parameters:

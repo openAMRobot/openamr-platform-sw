@@ -66,7 +66,7 @@ Why this matters, and the Wi-Fi it rides on: [`02_networking_and_dds.md`](02_net
 
 ## 1. micro-ROS agent (Teensy telemetry) — ON THE PI
 
-The agent bridges the Teensy: `/cmd_vel`, `/odom/unfiltered`, `/imu/data`, `/debug/*`. The
+The agent bridges the Gate A Teensy: `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (EKF input; 2.0 firmware: `/imu/data_raw`), `/debug/*`. The
 full bring-up (§3) starts it automatically. Run it standalone **only** for a bare encoder
 calibration with nothing else up:
 
