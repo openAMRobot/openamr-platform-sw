@@ -14,7 +14,7 @@ Consolidates memory `amr-wifi-guest-flaky`, `amr-pi-ros-commands`, `pi-ssh-acces
 
 The network + DDS topology is shown below.
 
-![Networking/DDS topology: operator PC + Raspberry Pi 5 (reached by mDNS <robot>.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
+![Networking/DDS topology: operator PC + Raspberry Pi 5, legacy (existing robot) (reached by mDNS <robot>.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
 
 
 | Setting | Value | Why |
