@@ -25,7 +25,7 @@ Snapshot during a **real dock**, full (non-composed) stack, load ≈ 8 on 4 core
 | Process | %CPU | Needed by | Notes |
 |---|---|---|---|
 | `web_video_server` | 54 % | diagnostics only | **kill for real runs** |
-| `camera_node` | 37 % | vision | IMX708 @ 1280×720, software ISP |
+| `camera_node` | 37 % | vision | IMX708, legacy (existing robot) @ 1280×720, software ISP |
 | `apriltag_gate.py` | 35 % | vision (old path) | Python full-res republish — removed by composition |
 | `apriltag_node` | 20 % | docking only | the detector (~166 % when unthrottled) |
 | `dock_trigger.py` | 18–36 % | docking only | the sequencer (burns ~30 % even *idle*) |

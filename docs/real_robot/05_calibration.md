@@ -81,7 +81,7 @@ Related: the measured **velocity floors** the docking speeds are based on (linea
 
 ## Camera intrinsics (done — do not redo)
 
-The IMX708 is calibrated at **1280×720**: checkerboard 9×12 squares (8×11 inner corners),
+The IMX708, legacy (existing robot) is calibrated at **1280×720**: checkerboard 9×12 squares (8×11 inner corners),
 30 mm, 87 views → fx ≈ 1415.7, fy ≈ 1415.1, cx ≈ 629.3, cy ≈ 366.4, plumb-bob distortion
 `[0.0038, 0.217, ~0, ~0, 0]`. Stored in `openamrobot_perception/config/camera_info.yaml`
 (and `~/camera_info.yaml` on the Pi); the bring-up loads it via `camera_info_url`.
@@ -91,8 +91,8 @@ The IMX708 is calibrated at **1280×720**: checkerboard 9×12 squares (8×11 inn
 > Do not change the resolution without re-calibrating.
 
 The camera itself only works because the **RPi libcamera fork** + `camera_ros` are built in
-`~/camera_ws` (upstream libcamera does not support the Camera Module 3 / IMX708 on the Pi 5).
-Background and the recalibration recipe: memory `amr-camera-imx708-libcamera`, and the
+`~/camera_ws` (upstream libcamera does not support the Camera Module 3 / IMX708, legacy (existing robot) on the Pi 5).
+Background and the recalibration recipe (legacy IMX708 camera): memory `amr-camera-imx708-libcamera`, and the
 authoritative intrinsics/extrinsics doc
 [`../../ros2/src/openamrobot_docking/docs/06_camera_calibration.md`](../../ros2/src/openamrobot_docking/docs/06_camera_calibration.md).
 

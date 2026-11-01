@@ -109,7 +109,7 @@ This is the mechanism behind most link collapses. Two triggers, same root cause.
 
 ### 4a. The camera stream
 
-The IMX708 publishes **1280×720 RELIABLE** (~2.76 MB/frame, ~15 fps). On a healthy link
+The IMX708, legacy (existing robot) publishes **1280×720 RELIABLE** (~2.76 MB/frame, ~15 fps). On a healthy link
 (earlier sessions, ~0 % loss) it's fine. On a **degraded** guest link, any packet loss
 triggers a **DDS reliable-retransmit storm** on those big image frames → it eats the airtime
 → ping / SSH / DDS all collapse. **The camera didn't change — the network degraded.**

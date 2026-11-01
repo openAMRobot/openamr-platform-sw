@@ -661,7 +661,7 @@ Detailed in §5.6. The recommended **evolution path** for OpenAMRobot once two c
 
 ### 7.5 RGB-D + visual SLAM (platform evolution)
 
-The OpenAMRobot platform roadmap is considering replacing the current RGB camera with an RGB-D camera (e.g. RealSense D435i / D455 class) to add **visual SLAM in support of lidar SLAM**. *This is an anticipated direction subject to confirmation by the technical lead, not a committed change.* If adopted, the depth channel is also directly useful to the docking stack:
+OpenAMRobot 2.0 uses the Orbbec Gemini 336L RGB-D base camera (register CAMERAS); **visual SLAM in support of lidar SLAM** is an anticipated direction, *subject to confirmation by the technical lead, not a committed change.* If adopted, the depth channel is also directly useful to the docking stack:
 - Direct depth at the tag eliminates the worst noise source in the docking estimate (the camera-frame depth from a single planar tag's PnP).
 - Depth-based detection of the dock surface as a plane gives a yaw-free position estimate independent of the tag.
 - It is a natural substrate for an eventual lidar+RGB-D fusion path.
