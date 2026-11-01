@@ -325,7 +325,8 @@ def test_component_envelope_features(provenance, cid, feature, count):
 BOM_CITING = [PKG / 'README.md', FRAMES, PROVENANCE, URDF, PKG / 'urdf' / 'sensors.xacro',
               Path(__file__), PKG.parents[2] / 'tools' / 'cad' / 'README.md',
               PKG.parents[2] / 'tools' / 'cad' / 'base_mesh_map.yaml',
-              PKG.parents[2] / 'tools' / 'cad' / 'step_to_description_meshes.py']
+              PKG.parents[2] / 'tools' / 'cad' / 'step_to_description_meshes.py',
+              PKG.parents[2] / 'NOTICE.md']
 
 
 def test_bom_issue_and_component_references(provenance):
