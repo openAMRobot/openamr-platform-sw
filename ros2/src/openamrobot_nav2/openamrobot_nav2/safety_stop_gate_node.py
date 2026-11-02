@@ -8,9 +8,10 @@ assert:
 
 [Startup] "timeout: 0.0 disables lock expiry; it does not start the mux
 locked. The stored Bool starts false." True of twist_mux's own internal
-state - a Lock with no message ever received defaults to not-engaged, and
-timeout: 0.0 only means it never expires once engaged, not that it begins
-engaged. So the lock has to already read true the moment anything else in
+state - a Lock with no message ever received defaults to not-engaged. The
+reviewed configuration used a 0.0 timeout (meaning an engaged lock would
+stay held without updates), but the shipped lock timeout is actually 0.3 s.
+Either way, the lock has to already read true the moment anything else in
 the graph could possibly start commanding motion, before this node has
 received or sent a single message:
 
@@ -104,18 +105,20 @@ downstream pass), and the twist_mux.yaml comment on
 topics.software_stop.timeout documents the ordering invariant between that
 timeout and the lock's own timeout that still matters for it.
 
-[Loss of the zero publisher while locked] If this node's process dies while
-locked, cmd_vel_stop and the lock's periodic republish both stop - the
-retained TRANSIENT_LOCAL sample on /safety/stop_lock still holds the lock
-true indefinitely (timeout: 0.0 never expires it), so the mux keeps masking
-every lower-priority input; but cmd_vel_stop itself will time out at its
-configured 0.5s, so the mux is left with no active input at all - which
-is the same empty-mux-input the "loss of zero publisher" bench case
-(platform-sw#35, Mohamed's review) exists to measure against real twist_mux
-4.5.0 (that behavior - silence vs. an explicit zero - is a property of the
-mux, not this node, and needs its own bench measurement, not an assumption).
-If the gate is lost, cmd_vel_gated goes silent. velocity_smoother stops after 0.3 s.
-The firmware watchdog is about 200 ms.
+[Loss of the zero publisher while locked] The gate node dies, and it stops
+republishing. The lock expires after 0.3 s without a refresh. An expired
+lock reads as locked, so it fails closed. The volatile subscriber ignores
+the retained sample, so it cannot hold the lock. The cmd_vel_gated output
+goes silent. The velocity_smoother waits 0.3 s, then decelerates to zero.
+The firmware watchdog acts as the independent backstop per
+docs/safety/02_limits_and_watchdog.md §2, after about 200 ms.
+
+CI-tested: the shipped lock timeout is above 0, startup and restart ordering
+with the real mux, and the smoother lost-input distance bound.
+Bench-unverified: the gate dying mid-run end to end, what the mux emits
+after the lock expires (silence or an explicit zero), the real stopping
+distance, and the firmware watchdog.
+
 Alex's review (platform-sw#90) caught this node's own earlier claim here as
 false: navigation_launch.py passes respawn=use_respawn for every node in the
 file, this one included - it is not a literal respawn=True, and use_respawn's
