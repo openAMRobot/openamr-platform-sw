@@ -38,6 +38,12 @@ velocity_smoother:
   `test_velocity_smoother_publisher_loss_distance.py` for the measured distance bound after a lost
   publisher.
 
+- **Stop-lock gate (#35, platform-sw#90)** — The gate is a functional stop path for the twist_mux software_stop lock.
+  - Release: Release is refused while ROS time is below 1.0 s (the service returns success=false with a message), but wall-clock launches remain unaffected.
+  - Engage / start-up: One zero is actively published on cmd_vel_gated and cmd_vel_stop on engage and at start-up.
+  - If the gate is lost: If the gate is lost, cmd_vel_gated goes silent, then velocity_smoother stops after 0.3 s, and the firmware watchdog (§2, about 200 ms) acts as the backstop.
+  - Frozen simulated clock: A frozen simulated clock is a simulation-only limitation where the tick does not fire, leaving only the engage-time zero and _on_mux_output to produce output.
+  
 ---
 
 ## 2. Firmware `/cmd_vel` watchdog (~200 ms)

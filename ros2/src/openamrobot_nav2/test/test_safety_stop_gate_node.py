@@ -372,34 +372,11 @@ class SimClockPostMuxGate(unittest.TestCase):
                 'a nonzero Twist on cmd_vel_mux reached cmd_vel_gated while '
                 'locked under a simulated clock that never ticked')
 
-    def test_release_and_positive_forward_with_no_clock_ever_received(self):
-        client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
-        self.assertTrue(
-            client.wait_for_service(timeout_sec=2.0),
-            '/safety/stop_lock_release never came up')
-        future = client.call_async(Trigger.Request())
-        deadline = time.monotonic() + 2.0
-        while not future.done() and time.monotonic() < deadline:
-            rclpy.spin_once(self.node, timeout_sec=0.01)
-            rclpy.spin_once(self.probe, timeout_sec=0.01)
-        self.assertTrue(future.done(), 'release call timed out')
-        self.assertFalse(self.node._locked)
-
-        nonzero = Twist()
-        nonzero.linear.x = 0.4
-        nonzero.angular.z = 0.1
-        received = []
-        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
-        self._publish_mux(nonzero)
-        deadline = time.monotonic() + 1.0
-        while not received and time.monotonic() < deadline:
-            rclpy.spin_once(self.probe, timeout_sec=0.02)
-            rclpy.spin_once(self.node, timeout_sec=0.02)
-        self.assertTrue(
-            received,
-            'cmd_vel_mux message never reached cmd_vel_gated after a '
-            'confirmed Resume, under a simulated clock that never ticked')
-        self.assertEqual(received[-1], nonzero)
+    # Release with no /clock ever received is refused since #90 (release needs ROS
+    # time >= T_ready), so the old release-and-forward test for that case no longer
+    # describes the gate. The refusal is covered by TestReleaseRefusedWithNoClock
+    # and the positive forwarding by TestReadyReleaseForwards in
+    # test_sim_clock_readiness_full_chain.py.
 
     def test_restart_comes_back_locked_with_no_clock_ever_received(self):
         # A gate-node restart under the same never-ticked simulated clock:

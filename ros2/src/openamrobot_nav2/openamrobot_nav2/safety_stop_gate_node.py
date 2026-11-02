@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Safety stop gate for twist_mux's software_stop lock/input pair (issue #35).
+Functional stop path gate for twist_mux's software_stop lock/input pair (issue #35).
 
 Mohamed Sayed's review of the posted twist_mux config (platform-sw#35) raised
 three properties of that config this node has to actually satisfy, not just
@@ -40,6 +40,9 @@ received or sent a single message:
     tick period, and the TRANSIENT_LOCAL durability on this publisher still
     helps any OTHER subscriber in the graph that (unlike twist_mux) actually
     uses a durability-compatible QoS.
+
+The lock timeout is 0.3 s. The mux's lock subscriber is volatile and depends
+on the 10 Hz republish.
 
 [Release] "The mux directly accepts Bool messages on its configured lock
 topic, and false clears that lock. A ... helper ignoring false on the same
@@ -111,6 +114,8 @@ is the same empty-mux-input the "loss of zero publisher" bench case
 (platform-sw#35, Mohamed's review) exists to measure against real twist_mux
 4.5.0 (that behavior - silence vs. an explicit zero - is a property of the
 mux, not this node, and needs its own bench measurement, not an assumption).
+If the gate is lost, cmd_vel_gated goes silent. velocity_smoother stops after 0.3 s.
+The firmware watchdog is about 200 ms.
 Alex's review (platform-sw#90) caught this node's own earlier claim here as
 false: navigation_launch.py passes respawn=use_respawn for every node in the
 file, this one included - it is not a literal respawn=True, and use_respawn's
@@ -133,6 +138,9 @@ service, same reasoning as release being a deliberate service call rather
 than a topic publish (Kunal's own proposal note) - but the UI-side wiring to
 it is unconfirmed and needs the same cross-repo contract record nik asked
 for on the release/relay interface, not assumed from this file alone.
+
+Frozen-clock note: simulation only, with a stalled /clock the tick does not
+fire and only the engage-time zero and _on_mux_output produce output.
 """
 from geometry_msgs.msg import Twist
 import rclpy
@@ -142,6 +150,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 TICK_HZ = 10.0
+T_READY = 1.0  # twice the longest mux input timeout (0.5 s)
 
 
 class SafetyStopGateNode(Node):
@@ -176,6 +185,9 @@ class SafetyStopGateNode(Node):
         # tick - the retained TRANSIENT_LOCAL sample exists from the first
         # possible instant this node could be observed by anything else.
         self._publish_lock()
+        self._stop_pub.publish(Twist())
+        self._gated_pub.publish(Twist())
+        # early subscribers may miss it, and the 10 Hz tick covers that.
 
     def release_lock(self) -> bool:
         """Clear the lock. Returns False if it was already clear (idempotent, informative)."""
@@ -188,13 +200,25 @@ class SafetyStopGateNode(Node):
     def engage_lock(self) -> bool:
         """Set the lock. Returns False if it was already set (idempotent, informative)."""
         if self._locked:
+            # The already engaged path does not send them.
             return False
         self._locked = True
         self._publish_lock()
+        self._stop_pub.publish(Twist())
+        self._gated_pub.publish(Twist())
         return True
 
     def _on_release(self, request, response):
         del request  # Trigger has no request fields
+
+        current_time = self.get_clock().now().nanoseconds / 1e9
+        if current_time < T_READY:
+            response.success = False
+            response.message = (
+                f'clock not ready (current time: {current_time:.2f}, '
+                f'required: {T_READY})')
+            return response
+
         changed = self.release_lock()
         response.success = True
         response.message = 'released' if changed else 'already released'

@@ -78,4 +78,5 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_twist_mux_startup_and_restart.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_velocity_smoother_routing.py \
             ros2/src/openamrobot_nav2/test/test_velocity_smoother_publisher_loss_distance.py \
-            ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py
+            ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py \
+            ros2/src/openamrobot_nav2/test/test_sim_clock_readiness_full_chain.py
