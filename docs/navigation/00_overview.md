@@ -40,7 +40,9 @@ This is what makes the simulation a faithful rehearsal for the hardware.
   over). See [`../../ros2/src/openamrobot_docking/docs/`](../../ros2/src/openamrobot_docking/docs/README.md).
 - **Provide hard functional safety** — the collision_monitor + velocity limits + firmware
   watchdog are the current safety envelope; there is **no hardware E-stop / safety_io** yet.
-  See [`../safety/`](../safety/README.md).
+  See [`../safety/`](../safety/README.md). The hardware E-stop chain is defined in
+  [E-01](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md); the base controller will publish `/estop` from the
+  safety relay state (`SAFETY_OK`). Not built or tested yet.
 
 ---
 

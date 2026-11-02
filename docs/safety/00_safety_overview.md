@@ -7,6 +7,10 @@ is not covered**.
 > **Status: this is not a certified functional-safety system.** There is currently **no
 > hardware E-stop and no safety_io** (see §4, Gaps). The layers below reduce the chance and
 > severity of a collision; they do not provide a guaranteed independent stop.
+>
+> The hardware E-stop chain is now defined in the [E-01 safety and power baseline](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md)
+> (`openamr-platform-hw`). When it is fitted, the base controller will publish `/estop` from the
+> safety relay state (`SAFETY_OK`). It is not built or tested yet, so the gaps below still apply.
 
 ---
 
@@ -84,7 +88,10 @@ and the docking docs
 - **No hardware E-stop.** There is no physical emergency-stop button wired to cut motor power
   independently of software. Today the fastest "stop" is killing the command source (or the
   firmware watchdog timing out ~200 ms after commands cease). A hardware E-stop is a required
-  addition for any un-tethered / around-people operation.
+  addition for any un-tethered / around-people operation. The chain is defined in the
+  [E-01 baseline](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md) (two dual-channel E-stops, Pilz PNOZ s3
+  safety relay, two LEV100H contactors); the base controller will publish `/estop` from the safety
+  relay state (`SAFETY_OK`). Not built or tested yet.
 - **No safety_io / safety-rated inputs.** No safety-rated bumper, light curtain, or interlock is
   integrated.
 - **2D-lidar blind spot.** Obstacles shorter than ~18 cm are invisible to the costmap **and** to

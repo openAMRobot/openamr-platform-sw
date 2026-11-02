@@ -376,7 +376,7 @@ tuned values, what was tried and rejected, and the gaps that remain:
 | Series | Covers |
 |---|---|
 | [`docs/navigation/`](docs/navigation/README.md) | The Nav2 stack on real hardware: architecture, costmaps, planner/controller tuning, goal routing, troubleshooting |
-| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet) |
+| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet; the chain is defined in [E-01](https://github.com/openAMRobot/openamr-platform-hw/blob/main/electrical/power_distribution/e01-safety-and-power.md), and the base controller will publish `/estop` from the safety relay state `SAFETY_OK`, not built or tested yet) |
 | [`docs/real_robot/`](docs/real_robot/README.md) | Taking the stack from Gazebo onto real hardware: bring-up, networking/DDS, vision pipeline & CPU budget, thermal limits, calibration, operator UI |
 
 ---
