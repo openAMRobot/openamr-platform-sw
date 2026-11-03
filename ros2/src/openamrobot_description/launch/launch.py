@@ -13,7 +13,11 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('openamrobot_description')
 
     xacro_file = os.path.join(bringup_dir, 'urdf', 'robo_urdf.urdf.xacro')
-    robot_desc = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
+    base_tilt = LaunchConfiguration('base_tilt')
+    robot_desc = ParameterValue(
+        Command(['xacro ', xacro_file, ' base_tilt:=', base_tilt]),
+        value_type=str,
+    )
 
     use_robot_state_pub = LaunchConfiguration('use_robot_state_pub')
     use_joint_state_pub = LaunchConfiguration('use_joint_state_pub')
@@ -74,6 +78,9 @@ def generate_launch_description():
         'rviz_config_file',
         default_value=os.path.join(bringup_dir, 'config', 'rviz.rviz'),
         description='Full path to the RViz config file'))
+    ld.add_action(DeclareLaunchArgument(
+        'base_tilt', default_value='bt10', choices=['bt05', 'bt10', 'bt15'],
+        description='Gemini base-camera tilt configuration'))
     ld.add_action(start_robot_state_publisher_cmd)
     ld.add_action(start_joint_state_publisher_cmd)
     ld.add_action(rviz_cmd)
