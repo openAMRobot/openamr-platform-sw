@@ -178,6 +178,9 @@ def launch_setup(context, *args, **kwargs):
         # navigation_launch no longer runs a scan filter (it's owned by the data source above) —
         # it only consumes /scan_filtered. Exactly one /scan_filtered publisher per profile.
         launch_arguments={'use_sim_time': sim}.items()))
+    actions.append(IncludeLaunchDescription(
+        src(nav2, 'map_saver_launch.py'),
+        launch_arguments={'use_sim_time': sim}.items()))
 
     if _truthy(use_rviz):
         actions.append(Node(

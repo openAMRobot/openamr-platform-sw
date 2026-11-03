@@ -22,6 +22,8 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
+| Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | open | owner review |
+| Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | feat/nav2-map-saver | draft | owner review |
 
 ## Decisions this repository implements
 

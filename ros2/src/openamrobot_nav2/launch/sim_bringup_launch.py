@@ -33,6 +33,15 @@ def generate_launch_description():
         }.items(),
     )
 
+    map_saver = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg, 'launch', 'map_saver_launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': 'true',
+        }.items(),
+    )
+
     # Scan filter for this (legacy / per-terminal) sim flow, now that navigation_launch no longer
     # runs it (filtering is a data-source responsibility — Raj review PR1). One /scan_filtered.
     scan_filter = Node(
@@ -61,6 +70,7 @@ def generate_launch_description():
         ),
         localization,
         navigation,
+        map_saver,
         scan_filter,
         rviz,
     ])
