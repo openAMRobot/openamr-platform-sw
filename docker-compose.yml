@@ -50,3 +50,4 @@ volumes:
   openamr_build:
   openamr_install:
   openamrobot_maps:
+    name: openamrobot_maps
