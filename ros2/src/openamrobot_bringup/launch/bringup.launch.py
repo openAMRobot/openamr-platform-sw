@@ -116,15 +116,22 @@ def launch_setup(context, *args, **kwargs):
             src(gazebo, 'gz_simulator.launch.py'),
             launch_arguments={'gui': gui}.items()))
         # Scan filtering is a DATA-SOURCE responsibility (Raj review PR1): the SIM profile owns its
-        # laser_filters chain here (the REAL profile owns it via openamrobot_perception). This
-        # keeps exactly ONE /scan_filtered publisher per profile; navigation_launch only consumes
-        # it.
+        # filter here (the REAL profile owns it via openamrobot_perception). This keeps exactly
+        # ONE /scan_filtered publisher per profile; navigation_launch only consumes it.
+        #
+        # issue #74 / PR #97: this used to run laser_filters::scan_to_scan_filter_chain against
+        # openamrobot_nav2/config/scan_body_filter.yaml - a pure truncation filter that could only
+        # keep one contiguous angular window, and that file was deleted in #97 (it couldn't mask
+        # an interior sector while keeping both wraparound ends, which is what the post-mount-
+        # rotation body footprint needs - see scan_body_filter_sim.yaml). #97 switched the OTHER
+        # sim entry point (openamrobot_nav2/sim_bringup_launch.py) to the per-sector masking node,
+        # but missed this one, leaving this launch pointed at the now-deleted file. Matching that
+        # fix here: same node, same sim-specific config.
         actions.append(Node(
-            package='laser_filters', executable='scan_to_scan_filter_chain',
+            package='openamrobot_perception', executable='scan_body_filter',
             name='scan_body_filter',
-            parameters=[os.path.join(nav2, 'config', 'scan_body_filter.yaml'),
-                        {'use_sim_time': True}],
-            remappings=[('scan', '/scan'), ('scan_filtered', '/scan_filtered')]))
+            parameters=[os.path.join(nav2, 'config', 'scan_body_filter_sim.yaml'),
+                        {'use_sim_time': True}]))
         # Goal routing (sim) — SYMMETRIC to the real branch below, gated by use_docking.
         # navigation_launch remaps bt_navigator's goal to goal_pose_nav (for the docking gate), so
         # the RViz "2D Goal Pose" (/goal_pose) must be forwarded or it never reaches Nav2. Exactly
