@@ -2,148 +2,94 @@
 """
 Functional stop path gate for twist_mux's software_stop lock/input pair (issue #35).
 
-Mohamed Sayed's review of the posted twist_mux config (platform-sw#35) raised
-three properties of that config this node has to actually satisfy, not just
-assert:
+This is the functional "Stop (software)" path (register STOP-SCOPE), not the
+hardwired E-stop. It owns /safety/stop_lock (the only publisher in the
+graph), force-zeroes the mux's output while locked, and gates the final
+cmd_vel_gated path directly off its own lock state rather than off mux
+arbitration.
 
-[Startup] "timeout: 0.0 disables lock expiry; it does not start the mux
-locked. The stored Bool starts false." True of twist_mux's own internal
-state - a Lock with no message ever received defaults to not-engaged. The
-reviewed configuration used a 0.0 timeout (meaning an engaged lock would
-stay held without updates), but the shipped lock timeout is actually 0.3 s.
-Either way, the lock has to already read true the moment anything else in
-the graph could possibly start commanding motion, before this node has
-received or sent a single message:
+[Startup] This node starts locked before any publisher or subscription
+exists (self._locked = True is the first statement in __init__), so there
+is no window where it could be observed unlocked. That alone is not what
+makes a fresh or restarted twist_mux also start locked, though: twist_mux's
+lock subscriber uses volatile QoS, so it never receives this node's
+TRANSIENT_LOCAL retained sample - only a live message published after it
+subscribes. The actual mechanism is twist_mux.yaml's
+locks.software_stop.timeout (0.3s, nonzero): hasExpired() is (now() -
+stamp_) > timeout, and stamp_ starts at epoch 0, so an untouched handle
+reads as already-expired (i.e. locked) from the instant it exists -
+fail-closed by default. _tick()'s periodic republish at TICK_HZ then lands
+a real value well inside that 0.3s window during normal operation, and the
+TRANSIENT_LOCAL durability still helps any other subscriber using a
+compatible QoS. See twist_mux.yaml's own comment for the use_sim_time
+cold-start case and the launch-level stagger (navigation_launch.py) that
+covers it.
 
-  - self._locked is set True in __init__, before any publisher or
-    subscription is created - there is no window where this node exists but
-    has not yet decided it is locked.
-  - the /safety/stop_lock publisher here uses TRANSIENT_LOCAL durability,
-    but that is NOT what makes a fresh or restarted twist_mux start locked.
-    Mohamed's review (platform-sw#90) caught this: twist_mux's own
-    LockTopicHandle subscribes with rclcpp::SystemDefaultsQoS() (volatile -
-    see twist_mux/topic_handle.hpp), so it never receives this publisher's
-    retained sample at all, only a live message published after it
-    subscribes. Durability was this node's own earlier (wrong) assumption,
-    written before checking the mux's actual subscriber QoS.
-  - the real fix is in twist_mux.yaml: locks.software_stop.timeout is
-    nonzero (0.3), so twist_mux's own hasExpired() - (now() - stamp_) >
-    timeout, with stamp_ starting at epoch 0 - reads expired, i.e. locked,
-    by default the instant the mux exists, before it has received anything
-    from this node. _tick()'s periodic republish (below) then lands a real
-    True well inside that 0.3s window, same as always. See twist_mux.yaml's
-    own comment for the full reasoning, including the use_sim_time
-    cold-start edge case and the launch-level stagger
-    (navigation_launch.py) that covers it.
-  - belt-and-suspenders beyond the timeout fix alone: _tick() republishes
-    the current lock value at TICK_HZ regardless of whether it changed, so
-    even a QoS/transport hiccup that lost a sample is corrected within one
-    tick period, and the TRANSIENT_LOCAL durability on this publisher still
-    helps any OTHER subscriber in the graph that (unlike twist_mux) actually
-    uses a durability-compatible QoS.
+[Release] This node is the only publisher on /safety/stop_lock, and release
+only happens through release_lock(), called from the
+/safety/stop_lock_release service - no code path other than that one ever
+sets self._locked to False. That "only publisher" property is a graph
+invariant this node cannot enforce on its own (ROS topics have no ACL); it
+is checked externally by tools/issue35_arbitration/stop_lock_invariants.py.
 
-The lock timeout is 0.3 s. The mux's lock subscriber is volatile and depends
-on the 10 Hz republish.
+[Equal-priority nonzero stop / post-mux gate] twist_mux's own arbitration
+treats cmd_vel_stop as one candidate among others at its priority - nothing
+stops some other publisher
+putting a nonzero Twist on the same topic at the same priority, which the
+mux would then select and forward like any valid input (equal priority is
+not masked). This node does not rely on cmd_vel_stop winning arbitration at
+all: it subscribes to the mux's raw output (cmd_vel_mux) and republishes
+onto cmd_vel_gated, which navigation_launch.py feeds to velocity_smoother
+instead of cmd_vel_mux directly. _on_mux_output() ignores the received
+Twist and republishes a fresh zero whenever locked; while unlocked it
+forwards unchanged. _tick() also force-publishes a zero on cmd_vel_gated at
+TICK_HZ while locked, independent of whether the mux produced anything, so
+a mux that itself goes silent while locked still gets an
+actively-republished zero. cmd_vel_gated's value therefore depends only on
+self._locked, never on what the mux decided to select.
 
-[Release] "The mux directly accepts Bool messages on its configured lock
-topic, and false clears that lock. A ... helper ignoring false on the same
-topic[s] does not prevent the mux's direct callback from accepting it."
-Correct, and this node does not try to intercept or filter that topic - a
-second publisher racing this one would still reach the mux. The actual
-enforcement is architectural, not a code-level interception: this node is
-the ONLY thing in the graph with a publisher on /safety/stop_lock, period -
-release happens by calling release_lock() from the /safety/stop_lock_release
-service callback, which is the only code path that ever sets self._locked to
-False. That "only publisher" property is a graph invariant, not a runtime
-guarantee this node could enforce on its own (ROS topics have no ACL) - it
-is checked the same way Nik's own /cmd_vel single-publisher check works:
-tools/issue35_arbitration/stop_lock_invariants.py asserts
-`ros2 topic info /safety/stop_lock -v` and `... cmd_vel_stop -v` each show
-exactly one publisher, this node. That check belongs in the same bench run
-as the A1/A2 evidence Nik asked for, not just in CI.
+[Rearm latch] release_lock() alone must not let stale motion resume: a
+still-active, uncancelled nav/dock stream would otherwise forward on the
+very first mux message after release. cmd_vel_gated keeps forcing zero
+after release until the mux output has itself been zero at least once (see
+_on_mux_output's self._rearmed tracking); only then does pass-through
+resume. Cancelling the stale goal itself is a separate UI/BT-contract
+concern (openamrobot-ui#50); this gate holds on its own regardless.
 
-[Equal-priority nonzero stop] "the mux also permits a nonzero Twist from
-cmd_vel_stop at [255] and forwards it unchanged." True of the mux. cmd_vel_stop
-itself still can only ever carry zero from this node (unchanged - see below),
-but that alone does not close the gap: it only constrains what THIS node
-publishes there, not what the mux actually selects and forwards. twist_mux's
-own arbitration treats cmd_vel_stop as one candidate among others at its
-priority; nothing stops some OTHER publisher from putting a nonzero Twist on
-the same topic at the same priority (ROS topics have no ACL, same point as
-[Release] above), and if that happened the mux would select and forward it
-exactly like any other valid input - equal priority is not masked. Mohamed's
-review (platform-sw#90) named the concrete case: Nikolai's A2 case 3.
+[Loss of the zero publisher while locked] If this node dies, it stops
+republishing. The lock expires after 0.3s without a refresh; an expired
+lock reads as locked (fail-closed), and the volatile subscriber ignores any
+retained sample, so nothing can hold a stale unlocked state. cmd_vel_gated
+goes silent, velocity_smoother waits 0.3s then decelerates to zero, and the
+firmware watchdog is the independent backstop after about 200ms
+(docs/safety/02_limits_and_watchdog.md Section 2).
 
-The actual fix (platform-sw#90, Alex's review) does not try to win that
-argument on the mux's own arbitration ground at all - it adds a second,
-independent enforcement stage AFTER the mux, where the lock state is checked
-directly rather than inferred from which input won arbitration:
-
-  - this node subscribes to cmd_vel_mux (the mux's raw arbitrated output,
-    same topic test_twist_mux_startup_and_restart.py already probes) and
-    republishes onto cmd_vel_gated, which navigation_launch.py now feeds to
-    velocity_smoother INSTEAD of cmd_vel_mux directly;
-  - _on_mux_output() ignores the received Twist entirely and republishes a
-    fresh Twist() whenever self._locked is True - what the mux selected,
-    including a nonzero cmd_vel_stop forwarded by some other publisher, never
-    reaches cmd_vel_gated while locked;
-  - while unlocked it republishes the received Twist unchanged (pass-through)
-    - no behavior change for the normal navigation/docking/manual case;
-  - _tick() ALSO force-publishes a fresh zero on cmd_vel_gated at TICK_HZ
-    while locked, independent of whether cmd_vel_mux produced anything -
-    same belt-and-suspenders reasoning as the existing cmd_vel_stop tick
-    below, and it means a mux that itself goes silent while locked (its own
-    inputs having timed out) still gets an actively-republished zero on
-    cmd_vel_gated, not silence.
-
-This closes the gap unconditionally: cmd_vel_gated's value depends only on
-self._locked, read directly in this node, never on what the mux decided to
-select or forward. The original cmd_vel_stop mechanism (below) is kept as-is,
-not replaced - it is still a valid defense-in-depth input (mux-level masking
-of lower-priority sources via the lock, independent of this node's own
-downstream pass), and the twist_mux.yaml comment on
-topics.software_stop.timeout documents the ordering invariant between that
-timeout and the lock's own timeout that still matters for it.
-
-[Loss of the zero publisher while locked] The gate node dies, and it stops
-republishing. The lock expires after 0.3 s without a refresh. An expired
-lock reads as locked, so it fails closed. The volatile subscriber ignores
-the retained sample, so it cannot hold the lock. The cmd_vel_gated output
-goes silent. The velocity_smoother waits 0.3 s, then decelerates to zero.
-The firmware watchdog acts as the independent backstop per
-docs/safety/02_limits_and_watchdog.md §2, after about 200 ms.
-
-CI-tested: the shipped lock timeout is above 0, startup and restart ordering
-with the real mux, and the smoother lost-input distance bound.
+CI-tested: the shipped lock timeout is above 0, startup and restart
+ordering with the real mux, and the smoother's lost-input distance bound.
 Bench-unverified: the gate dying mid-run end to end, what the mux emits
-after the lock expires (silence or an explicit zero), the real stopping
-distance, and the firmware watchdog.
+after the lock expires, the real stopping distance, and the firmware
+watchdog.
 
-Alex's review (platform-sw#90) caught this node's own earlier claim here as
-false: navigation_launch.py passes respawn=use_respawn for every node in the
-file, this one included - it is not a literal respawn=True, and use_respawn's
-own DeclareLaunchArgument default is 'False'. So as actually shipped (no
-use_respawn:=True override at launch time), this node is NOT respawned on
-crash by default; the sentence above describing launch-level respawn as the
-interim mitigation was describing a configuration nobody runs unless they
-pass that argument explicitly. Until #75's dedicated lifecycle manager with
-supervised respawn for the whole reactive motion layer exists, the real
-interim mitigation is operational: either launch with use_respawn:=True, or
-rely on the firmware /cmd_vel watchdog (docs/safety/02_limits_and_watchdog.md
-§2, ~200 ms, independent of this whole ROS graph) as the actual backstop for
-this crash case.
+navigation_launch.py passes respawn=use_respawn for every node including
+this one; use_respawn's own default is False, so this node is not
+respawned on crash unless a launch explicitly passes use_respawn:=True.
+Until #75's dedicated lifecycle manager with supervised respawn exists for
+the whole reactive motion layer, the interim mitigation is operational:
+either launch with use_respawn:=True, or rely on the firmware /cmd_vel
+watchdog (~200ms, independent of this whole ROS graph) as the actual
+backstop for this crash case.
 
-[Re-engaging the lock] Not addressed anywhere in the reviewed proposal - the
-/safety/stop_lock_release service that clears it has no documented
-counterpart for re-engaging it (e.g. from the UI's "Stop (software)" button,
-openamrobot-ui#34). /safety/stop_lock_engage is added here as the symmetric
-service, same reasoning as release being a deliberate service call rather
-than a topic publish (Kunal's own proposal note) - but the UI-side wiring to
-it is unconfirmed and needs the same cross-repo contract record nik asked
-for on the release/relay interface, not assumed from this file alone.
+[Re-engaging the lock] /safety/stop_lock_engage is the symmetric service to
+release, for re-engaging the lock (e.g. from the UI's "Stop (software)"
+button, openamrobot-ui#34) - a deliberate service call, same as release,
+rather than a topic publish. UI-side wiring to it needs its own cross-repo
+contract record, not assumed from this file alone.
 
-Frozen-clock note: simulation only, with a stalled /clock the tick does not
-fire and only the engage-time zero and _on_mux_output produce output.
+[T_READY and the frozen-clock limitation] Release is refused while elapsed
+time since this node's own construction is below T_READY (1.0s) - see
+_on_release. A frozen simulation clock is a documented simulation-only
+limitation: with a stalled /clock, _tick() does not fire, and only the
+engage-time zero and _on_mux_output produce output.
 """
 from geometry_msgs.msg import Twist
 import rclpy
