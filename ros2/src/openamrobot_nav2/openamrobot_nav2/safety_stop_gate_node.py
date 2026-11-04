@@ -152,7 +152,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
-TICK_HZ = 10.0
+TICK_HZ = 20.0
 T_READY = 1.0  # twice the longest mux input timeout (0.5 s)
 
 

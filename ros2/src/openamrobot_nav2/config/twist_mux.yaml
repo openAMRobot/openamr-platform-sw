@@ -79,9 +79,12 @@ twist_mux:
         # handle that has received nothing is "expired" (locked) immediately
         # at any now() past 0.3s - fail-closed by default, not just once a
         # true sample arrives. During normal operation this is a no-op:
-        # safety_stop_gate_node republishes every tick (TICK_HZ=10, period
-        # 0.1s), well inside 0.3s, so a live mux's lock never actually
-        # expires. See navigation_launch.py for the complementary
+        # safety_stop_gate_node republishes every tick (TICK_HZ=20, period
+        # 0.05s - bumped from 10 Hz, platform-sw#90 review, Alex, minor
+        # point: at 10 Hz the 0.3s timeout was only 3 ticks of margin, so a
+        # GC pause or a loaded Jetson risked a nuisance stop), well inside
+        # 0.3s, so a live mux's lock never actually expires. See
+        # navigation_launch.py for the complementary
         # wall-clock startup stagger covering the use_sim_time cold-start
         # edge case (sim clock near zero at boot, where this epoch-zero
         # trick alone has not yet had 0.3s of simulated time to trip).

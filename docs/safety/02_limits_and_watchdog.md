@@ -43,6 +43,8 @@ velocity_smoother:
   - Engage / start-up: One zero is actively published on cmd_vel_gated and cmd_vel_stop on engage and at start-up.
   - If the gate is lost: If the gate is lost, cmd_vel_gated goes silent, then velocity_smoother stops after 0.3 s, and the firmware watchdog (§2, about 200 ms) acts as the backstop.
   - Frozen simulated clock: A frozen simulated clock is a simulation-only limitation where the tick does not fire, leaving only the engage-time zero and _on_mux_output to produce output.
+  - Docking on real hardware: the legacy `opennav_docking::SimpleChargingDock` fallback path still publishes directly, bypassing `twist_mux` and this gate entirely — Stop (software) does not cover a real-hardware docking approach driven through that path. `dock_trigger.py`'s own camera-centric sequence is unaffected (it is routed through `cmd_vel_dock` and this gate). Tracked in #117.
+
   
 ---
 
