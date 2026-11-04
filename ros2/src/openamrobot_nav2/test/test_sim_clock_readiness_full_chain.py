@@ -274,6 +274,22 @@ class SimClockChainCase(unittest.TestCase):
             publisher.get_subscription_count(), 0,
             f'nothing ever subscribed to {what}')
 
+    def _rearm_after_release(self):
+        """
+        Satisfy the rearm latch after release, before expecting forwarding.
+
+        platform-sw#90 review (Alex, BLOCKER 1): release_lock() alone must
+        not let stale motion resume - cmd_vel_gated holds zero until the mux
+        output has itself been zero at least once. Publishes directly onto
+        cmd_vel_mux (bypassing the real mux, the same synthetic injection
+        row 4a already uses) since satisfying the latch is setup here, not
+        the subject under test - that is test_safety_stop_gate_node.py's own
+        TestReleaseRequiresRearmBeforeResumingMotion.
+        """
+        self._wait_for_subscriber(self._mux_pub, 'cmd_vel_mux (rearm)')
+        self._mux_pub.publish(Twist())
+        self._run_once()
+
     def _start_mux(self):
         self._mux_proc = _start_mux_with_sim_time()
 
@@ -385,6 +401,7 @@ class TestReadyReleaseForwards(SimClockChainCase):
         self.assertFalse(self.gate._locked)
         t_release = self._clock.seconds()
 
+        self._rearm_after_release()
         self._gated.clear()
         self._run(3.0, sim_per_tick=SIM_PER_TICK_S, nav=nav, dock=dock)
         forwarded = [(t, m) for t, m in self._gated if m == self._nonzero]
@@ -438,6 +455,7 @@ class TestEngageAndRestartsWithClockRunning(SimClockChainCase):
         self._ramp_until(READY_CLOCK_S, nav=True)
         response = self._trigger(_RELEASE)
         self.assertTrue(response.success, response.message)
+        self._rearm_after_release()
         self._gated.clear()
         self._run(2.0, sim_per_tick=SIM_PER_TICK_S, nav=True)
         self.assertIn(
@@ -448,6 +466,7 @@ class TestEngageAndRestartsWithClockRunning(SimClockChainCase):
     def _release_and_expect_forwarding(self):
         response = self._trigger(_RELEASE)
         self.assertTrue(response.success, response.message)
+        self._rearm_after_release()
         self._gated.clear()
         self._run(3.0, sim_per_tick=SIM_PER_TICK_S, nav=True)
         self.assertIn(
@@ -506,6 +525,7 @@ class TestEngageUnderStalledClock(SimClockChainCase):
         self._ramp_until(READY_CLOCK_S)
         response = self._trigger(_RELEASE)
         self.assertTrue(response.success, response.message)
+        self._rearm_after_release()
         self._wait_for_subscriber(self._mux_pub, 'cmd_vel_mux')
         self._mux_pub.publish(self._nonzero)
         self._run(0.3, publish_clock=False)

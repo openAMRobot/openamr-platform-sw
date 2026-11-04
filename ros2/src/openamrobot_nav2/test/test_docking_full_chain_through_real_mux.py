@@ -181,6 +181,13 @@ class TestDockingApproachReachesGatedOutput(DockingFullChainLiveTestCase):
 
     def test_nonzero_cmd_vel_dock_forwarded_through_real_mux_while_unlocked(self):
         self.gate.release_lock()
+        # Prime the rearm latch directly (platform-sw#90 review, Alex,
+        # BLOCKER 1): release alone no longer resumes pass-through, it needs
+        # the mux output to have been zero at least once first. Not the
+        # subject of this test (routing through the real mux is) - that is
+        # test_safety_stop_gate_node.py's own
+        # TestReleaseRequiresRearmBeforeResumingMotion.
+        self.gate._rearmed = True
         self._mux_proc = _start_mux(_SHIPPED_PARAMS_PATH)
         self._publish_nonzero_dock_cmd(seconds=2.0)
         self._assert_mux_alive_and_discoverable()
@@ -200,6 +207,11 @@ class TestDockingAbortZeroesGatedOutput(DockingFullChainLiveTestCase):
 
     def test_lock_engaged_during_approach_zeroes_cmd_vel_gated(self):
         self.gate.release_lock()
+        # Prime the rearm latch directly - see the identical comment in
+        # TestDockingApproachReachesGatedOutput above. The sanity check right
+        # below needs the approach command to actually reach cmd_vel_gated
+        # while unlocked before the abort is meaningful.
+        self.gate._rearmed = True
         self._mux_proc = _start_mux(_SHIPPED_PARAMS_PATH)
         self._publish_nonzero_dock_cmd(seconds=1.0)
         self.assertTrue(

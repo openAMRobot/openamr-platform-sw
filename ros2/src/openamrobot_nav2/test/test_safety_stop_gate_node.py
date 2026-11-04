@@ -241,6 +241,14 @@ class TestPostMuxGate(NodeTestCase):
     def test_cmd_vel_mux_is_forwarded_unchanged_while_unlocked(self):
         self._release_now()
         self.assertFalse(self.node._locked)
+        # Rearm first (platform-sw#90 review, Alex, BLOCKER 1): release alone
+        # does not resume pass-through - the mux output must have been zero
+        # at least once since release. Not what this test targets (that is
+        # TestReleaseRequiresRearmBeforeResumingMotion), so prime it here
+        # rather than asserting on it.
+        self._publish_mux(Twist())
+        self._spin_both(timeout_s=0.2)
+
         nonzero = Twist()
         nonzero.linear.x = 0.3
         nonzero.angular.z = -0.2
@@ -287,17 +295,27 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
     not let release alone put nonzero motion on cmd_vel_gated.
     """
 
-    def _publish_mux(self, msg):
-        pub = self.probe.create_publisher(Twist, 'cmd_vel_mux', 10)
+    def setUp(self):
+        super().setUp()
+        # One persistent publisher per test, like a real nav/dock node would
+        # hold - not recreated per message. Creating and destroying a fresh
+        # DDS publisher for every publish (this file's usual _publish_mux
+        # helper, fine for a single publish) caused spurious phantom
+        # deliveries here once a second publish-after-release followed close
+        # behind the first: a pure DDS discovery-churn artifact of rapid
+        # publisher creation, confirmed by direct tracing, not a gate bug.
+        self._mux_pub = self.probe.create_publisher(Twist, 'cmd_vel_mux', 10)
         deadline = time.monotonic() + 1.0
-        while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+        while self._mux_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
             rclpy.spin_once(self.probe, timeout_sec=0.02)
             rclpy.spin_once(self.node, timeout_sec=0.02)
         self.assertGreater(
-            pub.get_subscription_count(), 0,
+            self._mux_pub.get_subscription_count(), 0,
             'gate node never subscribed to cmd_vel_mux')
-        pub.publish(msg)
-        pub.destroy()
+
+    def tearDown(self):
+        self._mux_pub.destroy()
+        super().tearDown()
 
     def test_release_does_not_forward_stale_nonzero_mux_output(self):
         moving = Twist()
@@ -306,7 +324,7 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
         # selects it (masked only at the gate, not at the mux), so this is
         # the realistic "what's on cmd_vel_mux the instant release happens"
         # state.
-        self._publish_mux(moving)
+        self._mux_pub.publish(moving)
         self._spin_both(timeout_s=0.1)
 
         self._release_now()
@@ -318,7 +336,7 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
         # after release - this is what a still-active, uncancelled nav
         # stream would actually do (it publishes at its own rate,
         # independent of the lock).
-        self._publish_mux(moving)
+        self._mux_pub.publish(moving)
         self._spin_both(timeout_s=0.3)
 
         self.assertTrue(received, 'expected at least the tick-driven zero')
@@ -333,7 +351,7 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
     def test_release_forwards_again_once_mux_output_is_actually_zero(self):
         moving = Twist()
         moving.linear.x = 0.2
-        self._publish_mux(moving)
+        self._mux_pub.publish(moving)
         self._spin_both(timeout_s=0.1)
 
         self._release_now()
@@ -341,12 +359,12 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
         # The source actually goes to zero (e.g. the goal was cancelled, or
         # cmd_vel_nav's own timeout expired) - a zero mux message should
         # reset the rearm latch.
-        self._publish_mux(Twist())
+        self._mux_pub.publish(Twist())
         self._spin_both(timeout_s=0.1)
 
         received = []
         self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
-        self._publish_mux(moving)
+        self._mux_pub.publish(moving)
         deadline = time.monotonic() + 1.0
         while not received and time.monotonic() < deadline:
             rclpy.spin_once(self.probe, timeout_sec=0.02)

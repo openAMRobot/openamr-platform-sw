@@ -166,6 +166,8 @@ class SafetyStopGateNode(Node):
         self._locked = True
         self._start = self.get_clock().now()
 
+        self._rearmed = True
+
         lock_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -198,6 +200,7 @@ class SafetyStopGateNode(Node):
         if not self._locked:
             return False
         self._locked = False
+        self._rearmed = False
         self._publish_lock()
         return True
 
@@ -249,11 +252,24 @@ class SafetyStopGateNode(Node):
         publisher on cmd_vel_stop (or any other input) still comes out zero
         here. While unlocked, the message is forwarded unchanged: no behavior
         change for normal navigation/docking/manual operation.
+
+        Rearm latch (platform-sw#90 review, Alex, BLOCKER 1): release_lock()
+        alone must not let stale motion resume. After release, cmd_vel_gated
+        keeps forcing zero until the mux output has itself been zero at least
+        once - only then does normal pass-through resume. Cancelling the
+        active nav/dock goal on engage is a separate UI/BT-contract concern
+        (openamrobot-ui#50); this gate holds on its own regardless.
         """
         if self._locked:
             self._gated_pub.publish(Twist())
-        else:
-            self._gated_pub.publish(msg)
+            return
+        if not self._rearmed:
+            if msg == Twist():
+                self._rearmed = True
+            else:
+                self._gated_pub.publish(Twist())
+                return
+        self._gated_pub.publish(msg)
 
     def _tick(self):
         # Republish every tick regardless of whether the value changed -
