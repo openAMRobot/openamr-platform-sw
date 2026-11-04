@@ -90,7 +90,9 @@ def quat_rotate_z(qx, qy, qz, qw):
     nz = 1.0 - 2.0 * (qx * qx + qy * qy)
     return nx, ny, nz
 
-
+class DockCancelled(Exception):
+    """Raised mid-sequence when /safety/stop_lock engages — unwinds to _run_and_release's
+    try/except so the existing cleanup (AMCL, collision_monitor, busy, status) runs."""
 class DockTrigger(Node):
     def __init__(self):
         super().__init__('dock_trigger')
@@ -540,6 +542,7 @@ class DockTrigger(Node):
         # is_docked: the robot completed a docking sequence and has not yet
         #            undocked. Gates the undock-before-navigate behaviour.
         self.busy = False
+        self._cancel_requested = False
         self.is_docked = False
 
         # ── Goal-pose gate publisher (forwards to Nav2 after undock) ────────
@@ -584,6 +587,10 @@ class DockTrigger(Node):
             callback_group=self.cb_group,
         )
         self.create_subscription(
+            Bool, '/safety/stop_lock', self._on_stop_lock, 10,
+            callback_group=self.cb_group,
+        )
+        self.create_subscription(
             PoseStamped, self.goal_pose_topic, self.on_goal_pose, 10,
             callback_group=self.cb_group,
         )
@@ -607,6 +614,14 @@ class DockTrigger(Node):
     def _heartbeat_status(self) -> None:
         if not self.busy:
             self._pub_status('docked' if self.is_docked else 'idle')
+
+    def _on_stop_lock(self, msg: Bool) -> None:
+        if msg.data and self.busy:
+            self._cancel_requested = True
+
+    def _raise_if_cancelled(self) -> None:
+        if self._cancel_requested:
+            raise DockCancelled()
 
     def _check_single_forwarder(self) -> None:
         """One-shot A6 guard: warn if more than one node publishes the Nav2 goal topic."""
@@ -738,6 +753,7 @@ class DockTrigger(Node):
             if self.busy:
                 self.get_logger().warn('Sequence already in progress — ignoring trigger')
                 return
+            self._cancel_requested = False
             self.busy = True
             t = threading.Thread(target=self._run_and_release, daemon=True)
             t.start()
@@ -927,6 +943,8 @@ class DockTrigger(Node):
         self._pause_amcl()          # freeze map->odom: no relocalisation jumps during the maneuver
         try:
             self.run_docking_sequence()
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Docking sequence error: {e}')
         finally:
@@ -947,6 +965,7 @@ class DockTrigger(Node):
             return
         if not self.is_docked:
             self.get_logger().warn('Not docked — running undock maneuver anyway')
+        self._cancel_requested = False
         self.busy = True
         t = threading.Thread(target=self._undock_and_release, daemon=True)
         t.start()
@@ -955,6 +974,8 @@ class DockTrigger(Node):
         self._pub_status('undocking')
         try:
             self.run_undock_sequence()
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Undock sequence error: {e}')
         finally:
@@ -972,6 +993,7 @@ class DockTrigger(Node):
             self.get_logger().warn('Sequence in progress — ignoring navigation goal')
             return
         self.busy = True
+        self._cancel_requested = False
         t = threading.Thread(target=self._undock_then_forward, args=(msg,), daemon=True)
         t.start()
 
@@ -986,6 +1008,8 @@ class DockTrigger(Node):
             else:
                 self.get_logger().error('   undock failed — navigation goal NOT forwarded')
                 self._pub_status('failed')
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Undock-then-navigate error: {e}')
             self._pub_status('failed')
@@ -1120,6 +1144,7 @@ class DockTrigger(Node):
         last_key = None
         deadline = time.time() + self.filter_max_collect_time
         while time.time() < deadline and n < num_samples:
+            self._raise_if_cancelled()
             p0 = self._lookup_tag_map3('charging_dock_tag_0')
             p1 = self._lookup_tag_map3('charging_dock_tag_1')
             p2 = self._lookup_tag_map3('charging_dock_tag_2')
@@ -1267,6 +1292,7 @@ class DockTrigger(Node):
 
         Stops when camera→centre-tag depth ≤ docking_distance.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         camera_forward_offset = 0.35   # camera_link is +0.35 m ahead of base_link (URDF)
@@ -1808,6 +1834,7 @@ class DockTrigger(Node):
         sensor is the prerequisite for re-introducing a per-iteration
         backward check here.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         # Measure travel in ODOM, not map: the map pose JUMPS when AMCL's laser
         # correction resumes at undock (relocalise), which would spike `travelled`
@@ -1857,6 +1884,7 @@ class DockTrigger(Node):
         If only one tag is visible we steer toward it to bring the other into
         view; if neither is visible we rotate open-loop.
         """
+        self._raise_if_cancelled()
         self.scan_rotation_speed = float(self.get_parameter('scan_rotation_speed').value)
         period = 1.0 / self.drive_rate_hz
         timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 15.0
@@ -1956,6 +1984,7 @@ class DockTrigger(Node):
         - Quaternion averaged component-wise then re-normalised (valid for
           small perturbations around a nominal orientation, which is our case)
         """
+        self._raise_if_cancelled()
         samples = []
         deadline = time.time() + self.filter_max_collect_time
         last_stamp = None
@@ -2061,6 +2090,7 @@ class DockTrigger(Node):
         Bypass nav2's Spin action (which has an eager costmap collision check)
         — publish cmd_vel directly, P-controlled.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         stable_required = 5
@@ -2109,6 +2139,7 @@ class DockTrigger(Node):
         within a loose tolerance — no precise target heading, no settle band.
         Used for the undock 180° where precision doesn't matter and robustness
         (low battery, poor localisation) does."""
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         prev = self._lookup_odom_yaw()
         if prev is None:
@@ -2140,6 +2171,7 @@ class DockTrigger(Node):
     def _drive_to_xy(self, tx: float, ty: float, max_time: float = 60.0) -> bool:
         """Drive forward toward (tx, ty) in map frame, correcting heading along
         the way. Stops when robot is within position_tolerance of (tx, ty)."""
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         pose0 = self.lookup_robot_pose()
@@ -2303,6 +2335,7 @@ class DockTrigger(Node):
         checking is disabled / no scan available — see fall-back below).
         Returns False on timeout — the caller should abort the phase.
         """
+        self._raise_if_cancelled()
         if not self.obstacle_check_enabled:
             return True
         if self.latest_scan is None:
@@ -2708,6 +2741,7 @@ class DockTrigger(Node):
         send_future = client.send_goal_async(goal)
         deadline = time.monotonic() + accept_timeout
         while not send_future.done():
+            self._raise_if_cancelled()
             if time.monotonic() > deadline:
                 self.get_logger().error('Goal acceptance timed out')
                 return False
@@ -2719,6 +2753,7 @@ class DockTrigger(Node):
         result_future = gh.get_result_async()
         deadline = time.monotonic() + result_timeout
         while not result_future.done():
+            self._raise_if_cancelled()
             if time.monotonic() > deadline:
                 self.get_logger().error(
                     f'Action result timed out after {result_timeout}s; cancelling')
