@@ -5,14 +5,21 @@ map_saver_server is a lifecycle node; it only advertises save_map once a
 lifecycle_manager brings it to the active state (confirmed against
 nav2_map_server on ROS 2 Jazzy: the service is absent while unconfigured).
 Reuses the map_saver: block already in nav2_params.yaml.
+
+use_sim_time is passed directly to map_saver_server's parameters (the
+map_saver: yaml block has no such key, and RewrittenYaml with no rewrites
+adds none, so it must be set explicitly or the saver stays on wall time
+while the rest of a sim stack runs on Gazebo time). Both nodes are wrapped
+in PushROSNamespace(namespace) so the declared namespace argument actually
+applies to the nodes and services, not just the rewritten params file.
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, GroupAction
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, PushROSNamespace
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import RewrittenYaml
 
@@ -57,26 +64,29 @@ def generate_launch_description():
             description='Whether to respawn map_saver if it crashes'),
         DeclareLaunchArgument(
             'log_level', default_value='info', description='log level'),
-        Node(
-            package='nav2_map_server',
-            executable='map_saver_server',
-            name='map_saver',
-            output='screen',
-            respawn=use_respawn,
-            respawn_delay=2.0,
-            parameters=[configured_params],
-            arguments=['--ros-args', '--log-level', log_level],
-        ),
-        Node(
-            package='nav2_lifecycle_manager',
-            executable='lifecycle_manager',
-            name='lifecycle_manager_map_saver',
-            output='screen',
-            arguments=['--ros-args', '--log-level', log_level],
-            parameters=[
-                {'autostart': autostart},
-                {'use_sim_time': use_sim_time},
-                {'node_names': lifecycle_nodes},
-            ],
-        ),
+        GroupAction([
+            PushROSNamespace(namespace),
+            Node(
+                package='nav2_map_server',
+                executable='map_saver_server',
+                name='map_saver',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params, {'use_sim_time': use_sim_time}],
+                arguments=['--ros-args', '--log-level', log_level],
+            ),
+            Node(
+                package='nav2_lifecycle_manager',
+                executable='lifecycle_manager',
+                name='lifecycle_manager_map_saver',
+                output='screen',
+                arguments=['--ros-args', '--log-level', log_level],
+                parameters=[
+                    {'autostart': autostart},
+                    {'use_sim_time': use_sim_time},
+                    {'node_names': lifecycle_nodes},
+                ],
+            ),
+        ]),
     ])
