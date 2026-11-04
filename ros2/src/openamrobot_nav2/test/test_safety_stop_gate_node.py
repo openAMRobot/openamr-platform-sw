@@ -18,7 +18,8 @@ import pytest
 rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
-from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode  # noqa: E402
+from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode, T_READY  # noqa: E402
+from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E402
 from std_msgs.msg import Bool  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
@@ -60,6 +61,22 @@ class NodeTestCase(unittest.TestCase):
             rclpy.spin_once(self.probe, timeout_sec=0.01)
         self.assertTrue(future.done(), f'{service_name} call timed out')
         return future.result()
+
+    def _release_now(self):
+        """
+        Release the lock in tests that are not about startup readiness.
+
+        Backdates the node's own recorded start time so T_READY (platform-
+        sw#90 review, Alex, BLOCKER 2) has already elapsed, then calls
+        /safety/stop_lock_release. Tests whose actual subject is something
+        else (rearm, cmd_vel_stop, the post-mux gate while unlocked) use
+        this instead of calling the release service directly, so they stay
+        decoupled from T_READY's value - see
+        TestReleaseReadinessIsRelativeToStartup for the test that targets
+        T_READY itself.
+        """
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        return self._call_trigger('/safety/stop_lock_release')
 
 
 class TestStartupLockedByDefault(NodeTestCase):
@@ -127,18 +144,18 @@ class TestStartupLockedByDefault(NodeTestCase):
 class TestReleaseAndEngage(NodeTestCase):
 
     def test_release_service_clears_the_lock(self):
-        result = self._call_trigger('/safety/stop_lock_release')
+        result = self._release_now()
         self.assertTrue(result.success)
         self.assertFalse(self.node._locked)
 
     def test_releasing_an_already_released_lock_is_reported_not_an_error(self):
-        self._call_trigger('/safety/stop_lock_release')
-        result = self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
+        result = self._release_now()
         self.assertTrue(result.success)
         self.assertIn('already', result.message)
 
     def test_engage_service_re_locks_it(self):
-        self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
         self.assertFalse(self.node._locked)
         result = self._call_trigger('/safety/stop_lock_engage')
         self.assertTrue(result.success)
@@ -170,7 +187,7 @@ class TestStopChannelIsAlwaysZero(NodeTestCase):
             self.assertEqual(msg, Twist())  # every field zero, nothing else possible
 
     def test_cmd_vel_stop_stops_publishing_once_released(self):
-        self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
         received = []
         self.probe.create_subscription(Twist, 'cmd_vel_stop', received.append, 10)
         self._spin_both(timeout_s=0.3)
@@ -222,7 +239,7 @@ class TestPostMuxGate(NodeTestCase):
                 'locked - the post-mux gate did not hold (platform-sw#90)')
 
     def test_cmd_vel_mux_is_forwarded_unchanged_while_unlocked(self):
-        self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
         self.assertFalse(self.node._locked)
         nonzero = Twist()
         nonzero.linear.x = 0.3
@@ -292,7 +309,7 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
         self._publish_mux(moving)
         self._spin_both(timeout_s=0.1)
 
-        self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
         self.assertFalse(self.node._locked)
 
         received = []
@@ -319,7 +336,7 @@ class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
         self._publish_mux(moving)
         self._spin_both(timeout_s=0.1)
 
-        self._call_trigger('/safety/stop_lock_release')
+        self._release_now()
 
         # The source actually goes to zero (e.g. the goal was cancelled, or
         # cmd_vel_nav's own timeout expired) - a zero mux message should

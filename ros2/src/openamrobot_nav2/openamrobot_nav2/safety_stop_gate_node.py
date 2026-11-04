@@ -164,6 +164,7 @@ class SafetyStopGateNode(Node):
         # [Startup] note above. Nothing downstream of this line can observe
         # this node in an unlocked state before it has decided it is locked.
         self._locked = True
+        self._start = self.get_clock().now()
 
         lock_qos = QoSProfile(
             depth=1,
@@ -214,11 +215,11 @@ class SafetyStopGateNode(Node):
     def _on_release(self, request, response):
         del request  # Trigger has no request fields
 
-        current_time = self.get_clock().now().nanoseconds / 1e9
-        if current_time < T_READY:
+        elapsed = (self.get_clock().now() - self._start).nanoseconds / 1e9
+        if elapsed < T_READY:
             response.success = False
             response.message = (
-                f'clock not ready (current time: {current_time:.2f}, '
+                f'clock not ready (current time: {elapsed:.2f}, '
                 f'required: {T_READY})')
             return response
 
