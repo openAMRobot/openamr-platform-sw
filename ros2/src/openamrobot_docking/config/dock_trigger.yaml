@@ -187,7 +187,13 @@
     # that bypassed velocity_smoother and collision_monitor entirely. Nav2's
     # own controller is idle by Phase 4 (its NavigateToPose goal completed in
     # Phase 1), so docking and navigation aren't fighting over cmd_vel_dock.
-    cmd_vel_topic: /cmd_vel_dock
+    #
+    # Relative, matching twist_mux.yaml's docking.topic (platform-sw#90
+    # review, Alex, minor point): an absolute /cmd_vel_dock here against a
+    # relative cmd_vel_dock there resolve to the same topic only while
+    # nothing is namespaced - a namespaced launch would silently split them
+    # into two different topics.
+    cmd_vel_topic: cmd_vel_dock
 
     # ─── Tag detection topic ─────────────────────────────────────────────────
     detection_topic: /detected_dock_pose

@@ -19,6 +19,14 @@ lock check the same way a second publisher on cmd_vel_stop would defeat the
 mux-level input, which is exactly why it is checked here too, not just
 cmd_vel_stop.
 
+Also checks /safety/stop_lock_release and /safety/stop_lock_engage each have
+exactly one server (platform-sw#90 review, Alex, minor point): a second node
+offering either service would let something other than safety_stop_gate_node
+answer a release/engage call, which the topic-publisher check above cannot
+catch (services, not topics). This does not by itself say who is ALLOWED to
+CALL release - that is a UI-contract question (openamrobot-ui#50), not a
+graph-shape one this tool can check.
+
 Run against a live graph (sim or bench), after bringing up navigation_launch
 (which brings up safety_stop_gate_node). Exits nonzero and prints which
 topic/extra publisher broke the invariant, so it's usable as a bench gate,
@@ -37,6 +45,7 @@ import rclpy
 from rclpy.node import Node
 
 TOPICS = ['/safety/stop_lock', 'cmd_vel_stop', 'cmd_vel_gated']
+SERVICES = ['/safety/stop_lock_release', '/safety/stop_lock_engage']
 
 
 def check(node: Node, expect_node: str):
@@ -46,6 +55,10 @@ def check(node: Node, expect_node: str):
         names = sorted(i.node_name for i in infos)
         if names != [expect_node]:
             problems.append(f'{topic}: publishers = {names!r}, expected [{expect_node!r}]')
+    for service in SERVICES:
+        count = node.count_services(service)
+        if count != 1:
+            problems.append(f'{service}: {count} server(s), expected exactly 1')
     return problems
 
 
@@ -77,7 +90,8 @@ def main():
             print(f'  - {p}')
         sys.exit(1)
     print(f'OK: {", ".join(TOPICS)} each have exactly one publisher '
-          f'({args.expect_node!r})')
+          f'({args.expect_node!r}); {", ".join(SERVICES)} each have '
+          f'exactly one server')
 
 
 if __name__ == '__main__':

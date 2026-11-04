@@ -252,6 +252,128 @@ class TestPostMuxGate(NodeTestCase):
             self.assertEqual(msg, Twist())
 
 
+class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
+    """
+    cmd_vel_gated after release (platform-sw#90 review, Alex, BLOCKER 1).
+
+    release_lock() only clears self._locked and republishes the Bool - it
+    does not touch _on_mux_output at all. The moment the lock clears, the
+    very next cmd_vel_mux message (whatever a still-active nav/dock stream
+    happens to be publishing) is forwarded unchanged, so pressing Resume can
+    resume the OLD goal's motion immediately, before the operator or
+    anything else cancelled it.
+
+    Expected fix: cmd_vel_gated keeps publishing zero after release until a
+    mux message is observed that is itself (0, 0) - only then does pass-
+    through resume. Cancelling the stale nav/dock goal is a separate,
+    UI/BT-contract concern (openamrobot-ui#50); this node's own job is to
+    not let release alone put nonzero motion on cmd_vel_gated.
+    """
+
+    def _publish_mux(self, msg):
+        pub = self.probe.create_publisher(Twist, 'cmd_vel_mux', 10)
+        deadline = time.monotonic() + 1.0
+        while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertGreater(
+            pub.get_subscription_count(), 0,
+            'gate node never subscribed to cmd_vel_mux')
+        pub.publish(msg)
+        pub.destroy()
+
+    def test_release_does_not_forward_stale_nonzero_mux_output(self):
+        moving = Twist()
+        moving.linear.x = 0.2
+        # An active nav stream keeps publishing while locked - the mux still
+        # selects it (masked only at the gate, not at the mux), so this is
+        # the realistic "what's on cmd_vel_mux the instant release happens"
+        # state.
+        self._publish_mux(moving)
+        self._spin_both(timeout_s=0.1)
+
+        self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(self.node._locked)
+
+        received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
+        # The same stale nonzero value arrives again on cmd_vel_mux right
+        # after release - this is what a still-active, uncancelled nav
+        # stream would actually do (it publishes at its own rate,
+        # independent of the lock).
+        self._publish_mux(moving)
+        self._spin_both(timeout_s=0.3)
+
+        self.assertTrue(received, 'expected at least the tick-driven zero')
+        for msg in received:
+            self.assertEqual(
+                msg, Twist(),
+                'nonzero motion reached cmd_vel_gated on the first mux '
+                'message after release, before any (0,0) was observed - '
+                "Resume must not by itself resume a stale goal's motion "
+                '(platform-sw#90 review, Alex, BLOCKER 1)')
+
+    def test_release_forwards_again_once_mux_output_is_actually_zero(self):
+        moving = Twist()
+        moving.linear.x = 0.2
+        self._publish_mux(moving)
+        self._spin_both(timeout_s=0.1)
+
+        self._call_trigger('/safety/stop_lock_release')
+
+        # The source actually goes to zero (e.g. the goal was cancelled, or
+        # cmd_vel_nav's own timeout expired) - a zero mux message should
+        # reset the rearm latch.
+        self._publish_mux(Twist())
+        self._spin_both(timeout_s=0.1)
+
+        received = []
+        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
+        self._publish_mux(moving)
+        deadline = time.monotonic() + 1.0
+        while not received and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertTrue(received, 'cmd_vel_mux message never reached cmd_vel_gated')
+        self.assertEqual(
+            received[-1], moving,
+            'once the mux output has actually been zero since release, a '
+            'fresh command must forward normally')
+
+
+class TestReleaseReadinessIsRelativeToStartup(NodeTestCase):
+    """
+    T_READY under wall clock (platform-sw#90 review, Alex, BLOCKER 2).
+
+    _on_release compares self.get_clock().now() directly against T_READY,
+    an ABSOLUTE clock reading. Under wall-clock (the real robot's default),
+    now() is seconds since the Unix epoch - always far past T_READY=1.0s -
+    so the check is satisfied unconditionally from the first instant the
+    node exists and protects nothing there. It only ever does anything
+    under sim time pinned near zero.
+
+    Expected fix: record the start time in __init__ and compare ELAPSED
+    time since then, not an absolute reading - so a release called within
+    the first T_READY seconds of the node's own life is refused regardless
+    of which clock is running.
+    """
+
+    def test_release_refused_immediately_after_construction_under_wall_clock(self):
+        # No sim time involved - this is wall-clock, which is what real
+        # hardware runs by default. The call happens within milliseconds of
+        # __init__ in setUp(), well inside T_READY=1.0s of the node's own
+        # uptime.
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            "release succeeded within T_READY of the gate node's own "
+            'startup under wall-clock time - the readiness check is '
+            'comparing against an absolute clock reading instead of '
+            'elapsed time since construction, so it protects nothing on '
+            'real hardware (platform-sw#90 review, Alex, BLOCKER 2)')
+        self.assertTrue(self.node._locked)
+
+
 class SimClockPostMuxGate(unittest.TestCase):
     """
     cmd_vel_gated under a simulated clock that has never ticked once

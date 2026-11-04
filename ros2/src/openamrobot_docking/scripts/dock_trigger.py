@@ -304,7 +304,14 @@ class DockTrigger(Node):
         # stop zone and publishes zero on /cmd_vel, fighting dock_trigger's forward
         # command (both publish /cmd_vel) → the robot stalls ~15 cm out. Kept ON for
         # normal navigation, OFF only during the maneuver.
-        self.declare_parameter('pause_collision_monitor_during_dock', True)
+        #
+        # Default False (platform-sw#90 review, Alex, BLOCKER 3): since #35/#90,
+        # docking's command path goes through the same arbitration/stop chain as
+        # everything else and collision_monitor is meant to stay the only final
+        # publisher. A launch that forgets to load dock_trigger.yaml must not
+        # silently disable it. True is a legacy opt-in for a deployment still on
+        # the pre-#35 direct-/cmd_vel path.
+        self.declare_parameter('pause_collision_monitor_during_dock', False)
         self.declare_parameter('collision_monitor_node', '/collision_monitor')
         self.declare_parameter('amcl_pause_min_d', 1000.0)       # m  — huge = AMCL never laser-updates
         self.declare_parameter('amcl_pause_min_a', 1000.0)       # rad
