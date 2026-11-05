@@ -396,6 +396,32 @@ class TestRollUp(unittest.TestCase):
         self.assertNotIn(NONE, result.active_reasons)
         self.assertNotIn(NONE, result.not_ready_reasons)
 
+    def test_recovery_limit_reached_blocks_readiness(self):
+        # #35/N4: retry-budget exhaustion must surface as a non-nominal state,
+        # not stay inert telemetry (this is the exact gap the escalation fix closes).
+        result = roll_up(**good(
+            other_reasons=[NavigationStatus.RECOVERY_LIMIT_REACHED],
+            recovery_reason=NavigationStatus.RECOVERY_LIMIT_REACHED))
+        self.assertEqual(result.readiness, NOT_READY)
+        self.assertEqual(result.health, NavigationStatus.HEALTH_DEGRADED)
+        self.assertIn(NavigationStatus.RECOVERY_LIMIT_REACHED, result.not_ready_reasons)
+
+    def test_recovery_in_progress_does_not_block_readiness(self):
+        # a plain in-progress recovery is normal operation, not a failure - only
+        # hitting the attempt limit should block (the distinction this fix hinges on)
+        result = roll_up(**good(
+            other_reasons=[NavigationStatus.RECOVERY_IN_PROGRESS],
+            recovery_reason=NavigationStatus.RECOVERY_IN_PROGRESS))
+        self.assertEqual(result.readiness, READY)
+        self.assertNotIn(NavigationStatus.RECOVERY_IN_PROGRESS, result.not_ready_reasons)
+        self.assertIn(NavigationStatus.RECOVERY_IN_PROGRESS, result.active_reasons)
+
+    def test_recovery_reason_defaults_to_none_for_existing_callers(self):
+        # callers that don't yet pass recovery_reason (none existed before this
+        # fix) must keep behaving exactly as before - no silent new blocking
+        result = roll_up(**good())
+        self.assertEqual(result.readiness, READY)
+
 
 class TestPublishGate(unittest.TestCase):
 

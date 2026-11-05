@@ -448,6 +448,20 @@ class NavigationStatusNode(Node):
         new_goal, to_fetch = self._task.on_status(msg.status_list)
         if new_goal:
             self._recovery.on_new_goal()
+        elif to_fetch is not None and self._task.state in (
+                NavTaskStatus.STATE_SUCCEEDED, NavTaskStatus.STATE_CANCELED):
+            # Mohamed Sayed's platform-sw#91 review: RecoveryTracker only
+            # reset on a brand-new goal id, so a successful (or cancelled)
+            # completion of the SAME goal left RECOVERY_LIMIT_REACHED set
+            # until the next goal started - blocking readiness after
+            # navigation had already recovered. to_fetch is not None is
+            # TaskTracker's own "this status just became terminal, and
+            # hasn't been handled yet" signal (it already deduplicates
+            # repeat terminal messages via _result_requested_for), so this
+            # only fires once per goal. ABORTED is deliberately excluded:
+            # that is the one terminal outcome recovery escalation is meant
+            # to hold on, until a new goal or an operator addresses it.
+            self._recovery.on_new_goal()
         if to_fetch is not None:
             self._result_fetcher.request(to_fetch)
 
@@ -610,7 +624,8 @@ class NavigationStatusNode(Node):
                 [task.reason, recovery.reason, msg.protection.collision_monitor_reason]
                 + [m.reason for m in msg.protection.motion_sources]
                 + [msg.protection.rear_coverage_reason]),
-            base_reasons=self._base_reasons())
+            base_reasons=self._base_reasons(),
+            recovery_reason=recovery.reason)
         msg.health = result.health
         msg.navigation_readiness = result.readiness
         msg.not_ready_reasons = result.not_ready_reasons
