@@ -61,11 +61,20 @@ bt_navigator:
     default_server_timeout: 20
     wait_for_service_timeout: 1000
     action_server_result_timeout: 900.0
+    # #35/N4: bounded costmap clearing + wait-before-replan, replacing Nav2's stock
+    # ClearEntireCostmap-as-first-response tree (plan section 27). See the file's own
+    # header comment for the full rationale. navigate_through_poses runs the same
+    # policy too, via default_nav_through_poses_bt_xml below (#92's fast-follow).
+    default_nav_to_pose_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_to_pose.xml"
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     navigate_through_poses:
       plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    # #35/N4 fast-follow (see PR #91): same bounded-clearing + wait-before-replan
+    # policy as navigate_to_pose, applied to the through-poses tree too. See that
+    # file's own header comment for the full rationale.
+    default_nav_through_poses_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_through_poses.xml"
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code
