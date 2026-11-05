@@ -13,6 +13,15 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Fixed — Robot model: legacy camera_link box no longer drawn on the 2.0 base (1 Nov 2026)
+
+- The legacy Gate A IMX708 `camera_link` placeholder box (0.04 x 0.08 x 0.04 m at xyz
+  0.35 0 0.20 from `base_link`) stood above the 2.0 base top cover (top 0.318 m from the
+  floor) in RViz and the combined model. Its visual and collision are removed; the link keeps
+  its inertial, and `camera_joint`, `camera_optical_frame`, `camera_optical_joint` and the
+  Gazebo `/rgb_image` sensor are unchanged. New description test: no base visual or collision
+  above z 0.296 m except the lift interface (29 description tests).
+
 ### Changed — Robot model: 2.0 sensor frames and simplified collision (#49)
 
 - Sensor links and joints moved to `openamrobot_description/urdf/sensors.xacro`, included by
