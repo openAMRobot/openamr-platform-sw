@@ -1,8 +1,8 @@
 <!--
   OpenAMRobot #35/N4 recovery policy. Starting point: the exact stock tree shipped as
   nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml in
-  ROS 2 Jazzy (every port, attribute and node left byte-identical except the two
-  changes below) - this is a surgical diff of that file, not a rewrite from scratch.
+  ROS 2 Jazzy (every port, attribute and node left byte-identical except the changes
+  below) - this is a surgical diff of that file, not a rewrite from scratch.
 
   Changes from stock, both driven by the plan's own rule (P-02 execution plan, section
   27, "Navigation state and recovery policy"): "Costmap clearing, backup or spin are
@@ -20,15 +20,33 @@
      - Local costmap bound (reset_distance 1.5 m): matched to the local costmap's own
        rolling-window scale, not reused from the global value.
      Both values are a starting point for real-robot tuning, not a measured constant -
-     see the PR's Not-verified section.
+     see the PR's Not-verified section. A planner failure caused by a stale obstacle
+     more than 1.5 m from the robot is not cleared by this bounded radius and ends in
+     escalation instead (same limitation Mohamed's review raised on #92, which reuses
+     these same values).
   2. An explicit Wait inserted immediately before each inline (per-action) bounded
      clear - "wait for transient obstacle" as its own step, not folded silently into
      the clear itself. 2.0 s: long enough for a person/forklift to clear a doorway,
-     short enough not to blow the outer RecoveryNode's retry budget (6 retries,
-     matching navigation_status_profile.yaml's recovery_attempt_limit - see that
-     file's own comment on this parallel value). Stock has no equivalent wait at this
-     level at all; Wait only exists in the outer round-robin, after both inline
-     retries are already exhausted.
+     short enough not to blow the outer RecoveryNode's retry budget. That budget
+     (number_of_retries="6" on NavigateRecovery, above) is Nav2's own outer-retry
+     count and is a separate thing from RecoveryTracker's attempt_limit
+     (navigation_status_profile.yaml's recovery_attempt_limit, status_trackers.py) -
+     Nav2 counts outer retries of the whole NavigateRecovery node, RecoveryTracker
+     counts BT node RUNNING events one level down. They happen to both read "6"
+     today, but nothing keeps them in sync (Mohamed's review): each inline Wait is
+     explicitly named below so it is never mistaken for a RecoveryTracker-counted
+     recovery action in the first place (see point 3). Stock has no equivalent wait
+     at this level at all; Wait only exists in the outer round-robin, after both
+     inline retries are already exhausted.
+  3. Both inline Waits above are named (WaitBeforeClear-GlobalContext,
+     WaitBeforeClear-LocalContext), not left as bare <Wait>. RecoveryTracker matches
+     the bare node name "Wait" to count a recovery attempt (same name the outer
+     round-robin's genuine recovery Wait(5.0) uses, unchanged below); an unnamed
+     inline Wait would be indistinguishable from that and would count every
+     ordinary inline clear toward the shared attempt_limit, not just a real
+     escalated recovery - reaching RECOVERY_LIMIT_REACHED around Nav2's 2nd outer
+     retry while Nav2 itself is still legitimately recovering (Mohamed's review).
+     navigate_through_poses.xml (#92) carries the same naming already.
 
   Left unchanged from stock, out of scope for this PR: Spin/Wait(5.0)/BackUp in the
   outer round-robin (zone-gating them to site policy needs N2/#73's zone data, not yet
@@ -47,7 +65,7 @@
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
             <Sequence>
               <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-              <Wait wait_duration="2.0"/>
+              <Wait name="WaitBeforeClear-GlobalContext" wait_duration="2.0"/>
               <ClearCostmapAroundRobot name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
             </Sequence>
           </RecoveryNode>
@@ -56,7 +74,7 @@
           <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
           <Sequence>
             <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
-            <Wait wait_duration="2.0"/>
+            <Wait name="WaitBeforeClear-LocalContext" wait_duration="2.0"/>
             <ClearCostmapAroundRobot name="ClearLocalCostmap-Context" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
           </Sequence>
         </RecoveryNode>
