@@ -86,12 +86,14 @@ docker pull --platform linux/amd64 "$IMAGE" || {
 
 echo '[4/5] Building and testing ROS 2 inside the pinned image'
 RUNNER=$(cat <<'INSIDE'
-set -Eeuo pipefail
+# ROS 2 setup scripts reference optional variables; source with nounset disabled.
+set -Eeo pipefail
 source /opt/ros/jazzy/setup.bash
 test ! -e build && test ! -e install && test ! -e log
 colcon list
 colcon build --event-handlers console_direct+ | tee ../colcon-build.log
 source install/setup.bash
+set -u
 colcon test --event-handlers console_direct+ | tee ../colcon-test.log
 colcon test-result --verbose | tee test-result.txt
 python3 - <<'PY'
