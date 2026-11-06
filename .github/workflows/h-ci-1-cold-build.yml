@@ -6,6 +6,7 @@ on:
       - '.github/workflows/h-ci-1-cold-build.yml'
       - '.devcontainer/**'
       - 'ros2/**'
+      - 'tools/verify-hci1-cold-local.sh'
 
 permissions:
   contents: read
@@ -29,6 +30,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      - name: Syntax-check local cold-workspace verifier
+        shell: bash
+        run: bash -n tools/verify-hci1-cold-local.sh
 
       # Match the immutable interfaces dependency from nav-status-tests.yml.
       - name: Check out pinned message interfaces
