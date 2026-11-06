@@ -714,6 +714,67 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
         self.assertNotEqual(out.map_version, hash_a)
 
+    @pytest.mark.xfail(
+        reason='platform-sw#73: first-message/restart map identity is unresolved - '
+               'no available signal distinguishes the right map observed for the '
+               'first time from a wrong, same-geometry map already active. '
+               'Fix direction (block cold start vs watch map_server lifecycle) '
+               'is pending Mohamed/Alex\'s decision.',
+        strict=True)
+    def test_b_first_on_a_restart_falsely_reports_a_as_matched(self):
+        # Mohamed Sayed's platform-sw#73 review, fifth pass (inline comment on
+        # _on_map): the test above only covers A observed FIRST, then a later
+        # change to B - the content fingerprint then has a real baseline to
+        # compare against. This covers the other ordering his review flagged:
+        # Nav2 already has same-geometry map B active (e.g. this node
+        # restarted while map_server, launched earlier, was never restarted
+        # itself) and B is the very FIRST live message this node's own
+        # lifetime ever sees. map_yaml_path still names A on disk throughout.
+        #
+        # _on_map has no way to tell "B" and "A" apart by content (no pixel
+        # decoding, and the live OccupancyGrid never carries a file path) -
+        # it only has geometry agreement and content-stability-since-this-
+        # node-started. Both of those are satisfied by B alone, with no
+        # prior observation to compare against, so trusted becomes True on
+        # message 1 and _compute_map_hash() then rereads disk (A) and
+        # reports it MATCHED - for a map this node never actually confirmed.
+        #
+        # This test is RED on purpose: it demonstrates the gap his review
+        # still calls blocking ("Establish a verified association... before
+        # accepting the initial fingerprint"), not yet fixed. It must turn
+        # green only once that association is actually established, not by
+        # relaxing this assertion.
+        self.node._map_yaml_path = self.map_a_path
+        self.node._map_hash = None
+        self.node._live_content_fp = None
+        self.node._map_reload_pending = False
+        hash_a = self.node._compute_map_hash()
+        self.assertIsNotNone(hash_a)
+        # a real computed config_version, same reasoning as the test above:
+        # an empty/wrong one would mismatch regardless of the map, which
+        # would make the MATCHED assertion below meaningless either way.
+        config_version = config_identity_hash(
+            site_id='s', map_id='m', config_id='c',
+            required_zones=frozenset(), optional_zones=frozenset())
+        self.node._site_config = {
+            'site_id': 's', 'map_id': 'm', 'map_version': hash_a,
+            'config_id': 'c', 'config_version': config_version}
+        self.node._required_zones = frozenset()
+        self.node._optional_zones = frozenset()
+        self.node._zones_schema_valid = True
+
+        # B, same geometry as A, different content - and the FIRST message
+        # this node's own lifetime has ever seen. No prior baseline exists.
+        self.node._on_map(_occupancy_grid(
+            resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=(99, 99, 99, 99)))
+        out = self.node._site_config_status(self.node._now_s())
+        self.assertNotEqual(
+            out.state, SiteConfigStatus.STATE_MATCHED,
+            'B was the first live message this node ever saw, and its '
+            'content was never actually confirmed against the declared '
+            'file - reporting MATCHED here is exactly the unverified '
+            'first-message association platform-sw#73 review flags.')
+
 
 class TestSiteConfigOutputSanitization(NodeTestCase):
     """
