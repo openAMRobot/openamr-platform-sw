@@ -1,0 +1,72 @@
+name: H-CI-1 Devcontainer Startup Smoke
+
+on:
+  pull_request:
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/h-ci-1-devcontainer-smoke.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  devcontainer-startup:
+    name: Devcontainer CLI startup and ROS smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to private GHCR image
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pinned Dev Container CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global @devcontainers/cli@0.89.0
+          devcontainer --version
+
+      # Tests real devcontainer.json (image, mount, postCreateCommand) via the
+      # official CLI; not equivalent to a graphical VS Code extension run.
+      - name: Start devcontainer and smoke ROS environment
+        shell: bash
+        run: |
+          set -eo pipefail
+          started=$(date +%s)
+          devcontainer up --workspace-folder "$GITHUB_WORKSPACE" --log-level info \
+            2>&1 | tee devcontainer-up.log
+          devcontainer exec --workspace-folder "$GITHUB_WORKSPACE" \
+            bash -lc 'source /opt/ros/jazzy/setup.bash && ros2 --help >/dev/null && command -v colcon' \
+            2>&1 | tee devcontainer-exec.log
+          ended=$(date +%s)
+          duration=$((ended - started))
+          echo "Dev Container CLI startup + ROS smoke: ${duration}s" | tee devcontainer-duration.txt
+          {
+            echo '### Dev Container CLI startup smoke'
+            echo "Source PR head: ${{ github.event.pull_request.head.sha }}"
+            echo "Tested workflow revision: ${{ github.sha }}"
+            echo "Startup + ROS smoke: ${duration}s (excludes npm setup and runner provisioning)"
+            echo 'Result: Dev Container CLI up/exec succeeded'
+            echo 'Graphical VS Code extension startup remains a separate acceptance check.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload startup evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: h-ci-1-devcontainer-startup
+          path: |
+            devcontainer-up.log
+            devcontainer-exec.log
+            devcontainer-duration.txt
+          if-no-files-found: warn
