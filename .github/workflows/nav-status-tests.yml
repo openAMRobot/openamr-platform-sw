@@ -85,3 +85,19 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py \
             ros2/src/openamrobot_nav2/test/test_sim_clock_readiness_full_chain.py \
             ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py
+
+      # tools/issue35_arbitration/stop_lock_invariants.py (platform-sw#90, Alex's
+      # review): the graph-shape invariant the Python tests above cannot check
+      # from inside a single node (no publisher ACL in ROS) - that
+      # safety_stop_gate_node is the ONLY publisher on its lock/stop-channel
+      # topics and the only server on its release/engage services. Only needs
+      # the gate itself running, not twist_mux or a sim.
+      - name: Run stop_lock_invariants.py against a live gate
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          ros2 run openamrobot_nav2 safety_stop_gate_node &
+          gate_pid=$!
+          trap 'kill -9 "$gate_pid" 2>/dev/null' EXIT
+          python3 tools/issue35_arbitration/stop_lock_invariants.py
