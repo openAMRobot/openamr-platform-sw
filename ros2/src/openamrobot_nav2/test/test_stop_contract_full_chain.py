@@ -393,6 +393,35 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         self.assertFalse(response.success)
         self.assertIn('dock_robot', response.message)
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            'known gap, contract decision pending: service_is_ready() does not prove a '
+            "cancel was accepted, so a rejected cancel against an already-'clear' status "
+            'is invisible - tracking: #122'))
+    def test_release_refused_when_the_cancel_is_rejected_and_status_was_already_clear(self):
+        # Mohamed's 7 Nov 05:23 counterexample to the P1 fix: if the LAST
+        # content we ever saw for an action was already empty (no goal ever
+        # reported active - e.g. a goal accepted a moment ago has not yet
+        # published its first status), a rejected cancel is invisible to a
+        # purely content-based check. service_is_ready() alone does not
+        # prove the cancel took.
+        self._cancel_responses['navigate_to_pose'] = 'reject'
+        self._set_goal_status('navigate_to_pose', [])  # already "clear" before engage
+        self._spin_for(0.1)
+        self._engage()
+        self._spin_for(0.3)
+        self.assertTrue(
+            self._cancel_calls['navigate_to_pose'], 'cancel_goal was never called')
+
+        response = self._try_release()
+        self.assertFalse(
+            response.success,
+            "release succeeded despite navigate_to_pose's cancel_goal having been "
+            'rejected - content-plus-liveness alone does not prove the cancel took '
+            "(platform-sw#90, Mohamed's review, 7 Nov 05:23)")
+        self.assertIn('navigate_to_pose', response.message)
+
     def test_release_refused_when_the_action_server_is_gone(self):
         # The last content we ever got from undock_robot was setUp's
         # all-clear sample - by content alone that would satisfy condition
