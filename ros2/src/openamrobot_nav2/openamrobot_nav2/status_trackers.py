@@ -58,15 +58,43 @@ NATIVE_CODE_TO_REASON = {
 # fixed name, so all four are listed explicitly rather than matched by a
 # "Clear" prefix, which would also match an unrelated node that happens to
 # share it.
-_RECOVERY_NODES = {
+#
+# platform-sw#91, Mohamed's review (Option A, for the DISPLAYED attempt
+# count only - see RecoveryTracker.reason for readiness, which no longer
+# uses this count at all): the real Jazzy BT (navigate_to_pose_w_replanning_
+# and_recovery.xml) runs the -Subtree pair as ONE RoundRobin pick
+# ("ClearingActions": ClearLocalCostmap-Subtree then ClearGlobalCostmap-
+# Subtree, in that fixed order) - that is one outer recovery cycle, not two,
+# so only the first of the pair increments the count; the second is a
+# continuation. The -Context pair runs INLINE inside ComputePathToPose's and
+# FollowPath's own one-retry RecoveryNode, not as an outer cycle at all, so
+# neither increments the count - they still update which action is shown
+# running, via _INLINE_ACTIONS below.
+_CYCLE_LEADER_ACTIONS = {
     'Spin': RecoveryStatus.ACTION_SPIN,
     'BackUp': RecoveryStatus.ACTION_BACKUP,
     'Wait': RecoveryStatus.ACTION_WAIT,
-    'ClearLocalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
-    'ClearGlobalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
     'ClearLocalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+}
+_CYCLE_CONTINUATION_ACTIONS = {
     'ClearGlobalCostmap-Subtree': RecoveryStatus.ACTION_CLEAR_COSTMAP,
 }
+_INLINE_ACTIONS = {
+    'ClearLocalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+    'ClearGlobalCostmap-Context': RecoveryStatus.ACTION_CLEAR_COSTMAP,
+}
+_ALL_RECOVERY_ACTIONS = {**_CYCLE_LEADER_ACTIONS, **_CYCLE_CONTINUATION_ACTIONS, **_INLINE_ACTIONS}
+
+# Named nodes the exhaustion signal watches, from the real Jazzy BT's outer
+# RecoveryNode (platform-sw#91, Mohamed's review - see Jazzy's
+# recovery_node.cpp): the primary (PipelineSequence "NavigateWithReplanning")
+# and the recovery branch (ReactiveFallback "RecoveryFallback") are the only
+# two children of RecoveryNode "NavigateRecovery", and are both explicitly
+# named in the XML, so node_name alone identifies them unambiguously -
+# no need to resolve the UID of the unnamed wrapper Sequence between them.
+_PRIMARY_NODE = 'NavigateWithReplanning'
+_RECOVERY_BRANCH_NODE = 'RecoveryFallback'
+_OUTER_RECOVERY_NODE = 'NavigateRecovery'
 
 
 class SensorTracker:
@@ -267,37 +295,83 @@ class ResultFetcher:
 
 class RecoveryTracker:
     """
-    Count recovery actions for the current goal.
+    Track recovery actions and retry exhaustion for the current goal.
 
-    The count starts over when a new goal starts, and the limit comes from
-    configuration, not from Nav2.
+    The displayed attempt count and actual retry exhaustion are two
+    separate things (platform-sw#91, Mohamed's review): the count is a
+    diagnostic of which leaf action last ran and how many outer recovery
+    cycles have happened, for display only; exhaustion - the only thing
+    that feeds readiness via `reason` - comes from the outer RecoveryNode's
+    own FAILURE transition and which of its two children failed right
+    before it, not from comparing the count to a limit. Both reset when a
+    new goal starts.
     """
 
     def __init__(self, attempt_limit):
         self.attempt_limit = max(1, min(int(attempt_limit), 255))
         self.action = RecoveryStatus.ACTION_NONE
         self.attempt = 0
+        self._exhausted = False
+        self._last_branch_failure = None  # 'primary' | 'recovery' | None
+        self._goal_start_s = None
 
-    def on_new_goal(self):
-        """Start the count over."""
+    def on_new_goal(self, now_s=None):
+        """Start over for a new goal. now_s, if given, is this goal's own start time."""
         self.action = RecoveryStatus.ACTION_NONE
         self.attempt = 0
+        self._exhausted = False
+        self._last_branch_failure = None
+        self._goal_start_s = now_s
 
-    def on_bt_event(self, node_name, status):
-        """Count a recovery action when its behavior tree node starts running."""
-        action = _RECOVERY_NODES.get(node_name)
-        if action is None:
+    def on_bt_event(self, node_name, status, event_time_s=None):
+        """
+        Update from one behavior-tree node's status transition.
+
+        event_time_s, if given together with a goal start time from
+        on_new_goal(), discards an event timestamped before this goal
+        started - the node UID a real event also carries identifies a BT
+        tree position, not a goal, so a stale event from the previous
+        goal's own execution must not be allowed to affect this one
+        (platform-sw#91, Mohamed's review: "isolate events at goal
+        boundaries").
+        """
+        if (self._goal_start_s is not None and event_time_s is not None
+                and event_time_s < self._goal_start_s):
             return
-        if status == 'RUNNING':
-            self.action = action
-            self.attempt += 1
-        elif status in ('SUCCESS', 'FAILURE'):
-            self.action = RecoveryStatus.ACTION_NONE
+
+        action = _ALL_RECOVERY_ACTIONS.get(node_name)
+        if action is not None:
+            if status == 'RUNNING':
+                self.action = action
+                if node_name in _CYCLE_LEADER_ACTIONS:
+                    self.attempt += 1
+            elif status in ('SUCCESS', 'FAILURE'):
+                self.action = RecoveryStatus.ACTION_NONE
+            return
+
+        if status == 'FAILURE':
+            if node_name == _OUTER_RECOVERY_NODE:
+                # The recovery branch itself failing is a different, lesser
+                # outcome and does not raise RECOVERY_LIMIT_REACHED (Jazzy's
+                # recovery_node.cpp: this makes RecoveryNode return FAILURE
+                # immediately without consuming retry budget). Anything
+                # else - the primary failing with the budget used up, or an
+                # unrecognised path through the BT's own unnamed diagnostic
+                # Fallback - defaults to exhaustion, the fail-closed choice
+                # given this ambiguity is not yet resolved against a real
+                # capture (tracking: #91's own open follow-up).
+                self._exhausted = self._last_branch_failure != 'recovery'
+            elif node_name == _PRIMARY_NODE:
+                self._last_branch_failure = 'primary'
+            elif node_name == _RECOVERY_BRANCH_NODE:
+                self._last_branch_failure = 'recovery'
+        elif status == 'SUCCESS' and node_name == _OUTER_RECOVERY_NODE:
+            self._exhausted = False
 
     @property
     def reason(self):
         """Reason code for the current recovery state."""
-        if self.attempt >= self.attempt_limit:
+        if self._exhausted:
             return NavigationStatus.RECOVERY_LIMIT_REACHED
         if self.action != RecoveryStatus.ACTION_NONE:
             return NavigationStatus.RECOVERY_IN_PROGRESS
