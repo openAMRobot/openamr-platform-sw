@@ -17,15 +17,17 @@ velocity_smoother:
   scale_velocities: False
   max_velocity: [0.20, 0.0, 0.5]     # [vx, vy, vθ]
   min_velocity: [-0.20, 0.0, -0.5]
-  max_accel:   [0.5, 0.0, 0.5]
-  max_decel:   [-2.5, 0.0, -2.0]
+  max_accel:   [1.0, 0.0, 3.0]
+  max_decel:   [-2.5, 0.0, -3.0]
   velocity_timeout: 0.3
 ```
 
 - The limits are pinned to the **same** approved real-robot limits as the DWB controller
-  (`max_vel_x: 0.20`, `max_vel_theta: 0.5`, `acc_lim_*: 0.5`, `decel_lim_x: -2.5`,
-  `decel_lim_theta: -2.0`). Keeping them identical means the smoother never fights the controller
-  — it enforces the ceiling, it doesn't reshape valid commands.
+  (`max_vel_x: 0.20`, `max_vel_theta: 0.5`, `acc_lim_x: 1.0`, `acc_lim_theta: 3.0`,
+  `decel_lim_x: -2.5`, `decel_lim_theta: -3.0` — raised from the original 0.5/0.5/-2.5/-2.0 to fix
+  a stiction deadlock; see `nav2_params.yaml`'s own comments). Keeping them identical means the
+  smoother never fights the controller — it enforces the ceiling, it doesn't reshape valid
+  commands.
 - **`feedback: "OPEN_LOOP"`** — the smoother clamps *commands* using its own model, not measured
   wheel speed. It is a limiter, not a closed-loop safety device (see the gap in
   [`00_safety_overview.md`](00_safety_overview.md) §4).
@@ -39,7 +41,7 @@ velocity_smoother:
   publisher.
 
 - **Stop-lock gate (#35, platform-sw#90)** — The gate is a functional stop path for the twist_mux software_stop lock.
-  - Release: Release is refused while ROS time is below 1.0 s (the service returns success=false with a message), but wall-clock launches remain unaffected.
+  - Release: Release is refused for the first T_READY (1.0 s) of this node's own elapsed uptime (the service returns success=false with a message) — clock-agnostic, so it applies identically whether the node runs on wall-clock or simulated time. See the frozen simulated-clock limitation below for a distinct simulation-only caveat.
   - Engage / start-up: One zero is actively published on cmd_vel_gated and cmd_vel_stop on engage and at start-up.
   - If the gate is lost: If the gate is lost, cmd_vel_gated goes silent, then velocity_smoother stops after 0.3 s, and the firmware watchdog (§2, about 200 ms) acts as the backstop.
   - Frozen simulated clock: A frozen simulated clock is a simulation-only limitation where the tick does not fire, leaving only the engage-time zero and _on_mux_output to produce output.
