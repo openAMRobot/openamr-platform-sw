@@ -57,6 +57,11 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     launch_trigger = LaunchConfiguration('launch_trigger')
     trigger_params = LaunchConfiguration('trigger_params')
+    launch_docking_server = LaunchConfiguration('launch_docking_server')
+    # The docking server's parameters live with the rest of the Nav2 config.
+    nav2_params = PathJoinSubstitution(
+        [FindPackageShare('openamrobot_nav2'), 'config', 'nav2_params.yaml']
+    )
 
     # Make `model://apriltag_dock` resolvable by Gazebo.
     # The dock model lives in this package's share/models/ directory; we
@@ -88,6 +93,14 @@ def generate_launch_description():
                  'config', 'dock_trigger.yaml']
             ),
             description='Path to dock_trigger params YAML.'
+        ),
+        DeclareLaunchArgument(
+            'launch_docking_server',
+            default_value='true',
+            description=(
+                'Launch the opennav_docking action server (/dock_robot, '
+                '/undock_robot). Turn off only to run a docking-less stack.'
+            )
         ),
 
         # Extend GZ_SIM_RESOURCE_PATH so Gazebo can find `model://apriltag_dock`
@@ -175,5 +188,50 @@ def generate_launch_description():
             output='screen',
             parameters=[trigger_params, {'use_sim_time': use_sim_time}],
             condition=IfCondition(launch_trigger),
+        ),
+
+        # ── Docking action server ──────────────────────────────────────────
+        # dock_trigger is a CLIENT of /dock_robot and /undock_robot: it sequences
+        # the bundle approach and expects an action server to execute the dock /
+        # undock motions. Until this node was added, nothing in any launch started
+        # it, so both actions had zero servers (platform-sw#123) — docking could
+        # never run, and any consumer that waits on those actions' goal status
+        # (the stop-gate release condition, platform-sw#124) could never see one.
+        #
+        # Its parameters live in openamrobot_nav2's nav2_params.yaml under
+        # `docking_server:` (dock_plugins, simple_charging_dock, controller...);
+        # a params file is keyed by node name, so passing the whole file gives
+        # this node exactly its own section and nothing else.
+        # Remap its velocity output into the arbitration path. DockingServer
+        # creates its publisher on the RELATIVE topic "cmd_vel" (upstream
+        # nav2_docking/opennav_docking/src/docking_server.cpp:64), so launched at
+        # the root namespace it would publish on the final /cmd_vel — alongside
+        # collision_monitor and bypassing it. twist_mux takes docking at
+        # priority 20 on cmd_vel_dock (twist_mux.yaml), so that is where it goes.
+        # Without this remap /cmd_vel reports two publishers and #35's
+        # single-final-publisher rule is violated.
+        Node(
+            package='opennav_docking',
+            executable='opennav_docking',
+            name='docking_server',
+            output='screen',
+            parameters=[nav2_params, {'use_sim_time': use_sim_time}],
+            remappings=[('cmd_vel', 'cmd_vel_dock')],
+            condition=IfCondition(launch_docking_server),
+        ),
+
+        # opennav_docking is a lifecycle node: without a manager it stays
+        # unconfigured and its action servers never become available.
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_docking',
+            output='screen',
+            parameters=[{
+                'use_sim_time': use_sim_time,
+                'autostart': True,
+                'node_names': ['docking_server'],
+            }],
+            condition=IfCondition(launch_docking_server),
         ),
     ])
