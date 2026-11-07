@@ -59,11 +59,15 @@ jobs:
           colcon build --packages-select openamr_nav_msgs openamrobot_nav2
 
       # OPENAMR_REQUIRE_INTERFACES turns a missing openamr_nav_msgs into a
-      # failure instead of a skipped suite.
+      # failure instead of a skipped suite. OPENAMR_REQUIRE_TWIST_MUX does
+      # the same for twist_mux/nav2_velocity_smoother (platform-sw#90, Alex's
+      # review) - both are apt-installed above, so a skip here would hide a
+      # broken install step behind a passing job.
       - name: Run the producer tests
         shell: bash
         env:
           OPENAMR_REQUIRE_INTERFACES: '1'
+          OPENAMR_REQUIRE_TWIST_MUX: '1'
         run: |
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
