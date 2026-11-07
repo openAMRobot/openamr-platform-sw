@@ -307,10 +307,12 @@ class TestRecoveryResetOnThroughPosesGoal(NodeTestCase):
 
     def _drive_to_limit(self):
         # platform-sw#91, Mohamed's review: exhaustion no longer comes from
-        # the displayed attempt count reaching a limit - it comes from the
-        # outer NavigateRecovery node's own FAILURE, preceded by the
-        # primary's FAILURE (see status_trackers.py's RecoveryTracker).
-        self.node._recovery.on_bt_event('NavigateWithReplanning', 'FAILURE')
+        # the displayed attempt count reaching a limit - it comes from
+        # counting primary (NavigateWithReplanning) failures, which must
+        # reach attempt_limit + 1 before NavigateRecovery's own FAILURE
+        # counts as exhaustion (see status_trackers.py's RecoveryTracker).
+        for _ in range(self.node._recovery.attempt_limit + 1):
+            self.node._recovery.on_bt_event('NavigateWithReplanning', 'FAILURE')
         self.node._recovery.on_bt_event('NavigateRecovery', 'FAILURE')
         self.assertEqual(
             self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)

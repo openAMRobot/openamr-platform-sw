@@ -234,26 +234,43 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
     RECOVERY_LIMIT_REACHED no longer comes from attempt >= attempt_limit (a
     diagnostic leaf-action counter that both overcounts paired clears and
     undercounts nothing, but was never actually tracking Nav2's own retry
-    budget). It comes from NavigateRecovery's own FAILURE transition and
-    which branch failed right before it: the primary (NavigateWithReplanning)
-    failing with no retries left is genuine exhaustion; the recovery branch
-    itself (RecoveryFallback) failing is a different, lesser outcome and
-    does not raise RECOVERY_LIMIT_REACHED. See Jazzy's recovery_node.cpp:
-    the recovery child failing makes RecoveryNode return FAILURE immediately,
-    without consuming retry budget - structurally distinct from retry
-    exhaustion, which only happens when the PRIMARY fails again after the
-    budget is used up.
+    budget). It comes from counting how many times NavigateWithReplanning
+    (the primary) itself has failed: per Jazzy's recovery_node.cpp, the
+    primary is ticked number_of_retries + 1 times before RecoveryNode gives
+    up, so reaching that count on its own FAILURE is exhaustion; failing
+    short of it means the recovery branch (or an earlier diagnostic check)
+    cut this goal's attempt short instead - a different, lesser outcome.
     """
+
+    def _fail_primary(self, tracker, times):
+        for _ in range(times):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
 
     def test_primary_exhausting_its_retries_reaches_the_limit(self):
         tracker = RecoveryTracker(6)
-        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
+        self._fail_primary(tracker, 7)  # number_of_retries + 1
         tracker.on_bt_event('NavigateRecovery', 'FAILURE')
         self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
 
     def test_an_early_recovery_branch_failure_is_not_the_limit(self):
+        # Real capture (platform-sw#91): an unreachable goal makes the
+        # diagnostic Fallback (WouldAControllerRecoveryHelp /
+        # WouldAPlannerRecoveryHelp) fail immediately, so NavigateRecovery
+        # itself FAILUREs on the very FIRST primary failure - zero retries
+        # consumed. RecoveryFallback (the ReactiveFallback one level further
+        # in) never even ran in that capture, which is exactly why this no
+        # longer tries to identify which named node on the recovery side
+        # failed.
         tracker = RecoveryTracker(6)
-        tracker.on_bt_event('RecoveryFallback', 'FAILURE')
+        self._fail_primary(tracker, 1)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_mid_budget_recovery_branch_failure_is_not_the_limit(self):
+        # Same outcome as the early case above, but after a few successful
+        # retries first - still short of the budget when it gives up.
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 3)
         tracker.on_bt_event('NavigateRecovery', 'FAILURE')
         self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
 
@@ -262,24 +279,20 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
         # successful recovery" - if THAT attempt succeeds, NavigateRecovery
         # returns SUCCESS, not FAILURE, and must never have been flagged.
         tracker = RecoveryTracker(6)
-        for _ in range(6):
-            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
-            tracker.on_bt_event('RecoveryFallback', 'SUCCESS')
+        self._fail_primary(tracker, 6)
         tracker.on_bt_event('NavigateWithReplanning', 'SUCCESS')
         tracker.on_bt_event('NavigateRecovery', 'SUCCESS')
         self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
 
     def test_a_navigate_recovery_success_clears_a_previous_exhaustion_flag(self):
-        # the flag is read fresh from the branch that most recently failed,
         # not sticky forever within a goal - a SUCCESS on NavigateRecovery
         # itself always clears it, whatever happened on an earlier cycle.
         tracker = RecoveryTracker(6)
-        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
+        self._fail_primary(tracker, 7)
         tracker.on_bt_event('NavigateRecovery', 'FAILURE')
         self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
         tracker.on_new_goal()
-        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
-        tracker.on_bt_event('RecoveryFallback', 'SUCCESS')
+        self._fail_primary(tracker, 1)
         tracker.on_bt_event('NavigateWithReplanning', 'SUCCESS')
         tracker.on_bt_event('NavigateRecovery', 'SUCCESS')
         self.assertEqual(tracker.reason, NavigationStatus.NONE)
@@ -292,7 +305,8 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
         # event's own embedded timestamp, not arrival order.
         tracker = RecoveryTracker(6)
         tracker.on_new_goal(now_s=100.0)
-        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=50.0)
+        for _ in range(7):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=50.0)
         tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=50.0)
         self.assertEqual(
             tracker.reason, NavigationStatus.NONE,
@@ -301,9 +315,47 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
     def test_an_event_timestamped_after_the_goal_started_is_not_ignored(self):
         tracker = RecoveryTracker(6)
         tracker.on_new_goal(now_s=100.0)
-        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=100.5)
+        for _ in range(7):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=100.5)
         tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=100.5)
         self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_real_captured_unreachable_goal_sequence_is_not_the_limit(self):
+        """
+        Replay a real captured Jazzy /behavior_tree_log.
+
+        Captured for an out-of-map goal (platform-sw#91), node_name/status
+        pairs only. NavigateRecovery fails here with zero retries consumed
+        - the diagnostic Fallback decided no recovery would help before
+        RecoveryFallback ever ran. The event list is the real capture
+        verbatim (irrelevant IDLE transitions included), confirming the
+        fix against real Nav2/Jazzy behavior, not just a hand-written
+        scenario.
+        """
+        tracker = RecoveryTracker(6)
+        real_capture = [
+            ('ComputePathToPose', 'FAILURE'), ('ComputePathToPose', 'IDLE'),
+            ('Sequence', 'RUNNING'),
+            ('WouldAPlannerRecoveryHelp', 'FAILURE'), ('WouldAPlannerRecoveryHelp', 'IDLE'),
+            ('Sequence', 'FAILURE'), ('Sequence', 'IDLE'),
+            ('ComputePathToPose', 'IDLE'), ('ComputePathToPose', 'FAILURE'),
+            ('RateController', 'FAILURE'), ('ComputePathToPose', 'IDLE'),
+            ('ControllerSelector', 'IDLE'), ('PlannerSelector', 'IDLE'),
+            ('RateController', 'IDLE'),
+            ('NavigateWithReplanning', 'FAILURE'), ('NavigateWithReplanning', 'IDLE'),
+            ('Sequence', 'RUNNING'), ('Fallback', 'RUNNING'),
+            ('WouldAControllerRecoveryHelp', 'FAILURE'),
+            ('WouldAPlannerRecoveryHelp', 'FAILURE'),
+            ('WouldAControllerRecoveryHelp', 'IDLE'), ('WouldAPlannerRecoveryHelp', 'IDLE'),
+            ('Fallback', 'FAILURE'), ('Fallback', 'IDLE'),
+            ('Sequence', 'FAILURE'), ('Sequence', 'IDLE'),
+            ('NavigateRecovery', 'IDLE'), ('NavigateRecovery', 'FAILURE'),
+        ]
+        for node_name, status in real_capture:
+            tracker.on_bt_event(node_name, status)
+        self.assertNotEqual(
+            tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
+            'a single-shot "no recovery would help" bailout is not retry exhaustion')
 
 
 class FakeResultClient:

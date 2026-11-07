@@ -87,13 +87,9 @@ _ALL_RECOVERY_ACTIONS = {**_CYCLE_LEADER_ACTIONS, **_CYCLE_CONTINUATION_ACTIONS,
 
 # Named nodes the exhaustion signal watches, from the real Jazzy BT's outer
 # RecoveryNode (platform-sw#91, Mohamed's review - see Jazzy's
-# recovery_node.cpp): the primary (PipelineSequence "NavigateWithReplanning")
-# and the recovery branch (ReactiveFallback "RecoveryFallback") are the only
-# two children of RecoveryNode "NavigateRecovery", and are both explicitly
-# named in the XML, so node_name alone identifies them unambiguously -
-# no need to resolve the UID of the unnamed wrapper Sequence between them.
+# recovery_node.cpp and RecoveryTracker's own docstring for why this counts
+# PRIMARY failures rather than trying to identify which branch failed).
 _PRIMARY_NODE = 'NavigateWithReplanning'
-_RECOVERY_BRANCH_NODE = 'RecoveryFallback'
 _OUTER_RECOVERY_NODE = 'NavigateRecovery'
 
 
@@ -301,10 +297,27 @@ class RecoveryTracker:
     separate things (platform-sw#91, Mohamed's review): the count is a
     diagnostic of which leaf action last ran and how many outer recovery
     cycles have happened, for display only; exhaustion - the only thing
-    that feeds readiness via `reason` - comes from the outer RecoveryNode's
-    own FAILURE transition and which of its two children failed right
-    before it, not from comparing the count to a limit. Both reset when a
-    new goal starts.
+    that feeds readiness via `reason` - comes from counting how many times
+    the PRIMARY (NavigateWithReplanning) itself has failed for this goal,
+    not from the leaf-action count or from guessing which unnamed node in
+    the recovery branch failed.
+
+    Verified against a real captured Jazzy /behavior_tree_log (an
+    unreachable goal, triggering NavigateRecovery's immediate-failure path
+    with zero retries consumed): the recovery branch's own named node,
+    RecoveryFallback, does not always run before NavigateRecovery fails -
+    an earlier, unnamed diagnostic Fallback (WouldAControllerRecoveryHelp /
+    WouldAPlannerRecoveryHelp) can short-circuit the whole recovery branch
+    first, and that Fallback is not reliably distinguishable by name from
+    other unnamed nodes elsewhere in the tree (the same real capture also
+    showed two different nodes both logging as "ComputePathToPose" - the
+    wrapping RecoveryNode and its own leaf action - confirming node_name
+    is not always unique even for named nodes). Counting primary failures
+    sidesteps all of that: per Jazzy's recovery_node.cpp, the primary is
+    ticked number_of_retries + 1 times in total before the node gives up,
+    so reaching that count on the primary's own FAILURE is exhaustion by
+    construction, regardless of what happened on the recovery side. Both
+    counters reset when a new goal starts.
     """
 
     def __init__(self, attempt_limit):
@@ -312,7 +325,7 @@ class RecoveryTracker:
         self.action = RecoveryStatus.ACTION_NONE
         self.attempt = 0
         self._exhausted = False
-        self._last_branch_failure = None  # 'primary' | 'recovery' | None
+        self._primary_failures = 0
         self._goal_start_s = None
 
     def on_new_goal(self, now_s=None):
@@ -320,7 +333,7 @@ class RecoveryTracker:
         self.action = RecoveryStatus.ACTION_NONE
         self.attempt = 0
         self._exhausted = False
-        self._last_branch_failure = None
+        self._primary_failures = 0
         self._goal_start_s = now_s
 
     def on_bt_event(self, node_name, status, event_time_s=None):
@@ -350,21 +363,17 @@ class RecoveryTracker:
             return
 
         if status == 'FAILURE':
-            if node_name == _OUTER_RECOVERY_NODE:
-                # The recovery branch itself failing is a different, lesser
-                # outcome and does not raise RECOVERY_LIMIT_REACHED (Jazzy's
-                # recovery_node.cpp: this makes RecoveryNode return FAILURE
-                # immediately without consuming retry budget). Anything
-                # else - the primary failing with the budget used up, or an
-                # unrecognised path through the BT's own unnamed diagnostic
-                # Fallback - defaults to exhaustion, the fail-closed choice
-                # given this ambiguity is not yet resolved against a real
-                # capture (tracking: #91's own open follow-up).
-                self._exhausted = self._last_branch_failure != 'recovery'
-            elif node_name == _PRIMARY_NODE:
-                self._last_branch_failure = 'primary'
-            elif node_name == _RECOVERY_BRANCH_NODE:
-                self._last_branch_failure = 'recovery'
+            if node_name == _PRIMARY_NODE:
+                self._primary_failures += 1
+            elif node_name == _OUTER_RECOVERY_NODE:
+                # Jazzy's recovery_node.cpp: the primary is ticked
+                # number_of_retries + 1 times in total before the node
+                # gives up - reaching that count is exhaustion; failing on
+                # any earlier attempt means the recovery branch itself (or
+                # an even earlier diagnostic check) cut this short instead,
+                # a different, lesser outcome that does not raise
+                # RECOVERY_LIMIT_REACHED.
+                self._exhausted = self._primary_failures >= self.attempt_limit + 1
         elif status == 'SUCCESS' and node_name == _OUTER_RECOVERY_NODE:
             self._exhausted = False
 
