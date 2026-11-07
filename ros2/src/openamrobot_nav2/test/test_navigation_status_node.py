@@ -295,6 +295,47 @@ class TestFailedStackState(NodeTestCase):
         self.assertEqual(reason, NavigationStatus.NAV_STACK_RESETTING)
 
 
+class TestRecoveryResetOnThroughPosesGoal(NodeTestCase):
+    """
+    Covers a lifecycle gap (#92).
+
+    Recovery only reset on navigate_to_pose's own status callback, so a goal
+    run through navigate_through_poses never reset it - a
+    RECOVERY_LIMIT_REACHED left over from an earlier, unrelated goal could
+    leak into a goal that has not actually recovered at all.
+    """
+
+    def _drive_to_limit(self):
+        self.node._recovery.attempt_limit = 2
+        for _ in range(2):
+            self.node._recovery.on_bt_event('Spin', 'RUNNING')
+            self.node._recovery.on_bt_event('Spin', 'FAILURE')
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_new_through_poses_goal_resets_a_limit_left_from_navigate_to_pose(self):
+        self._drive_to_limit()
+
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+
+        self.assertEqual(self.node._recovery.attempt, 0)
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+
+    def test_a_repeated_status_for_the_same_through_poses_goal_does_not_reset(self):
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+
+        # same goal id, just a later status update - must not look like a new
+        # goal and wipe out the attempt count it is actually accumulating
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE, sec=11)]))
+
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+
 class FakePub:
     """Stands in for an rclpy publisher, capturing every message it is given."""
 
