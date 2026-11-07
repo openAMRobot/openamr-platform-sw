@@ -67,6 +67,26 @@ def map_identity_hash(*, resolution, origin_x, origin_y, origin_yaw,
     return digest.hexdigest()
 
 
+def grid_fingerprint(cell_data) -> str:
+    """
+    Opaque SHA-256 fingerprint of an OccupancyGrid's raw cell data.
+
+    Shared by MapLoaderNode (fingerprinting the grid its own ~/load_map
+    call returned) and NavigationStatusNode (fingerprinting the live /map
+    message, to confirm it still matches what the loader last recorded) -
+    both must compute this identically, the same reasoning as
+    map_identity_hash's own docstring. Never interprets a cell value as
+    free/occupied/unknown, so there is nothing here that needs to agree
+    with nav2_map_server's own occupied/negate/threshold semantics (see
+    map_identity_hash's docstring for why that disagreement was the
+    original bug). int8 values are signed (-128..127); masking to a byte
+    keeps the hash stable and well-defined regardless of that signedness.
+    """
+    digest = hashlib.sha256()
+    digest.update(bytes(cell & 0xFF for cell in cell_data))
+    return digest.hexdigest()
+
+
 def load_map_identity_source(map_yaml_path: str) -> dict:
     """
     Read a map.yaml + its referenced image file and return the fields

@@ -13,7 +13,8 @@ import os
 import tempfile
 import unittest
 
-from openamrobot_nav2.map_identity import load_map_identity_source, map_identity_hash
+from openamrobot_nav2.map_identity import (
+    grid_fingerprint, load_map_identity_source, map_identity_hash)
 
 BASE_KWARGS = dict(
     resolution=0.05, origin_x=-5.391, origin_y=-5.189, origin_yaw=0.0,
@@ -79,6 +80,29 @@ class TestMapIdentityHash(unittest.TestCase):
         as_bytes = dict(BASE_KWARGS, image_bytes=bytes(BASE_KWARGS['image_bytes']))
         as_bytearray = dict(BASE_KWARGS, image_bytes=bytearray(BASE_KWARGS['image_bytes']))
         self.assertEqual(map_identity_hash(**as_bytes), map_identity_hash(**as_bytearray))
+
+
+class TestGridFingerprint(unittest.TestCase):
+    """
+    Covers openamrobot-interfaces#34, platform-sw#36/#73.
+
+    Shared between MapLoaderNode and NavigationStatusNode, so both must
+    compute this identically - see grid_fingerprint's own docstring.
+    """
+
+    def test_identical_cell_data_fingerprints_identically(self):
+        self.assertEqual(grid_fingerprint([0, 0, 100, -1]), grid_fingerprint([0, 0, 100, -1]))
+
+    def test_a_single_changed_cell_changes_the_fingerprint(self):
+        self.assertNotEqual(grid_fingerprint([0, 0, 100, -1]), grid_fingerprint([0, 0, 99, -1]))
+
+    def test_negative_int8_values_are_masked_consistently(self):
+        # -1 as a signed int8 and 255 as its unsigned byte equivalent must
+        # fingerprint the same way - the docstring's masking guarantee.
+        self.assertEqual(grid_fingerprint([-1]), grid_fingerprint([255]))
+
+    def test_accepts_any_iterable_not_just_a_list(self):
+        self.assertEqual(grid_fingerprint([1, 2, 3]), grid_fingerprint(bytes([1, 2, 3])))
 
 
 # A tiny, valid 2x2 PGM (P5, maxval 255, two bytes of pixel data) - enough to
