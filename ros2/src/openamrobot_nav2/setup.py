@@ -31,6 +31,7 @@ setup(
     entry_points={
         'console_scripts': [
             'navigation_status_node = openamrobot_nav2.navigation_status_node:main',
+            'map_loader_node = openamrobot_nav2.map_loader_node:main',
         ],
     },
 )
