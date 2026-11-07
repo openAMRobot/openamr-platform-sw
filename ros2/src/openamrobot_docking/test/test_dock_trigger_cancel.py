@@ -214,6 +214,90 @@ class TestAbortService(NodeTestCase):
         self.assertTrue(getattr(self.node, '_cancel_requested', False))
 
 
+# #119 test 7 ("a real dock_trigger sequence stopped in each motion phase"):
+# the phase loops themselves need TF/camera/LiDAR - a real ROS graph this
+# file does not have, same boundary the module docstring above already
+# draws. What CAN be verified here, honestly, without that graph: every one
+# of the sequence's blocking loops actually contains the cancellation check
+# - a static, structural guarantee that complements the dynamic flag-
+# lifecycle tests above (TestCancelFlagLifecycle proves the mechanism works;
+# this proves every loop that needs it actually calls it). The two together
+# are the closest honest substitute for "stopped in each motion phase"
+# available without a real sim.
+_BLOCKING_LOOP_METHODS = (
+    '_estimate_dock',
+    '_final_visual_approach',
+    '_reverse_distance',
+    '_search_for_tag',
+    'get_tag_pose_filtered',
+    '_spin_to_yaw',
+    '_spin_angle_odom',
+    '_drive_to_xy',
+    '_wait_for_path_clear',
+    '_send_action_blocking',
+)
+
+
+class TestEveryBlockingLoopChecksCancellation(unittest.TestCase):
+    """
+    Static, source-level regression (platform-sw#119 test 7's stand-in).
+
+    Parses dock_trigger.py's AST and confirms each name in
+    _BLOCKING_LOOP_METHODS calls self._raise_if_cancelled() somewhere in its
+    body - a call anywhere inside the method (including nested blocks),
+    never just a literal grep hit that could land in an unrelated method by
+    line-number coincidence. Does not require rclpy or a ROS graph.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import ast
+        with open(_DOCK_TRIGGER_PATH, encoding='utf-8') as f:
+            cls._tree = ast.parse(f.read(), filename=_DOCK_TRIGGER_PATH)
+        cls._methods_by_name = {}
+        for node in ast.walk(cls._tree):
+            if isinstance(node, ast.ClassDef) and node.name == 'DockTrigger':
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        cls._methods_by_name[item.name] = item
+
+    def _calls_raise_if_cancelled(self, func_node) -> bool:
+        import ast
+        for node in ast.walk(func_node):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != '_raise_if_cancelled':
+                continue
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == 'self':
+                return True
+        return False
+
+    def test_every_tracked_method_exists(self):
+        # Guards against this list silently going stale if a method is
+        # ever renamed or removed - the methods below would otherwise
+        # pass vacuously (KeyError never raised, just never checked).
+        missing = [
+            name for name in _BLOCKING_LOOP_METHODS
+            if name not in self._methods_by_name]
+        self.assertEqual(
+            missing, [],
+            f'tracked method(s) no longer exist on DockTrigger: {missing} - '
+            f'update _BLOCKING_LOOP_METHODS, do not just let this go stale')
+
+    def test_every_tracked_method_checks_cancellation(self):
+        tracked = [name for name in _BLOCKING_LOOP_METHODS if name in self._methods_by_name]
+        not_checked = [
+            name for name in tracked
+            if not self._calls_raise_if_cancelled(self._methods_by_name[name])]
+        self.assertEqual(
+            not_checked, [],
+            f'{not_checked} no longer call self._raise_if_cancelled() - a '
+            f'Stop (software) during that phase would no longer cancel the '
+            f'sequence (platform-sw#119 test 7)')
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))
