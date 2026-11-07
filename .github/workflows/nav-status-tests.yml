@@ -18,8 +18,16 @@ permissions:
 env:
   # openamrobot-interfaces revision the producer is built and tested against.
   # Change it on purpose when openamr_nav_msgs changes.
-  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
-  INTERFACES_REF: 77950470a87f1f5815346b2f000a662ee8c56f94
+  #
+  # Temporarily pinned to the fork/branch backing openamrobot-interfaces#35,
+  # not upstream main (platform-sw#90, Mohamed's review): this PR's
+  # safety_stop_gate_node.py imports StopState from that still-open PR, and
+  # upstream main's openamr_nav_msgs does not have it yet, so CI would fail
+  # at collection against main. Revert INTERFACES_REPO to
+  # openAMRobot/openamrobot-interfaces and INTERFACES_REF to a main commit
+  # (dropping this note) once interfaces#35 merges.
+  INTERFACES_REPO: skunal3318/openamrobot-interfaces
+  INTERFACES_REF: cb83b228b2e01dd795bde729d0097869ee18c9a6
 
 jobs:
   producer-tests:
