@@ -23,7 +23,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | merged (8a7a5b1) | - |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
-| twist_mux command arbitration + stop gate (#35) | #90 | draft, needs adopt/adapt/reject | owner decision, then review |
+| twist_mux command arbitration + stop gate (#35/#119) | #90 | in review; rearm latch replaced with #119's Option B contract (active cancellation + release refusal), 6 Nov Gate A rehearsal done, docs/CI items from Alex's review landed (ce16fbe) | owner/Mohamed review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
