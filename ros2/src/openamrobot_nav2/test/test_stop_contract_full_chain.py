@@ -51,7 +51,7 @@ from action_msgs.srv import CancelGoal  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, STATUS_FRESH_S, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
@@ -120,15 +120,17 @@ class StopContractFullChainCase(unittest.TestCase):
         # service call itself fails (test 5).
         self._cancel_responses = {action: 'accept' for action in _CANCEL_ACTIONS}
         self._current_goal_status = {action: [] for action in _CANCEL_ACTIONS}
+        self._cancel_services = {}
         for action in _CANCEL_ACTIONS:
             self._goal_status_pubs[action] = self.probe.create_publisher(
                 GoalStatusArray, f'{action}/_action/status', 10)
-            self.probe.create_service(
+            self._cancel_services[action] = self.probe.create_service(
                 CancelGoal, f'{action}/_action/cancel_goal', self._make_cancel_cb(action))
 
         self._dock_status_pub = self.probe.create_publisher(String, 'dock_trigger_status', 10)
         self._abort_calls = []
-        self.probe.create_service(Trigger, '/dock_trigger/abort', self._on_abort)
+        self._dock_abort_service = self.probe.create_service(
+            Trigger, '/dock_trigger/abort', self._on_abort)
 
         self._spin_for(0.5)  # let every client/subscriber above discover its match
         self._set_goal_status_all_clear()
@@ -186,23 +188,39 @@ class StopContractFullChainCase(unittest.TestCase):
         self._dock_status = status
         self._dock_status_pub.publish(String(data=status))
 
-    def _refresh_before_release(self, skip_actions=frozenset()):
+    def _refresh_before_release(self, skip_actions=frozenset(), skip_dock=False):
         """
-        Republish every tracked status right before a release attempt, so
-        STATUS_FRESH_S never lapses mid-test purely from the time a test
-        itself takes - a test's own explicit _set_goal_status/_set_dock_status
-        calls are what actually change behaviour, not this. skip_actions
-        lets a test (e.g. test 5's "server gone") deliberately leave one
-        action's status untouched since construction.
+        Republish every tracked status right before a release attempt.
+
+        Content, not message age, is what the gate judges now (platform-
+        sw#90, Mohamed's review: the old STATUS_FRESH_S time window refused
+        release on a healthy, idle system whose status simply had not
+        changed recently - ROS 2 action status only publishes on a
+        transition, not as a heartbeat). This just keeps a test's own
+        explicit _set_goal_status/_set_dock_status calls as the only thing
+        that actually changes behaviour. skip_actions lets a test (e.g.
+        test 5's "server gone") deliberately leave one action's status
+        untouched since construction; skip_dock does the same for dock_
+        trigger_status.
         """
-        self._set_dock_status(getattr(self, '_dock_status', 'idle'))
+        if not skip_dock:
+            self._set_dock_status(getattr(self, '_dock_status', 'idle'))
         for action in _CANCEL_ACTIONS:
             if action not in skip_actions:
                 self._set_goal_status(action, self._current_goal_status[action])
         self._spin_for(0.1)
 
-    def _try_release(self, skip_actions=frozenset()):
-        self._refresh_before_release(skip_actions=skip_actions)
+    def _take_down_cancel_service(self, action):
+        """Simulate that action's server having crashed/gone away entirely."""
+        self.probe.destroy_service(self._cancel_services[action])
+        self._spin_for(0.2)  # let discovery catch up with the removal
+
+    def _take_down_dock_abort_service(self):
+        self.probe.destroy_service(self._dock_abort_service)
+        self._spin_for(0.2)
+
+    def _try_release(self, skip_actions=frozenset(), skip_dock=False):
+        self._refresh_before_release(skip_actions=skip_actions, skip_dock=skip_dock)
         client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
         self.assertTrue(client.wait_for_service(timeout_sec=3.0))
         future = client.call_async(Trigger.Request())
@@ -376,15 +394,61 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         self.assertIn('dock_robot', response.message)
 
     def test_release_refused_when_the_action_server_is_gone(self):
-        # Never published anything for undock_robot since setUp's initial
-        # all-clear sample - let that go stale (STATUS_FRESH_S) rather than
-        # being refreshed, the same as a crashed/never-started real action
-        # server: "status stale or never received" is this gate's one,
-        # deliberately undifferentiated reason for both cases.
-        self._spin_for(STATUS_FRESH_S + 0.3)
+        # The last content we ever got from undock_robot was setUp's
+        # all-clear sample - by content alone that would satisfy condition
+        # (a). What must still block release is that its cancel_goal
+        # service is no longer reachable at all: the same, deliberately
+        # undifferentiated "status stale or never received" reason this
+        # gate gives for a server that never answered in the first place.
+        self._take_down_cancel_service('undock_robot')
         response = self._try_release(skip_actions={'undock_robot'})
         self.assertFalse(response.success)
         self.assertIn('undock_robot', response.message)
+
+    def test_release_refused_when_dock_trigger_is_gone(self):
+        # Same reasoning as the action case above, for the dock_trigger
+        # abort service instead of a cancel_goal client.
+        self._take_down_dock_abort_service()
+        response = self._try_release(skip_dock=True)
+        self.assertFalse(response.success)
+        self.assertIn('dock_trigger', response.message)
+
+
+class TestReleaseSucceedsOnAHealthyIdleSystemDespiteStaleStatus(StopContractFullChainCase):
+    """
+    Covers platform-sw#90, Mohamed's review (P1).
+
+    A healthy idle system must not be unable to Resume indefinitely. ROS 2
+    action status only publishes on a transition, not as a periodic
+    heartbeat, so an idle server's last sample ages past any fixed
+    freshness window with nothing wrong. Release must still succeed once
+    its cancel_goal service (or, for docking, the abort service) is
+    confirmed reachable right now - content, not message age, is what
+    actually proves no old goal has authority.
+    """
+
+    def test_release_succeeds_with_an_old_all_clear_sample_if_the_server_is_reachable(self):
+        self._take_down_cancel_service('navigate_to_pose')  # discard setUp's own service
+        self._cancel_services['navigate_to_pose'] = self.probe.create_service(
+            CancelGoal, 'navigate_to_pose/_action/cancel_goal',
+            self._make_cancel_cb('navigate_to_pose'))
+        self._spin_for(0.2)
+
+        # the only status navigate_to_pose ever gets is this one, published
+        # well before the real sleep below - no refresh, unlike every other
+        # test in this file via _refresh_before_release.
+        self._set_goal_status('navigate_to_pose', [])
+        time.sleep(1.3)  # real elapsed time past any STATUS_FRESH_S-style window
+
+        response = self._try_release(skip_actions={'navigate_to_pose'})
+        self.assertTrue(response.success, response.message)
+
+    def test_release_succeeds_with_an_old_idle_dock_sample_if_the_abort_service_is_reachable(self):
+        self._set_dock_status('idle')
+        time.sleep(1.3)
+
+        response = self._try_release(skip_dock=True)
+        self.assertTrue(response.success, response.message)
 
 
 class TestNewGoalSentWhileLockedIsCancelledToo(StopContractFullChainCase):

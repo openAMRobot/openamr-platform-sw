@@ -42,6 +42,8 @@ class NodeTestCase(unittest.TestCase):
     def setUp(self):
         self.node = SafetyStopGateNode()
         self.probe = rclpy.create_node('safety_stop_gate_probe')
+        self._cancel_services = {}
+        self._dock_abort_service = None
 
     def tearDown(self):
         self.node.destroy_node()
@@ -78,8 +80,56 @@ class NodeTestCase(unittest.TestCase):
         pub.publish(msg)
         pub.destroy()
 
+    def _ensure_cancel_service_reachable(self, action):
+        """
+        Stand up a fake cancel_goal server for action, if not already up.
+
+        Release condition (a) now checks this client's service_is_ready()
+        as well as content (platform-sw#90, Mohamed's review) - a test that
+        publishes a goal status at all is implicitly claiming that action's
+        server is reachable, unless it specifically wants to test otherwise
+        (see _take_down_cancel_service).
+        """
+        if action in self._cancel_services:
+            return
+
+        def _cb(request, response):
+            del request
+            response.return_code = CancelGoal.Response.ERROR_NONE
+            return response
+        self._cancel_services[action] = self.probe.create_service(
+            CancelGoal, f'{action}/_action/cancel_goal', _cb)
+        self._spin_both(timeout_s=0.3)  # let the gate's client discover it
+
+    def _take_down_cancel_service(self, action):
+        """Simulate that action's server having crashed/gone away entirely."""
+        self._ensure_cancel_service_reachable(action)
+        self.probe.destroy_service(self._cancel_services.pop(action))
+        self._spin_both(timeout_s=0.3)  # let discovery catch up with the removal
+
+    def _ensure_dock_abort_service_reachable(self):
+        """Do the same as _ensure_cancel_service_reachable, for /dock_trigger/abort."""
+        if self._dock_abort_service is not None:
+            return
+
+        def _cb(request, response):
+            del request
+            response.success = True
+            response.message = ''
+            return response
+        self._dock_abort_service = self.probe.create_service(
+            Trigger, '/dock_trigger/abort', _cb)
+        self._spin_both(timeout_s=0.3)
+
+    def _take_down_dock_abort_service(self):
+        self._ensure_dock_abort_service_reachable()
+        self.probe.destroy_service(self._dock_abort_service)
+        self._dock_abort_service = None
+        self._spin_both(timeout_s=0.3)
+
     def _publish_goal_status(self, action, statuses):
         """statuses: an iterable of action_msgs/GoalStatus status ints (empty = no active goal)."""
+        self._ensure_cancel_service_reachable(action)
         msg = GoalStatusArray()
         for s in statuses:
             gs = GoalStatus()
@@ -92,6 +142,7 @@ class NodeTestCase(unittest.TestCase):
             self._publish_goal_status(action, [])
 
     def _publish_dock_status(self, status: str):
+        self._ensure_dock_abort_service_reachable()
         self._publish_to_gate(String, 'dock_trigger_status', String(data=status))
 
     def _make_all_release_conditions_clear(self):
@@ -360,19 +411,35 @@ class TestReleaseBlockedByActiveGoal(NodeTestCase):
         self.assertIn('navigate_to_pose', result.message)
         self.assertIn('never received', result.message)
 
-    def test_release_refused_while_an_actions_status_has_gone_stale(self):
+    def test_release_accepted_with_an_old_all_clear_sample_if_the_server_is_reachable(self):
+        # platform-sw#90, Mohamed's review (P1): ROS 2 action status only
+        # publishes on a transition, not as a heartbeat - a healthy, idle
+        # server's last sample can age indefinitely with nothing wrong.
+        # Content plus a live service_is_ready() check now proves no old
+        # goal has authority; message age alone no longer refuses this.
         self.node._start -= Duration(seconds=T_READY + 1.0)
         self._publish_all_clear_goal_status()
         self._publish_dock_status('idle')
-        self._spin_both(timeout_s=0.1)
-        # The last sample said "clear," but it is old enough that it can no
-        # longer be trusted - backdate it past STATUS_FRESH_S rather than
-        # sleeping for real.
-        self.node._goal_status_at['undock_robot'] -= Duration(seconds=2.0)
+        self._spin_both(timeout_s=0.2)
+        time.sleep(1.3)  # real elapsed time, no further status for undock_robot
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success, result.message)
+
+    def test_release_refused_while_an_actions_cancel_service_is_unreachable(self):
+        # Same old, stale "all clear" sample as above, but this time the
+        # server behind it is actually gone (not just quiet) - release must
+        # still refuse, with the same undifferentiated reason as "never
+        # received," since this gate's job is to stay refused correctly,
+        # not to tell those two cases apart (see _release_blockers).
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+        self._take_down_cancel_service('undock_robot')
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertFalse(result.success)
         self.assertIn('undock_robot', result.message)
-        self.assertIn('stale', result.message)
+        self.assertIn('stale or never received', result.message)
 
     def test_release_accepted_once_every_action_reports_clear(self):
         result = self._release_now()
@@ -425,6 +492,31 @@ class TestReleaseBlockedByDockTrigger(NodeTestCase):
         self.assertFalse(result.success)
         self.assertIn('dock_trigger', result.message)
         self.assertIn('never received', result.message)
+
+    def test_release_accepted_with_an_old_idle_sample_if_the_abort_service_is_reachable(self):
+        # platform-sw#90, Mohamed's review: dock_trigger's own idle
+        # heartbeat is every 2.0s (dock_trigger.py's _heartbeat_status) -
+        # any fixed freshness window shorter than that could refuse release
+        # on a perfectly idle dock. Content plus a live service_is_ready()
+        # check, not message age, is what this gate judges now.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+        time.sleep(1.3)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success, result.message)
+
+    def test_release_refused_while_dock_abort_service_is_unreachable(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+        self._take_down_dock_abort_service()
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('dock_trigger', result.message)
+        self.assertIn('stale or never received', result.message)
 
 
 class TestReleaseBlockedByCmdVelInputs(NodeTestCase):

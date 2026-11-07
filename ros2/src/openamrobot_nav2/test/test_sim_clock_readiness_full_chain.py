@@ -67,6 +67,7 @@ requires_mux = pytest.mark.skipif(
     reason='needs the real ros2 CLI AND the twist_mux package installed [#35]')
 
 from action_msgs.msg import GoalStatusArray  # noqa: E402,I100
+from action_msgs.srv import CancelGoal  # noqa: E402
 from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
@@ -205,6 +206,31 @@ class SimClockChainCase(unittest.TestCase):
         self._nonzero = Twist()
         self._nonzero.linear.x = 0.3
 
+        # platform-sw#90, Mohamed's review: release condition (a)/(b) now
+        # also checks that each action's cancel_goal service (and dock_
+        # trigger's abort service) is reachable, not just the content of
+        # its last-known status - stand up fakes so this file's existing
+        # tests (about sim-clock/mux routing, not the refusal gate's own
+        # content/liveness distinction) keep releasing successfully.
+        self._cancel_services = {
+            action: self.probe.create_service(
+                CancelGoal, f'{action}/_action/cancel_goal', self._on_cancel_goal)
+            for action in _CANCEL_ACTIONS
+        }
+        self._dock_abort_service = self.probe.create_service(
+            Trigger, '/dock_trigger/abort', self._on_dock_abort)
+
+    def _on_cancel_goal(self, request, response):
+        del request
+        response.return_code = CancelGoal.Response.ERROR_NONE
+        return response
+
+    def _on_dock_abort(self, request, response):
+        del request
+        response.success = True
+        response.message = ''
+        return response
+
     def tearDown(self):
         self._stop_current_mux()
         if self.gate is not None:
@@ -266,6 +292,12 @@ class SimClockChainCase(unittest.TestCase):
         never masks the two tests in this file that deliberately stay under
         T_READY and expect refusal regardless.
         """
+        if self.gate is not None:
+            end = time.monotonic() + 2.0
+            while time.monotonic() < end and not (
+                    all(c.service_is_ready() for c in self.gate._cancel_clients.values())
+                    and self.gate._dock_abort_client.service_is_ready()):
+                self._spin_all()
         for action in _CANCEL_ACTIONS:
             pub = self.probe.create_publisher(
                 GoalStatusArray, f'{action}/_action/status', 10)

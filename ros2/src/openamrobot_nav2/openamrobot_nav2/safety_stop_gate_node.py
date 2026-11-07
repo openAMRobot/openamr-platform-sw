@@ -54,17 +54,35 @@ here blocks waiting on a response.
 with a reason in both the service response and /safety/stop_state, until
 ALL of:
   (a) none of the four actions above reports an accepted, executing or
-      cancelling goal, and each one's status has been seen recently (a
-      stale or missing status array is treated as "cannot confirm clear",
-      not as "probably fine" - see _release_blockers);
-  (b) dock_trigger's own status is not docking/undocking (and has been seen
-      recently, same reasoning as (a));
+      cancelling goal, AND each one has reported SOME status at least once
+      with its cancel_goal service currently reachable (see _release_blockers);
+  (b) dock_trigger's own last-known status is not docking/undocking, AND it
+      has reported some status at least once with its ~/abort service
+      currently reachable (same reasoning as (a));
   (c) cmd_vel_nav, cmd_vel_dock and cmd_vel_joy - read directly, not via
       cmd_vel_mux - are each either literally zero or have gone silent past
       their own twist_mux.yaml timeout (a topic with no message at all ever
       received counts as silent by definition, not as unknown).
 Once accepted, cmd_vel_gated passes through immediately; there is nothing
 left to rearm.
+
+[(a)/(b) are judged by content and live reachability, not message age -
+platform-sw#90, Mohamed's review] An earlier version of (a)/(b) also
+required each status sample to be no more than 1.0s old. ROS 2 action
+status only publishes on a goal-state transition, not as a periodic
+heartbeat (design.ros2.org/articles/actions.html#goal-status-topic), and
+dock_trigger's own idle heartbeat is every 2.0s (dock_trigger.py's
+_heartbeat_status) - a healthy, idle system's last sample can simply age
+past any fixed window with nothing wrong, refusing Resume forever. Content
+plus service_is_ready() on the same client already used to cancel/abort
+(see _cancel_clients/_dock_abort_client) proves the same thing without a
+clock: "never received any status at all" still refuses (cannot confirm
+clear, same as before), an active goal/docking status always refuses
+regardless of age (fail-closed in the safe direction), and a clear status
+whose server has since gone fully unreachable (crashed, never answers)
+refuses with the same undifferentiated reason - the one case this change
+removes is "clear, reachable, just quiet for a while," which was never
+actually unsafe.
 
 [Equal-priority nonzero stop / post-mux gate] twist_mux's own arbitration
 treats cmd_vel_stop as one candidate among others at its priority - nothing
@@ -152,12 +170,6 @@ _CMD_VEL_INPUT_TIMEOUTS = {
     'cmd_vel_joy': 0.25,
 }
 
-# How long a GoalStatusArray or dock_trigger_status sample stays trusted
-# before release condition (a)/(b) treats it as stale. Not any particular
-# action's own timeout - this is about whether the GATE still has a recent
-# enough picture of that server/node, independent of what it last said.
-STATUS_FRESH_S = 1.0
-
 _ACTIVE_GOAL_STATUSES = (
     GoalStatus.STATUS_ACCEPTED,
     GoalStatus.STATUS_EXECUTING,
@@ -202,7 +214,6 @@ class SafetyStopGateNode(Node):
             for action in _CANCEL_ACTIONS
         }
         self._goal_statuses = {action: None for action in _CANCEL_ACTIONS}  # list[int] or None
-        self._goal_status_at = {action: None for action in _CANCEL_ACTIONS}  # Time or None
         for action in _CANCEL_ACTIONS:
             self.create_subscription(
                 GoalStatusArray, f'{action}/_action/status',
@@ -211,7 +222,6 @@ class SafetyStopGateNode(Node):
         # --- dock_trigger abort (release condition b) ---
         self._dock_abort_client = self.create_client(Trigger, '/dock_trigger/abort')
         self._dock_status = None
-        self._dock_status_at = None
         self.create_subscription(
             String, 'dock_trigger_status', self._on_dock_status, 10)
 
@@ -278,12 +288,10 @@ class SafetyStopGateNode(Node):
     def _make_goal_status_cb(self, action: str):
         def _cb(msg: GoalStatusArray) -> None:
             self._goal_statuses[action] = [s.status for s in msg.status_list]
-            self._goal_status_at[action] = self.get_clock().now()
         return _cb
 
     def _on_dock_status(self, msg: String) -> None:
         self._dock_status = msg.data
-        self._dock_status_at = self.get_clock().now()
 
     def _make_cmd_vel_cb(self, name: str):
         def _cb(msg: Twist) -> None:
@@ -291,35 +299,38 @@ class SafetyStopGateNode(Node):
             self._cmd_vel_last_at[name] = self.get_clock().now()
         return _cb
 
-    def _is_fresh(self, at) -> bool:
-        if at is None:
-            return False
-        return (self.get_clock().now() - at).nanoseconds / 1e9 <= STATUS_FRESH_S
-
     def _release_blockers(self) -> list:
         """
         Return a list of human-readable reasons release is still refused.
 
         Empty means every condition (a)/(b)/(c) in the module docstring's
         [Release: three-part refusal gate] section holds. Each entry names
-        WHICH condition is blocking, not why (a rejected cancel, a timed-out
-        one and a server that is simply gone all surface the same way here:
-        the corresponding status never clears) - that is deliberate, not a
-        missing diagnostic: this node's job is to stay refused correctly,
-        not to explain a remote server's own failure mode.
+        WHICH condition is blocking, not why (never received, a rejected
+        cancel, a timed-out one and a server that is simply gone now all
+        surface the same way here) - that is deliberate, not a missing
+        diagnostic: this node's job is to stay refused correctly, not to
+        explain a remote server's own failure mode. See the module
+        docstring's [(a)/(b) are judged by content and live reachability,
+        not message age] note for why this is not time-based.
         """
         blockers = []
         for action in _CANCEL_ACTIONS:
-            if not self._is_fresh(self._goal_status_at[action]):
+            statuses = self._goal_statuses[action]
+            if statuses is None:
                 blockers.append(f'{action}: status stale or never received')
                 continue
-            if any(s in _ACTIVE_GOAL_STATUSES for s in self._goal_statuses[action]):
+            if any(s in _ACTIVE_GOAL_STATUSES for s in statuses):
                 blockers.append(f'{action}: goal still active')
+                continue
+            if not self._cancel_clients[action].service_is_ready():
+                blockers.append(f'{action}: status stale or never received')
 
-        if not self._is_fresh(self._dock_status_at):
+        if self._dock_status is None:
             blockers.append('dock_trigger: status stale or never received')
         elif self._dock_status in ('docking', 'undocking'):
             blockers.append(f'dock_trigger: {self._dock_status}')
+        elif not self._dock_abort_client.service_is_ready():
+            blockers.append('dock_trigger: status stale or never received')
 
         for name, timeout in _CMD_VEL_INPUT_TIMEOUTS.items():
             last = self._cmd_vel_last[name]
