@@ -17,11 +17,15 @@ import pytest
 
 rclpy = pytest.importorskip('rclpy')  # tracking: #35
 
-from geometry_msgs.msg import Twist  # noqa: E402,I100
-from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode, T_READY  # noqa: E402
+from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray  # noqa: E402,I100
+from action_msgs.srv import CancelGoal  # noqa: E402
+from geometry_msgs.msg import Twist  # noqa: E402
+from openamr_nav_msgs.msg import StopState  # noqa: E402
+from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
+    _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E402
-from std_msgs.msg import Bool  # noqa: E402
+from std_msgs.msg import Bool, String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
 
@@ -62,20 +66,62 @@ class NodeTestCase(unittest.TestCase):
         self.assertTrue(future.done(), f'{service_name} call timed out')
         return future.result()
 
+    def _publish_to_gate(self, msg_type, topic, msg):
+        """Publish once to a topic the gate subscribes to, waiting for it to match first."""
+        pub = self.probe.create_publisher(msg_type, topic, 10)
+        deadline = time.monotonic() + 1.0
+        while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertGreater(
+            pub.get_subscription_count(), 0, f'gate node never subscribed to {topic}')
+        pub.publish(msg)
+        pub.destroy()
+
+    def _publish_goal_status(self, action, statuses):
+        """statuses: an iterable of action_msgs/GoalStatus status ints (empty = no active goal)."""
+        msg = GoalStatusArray()
+        for s in statuses:
+            gs = GoalStatus()
+            gs.status = s
+            msg.status_list.append(gs)
+        self._publish_to_gate(GoalStatusArray, f'{action}/_action/status', msg)
+
+    def _publish_all_clear_goal_status(self):
+        for action in _CANCEL_ACTIONS:
+            self._publish_goal_status(action, [])
+
+    def _publish_dock_status(self, status: str):
+        self._publish_to_gate(String, 'dock_trigger_status', String(data=status))
+
+    def _make_all_release_conditions_clear(self):
+        """
+        platform-sw#119: every one of (a)/(b)/(c) in the release-refusal gate
+        needs a believable 'nothing is in the way' baseline before a release
+        this file isn't specifically testing the refusal of can succeed - a
+        test only has to publish something DIFFERENT for the one condition
+        it actually targets.
+        """
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+
     def _release_now(self):
         """
-        Release the lock in tests that are not about startup readiness.
+        Release the lock in tests that are not about startup readiness or
+        the release-refusal gate itself.
 
         Backdates the node's own recorded start time so T_READY (platform-
-        sw#90 review, Alex, BLOCKER 2) has already elapsed, then calls
-        /safety/stop_lock_release. Tests whose actual subject is something
-        else (rearm, cmd_vel_stop, the post-mux gate while unlocked) use
-        this instead of calling the release service directly, so they stay
-        decoupled from T_READY's value - see
-        TestReleaseReadinessIsRelativeToStartup for the test that targets
-        T_READY itself.
+        sw#90 review, Alex, BLOCKER 2) has already elapsed, publishes the
+        'nothing is in the way' baseline every release condition (a)/(b)/(c)
+        needs (platform-sw#119), then calls /safety/stop_lock_release. Tests
+        whose actual subject is something else (cmd_vel_stop, the post-mux
+        gate while unlocked) use this instead of calling the release service
+        directly - see TestReleaseReadinessIsRelativeToStartup for T_READY
+        itself and TestReleaseBlocked* for the refusal conditions themselves.
         """
         self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._make_all_release_conditions_clear()
         return self._call_trigger('/safety/stop_lock_release')
 
 
@@ -241,13 +287,6 @@ class TestPostMuxGate(NodeTestCase):
     def test_cmd_vel_mux_is_forwarded_unchanged_while_unlocked(self):
         self._release_now()
         self.assertFalse(self.node._locked)
-        # Rearm first (platform-sw#90 review, Alex, BLOCKER 1): release alone
-        # does not resume pass-through - the mux output must have been zero
-        # at least once since release. Not what this test targets (that is
-        # TestReleaseRequiresRearmBeforeResumingMotion), so prime it here
-        # rather than asserting on it.
-        self._publish_mux(Twist())
-        self._spin_both(timeout_s=0.2)
 
         nonzero = Twist()
         nonzero.linear.x = 0.3
@@ -277,103 +316,272 @@ class TestPostMuxGate(NodeTestCase):
             self.assertEqual(msg, Twist())
 
 
-class TestReleaseRequiresRearmBeforeResumingMotion(NodeTestCase):
+class TestReleaseBlockedByActiveGoal(NodeTestCase):
     """
-    cmd_vel_gated after release (platform-sw#90 review, Alex, BLOCKER 1).
-
-    release_lock() only clears self._locked and republishes the Bool - it
-    does not touch _on_mux_output at all. The moment the lock clears, the
-    very next cmd_vel_mux message (whatever a still-active nav/dock stream
-    happens to be publishing) is forwarded unchanged, so pressing Resume can
-    resume the OLD goal's motion immediately, before the operator or
-    anything else cancelled it.
-
-    Expected fix: cmd_vel_gated keeps publishing zero after release until a
-    mux message is observed that is itself (0, 0) - only then does pass-
-    through resume. Cancelling the stale nav/dock goal is a separate,
-    UI/BT-contract concern (openamrobot-ui#50); this node's own job is to
-    not let release alone put nonzero motion on cmd_vel_gated.
+    platform-sw#119 release condition (a): every tracked action must report
+    no active goal, with fresh status.
     """
 
-    def setUp(self):
-        super().setUp()
-        # One persistent publisher per test, like a real nav/dock node would
-        # hold - not recreated per message. Creating and destroying a fresh
-        # DDS publisher for every publish (this file's usual _publish_mux
-        # helper, fine for a single publish) caused spurious phantom
-        # deliveries here once a second publish-after-release followed close
-        # behind the first: a pure DDS discovery-churn artifact of rapid
-        # publisher creation, confirmed by direct tracing, not a gate bug.
-        self._mux_pub = self.probe.create_publisher(Twist, 'cmd_vel_mux', 10)
-        deadline = time.monotonic() + 1.0
-        while self._mux_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
-            rclpy.spin_once(self.probe, timeout_sec=0.02)
-            rclpy.spin_once(self.node, timeout_sec=0.02)
-        self.assertGreater(
-            self._mux_pub.get_subscription_count(), 0,
-            'gate node never subscribed to cmd_vel_mux')
+    def test_release_refused_while_a_nav_goal_is_active(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._publish_goal_status('navigate_to_pose', [GoalStatus.STATUS_EXECUTING])
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('navigate_to_pose', result.message)
+        self.assertTrue(self.node._locked)
 
-    def tearDown(self):
-        self._mux_pub.destroy()
-        super().tearDown()
+    def test_release_refused_while_a_goal_is_cancelling(self):
+        # CANCELING, not yet terminal - the cancel was sent but not confirmed
+        # done, so this must block the same as EXECUTING does.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._publish_goal_status('dock_robot', [GoalStatus.STATUS_CANCELING])
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('dock_robot', result.message)
 
-    def test_release_does_not_forward_stale_nonzero_mux_output(self):
-        moving = Twist()
-        moving.linear.x = 0.2
-        # An active nav stream keeps publishing while locked - the mux still
-        # selects it (masked only at the gate, not at the mux), so this is
-        # the realistic "what's on cmd_vel_mux the instant release happens"
-        # state.
-        self._mux_pub.publish(moving)
+    def test_release_refused_while_an_actions_status_was_never_received(self):
+        # platform-sw#119: "stale or missing status means refused" - a status
+        # array we have never seen at all must not be treated as "probably
+        # fine." Every action but navigate_to_pose gets a clear status here.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for action in _CANCEL_ACTIONS:
+            if action != 'navigate_to_pose':
+                self._publish_goal_status(action, [])
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('navigate_to_pose', result.message)
+        self.assertIn('never received', result.message)
+
+    def test_release_refused_while_an_actions_status_has_gone_stale(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
         self._spin_both(timeout_s=0.1)
+        # The last sample said "clear," but it is old enough that it can no
+        # longer be trusted - backdate it past STATUS_FRESH_S rather than
+        # sleeping for real.
+        self.node._goal_status_at['undock_robot'] -= Duration(seconds=2.0)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('undock_robot', result.message)
+        self.assertIn('stale', result.message)
 
-        self._release_now()
+    def test_release_accepted_once_every_action_reports_clear(self):
+        result = self._release_now()
+        self.assertTrue(result.success)
         self.assertFalse(self.node._locked)
 
-        received = []
-        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
-        # The same stale nonzero value arrives again on cmd_vel_mux right
-        # after release - this is what a still-active, uncancelled nav
-        # stream would actually do (it publishes at its own rate,
-        # independent of the lock).
-        self._mux_pub.publish(moving)
+
+class TestReleaseBlockedByDockTrigger(NodeTestCase):
+    """
+    platform-sw#119 release condition (b): dock_trigger must not be
+    mid-sequence, with fresh status.
+    """
+
+    def test_release_refused_while_docking(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('docking')
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('dock_trigger', result.message)
+
+    def test_release_refused_while_undocking(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('undocking')
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('dock_trigger', result.message)
+
+    def test_release_accepted_while_resting_docked(self):
+        # 'docked' (successfully resting, not mid-sequence) must not block
+        # release - only the two actively-moving states above do. This is a
+        # judgment call on Alex's #119 wording ("dock_trigger reports idle"
+        # read literally would never release while docked at all) - flagged
+        # for Alex/Mohamed to confirm, not assumed silently.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('docked')
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success)
+
+    def test_release_refused_while_dock_status_was_never_received(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('dock_trigger', result.message)
+        self.assertIn('never received', result.message)
+
+
+class TestReleaseBlockedByCmdVelInputs(NodeTestCase):
+    """
+    platform-sw#119 release condition (c): cmd_vel_nav/dock/joy must each be
+    zero or silent past their own timeout.
+    """
+
+    def test_release_refused_while_cmd_vel_nav_is_fresh_and_nonzero(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        nonzero = Twist()
+        nonzero.linear.x = 0.2
+        self._publish_to_gate(Twist, 'cmd_vel_nav', nonzero)
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('cmd_vel_nav', result.message)
+
+    def test_manual_zero_does_not_substitute_for_an_active_nav_goal(self):
+        # platform-sw#119's exact finding: a manual zero on cmd_vel_joy must
+        # not rearm/release while an old nav goal is still active - the two
+        # are independent conditions, (a) and (c), both required.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        self._publish_goal_status('navigate_to_pose', [GoalStatus.STATUS_EXECUTING])
+        self._publish_to_gate(Twist, 'cmd_vel_joy', Twist())
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('navigate_to_pose', result.message)
+
+    def test_release_accepted_once_a_nonzero_input_goes_silent_past_its_own_timeout(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        nonzero = Twist()
+        nonzero.linear.x = 0.2
+        self._publish_to_gate(Twist, 'cmd_vel_dock', nonzero)
+        self._spin_both(timeout_s=0.1)
+        # cmd_vel_dock's own twist_mux.yaml timeout is 0.3s - backdate the
+        # gate's recorded receive time rather than a real sleep.
+        self.node._cmd_vel_last_at['cmd_vel_dock'] -= Duration(
+            seconds=_CMD_VEL_INPUT_TIMEOUTS['cmd_vel_dock'] + 0.1)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success)
+
+    def test_release_accepted_when_an_input_was_never_received_at_all(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        # no cmd_vel_* publish at all - never-received counts as silent by
+        # definition, not as unknown (unlike the action/dock statuses above).
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success)
+
+
+class TestEngageCancelsGoalsAndAbortsDocking(NodeTestCase):
+    """platform-sw#119: engage must actively cancel, not just mask cmd_vel_gated downstream."""
+
+    def _serve_cancel_goal(self, action):
+        calls = []
+
+        def _cb(request, response):
+            calls.append(request)
+            response.return_code = 0
+            return response
+
+        self.probe.create_service(CancelGoal, f'{action}/_action/cancel_goal', _cb)
+        return calls
+
+    def test_engage_calls_cancel_goal_on_every_tracked_action(self):
+        calls = {action: self._serve_cancel_goal(action) for action in _CANCEL_ACTIONS}
+        self._spin_both(timeout_s=0.5)  # let the gate's clients discover the fake servers
+        self._call_trigger('/safety/stop_lock_engage')
         self._spin_both(timeout_s=0.3)
-
-        self.assertTrue(received, 'expected at least the tick-driven zero')
-        for msg in received:
+        for action, received in calls.items():
+            self.assertTrue(received, f'{action} cancel_goal was never called')
             self.assertEqual(
-                msg, Twist(),
-                'nonzero motion reached cmd_vel_gated on the first mux '
-                'message after release, before any (0,0) was observed - '
-                "Resume must not by itself resume a stale goal's motion "
-                '(platform-sw#90 review, Alex, BLOCKER 1)')
+                received[0].goal_info, GoalInfo(),
+                f'{action} cancel_goal was not a zero-id, zero-stamp cancel-all request')
 
-    def test_release_forwards_again_once_mux_output_is_actually_zero(self):
-        moving = Twist()
-        moving.linear.x = 0.2
-        self._mux_pub.publish(moving)
-        self._spin_both(timeout_s=0.1)
+    def test_cancellation_repeats_on_a_later_tick_while_still_locked(self):
+        calls = {action: self._serve_cancel_goal(action) for action in _CANCEL_ACTIONS}
+        self._spin_both(timeout_s=0.5)
+        before = {a: len(c) for a, c in calls.items()}
+        self._spin_both(timeout_s=0.5)
+        for action, received in calls.items():
+            self.assertGreater(
+                len(received), before[action],
+                f'{action} was not re-cancelled on a later tick while still locked '
+                '(platform-sw#119 test 6: a goal sent during the stop must be cancelled too)')
 
-        self._release_now()
+    def test_dock_trigger_abort_is_called_on_engage(self):
+        calls = []
 
-        # The source actually goes to zero (e.g. the goal was cancelled, or
-        # cmd_vel_nav's own timeout expired) - a zero mux message should
-        # reset the rearm latch.
-        self._mux_pub.publish(Twist())
-        self._spin_both(timeout_s=0.1)
+        def _cb(request, response):
+            calls.append(request)
+            response.success = True
+            response.message = ''
+            return response
 
+        self.probe.create_service(Trigger, '/dock_trigger/abort', _cb)
+        self._spin_both(timeout_s=0.5)
+        self._call_trigger('/safety/stop_lock_engage')
+        self._spin_both(timeout_s=0.3)
+        self.assertTrue(calls, 'dock_trigger ~/abort was never called')
+
+
+class TestStopStatePublishing(NodeTestCase):
+    """/safety/stop_state (platform-sw#119, interfaces#35)."""
+
+    def _latest_state(self, timeout_s=0.5):
         received = []
-        self.probe.create_subscription(Twist, 'cmd_vel_gated', received.append, 10)
-        self._mux_pub.publish(moving)
-        deadline = time.monotonic() + 1.0
-        while not received and time.monotonic() < deadline:
-            rclpy.spin_once(self.probe, timeout_sec=0.02)
-            rclpy.spin_once(self.node, timeout_sec=0.02)
-        self.assertTrue(received, 'cmd_vel_mux message never reached cmd_vel_gated')
-        self.assertEqual(
-            received[-1], moving,
-            'once the mux output has actually been zero since release, a '
-            'fresh command must forward normally')
+        self.probe.create_subscription(StopState, '/safety/stop_state', received.append, 10)
+        self._spin_both(timeout_s=timeout_s)
+        self.assertTrue(received, 'no /safety/stop_state message received')
+        return received[-1]
+
+    def test_locked_by_default(self):
+        state = self._latest_state()
+        self.assertEqual(state.state, StopState.STATE_LOCKED)
+
+    def test_running_once_released(self):
+        self._release_now()
+        state = self._latest_state()
+        self.assertEqual(state.state, StopState.STATE_RUNNING)
+
+    def test_release_refused_reports_a_reason(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        # deliberately leave every condition unclear - nothing published.
+        self._call_trigger('/safety/stop_lock_release')
+        state = self._latest_state()
+        self.assertEqual(state.state, StopState.STATE_RELEASE_REFUSED)
+        self.assertTrue(state.reason)
+
+    def test_refusal_reason_persists_across_ticks_until_the_next_accepted_release(self):
+        # A UI that reloads mid-refusal must still see why, not just whoever
+        # happened to be listening at the moment of the refused call.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._call_trigger('/safety/stop_lock_release')  # refused
+        state1 = self._latest_state()
+        self.assertEqual(state1.state, StopState.STATE_RELEASE_REFUSED)
+        state2 = self._latest_state()
+        self.assertEqual(state2.state, StopState.STATE_RELEASE_REFUSED)
+        self.assertEqual(state2.reason, state1.reason)
+
+    def test_refusal_clears_on_a_fresh_engage(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._call_trigger('/safety/stop_lock_release')  # refused
+        self.assertEqual(self._latest_state().state, StopState.STATE_RELEASE_REFUSED)
+        self._call_trigger('/safety/stop_lock_engage')
+        state = self._latest_state()
+        self.assertEqual(state.state, StopState.STATE_LOCKED)
+        self.assertEqual(state.reason, '')
 
 
 class TestReleaseReadinessIsRelativeToStartup(NodeTestCase):
