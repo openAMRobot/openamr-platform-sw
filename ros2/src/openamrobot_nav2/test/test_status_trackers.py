@@ -168,16 +168,6 @@ class TestRecoveryTracker(unittest.TestCase):
         self.assertEqual(tracker.attempt, 0)
         self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
 
-    def test_real_nav2_costmap_clear_node_names_are_counted(self):
-        # the default Nav2 BT uses these exact names, not the single
-        # 'ClearEntireCostmap' name this used to only match
-        for name in ('ClearLocalCostmap-Context', 'ClearGlobalCostmap-Context',
-                     'ClearLocalCostmap-Subtree', 'ClearGlobalCostmap-Subtree'):
-            tracker = RecoveryTracker(6)
-            tracker.on_bt_event(name, 'RUNNING')
-            self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP, name)
-            self.assertEqual(tracker.attempt, 1, name)
-
     def test_an_unrelated_clear_prefixed_node_is_not_counted(self):
         # the match is the four exact costmap-clear names, not a "Clear"
         # prefix - a differently-named node that happens to start the same
@@ -187,12 +177,39 @@ class TestRecoveryTracker(unittest.TestCase):
         self.assertEqual(tracker.attempt, 0)
         self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
 
-    def test_a_costmap_clear_finishing_returns_to_no_action(self):
+    def test_the_subtree_clear_pair_counts_as_one_outer_cycle(self):
+        # platform-sw#91, Mohamed, Option A: the real Jazzy BT's "ClearingActions"
+        # is one RoundRobin pick containing two sequential leaves
+        # (ClearLocalCostmap-Subtree then ClearGlobalCostmap-Subtree) - that
+        # is one outer recovery cycle, not two.
         tracker = RecoveryTracker(6)
-        tracker.on_bt_event('ClearLocalCostmap-Context', 'RUNNING')
-        tracker.on_bt_event('ClearLocalCostmap-Context', 'SUCCESS')
+        tracker.on_bt_event('ClearLocalCostmap-Subtree', 'RUNNING')
+        self.assertEqual(tracker.attempt, 1)
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP)
+        tracker.on_bt_event('ClearLocalCostmap-Subtree', 'SUCCESS')
         self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
-        self.assertEqual(tracker.attempt, 1)  # the attempt itself still counted
+
+        tracker.on_bt_event('ClearGlobalCostmap-Subtree', 'RUNNING')
+        self.assertEqual(tracker.attempt, 1, 'the pair must not count as a second attempt')
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP)
+        tracker.on_bt_event('ClearGlobalCostmap-Subtree', 'SUCCESS')
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
+        self.assertEqual(tracker.attempt, 1)
+
+    def test_the_context_clear_pair_is_inline_and_never_counted(self):
+        # platform-sw#91, Mohamed: ClearLocalCostmap-Context/ClearGlobalCostmap-
+        # Context run inside ComputePathToPose's/FollowPath's own one-retry
+        # RecoveryNode, inline with the primary - they are not an outer
+        # recovery cycle at all and must not add to the displayed attempt,
+        # even though they still show up as the currently-running action.
+        tracker = RecoveryTracker(6)
+        for name in ('ClearLocalCostmap-Context', 'ClearGlobalCostmap-Context'):
+            tracker.on_bt_event(name, 'RUNNING')
+            self.assertEqual(tracker.action, RecoveryStatus.ACTION_CLEAR_COSTMAP, name)
+            self.assertEqual(tracker.attempt, 0, name)
+            tracker.on_bt_event(name, 'SUCCESS')
+            self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE, name)
+            self.assertEqual(tracker.attempt, 0, name)
 
     def test_count_starts_over_with_a_new_goal(self):
         tracker = RecoveryTracker(6)
@@ -204,16 +221,141 @@ class TestRecoveryTracker(unittest.TestCase):
         self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
         self.assertEqual(tracker.reason, NavigationStatus.NONE)
 
-    def test_limit_comes_from_configuration(self):
-        tracker = RecoveryTracker(2)
-        tracker.on_bt_event('Spin', 'RUNNING')
-        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
-        tracker.on_bt_event('Spin', 'RUNNING')
-        self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
-
     def test_limit_is_kept_in_a_sane_range(self):
         self.assertEqual(RecoveryTracker(0).attempt_limit, 1)
         self.assertEqual(RecoveryTracker(1000).attempt_limit, 255)
+
+
+class TestRecoveryTrackerExhaustion(unittest.TestCase):
+    """
+    Covers platform-sw#91, Mohamed's review.
+
+    Readiness is a separate decision from the displayed attempt count.
+    RECOVERY_LIMIT_REACHED no longer comes from attempt >= attempt_limit (a
+    diagnostic leaf-action counter that both overcounts paired clears and
+    undercounts nothing, but was never actually tracking Nav2's own retry
+    budget). It comes from counting how many times NavigateWithReplanning
+    (the primary) itself has failed: per Jazzy's recovery_node.cpp, the
+    primary is ticked number_of_retries + 1 times before RecoveryNode gives
+    up, so reaching that count on its own FAILURE is exhaustion; failing
+    short of it means the recovery branch (or an earlier diagnostic check)
+    cut this goal's attempt short instead - a different, lesser outcome.
+    """
+
+    def _fail_primary(self, tracker, times):
+        for _ in range(times):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
+
+    def test_primary_exhausting_its_retries_reaches_the_limit(self):
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 7)  # number_of_retries + 1
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_an_early_recovery_branch_failure_is_not_the_limit(self):
+        # Real capture (platform-sw#91): an unreachable goal makes the
+        # diagnostic Fallback (WouldAControllerRecoveryHelp /
+        # WouldAPlannerRecoveryHelp) fail immediately, so NavigateRecovery
+        # itself FAILUREs on the very FIRST primary failure - zero retries
+        # consumed. RecoveryFallback (the ReactiveFallback one level further
+        # in) never even ran in that capture, which is exactly why this no
+        # longer tries to identify which named node on the recovery side
+        # failed.
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 1)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_mid_budget_recovery_branch_failure_is_not_the_limit(self):
+        # Same outcome as the early case above, but after a few successful
+        # retries first - still short of the budget when it gives up.
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 3)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_the_primary_succeeding_after_the_last_recovery_is_not_the_limit(self):
+        # Mohamed: "Nav2 runs the primary once more after the sixth
+        # successful recovery" - if THAT attempt succeeds, NavigateRecovery
+        # returns SUCCESS, not FAILURE, and must never have been flagged.
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 6)
+        tracker.on_bt_event('NavigateWithReplanning', 'SUCCESS')
+        tracker.on_bt_event('NavigateRecovery', 'SUCCESS')
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_navigate_recovery_success_clears_a_previous_exhaustion_flag(self):
+        # not sticky forever within a goal - a SUCCESS on NavigateRecovery
+        # itself always clears it, whatever happened on an earlier cycle.
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 7)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+        tracker.on_new_goal()
+        self._fail_primary(tracker, 1)
+        tracker.on_bt_event('NavigateWithReplanning', 'SUCCESS')
+        tracker.on_bt_event('NavigateRecovery', 'SUCCESS')
+        self.assertEqual(tracker.reason, NavigationStatus.NONE)
+
+    def test_a_late_event_timestamped_before_the_goal_started_is_ignored(self):
+        # platform-sw#91, Mohamed: "isolate events at goal boundaries" - the
+        # node UID identifies a BT tree position, not a goal, so a stale
+        # event from the PREVIOUS goal that arrives after on_new_goal() must
+        # not be allowed to set this goal's exhaustion flag. Judged by the
+        # event's own embedded timestamp, not arrival order.
+        tracker = RecoveryTracker(6)
+        tracker.on_new_goal(now_s=100.0)
+        for _ in range(7):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=50.0)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=50.0)
+        self.assertEqual(
+            tracker.reason, NavigationStatus.NONE,
+            'an event timestamped before this goal started must be ignored')
+
+    def test_an_event_timestamped_after_the_goal_started_is_not_ignored(self):
+        tracker = RecoveryTracker(6)
+        tracker.on_new_goal(now_s=100.0)
+        for _ in range(7):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=100.5)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=100.5)
+        self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_real_captured_unreachable_goal_sequence_is_not_the_limit(self):
+        """
+        Replay a real captured Jazzy /behavior_tree_log.
+
+        Captured for an out-of-map goal (platform-sw#91), node_name/status
+        pairs only. NavigateRecovery fails here with zero retries consumed
+        - the diagnostic Fallback decided no recovery would help before
+        RecoveryFallback ever ran. The event list is the real capture
+        verbatim (irrelevant IDLE transitions included), confirming the
+        fix against real Nav2/Jazzy behavior, not just a hand-written
+        scenario.
+        """
+        tracker = RecoveryTracker(6)
+        real_capture = [
+            ('ComputePathToPose', 'FAILURE'), ('ComputePathToPose', 'IDLE'),
+            ('Sequence', 'RUNNING'),
+            ('WouldAPlannerRecoveryHelp', 'FAILURE'), ('WouldAPlannerRecoveryHelp', 'IDLE'),
+            ('Sequence', 'FAILURE'), ('Sequence', 'IDLE'),
+            ('ComputePathToPose', 'IDLE'), ('ComputePathToPose', 'FAILURE'),
+            ('RateController', 'FAILURE'), ('ComputePathToPose', 'IDLE'),
+            ('ControllerSelector', 'IDLE'), ('PlannerSelector', 'IDLE'),
+            ('RateController', 'IDLE'),
+            ('NavigateWithReplanning', 'FAILURE'), ('NavigateWithReplanning', 'IDLE'),
+            ('Sequence', 'RUNNING'), ('Fallback', 'RUNNING'),
+            ('WouldAControllerRecoveryHelp', 'FAILURE'),
+            ('WouldAPlannerRecoveryHelp', 'FAILURE'),
+            ('WouldAControllerRecoveryHelp', 'IDLE'), ('WouldAPlannerRecoveryHelp', 'IDLE'),
+            ('Fallback', 'FAILURE'), ('Fallback', 'IDLE'),
+            ('Sequence', 'FAILURE'), ('Sequence', 'IDLE'),
+            ('NavigateRecovery', 'IDLE'), ('NavigateRecovery', 'FAILURE'),
+        ]
+        for node_name, status in real_capture:
+            tracker.on_bt_event(node_name, status)
+        self.assertNotEqual(
+            tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
+            'a single-shot "no recovery would help" bailout is not retry exhaustion')
 
 
 class FakeResultClient:

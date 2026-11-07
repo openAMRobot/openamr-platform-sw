@@ -17,22 +17,38 @@ velocity_smoother:
   scale_velocities: False
   max_velocity: [0.20, 0.0, 0.5]     # [vx, vy, vθ]
   min_velocity: [-0.20, 0.0, -0.5]
-  max_accel:   [0.5, 0.0, 0.5]
-  max_decel:   [-2.5, 0.0, -2.0]
-  velocity_timeout: 1.0
+  max_accel:   [1.0, 0.0, 3.0]
+  max_decel:   [-2.5, 0.0, -3.0]
+  velocity_timeout: 0.3
 ```
 
 - The limits are pinned to the **same** approved real-robot limits as the DWB controller
-  (`max_vel_x: 0.20`, `max_vel_theta: 0.5`, `acc_lim_*: 0.5`, `decel_lim_x: -2.5`,
-  `decel_lim_theta: -2.0`). Keeping them identical means the smoother never fights the controller
-  — it enforces the ceiling, it doesn't reshape valid commands.
+  (`max_vel_x: 0.20`, `max_vel_theta: 0.5`, `acc_lim_x: 1.0`, `acc_lim_theta: 3.0`,
+  `decel_lim_x: -2.5`, `decel_lim_theta: -3.0` — raised from the original 0.5/0.5/-2.5/-2.0 to fix
+  a stiction deadlock; see `nav2_params.yaml`'s own comments). Keeping them identical means the
+  smoother never fights the controller — it enforces the ceiling, it doesn't reshape valid
+  commands.
 - **`feedback: "OPEN_LOOP"`** — the smoother clamps *commands* using its own model, not measured
   wheel speed. It is a limiter, not a closed-loop safety device (see the gap in
   [`00_safety_overview.md`](00_safety_overview.md) §4).
-- **`velocity_timeout: 1.0`** — if commands stop arriving for 1 s the smoother ramps output to
-  zero rather than latching the last command. This is a *software* stop-on-silence; the firmware
-  watchdog (§2) is the independent backstop underneath it.
+- **`velocity_timeout: 0.3`** (platform-sw#90, Alex's review: was `1.0`, which let a stopped
+  publisher keep driving for up to a full second) — if commands stop arriving for 0.3 s the
+  smoother stops outputting the stale command rather than latching it indefinitely. This is a
+  *software* stop-on-silence; the firmware watchdog (§2) is the independent backstop underneath it.
+  0.3 s matches the software_stop lock's own timeout (`twist_mux.yaml` `locks.software_stop`), so
+  the smoother is not the longest link in the functional-stop chain. See
+  `test_velocity_smoother_publisher_loss_distance.py` for the measured distance bound after a lost
+  publisher.
 
+- **Stop-lock gate (#35, platform-sw#90)** — The gate is a functional stop path for the twist_mux software_stop lock.
+  - Engage: one zero is actively published on `cmd_vel_gated` and `cmd_vel_stop` on engage and at start-up. [platform-sw#119, Alex's Option B decision, 5 Nov 2026] Engage also actively cancels every goal on `navigate_to_pose`, `navigate_through_poses`, `dock_robot` and `undock_robot`, and calls `dock_trigger`'s `~/abort` service — repeated every tick while locked, not just once on engage, so a goal sent *during* the stop is cancelled too.
+  - Release: refused for the first T_READY (1.0 s) of this node's own elapsed uptime (the service returns `success=false` with a message) — clock-agnostic, so it applies identically whether the node runs on wall-clock or simulated time. See the frozen simulated-clock limitation below for a distinct simulation-only caveat. [platform-sw#119] Past T_READY, release is then refused outright, with a reason, until: none of the four actions above reports an active goal, and each has reported some status with its `cancel_goal` service currently reachable; `dock_trigger`'s own status is not `docking`/`undocking`, and has reported some status with its `~/abort` service currently reachable; and `cmd_vel_nav`/`cmd_vel_dock`/`cmd_vel_joy` — read directly, not via the mux — are each zero or silent past their own `twist_mux.yaml` timeout. This replaces the earlier Twist-shape rearm latch, which could deadlock forever on a source that went silent without a final zero — see #119 for the failure this closes and `safety_stop_gate_node.py`'s own module docstring for the full design.
+  - Known residual gap (#122, open, not yet fixed): the service-reachability check above proves a `cancel_goal`/`~/abort` endpoint exists, not that the specific cancel it sent was accepted — a rejected cancel against an already-"clear" status is currently invisible to it. A cold-booted system that has never had a single goal may also never positively confirm "no goals exist," since ROS 2 action status publishes only on a transition, not as a heartbeat. Tracked for a Stop contract owner decision, same process as #119's own.
+  - If the gate is lost: `cmd_vel_gated` goes silent, then `velocity_smoother` stops after 0.3 s, and the firmware watchdog (§2, about 200 ms) acts as the backstop.
+  - Frozen simulated clock: a simulation-only limitation where the tick does not fire, leaving only the engage-time zero and `_on_mux_output` to produce output.
+  - Docking on real hardware: the legacy `opennav_docking::SimpleChargingDock` fallback path still publishes directly, bypassing `twist_mux` and this gate entirely — Stop (software) does not cover a real-hardware docking approach driven through that path. `dock_trigger.py`'s own camera-centric sequence is unaffected (it is routed through `cmd_vel_dock` and this gate). Tracked in #117.
+
+  
 ---
 
 ## 2. Firmware `/cmd_vel` watchdog (~200 ms)

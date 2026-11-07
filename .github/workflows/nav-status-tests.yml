@@ -18,8 +18,16 @@ permissions:
 env:
   # openamrobot-interfaces revision the producer is built and tested against.
   # Change it on purpose when openamr_nav_msgs changes.
-  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
-  INTERFACES_REF: 77950470a87f1f5815346b2f000a662ee8c56f94
+  #
+  # Temporarily pinned to the fork/branch backing openamrobot-interfaces#35,
+  # not upstream main (platform-sw#90, Mohamed's review): this PR's
+  # safety_stop_gate_node.py imports StopState from that still-open PR, and
+  # upstream main's openamr_nav_msgs does not have it yet, so CI would fail
+  # at collection against main. Revert INTERFACES_REPO to
+  # openAMRobot/openamrobot-interfaces and INTERFACES_REF to a main commit
+  # (dropping this note) once interfaces#35 merges.
+  INTERFACES_REPO: skunal3318/openamrobot-interfaces
+  INTERFACES_REF: cb83b228b2e01dd795bde729d0097869ee18c9a6
 
 jobs:
   producer-tests:
@@ -44,7 +52,9 @@ jobs:
             python3-pytest \
             python3-yaml \
             ros-jazzy-nav2-msgs \
-            ros-jazzy-tf2-ros-py
+            ros-jazzy-tf2-ros-py \
+            ros-jazzy-twist-mux \
+            ros-jazzy-nav2-velocity-smoother
 
       - name: Build openamr_nav_msgs and the producer
         shell: bash
@@ -57,11 +67,15 @@ jobs:
           colcon build --packages-select openamr_nav_msgs openamrobot_nav2
 
       # OPENAMR_REQUIRE_INTERFACES turns a missing openamr_nav_msgs into a
-      # failure instead of a skipped suite.
+      # failure instead of a skipped suite. OPENAMR_REQUIRE_TWIST_MUX does
+      # the same for twist_mux/nav2_velocity_smoother (platform-sw#90, Alex's
+      # review) - both are apt-installed above, so a skip here would hide a
+      # broken install step behind a passing job.
       - name: Run the producer tests
         shell: bash
         env:
           OPENAMR_REQUIRE_INTERFACES: '1'
+          OPENAMR_REQUIRE_TWIST_MUX: '1'
         run: |
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
@@ -70,4 +84,28 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_status_trackers.py \
             ros2/src/openamrobot_nav2/test/test_status_rules.py \
             ros2/src/openamrobot_nav2/test/test_navigation_status_node.py \
-            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py \
+            ros2/src/openamrobot_nav2/test/test_safety_stop_gate_node.py \
+            ros2/src/openamrobot_nav2/test/test_ui_cmd_vel_relay_node.py \
+            ros2/src/openamrobot_nav2/test/test_twist_mux_startup_and_restart.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_velocity_smoother_routing.py \
+            ros2/src/openamrobot_nav2/test/test_velocity_smoother_publisher_loss_distance.py \
+            ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py \
+            ros2/src/openamrobot_nav2/test/test_sim_clock_readiness_full_chain.py \
+            ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py
+
+      # tools/issue35_arbitration/stop_lock_invariants.py (platform-sw#90, Alex's
+      # review): the graph-shape invariant the Python tests above cannot check
+      # from inside a single node (no publisher ACL in ROS) - that
+      # safety_stop_gate_node is the ONLY publisher on its lock/stop-channel
+      # topics and the only server on its release/engage services. Only needs
+      # the gate itself running, not twist_mux or a sim.
+      - name: Run stop_lock_invariants.py against a live gate
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          ros2 run openamrobot_nav2 safety_stop_gate_node &
+          gate_pid=$!
+          trap 'kill -9 "$gate_pid" 2>/dev/null' EXIT
+          python3 tools/issue35_arbitration/stop_lock_invariants.py

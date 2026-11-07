@@ -34,4 +34,12 @@ install(DIRECTORY launch config docs models media
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_dock_trigger_cancel
+    test/test_dock_trigger_cancel.py
+    TIMEOUT 60
+  )
+endif()
+
 ament_package()
