@@ -66,18 +66,20 @@ requires_mux = pytest.mark.skipif(
     not _twist_mux_available(),
     reason='needs the real ros2 CLI AND the twist_mux package installed [#35]')
 
-from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402,I100
+from action_msgs.msg import GoalStatusArray  # noqa: E402,I100
+from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402
 
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 
-from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode  # noqa: E402
+from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
+    _CANCEL_ACTIONS, SafetyStopGateNode)
 
 from rclpy.parameter import Parameter  # noqa: E402
 from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
 
 from rosgraph_msgs.msg import Clock  # noqa: E402
 
-from std_msgs.msg import Bool  # noqa: E402
+from std_msgs.msg import Bool, String  # noqa: E402
 
 from std_srvs.srv import Trigger  # noqa: E402
 
@@ -255,7 +257,30 @@ class SimClockChainCase(unittest.TestCase):
             self._clock.seconds(), target_sim_seconds,
             'the simulated clock did not reach the target in time')
 
+    def _make_release_conditions_clear(self):
+        """
+        platform-sw#119: publish the 'nothing is in the way' baseline every
+        release condition (a)/(b)/(c) needs, so this file's existing tests
+        (about sim-clock/mux routing, not the refusal gate itself) keep
+        working. T_READY is checked before these in _on_release, so this
+        never masks the two tests in this file that deliberately stay under
+        T_READY and expect refusal regardless.
+        """
+        for action in _CANCEL_ACTIONS:
+            pub = self.probe.create_publisher(
+                GoalStatusArray, f'{action}/_action/status', 10)
+            self._wait_for_subscriber(pub, f'{action}/_action/status')
+            pub.publish(GoalStatusArray())
+            pub.destroy()
+        dock_pub = self.probe.create_publisher(String, 'dock_trigger_status', 10)
+        self._wait_for_subscriber(dock_pub, 'dock_trigger_status')
+        dock_pub.publish(String(data='idle'))
+        dock_pub.destroy()
+        self._run_once()
+
     def _trigger(self, service_name):
+        if service_name == _RELEASE:
+            self._make_release_conditions_clear()
         client = self.probe.create_client(Trigger, service_name)
         self.assertTrue(
             client.wait_for_service(timeout_sec=3.0), f'{service_name} never came up')
@@ -276,19 +301,19 @@ class SimClockChainCase(unittest.TestCase):
 
     def _rearm_after_release(self):
         """
-        Satisfy the rearm latch after release, before expecting forwarding.
+        No-op since platform-sw#119 removed the rearm latch entirely.
 
-        platform-sw#90 review (Alex, BLOCKER 1): release_lock() alone must
-        not let stale motion resume - cmd_vel_gated holds zero until the mux
-        output has itself been zero at least once. Publishes directly onto
-        cmd_vel_mux (bypassing the real mux, the same synthetic injection
-        row 4a already uses) since satisfying the latch is setup here, not
-        the subject under test - that is test_safety_stop_gate_node.py's own
-        TestReleaseRequiresRearmBeforeResumingMotion.
+        Kept as a no-op stub, call sites unchanged, rather than touching
+        every call site individually: release_lock() alone is now enough for
+        cmd_vel_gated to resume forwarding - there is nothing left to prime.
+        The actual release-refusal gate this PR replaced it with (whether
+        the SERVICE accepts a release at all) is tested at the node level in
+        test_safety_stop_gate_node.py's TestReleaseBlocked* classes, not
+        here; the tests below call release_lock() directly, bypassing that
+        gate, since real-mux routing under a simulated clock is what they
+        target.
         """
-        self._wait_for_subscriber(self._mux_pub, 'cmd_vel_mux (rearm)')
-        self._mux_pub.publish(Twist())
-        self._run_once()
+        return
 
     def _start_mux(self):
         self._mux_proc = _start_mux_with_sim_time()
@@ -386,7 +411,14 @@ class TestReadyReleaseForwards(SimClockChainCase):
 
     def _release_when_ready_and_wait_for_forward(self, nav=False, dock=False):
         self._start_mux()
-        self._ramp_until(READY_CLOCK_S, nav=nav, dock=dock)
+        # platform-sw#119: no nav/dock traffic during the ramp - the gate now
+        # reads cmd_vel_nav/cmd_vel_dock directly (release condition c) and
+        # refuses release while either is fresh and nonzero, same as it
+        # should for a real, uncancelled source. Nothing was actually
+        # commanding motion before this release in the real scenario either;
+        # the nav/dock stream below only starts AFTER release succeeds, to
+        # prove a fresh command is forwarded once unlocked.
+        self._ramp_until(READY_CLOCK_S)
         self._assert_mux_alive_and_discoverable()
         self.assertGreaterEqual(self._clock.seconds(), T_READY_S)
         self.assertEqual(
@@ -452,7 +484,9 @@ class TestEngageAndRestartsWithClockRunning(SimClockChainCase):
 
     def _forwarding_established(self):
         self._start_mux()
-        self._ramp_until(READY_CLOCK_S, nav=True)
+        # platform-sw#119: no nav traffic during the ramp - see the identical
+        # comment on _release_when_ready_and_wait_for_forward above.
+        self._ramp_until(READY_CLOCK_S)
         response = self._trigger(_RELEASE)
         self.assertTrue(response.success, response.message)
         self._rearm_after_release()
@@ -464,6 +498,11 @@ class TestEngageAndRestartsWithClockRunning(SimClockChainCase):
             'after release, so the stop checks below would prove nothing')
 
     def _release_and_expect_forwarding(self):
+        # platform-sw#119: the caller (test_3b_gate_restart...) was just
+        # streaming nav traffic while locked via _assert_stays_stopped - let
+        # cmd_vel_nav's own 0.5s timeout actually lapse before release, same
+        # reasoning as the no-nav-during-ramp comments above.
+        self._run(0.9, sim_per_tick=SIM_PER_TICK_S)
         response = self._trigger(_RELEASE)
         self.assertTrue(response.success, response.message)
         self._rearm_after_release()
