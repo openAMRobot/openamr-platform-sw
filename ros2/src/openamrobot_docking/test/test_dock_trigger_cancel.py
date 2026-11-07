@@ -31,6 +31,7 @@ import pytest
 rclpy = pytest.importorskip('rclpy')  # tracking: platform item 4
 
 from std_msgs.msg import Bool  # noqa: E402,I100
+from std_srvs.srv import Trigger  # noqa: E402,I100
 
 _DOCK_TRIGGER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -89,6 +90,24 @@ class NodeTestCase(unittest.TestCase):
             'dock_trigger never subscribed to /safety/stop_lock')
         pub.publish(Bool(data=engaged))
         pub.destroy()
+
+    def _call_abort(self):
+        # platform-sw#119: the gate calls this directly - test the same way,
+        # not through the /safety/stop_lock subscription.
+        cli = self.probe.create_client(Trigger, '/dock_trigger/abort')
+        deadline = time.monotonic() + 2.0
+        while not cli.service_is_ready() and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertTrue(cli.service_is_ready(), 'dock_trigger never served ~/abort')
+        future = cli.call_async(Trigger.Request())
+        deadline = time.monotonic() + 2.0
+        while not future.done() and time.monotonic() < deadline:
+            rclpy.spin_once(self.probe, timeout_sec=0.02)
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+        self.assertTrue(future.done(), 'abort call never completed')
+        cli.destroy()
+        return future.result()
 
 
 class TestCancelFlagLifecycle(NodeTestCase):
@@ -165,6 +184,34 @@ class TestCancelFlagResetsOnNewTrigger(NodeTestCase):
             getattr(self.node, '_cancel_requested', True),
             'on_undock must reset a stale cancel flag before starting a '
             'new sequence')
+
+
+class TestAbortService(NodeTestCase):
+
+    def test_abort_sets_the_cancel_flag_while_busy(self):
+        self.node.busy = True
+        result = self._call_abort()
+        self.assertTrue(result.success)
+        self.assertTrue(
+            getattr(self.node, '_cancel_requested', False),
+            '~/abort must set the same cancel flag the loops check, same as '
+            'the /safety/stop_lock subscription (platform-sw#119)')
+
+    def test_abort_succeeds_as_a_no_op_while_idle(self):
+        # The gate calls this on every tick while locked (#119), including
+        # when no sequence is running at all - must not error.
+        self.assertFalse(self.node.busy)
+        result = self._call_abort()
+        self.assertTrue(result.success)
+
+    def test_repeated_abort_calls_while_locked_stay_harmless(self):
+        # #119: "repeated on each tick while locked" - idempotent, no error
+        # on repetition, flag stays set.
+        self.node.busy = True
+        for _ in range(3):
+            result = self._call_abort()
+            self.assertTrue(result.success)
+        self.assertTrue(getattr(self.node, '_cancel_requested', False))
 
 
 if __name__ == '__main__':

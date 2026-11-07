@@ -53,7 +53,7 @@ from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
 
 from std_msgs.msg import Bool, String, Float32
-from std_srvs.srv import SetBool, Empty
+from std_srvs.srv import SetBool, Empty, Trigger
 from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import Point, PoseStamped, Twist
 from sensor_msgs.msg import LaserScan
@@ -597,6 +597,14 @@ class DockTrigger(Node):
             Bool, '/safety/stop_lock', self._on_stop_lock, 10,
             callback_group=self.cb_group,
         )
+        # platform-sw#119 (Alex's Option B decision): the gate drives cancellation
+        # directly through this service, called on engage and repeated every tick
+        # while locked - the /safety/stop_lock subscription above stays as a second,
+        # redundant path (belt-and-suspenders), not the primary mechanism anymore.
+        self.create_service(
+            Trigger, '~/abort', self._on_abort,
+            callback_group=self.cb_group,
+        )
         self.create_subscription(
             PoseStamped, self.goal_pose_topic, self.on_goal_pose, 10,
             callback_group=self.cb_group,
@@ -625,6 +633,25 @@ class DockTrigger(Node):
     def _on_stop_lock(self, msg: Bool) -> None:
         if msg.data and self.busy:
             self._cancel_requested = True
+
+    def _on_abort(self, request, response):
+        """
+        platform-sw#119: the gate's engage path calls this directly instead of
+        relying solely on the /safety/stop_lock subscription's timing.
+
+        Sets the same cancel flag every blocking loop already checks and returns
+        immediately - it does not wait for the sequence thread to actually unwind
+        (that can take a tick or more). dock_trigger_status is what confirms the
+        sequence has actually reached idle/failed; the gate's own release
+        condition (b) polls that, not this call's return value. A no-op (still
+        succeeds) when nothing is running - safe to call on every tick while
+        locked regardless of whether a sequence is active.
+        """
+        del request  # Trigger has no request fields
+        self._cancel_requested = True
+        response.success = True
+        response.message = 'cancel requested' if self.busy else 'idle, nothing to abort'
+        return response
 
     def _raise_if_cancelled(self) -> None:
         if self._cancel_requested:
