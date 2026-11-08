@@ -426,6 +426,48 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
             'exhausted one failure early: a stray tick from the cancelled '
             "goal, not from the new goal's own 6 failures")
 
+    def test_a_late_new_goal_reset_can_erase_the_new_goal_s_own_first_failure(self):
+        """
+        Document the opposite-direction case of the same residual gap.
+
+        platform-sw#127 (Mohamed's follow-up comment, 2026-11-08): a Python
+        replay of the cross-topic race the first test above documents, run
+        in the other delivery order. on_new_goal() is driven by the goal
+        status topic; on_bt_event()'s own goal-start detection
+        (NavigateRecovery entering RUNNING) is driven by /behavior_tree_log.
+        The two topics are each internally ordered but not ordered relative
+        to each other, so either can arrive after the other for the SAME
+        goal, not only across a goal boundary.
+
+        Here the new goal's BT run has already started (NavigateRecovery
+        RUNNING) and already recorded one genuine primary failure of its
+        own, before its own status-topic "new goal" notification is
+        delivered late and calls on_new_goal() - wiping that real failure
+        rather than a stray one from a previous goal. The net effect is the
+        mirror image of the first test: instead of exhausting one failure
+        early, this goal is one failure short of exhaustion when it
+        actually should have reached it.
+
+        Not fixed here, for the same reason as the first test: neither
+        topic carries a goal-correlation id a subscriber could use to
+        reject this specific late message instead of the legitimate one
+        it looks identical to.
+        """
+        tracker = RecoveryTracker(6)
+        tracker.on_bt_event('NavigateRecovery', 'RUNNING', previous_status='IDLE')
+        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')  # the new goal's own 1st failure
+
+        # this goal's own status-topic "new goal" notification, delivered
+        # late relative to the BT log, erases the failure just recorded
+        tracker.on_new_goal()
+
+        self._fail_primary(tracker, 6)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertNotEqual(
+            tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
+            "one failure short of exhaustion: the goal's own first failure "
+            'was erased by its own late-delivered reset')
+
 
 class FakeResultClient:
     """Stands in for the get_result action-client service."""
