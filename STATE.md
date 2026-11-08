@@ -18,6 +18,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
+| Base mass from BOM 7.14 (P-03 rev20.4 item 28) | description/2026-11-08-base-mass | draft (8 Nov 2026) | rerun Gazebo and Nav2 checks with the 69.7 kg base; replace with weighed values |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
