@@ -9,7 +9,9 @@ sensor drivers.
 
 Starts:
 - the **micro-ROS agent** over USB serial — bridges the Teensy topics `/cmd_vel`,
-  `/odom/unfiltered`, `/imu/data` (needs `micro_ros_agent` installed);
+  `/odom/unfiltered`, `/imu/data` (needs `micro_ros_agent` installed). The EKF reads
+  `/imu/data_raw`, the topic of the 2.0 base firmware (decision D-10); a Gate A Teensy run
+  remaps `/imu/data` to `/imu/data_raw`;
 - the navigation **LiDAR** driver (Slamtec `sllidar_ros2`, node `sllidar_node`) → `/scan`
   in frame `lidar_link`. `lidar_model:=s3` is the RPLIDAR S3 (OpenAMRobot 2.0);
   `lidar_model:=a1` is the RPLIDAR A1, legacy (existing robot). Any other value is rejected.
