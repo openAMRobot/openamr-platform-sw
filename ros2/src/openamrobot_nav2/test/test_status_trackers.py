@@ -387,8 +387,8 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
         """
         Document a known, open residual gap in cross-topic reset ordering.
 
-        platform-sw#90, Mohamed's
-        re-review at b259349): on_new_goal() and on_bt_event() are driven by
+        platform-sw#90, Mohamed's re-review at b259349; tracked separately
+        as platform-sw#127. on_new_goal() and on_bt_event() are driven by
         two different topics (goal status, /behavior_tree_log) that are each
         internally ordered but not ordered relative to each other. If a
         client cancels a goal mid-recovery and immediately sends the next
