@@ -58,14 +58,19 @@ BOM 7.14 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.
 
 ## Robot Model
 
-| Link | Collision Geometry |
-|---|---|
-| `base_link` (4.175 kg) | STL mesh |
-| `left_wheel_link` / `right_wheel_link` (1.061 kg) | Cylinder r=0.11 m |
-| `fl/fr/bl/br_caster_link` (0.022 kg) | STL mesh |
-| `fl/fr/bl/br_wheel_link` (0.024–0.027 kg) | Sphere r=0.026 m |
-| `lidar_link` (0.168 kg) | STL mesh |
-| `camera_link` (0.05 kg, legacy Gate A IMX708 frame) | none; no visual (box removed 1 Nov 2026, it stood above the 2.0 top cover) |
+Masses and inertias: every link below reads its inertial from `config/roadmap_mass_export.yaml` (the roadmap model export,
+each part counted once on the link where it sits; `test/test_base_mass.py` checks the expanded URDF against it). No mass is
+written into this table or the xacro by hand. `urdf/robot.sdf` is the legacy SolidWorks SDF, not used by any launch file and not
+a mass source.
+
+| Link | Mass from the export | Collision Geometry |
+|---|---|---|
+| `base_link` | chassis, battery, electronics, base camera, rigid parts | box |
+| `left_wheel_link` / `right_wheel_link` | ZLLG80 hub motor each | Cylinder r=0.11 m |
+| `fl/fr/bl/br_caster_link` | LPA-VSTH 35K bracket and swivel head | STL mesh |
+| `fl/fr/bl/br_wheel_link` | castor wheel | Sphere r=0.026 m |
+| `lidar_link` | RPLIDAR S3 | cylinder |
+| `camera_link` | none (legacy Gate A IMX708 frame, massless) | none |
 | `camera_optical_frame` | — (optical convention frame) |
 
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.

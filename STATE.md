@@ -18,7 +18,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
-| Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml) | description/2026-11-08-base-mass | draft (8 Nov 2026) | 66.6 kg on base_link (carriage, column and head parts on their upper-body links); rerun Gazebo and Nav2 with it after the upper-body pin moves; replace with weighed values |
+| Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml) | description/2026-11-08-base-mass | draft (8 Nov 2026) | every base link with mass from the export, each part once: base 57.4 kg in all (base_link 49.2 kg, hub motors 2 x 3.45 kg on the wheel links, castors 4 x 0.3 kg on the castor and castor-wheel links, RPLIDAR S3 0.115 kg on lidar_link; camera_link massless); test_base_mass.py checks the expanded URDF against the pinned export; rerun Gazebo and Nav2 with it after the upper-body pin moves; replace with weighed values |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
