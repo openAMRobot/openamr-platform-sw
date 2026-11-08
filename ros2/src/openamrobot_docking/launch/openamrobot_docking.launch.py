@@ -20,6 +20,13 @@ What this launch starts:
                                        (the centre tag, docking target)
                                        and publishes /detected_dock_pose
                                        as PoseStamped at 10 Hz
+  - docking_server (opennav_docking) — the action server /dock_robot and
+                                       /undock_robot actually execute on
+                                       (platform-sw#123). Its velocity output
+                                       is remapped to cmd_vel_dock, so docking
+                                       commands enter the twist_mux arbitration
+                                       instead of publishing on the final
+                                       /cmd_vel and bypassing collision_monitor.
   - dock_trigger (Python, bundle    — listens on /dock_trigger; on True,
     sequencer)                       runs the bundle docking sequence:
                                          1) NavigateToPose to staging
