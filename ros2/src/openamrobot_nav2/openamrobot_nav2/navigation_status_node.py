@@ -242,6 +242,17 @@ class NavigationStatusNode(Node):
         self.create_subscription(
             BehaviorTreeLog, '/behavior_tree_log', self._on_bt_log, 10)
 
+        # navigate_through_poses shares the same bt_navigator/recovery nodes as
+        # navigate_to_pose but has no status callback of its own here, so a
+        # goal run through it never reset self._recovery - a limit reached on
+        # one goal could leak into a later, unrelated goal (#92). This only
+        # tracks the goal id to detect a new goal; NavTaskStatus reporting for
+        # navigate_through_poses is out of scope here.
+        self._through_poses_goal_id = None
+        self.create_subscription(
+            GoalStatusArray, '/navigate_through_poses/_action/status',
+            self._on_through_poses_status, 10)
+
         # protection
         self._collision_monitor_state = None  # never seen publishing in the sim
         self.create_subscription(
@@ -465,12 +476,25 @@ class NavigationStatusNode(Node):
         if to_fetch is not None:
             self._result_fetcher.request(to_fetch)
 
+    def _on_through_poses_status(self, msg: GoalStatusArray):
+        if not msg.status_list:
+            return
+        latest = max(
+            reversed(msg.status_list),
+            key=lambda e: (e.goal_info.stamp.sec, e.goal_info.stamp.nanosec))
+        goal_id = bytes(latest.goal_info.goal_id.uuid)
+        if goal_id != self._through_poses_goal_id:
+            self._through_poses_goal_id = goal_id
+            self._recovery.on_new_goal()
+
     def _on_nav_feedback(self, msg):
         self._task.on_feedback(bytes(msg.goal_id.uuid), msg.feedback.distance_remaining)
 
     def _on_bt_log(self, msg: BehaviorTreeLog):
         for event in msg.event_log:
-            self._recovery.on_bt_event(event.node_name, event.current_status)
+            self._recovery.on_bt_event(
+                event.node_name, event.current_status,
+                previous_status=event.previous_status)
 
     def _on_collision_monitor_state(self, msg: CollisionMonitorState):
         self._collision_monitor_state = msg

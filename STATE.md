@@ -23,7 +23,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
-| Recovery BT + retry escalation (#35/N4) | #91 | in review (Mohamed), Wait-naming fix pushed 5 Nov 2026 (12e5090) | owner review |
+| Recovery BT + retry escalation (#35/N4) | #91 | in review (Mohamed); ported in the corrected RecoveryTracker from platform-sw#90 (primary-failure-counting exhaustion, BT-stream goal boundary, through-poses reset) since this branch had diverged from #90 and never carried that fix on its own head - this answers Mohamed's 11-07 11:17 review on #91 asking for option (a); 126 tests pass at the new head | owner/Mohamed review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
