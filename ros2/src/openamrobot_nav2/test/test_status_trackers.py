@@ -383,6 +383,49 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
             tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
             'a single-shot "no recovery would help" bailout is not retry exhaustion')
 
+    def test_a_cancelled_goal_s_trailing_primary_failure_can_leak_into_the_next_goal(self):
+        """
+        Document a known, open residual gap in cross-topic reset ordering.
+
+        platform-sw#90, Mohamed's
+        re-review at b259349): on_new_goal() and on_bt_event() are driven by
+        two different topics (goal status, /behavior_tree_log) that are each
+        internally ordered but not ordered relative to each other. If a
+        client cancels a goal mid-recovery and immediately sends the next
+        one, the new goal's status can reach this tracker (resetting it)
+        before the cancelled goal's own last in-flight primary-failure tick
+        is delivered - and nav2_msgs/BehaviorTreeLog carries no goal
+        correlation id, so that stray tick cannot be told apart from the new
+        goal's own first failure.
+
+        This is NOT fixed here: nothing in the current BT log message lets a
+        subscriber attribute an event to a goal, so the fix needs either a
+        Nav2 interface change upstream or a different mitigation, not a
+        tweak to this tracker's reset timing (moving the reset later would
+        just trade this gap for the one #92 already fixed - a leftover
+        exhaustion flag persisting into a goal that has no BT activity of
+        its own yet). Recorded as a test, not an xfail, because this is the
+        tracker's actual current behavior, not a bug being masked.
+        """
+        tracker = RecoveryTracker(6)
+        self._fail_primary(tracker, 5)  # the cancelled goal, deep but not exhausted
+
+        # the next goal's own status reaches this tracker first and resets it
+        tracker.on_new_goal()
+
+        # the cancelled goal's last in-flight primary tick, delivered late,
+        # is counted as the new goal's first failure instead of being
+        # discarded
+        tracker.on_bt_event('NavigateWithReplanning', 'FAILURE')
+
+        # the new goal then fails 6 more times entirely on its own
+        self._fail_primary(tracker, 6)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertEqual(
+            tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
+            'exhausted one failure early: a stray tick from the cancelled '
+            "goal, not from the new goal's own 6 failures")
+
 
 class FakeResultClient:
     """Stands in for the get_result action-client service."""
