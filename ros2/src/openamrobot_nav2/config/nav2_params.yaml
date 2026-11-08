@@ -337,8 +337,8 @@ velocity_smoother:
     scale_velocities: False
     feedback: "OPEN_LOOP"
     # Aligned to the real-robot tuning limit = the DWB limits below (Raj review PR4); a tuning
-    # limit only: the accepted operating speed follows from the stability model and stopping
-    # tests, and 1.5 m/s is the command ceiling.
+    # limit only. Build 1 base speed ceiling: 0.5 m/s until the measured stop acceptance
+    # (D-07, P-03 rev20.5 item 29; not measured); 1.5 m/s stays the analytical ceiling.
     # max_velocity matches max_vel_x / max_vel_theta; accel/decel match acc_lim_* / decel_lim_*.
     max_velocity: [0.20, 0.0, 0.5]   # = max_vel_x 0.20, max_vel_theta 0.5
     min_velocity: [-0.20, 0.0, -0.5]

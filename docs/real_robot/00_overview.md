@@ -10,7 +10,7 @@ engineering + operations** series; for a first bring-up jump to
 ## What the real robot is
 
 This series records the existing robot (Gate A, release 001 / v0.0.1). OpenAMRobot 2.0:
-Jetson Orin NX 16 GB on J401, STM32H723ZG, ZLAC8015D on CAN1 with 200 mm wheels, Gemini
+Jetson Orin NX 8 GB on the reComputer Robotics 104 (D-01; exact carrier SKU to confirm), STM32H723ZG, ZLAC8015D on CAN1 with 200 mm wheels, Gemini
 336L, RPLIDAR S3, 25.6 V LiFePO4, no 12 V rail.
 
 A differential-drive AMR with **two brains** (the split is deliberate — see
@@ -71,7 +71,7 @@ TF: (map →) odom → base_link → {lidar_link, imu_link, base_footprint,
 
 | Node (real) | Package | Provides |
 |---|---|---|
-| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (Gate A Teensy, EKF input; 2.0 firmware publishes `/imu/data_raw`), `/debug/*` |
+| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (Gate A Teensy); the 2.0 firmware publishes `/imu/data_raw`, the EKF input (D-10), `/debug/*` |
 | `sllidar_node` (`sllidar_ros2`) | `openamrobot_drivers` | `/scan` (frame `lidar_link`) |
 | `scan_body_filter` | `openamrobot_perception` | `/scan_filtered` (robot body masked) |
 | `ekf_node` (`robot_localization`) | `openamrobot_bringup` cfg | `/odom` + TF `odom→base_link` (wheels + IMU gyro-Z) |
