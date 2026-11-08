@@ -154,7 +154,8 @@ def launch_setup(context, *args, **kwargs):
     else:
         actions.append(IncludeLaunchDescription(
             src(bringup, 'real_bringup.launch.py'),
-            launch_arguments={'use_camera': use_camera}.items()))
+            launch_arguments={'use_camera': use_camera,
+                              'imu_topic': LaunchConfiguration('imu_topic')}.items()))
         # Goal routing (real only). navigation_launch remaps bt_navigator's goal to goal_pose_nav
         # so the docking node can gate /goal_pose (undock-before-navigate).
         if _truthy(use_docking):
@@ -211,6 +212,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_camera', default_value='true',
             description='Real only: launch the IMX708 camera (false = lighter load).'),
+        DeclareLaunchArgument(
+            'imu_topic', default_value='/imu/data_raw', choices=['/imu/data_raw', '/imu/data'],
+            description=('Real only: IMU topic the EKF reads. /imu/data_raw = 2.0 base firmware '
+                         '(D-10); /imu/data = Gate A Teensy.')),
         DeclareLaunchArgument(
             'use_docking', default_value='true',
             description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '

@@ -83,7 +83,7 @@ def generate_launch_description():
                          'a1 = RPLIDAR A1, legacy (existing robot). Default a1 until the S3 '
                          'is mounted.')),
         # micro-ROS agent: bridges the Teensy (/cmd_vel, /odom/unfiltered, /imu/data).
-        # The EKF reads /imu/data_raw (2.0 base firmware, D-10); remap for a Gate A run.
+        # The EKF topic is chosen in real_bringup (imu_topic:=/imu/data for Gate A, D-10).
         ExecuteProcess(
             cmd=['ros2', 'run', 'micro_ros_agent', 'micro_ros_agent',
                  'serial', '-b', '115200', '-D', teensy],
