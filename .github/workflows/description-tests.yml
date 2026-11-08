@@ -51,10 +51,11 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           source ros2/install/setup.bash
           python3 -m pytest -v -p no:cacheprovider --junitxml=description-tests.xml \
-            ros2/src/openamrobot_description/test/test_description_meshes.py
+            ros2/src/openamrobot_description/test/test_description_meshes.py \
+            ros2/src/openamrobot_description/test/test_base_mass.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all twenty-nine description tests ran
+      - name: Check that all thirty-three description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -62,5 +63,5 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 29 and skipped == 0, 'expected 29 description tests, none skipped'
+          assert tests == 33 and skipped == 0, 'expected 33 description tests, none skipped'
           EOF
