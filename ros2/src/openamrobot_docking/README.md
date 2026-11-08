@@ -26,10 +26,11 @@ openamrobot_docking/
 │
 ├── launch/
 │   ├── bringup_sim.launch.py             ← one command: Gazebo + Nav2 + docking
-│   ├── openamrobot_docking.launch.py     ← docking layer only (Terminal 3 below);
-│   │                                        starts opennav_docking's action server
-│   │                                        (/dock_robot, /undock_robot), velocity
-│   │                                        remapped to cmd_vel_dock
+│   ├── openamrobot_docking.launch.py     ← docking layer only (Terminal 3 below)
+│   ├── docking_real.launch.py            ← the same layer on the real camera
+│   │                                        both profiles start opennav_docking's action
+│   │                                        server (/dock_robot, /undock_robot) with its
+│   │                                        velocity remapped to cmd_vel_dock
 │   ├── apriltag_sim.launch.yml           ← apriltag_ros node for simulation
 │   └── detected_dock_pose_publisher.launch.py
 │
