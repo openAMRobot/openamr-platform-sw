@@ -458,7 +458,7 @@ class NavigationStatusNode(Node):
     def _on_nav_status(self, msg: GoalStatusArray):
         new_goal, to_fetch = self._task.on_status(msg.status_list)
         if new_goal:
-            self._recovery.on_new_goal(now_s=self._now_s())
+            self._recovery.on_new_goal()
         if to_fetch is not None:
             self._result_fetcher.request(to_fetch)
 
@@ -471,7 +471,7 @@ class NavigationStatusNode(Node):
         goal_id = bytes(latest.goal_info.goal_id.uuid)
         if goal_id != self._through_poses_goal_id:
             self._through_poses_goal_id = goal_id
-            self._recovery.on_new_goal(now_s=self._now_s())
+            self._recovery.on_new_goal()
 
     def _on_nav_feedback(self, msg):
         self._task.on_feedback(bytes(msg.goal_id.uuid), msg.feedback.distance_remaining)
@@ -480,7 +480,7 @@ class NavigationStatusNode(Node):
         for event in msg.event_log:
             self._recovery.on_bt_event(
                 event.node_name, event.current_status,
-                event_time_s=self._stamp_seconds(event.timestamp))
+                previous_status=event.previous_status)
 
     def _on_collision_monitor_state(self, msg: CollisionMonitorState):
         self._collision_monitor_state = msg

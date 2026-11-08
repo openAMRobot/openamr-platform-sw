@@ -62,20 +62,68 @@ def check(node: Node, expect_node: str):
     return problems
 
 
+def missing_for_readiness(node, expect_node):
+    """
+    Return what is still absent before the invariant is meaningful to check.
+
+    Empty means the expected node is in the graph and every watched topic
+    and service has at least one endpoint - i.e. the gate has finished
+    coming up. This is deliberately only an "exists at all" check, never
+    an "exactly one" check: the singleton invariant itself stays entirely
+    in check(), so waiting for readiness can never mask a duplicate
+    publisher (platform-sw#90, Mohamed's review - the earlier version
+    checked a fixed 2 s after backgrounding the gate, which could not
+    tell a slow start from a gate that had exited).
+    """
+    missing = []
+    if expect_node not in node.get_node_names():
+        missing.append(f'node {expect_node!r} not in the graph')
+    for topic in TOPICS:
+        if not node.get_publishers_info_by_topic(topic):
+            missing.append(f'{topic}: no publisher yet')
+    for service in SERVICES:
+        if node.count_services(service) < 1:
+            missing.append(f'{service}: no server yet')
+    return missing
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--expect-node', default='safety_stop_gate_node')
     parser.add_argument(
         '--settle-s', type=float, default=2.0,
-        help='time to let discovery catch up before checking')
+        help='time to let discovery catch up AFTER readiness, before checking')
+    parser.add_argument(
+        '--await-ready-s', type=float, default=30.0,
+        help='bounded wait for the gate to appear at all before checking')
     args = parser.parse_args()
 
     rclpy.init()
     node = rclpy.create_node('stop_lock_invariants_check')
     try:
+        # Bounded wait for the gate to actually be up. Timing out here is
+        # its own distinct failure ("never became ready"), not an invariant
+        # violation - a gate that crashed on startup and a gate that is
+        # merely slow both used to read as "zero publishers", which proves
+        # nothing about the graph shape either way.
+        ready_end = time.monotonic() + args.await_ready_s
+        missing = missing_for_readiness(node, args.expect_node)
+        while missing and time.monotonic() < ready_end:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            missing = missing_for_readiness(node, args.expect_node)
+        if missing:
+            print(
+                f'STOP-LOCK CHECK NOT READY after {args.await_ready_s}s - the gate '
+                f'never came up, so the invariant was never evaluated:')
+            for m in missing:
+                print(f'  - {m}')
+            sys.exit(2)
+
         # Graph (publisher/subscriber) info is populated by discovery as it
         # arrives, not synchronously on node creation - give it time, and
         # spin so any pending discovery callbacks are actually processed.
+        # This settle still runs AFTER readiness, so a second publisher that
+        # is slower to be discovered is still caught by check() below.
         end = time.monotonic() + args.settle_s
         while time.monotonic() < end:
             rclpy.spin_once(node, timeout_sec=0.1)

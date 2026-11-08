@@ -64,10 +64,12 @@ same caveat as test_twist_mux_startup_and_restart.py - if it is flaky in your
 environment, that is useful information on its own, not just noise to retry
 past.
 """
+import os
 from pathlib import Path
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 import unittest
 
@@ -119,14 +121,44 @@ def _load_shipped_smoother_params():
 
 
 def _start_smoother(params_path):
-    """Launch the real nav2_velocity_smoother executable as a subprocess."""
-    return subprocess.Popen(
+    """
+    Launch the real nav2_velocity_smoother executable as a subprocess.
+
+    Its output is captured rather than discarded so a startup failure can
+    actually be reported: a hosted run that timed out on the first
+    lifecycle transition had no way to show whether the node had died or
+    was merely slow (platform-sw#90, Mohamed's review).
+    """
+    # A temp file, not subprocess.PIPE: nothing reads the pipe while the
+    # node runs, so a chatty node could fill the 64K pipe buffer and block
+    # on its own logging. The handle is attached to the Popen object so
+    # _smoother_diagnostics can read it back on failure.
+    log = tempfile.NamedTemporaryFile(
+        prefix='vsmoother_', suffix='.log', mode='w+', delete=False)
+    proc = subprocess.Popen(
         ['ros2', 'run', 'nav2_velocity_smoother', 'velocity_smoother',
          '--ros-args', '--params-file', str(params_path),
          '-r', f'cmd_vel:={_IN_TOPIC}',
          '-r', f'cmd_vel_smoothed:={_OUT_TOPIC}',
          '-r', f'odom:={_ODOM_TOPIC}'],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=log, stderr=subprocess.STDOUT)
+    proc._openamr_log_path = log.name
+    log.close()
+    return proc
+
+
+def _smoother_diagnostics(proc):
+    """Describe the smoother subprocess for a failure message."""
+    if proc is None:
+        return 'smoother subprocess: (never started)'
+    try:
+        with open(getattr(proc, '_openamr_log_path', ''), encoding='utf-8') as f:
+            tail = '\n'.join(f.read().strip().splitlines()[-15:])
+    except OSError:
+        tail = '(no output captured)'
+    state = (f'still running (pid {proc.pid})' if proc.poll() is None
+             else f'EXITED with code {proc.returncode}')
+    return f'smoother subprocess: {state}\n--- its last output ---\n{tail}'
 
 
 def _stop_smoother(proc):
@@ -137,10 +169,17 @@ def _stop_smoother(proc):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=3.0)
+    log_path = getattr(proc, '_openamr_log_path', None)
+    if log_path:
+        try:
+            os.unlink(log_path)
+        except OSError:
+            pass
 
 
-def _lifecycle_transition(label, timeout_s=10.0):
-    """ros2 lifecycle set <node> <label>, polling until it succeeds or the deadline passes.
+def _lifecycle_transition(label, timeout_s=30.0, proc=None):
+    """
+    Run ros2 lifecycle set <node> <label>, polling until it succeeds.
 
     velocity_smoother is a nav2 LifecycleNode - it publishes nothing at all
     until it has been configured and activated, normally done by
@@ -148,20 +187,37 @@ def _lifecycle_transition(label, timeout_s=10.0):
     point - an isolated bench test of one node), so this does the same two
     transitions directly via the CLI, retrying while the node is still
     coming up (its lifecycle service is not available yet).
+
+    A hanging CLI invocation is a normal "not ready yet" symptom, not a
+    test failure: while the node's lifecycle service is undiscovered,
+    `ros2 lifecycle set` blocks. The inner subprocess timeout used to
+    escape this loop as an uncaught TimeoutExpired on the very first
+    attempt, which is how a hosted run reported "timed out at
+    `ros2 lifecycle set /velocity_smoother configure` (5 seconds)" rather
+    than retrying for its full budget (platform-sw#90, Mohamed's review).
+    Both that and a nonzero exit now simply retry until the outer deadline,
+    and the failure message reports the subprocess's own state either way.
     """
     deadline = time.monotonic() + timeout_s
-    last_result = None
+    last_detail = '(never ran)'
     while time.monotonic() < deadline:
-        last_result = subprocess.run(
-            ['ros2', 'lifecycle', 'set', f'/{_NODE_NAME}', label],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5.0)
-        if last_result.returncode == 0:
+        if proc is not None and proc.poll() is not None:
+            break  # it died - no point retrying, report it below
+        try:
+            result = subprocess.run(
+                ['ros2', 'lifecycle', 'set', f'/{_NODE_NAME}', label],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5.0)
+        except subprocess.TimeoutExpired:
+            last_detail = 'the CLI call itself blocked for 5s (service not discovered yet)'
+            continue
+        if result.returncode == 0:
             return
+        last_detail = (result.stderr or b'').decode(errors='replace').strip() or '(no stderr)'
         time.sleep(0.3)
-    stderr = last_result.stderr.decode(errors='replace') if last_result else '(never ran)'
     raise AssertionError(
         f'ros2 lifecycle set /{_NODE_NAME} {label} never succeeded within '
-        f'{timeout_s}s - last stderr: {stderr}')
+        f'{timeout_s}s - last attempt: {last_detail}\n'
+        f'{_smoother_diagnostics(proc)}')
 
 
 class TestPublisherLossDistance(unittest.TestCase):
@@ -208,8 +264,8 @@ class TestPublisherLossDistance(unittest.TestCase):
         timeout_s = self._params['velocity_timeout']
         smoothing_hz = self._params['smoothing_frequency']
 
-        _lifecycle_transition('configure')
-        _lifecycle_transition('activate')
+        _lifecycle_transition('configure', proc=self._proc)
+        _lifecycle_transition('activate', proc=self._proc)
         self.assertIsNone(
             self._proc.poll(),
             f'velocity_smoother exited early (code {self._proc.poll()}) during startup')

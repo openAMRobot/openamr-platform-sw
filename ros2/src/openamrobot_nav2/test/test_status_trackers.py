@@ -297,28 +297,54 @@ class TestRecoveryTrackerExhaustion(unittest.TestCase):
         tracker.on_bt_event('NavigateRecovery', 'SUCCESS')
         self.assertEqual(tracker.reason, NavigationStatus.NONE)
 
-    def test_a_late_event_timestamped_before_the_goal_started_is_ignored(self):
-        # platform-sw#91, Mohamed: "isolate events at goal boundaries" - the
-        # node UID identifies a BT tree position, not a goal, so a stale
-        # event from the PREVIOUS goal that arrives after on_new_goal() must
-        # not be allowed to set this goal's exhaustion flag. Judged by the
-        # event's own embedded timestamp, not arrival order.
+    def test_the_bt_s_own_goal_start_resets_a_previous_goal_s_accounting(self):
+        # platform-sw#90, Mohamed's 11:17 review: the goal boundary must come
+        # from goal-start EVIDENCE, not from when a status callback happened
+        # to be processed. NavigateRecovery entering RUNNING is that
+        # evidence, in the BT's own ordered stream (confirmed in a real
+        # Jazzy capture: every goal's run begins with exactly that
+        # transition), so no cross-stream clock comparison is involved.
         tracker = RecoveryTracker(6)
-        tracker.on_new_goal(now_s=100.0)
-        for _ in range(7):
-            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=50.0)
-        tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=50.0)
-        self.assertEqual(
-            tracker.reason, NavigationStatus.NONE,
-            'an event timestamped before this goal started must be ignored')
-
-    def test_an_event_timestamped_after_the_goal_started_is_not_ignored(self):
-        tracker = RecoveryTracker(6)
-        tracker.on_new_goal(now_s=100.0)
-        for _ in range(7):
-            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=100.5)
-        tracker.on_bt_event('NavigateRecovery', 'FAILURE', event_time_s=100.5)
+        self._fail_primary(tracker, 7)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
         self.assertEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+        # a new goal's BT run begins - the previous goal's exhaustion and
+        # its primary-failure count must not carry into it
+        tracker.on_bt_event('NavigateRecovery', 'RUNNING', previous_status='IDLE')
+        self.assertEqual(tracker.reason, NavigationStatus.NONE)
+        self.assertEqual(tracker.attempt, 0)
+
+        # and the new goal needs its own full budget again, not one more
+        # failure on top of the old count
+        self._fail_primary(tracker, 1)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_running_transition_that_is_not_an_entry_does_not_reset(self):
+        # only an entry INTO running is a goal start; a repeated RUNNING
+        # report mid-goal must not wipe the count being accumulated
+        tracker = RecoveryTracker(6)
+        tracker.on_bt_event('NavigateRecovery', 'RUNNING', previous_status='IDLE')
+        self._fail_primary(tracker, 3)
+        tracker.on_bt_event('NavigateRecovery', 'RUNNING', previous_status='RUNNING')
+        self._fail_primary(tracker, 4)
+        tracker.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertEqual(
+            tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED,
+            'the 7 primary failures all belong to this one goal')
+
+    def test_goal_boundary_isolation_does_not_depend_on_event_timestamps(self):
+        # The BT log's own timestamps are documented as "typically wall
+        # clock" (nav2_msgs/BehaviorTreeStatusChange) and a real capture
+        # confirmed wall-clock values under use_sim_time:=true, while a
+        # node's own clock there is simulated - so comparing the two is
+        # comparing different clocks, and any such filter is either inert
+        # or wrong depending on direction. on_bt_event therefore takes no
+        # timestamp at all (platform-sw#90, Mohamed's 11:17 review).
+        tracker = RecoveryTracker(6)
+        with self.assertRaises(TypeError):
+            tracker.on_bt_event('NavigateWithReplanning', 'FAILURE', event_time_s=50.0)
 
     def test_a_real_captured_unreachable_goal_sequence_is_not_the_limit(self):
         """

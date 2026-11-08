@@ -100,12 +100,40 @@ jobs:
       # safety_stop_gate_node is the ONLY publisher on its lock/stop-channel
       # topics and the only server on its release/engage services. Only needs
       # the gate itself running, not twist_mux or a sim.
+      # The gate's own stdout/stderr is captured and always printed, and its
+      # liveness is asserted before and after the check (platform-sw#90,
+      # Mohamed's review): the previous version backgrounded the gate and
+      # checked a fixed 2 s later, so a gate that exited on startup and a
+      # gate that was merely slow both showed up as "zero publishers" -
+      # evidence that could not tell a real graph violation from a node
+      # that never ran. The invariant itself is unchanged; only readiness
+      # and diagnostics were added.
       - name: Run stop_lock_invariants.py against a live gate
         shell: bash
         run: |
+          set -o pipefail
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
-          ros2 run openamrobot_nav2 safety_stop_gate_node &
+          ros2 run openamrobot_nav2 safety_stop_gate_node > gate.log 2>&1 &
           gate_pid=$!
+          echo "gate started with pid ${gate_pid}"
           trap 'kill -9 "$gate_pid" 2>/dev/null' EXIT
-          python3 tools/issue35_arbitration/stop_lock_invariants.py
+
+          if ! kill -0 "$gate_pid" 2>/dev/null; then
+            echo "FAIL: the gate process exited before the check even started"
+            echo "----- gate.log -----"; cat gate.log || true
+            exit 1
+          fi
+
+          status=0
+          python3 tools/issue35_arbitration/stop_lock_invariants.py \
+            --await-ready-s 30 || status=$?
+
+          echo "----- gate.log -----"; cat gate.log || true
+          if ! kill -0 "$gate_pid" 2>/dev/null; then
+            wait "$gate_pid" 2>/dev/null; gate_exit=$?
+            echo "FAIL: the gate process is no longer running (exit ${gate_exit})"
+            exit 1
+          fi
+          echo "gate pid ${gate_pid} still alive after the check"
+          exit "$status"

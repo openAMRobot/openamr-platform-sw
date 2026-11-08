@@ -317,7 +317,10 @@ class RecoveryTracker:
     ticked number_of_retries + 1 times in total before the node gives up,
     so reaching that count on the primary's own FAILURE is exhaustion by
     construction, regardless of what happened on the recovery side. Both
-    counters reset when a new goal starts.
+    counters reset at a goal boundary - either the action's own new-goal
+    status (on_new_goal) or, for the BT stream itself, NavigateRecovery
+    entering RUNNING; see on_bt_event for why the boundary is taken from
+    the stream rather than from any timestamp comparison.
     """
 
     def __init__(self, attempt_limit):
@@ -326,30 +329,42 @@ class RecoveryTracker:
         self.attempt = 0
         self._exhausted = False
         self._primary_failures = 0
-        self._goal_start_s = None
 
-    def on_new_goal(self, now_s=None):
-        """Start over for a new goal. now_s, if given, is this goal's own start time."""
+    def on_new_goal(self):
+        """Start over for a new goal, as seen from the action's own status."""
         self.action = RecoveryStatus.ACTION_NONE
         self.attempt = 0
         self._exhausted = False
         self._primary_failures = 0
-        self._goal_start_s = now_s
 
-    def on_bt_event(self, node_name, status, event_time_s=None):
+    def on_bt_event(self, node_name, status, previous_status=None):
         """
         Update from one behavior-tree node's status transition.
 
-        event_time_s, if given together with a goal start time from
-        on_new_goal(), discards an event timestamped before this goal
-        started - the node UID a real event also carries identifies a BT
-        tree position, not a goal, so a stale event from the previous
-        goal's own execution must not be allowed to affect this one
-        (platform-sw#91, Mohamed's review: "isolate events at goal
-        boundaries").
+        The goal boundary comes from the BT's own stream, not from a
+        timestamp: NavigateRecovery entering RUNNING begins a goal's BT
+        run (confirmed in a real Jazzy /behavior_tree_log capture - every
+        goal's run starts with exactly that transition), so everything
+        accumulated for the previous goal resets there. Because the
+        boundary and the events it separates arrive on the same ordered
+        topic from the same publisher, a previous goal's events can never
+        appear after it, which is what "isolate events at goal
+        boundaries" actually needs (platform-sw#90/#91, Mohamed's review).
+
+        This deliberately does NOT compare event timestamps against a
+        goal start time. An earlier version did, and it was unsound in two
+        directions at once: nav2_msgs/BehaviorTreeStatusChange documents
+        its timestamp as "typically wall clock" (a real capture confirmed
+        wall-clock values while the stack ran with use_sim_time:=true),
+        whereas a node's own clock is simulated there - so the comparison
+        mixed clocks and was silently inert under sim time, and under
+        wall-clock it still used the moment a goal-status callback was
+        processed rather than when the goal actually started, discarding
+        valid new-goal events that the BT had logged microseconds earlier.
         """
-        if (self._goal_start_s is not None and event_time_s is not None
-                and event_time_s < self._goal_start_s):
+        if (node_name == _OUTER_RECOVERY_NODE and status == 'RUNNING'
+                and previous_status != 'RUNNING'):
+            self.on_new_goal()
             return
 
         action = _ALL_RECOVERY_ACTIONS.get(node_name)
