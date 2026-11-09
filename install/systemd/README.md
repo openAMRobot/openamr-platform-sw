@@ -3,7 +3,7 @@
 | File | Install to | Purpose |
 |---|---|---|
 | `openamr.target` | `/etc/systemd/system/` | groups the three services |
-| `openamr-agent.service` | `/etc/systemd/system/` | micro-ROS agent on the base controller device |
+| `openamr-agent.service` | `/etc/systemd/system/` | standalone micro-ROS agent (off unless the marker file exists) |
 | `openamr-bringup.service` | `/etc/systemd/system/` | `openamrobot_bringup` launch profile |
 | `openamr-ui.service` | `/etc/systemd/system/` | operator UI backend and rosbridge |
 | `openamr.env` | `/etc/openamr/openamr.env` | `ROS_DOMAIN_ID`, RMW, CycloneDDS file, device, map, profile |
@@ -29,7 +29,10 @@ sudo systemctl enable openamr.target         # only after the first bench runs p
   Starting, restarting or rebooting only brings the stack up. The base stops by itself on
   `/cmd_vel` silence (200 ms) whatever these units do. The hardwired E-stop is not touched.
 - **Order.** `time-sync.target` (chrony) before the agent, the agent before bringup, bringup
-  before the UI. Bringup `Requires=` the agent: a stopped agent stops bringup.
+  before the UI.
+- **One agent only.** `openamrobot_drivers` starts the micro-ROS agent itself, so the H-day
+  legacy profile needs no agent unit. `openamr-agent.service` is for a profile whose drivers
+  start no agent; it runs only if `/etc/openamr/enable-standalone-agent` exists. Never run both.
 - **Restart policy.** `Restart=on-failure` with a start limit (5 in 120 s for the agent, 3 in
   300 s for bringup). A unit that keeps failing stays failed and shows in `systemctl --failed`;
   it does not loop forever.

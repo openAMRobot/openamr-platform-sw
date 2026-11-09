@@ -54,9 +54,11 @@ def test_ordering_clock_then_agent_then_bringup_then_ui():
     assert 'openamr-bringup.service' in _words(ui, 'Unit', 'After')
 
 
-def test_bringup_requires_agent_and_ui_does_not_require_bringup():
-    bringup, ui = _unit(SERVICES[1]), _unit(SERVICES[2])
-    assert 'openamr-agent.service' in _words(bringup, 'Unit', 'Requires')
+def test_standalone_agent_is_off_by_default_and_not_required():
+    # openamrobot_drivers starts its own micro-ROS agent; two agents on one device collide.
+    agent, bringup, ui = (_unit(n) for n in SERVICES)
+    assert agent.get('Unit', 'ConditionPathExists') == '/etc/openamr/enable-standalone-agent'
+    assert 'openamr-agent.service' not in _words(bringup, 'Unit', 'Requires')
     assert 'openamr-bringup.service' not in _words(ui, 'Unit', 'Requires')
 
 
