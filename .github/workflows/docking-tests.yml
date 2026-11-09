@@ -1,0 +1,59 @@
+name: docking-tests
+
+# Hardware-free checks for openamrobot_docking.
+#
+# Why this workflow exists: the path filters of nav-status-tests.yml
+# (ros2/src/openamrobot_nav2/**) and drivers-bringup-tests.yml (drivers and bringup)
+# both exclude ros2/src/openamrobot_docking/**, so a change confined to the docking
+# launch ran no functional test in CI at all. The repository ruleset requires DCO and
+# CLA, not this test, so the gap was silent.
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_docking/**'
+      - '.github/workflows/docking-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_docking/**'
+      - '.github/workflows/docking-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docking-launch-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install pytest
+        run: |
+          apt-get update
+          apt-get install -y python3-pytest
+
+      # Both profile cases: the sim launch and the real launch must each start exactly
+      # one opennav_docking node carrying the cmd_vel -> cmd_vel_dock remap.
+      - name: Run the docking launch regressions
+        run: |
+          python3 -m pytest -v -p no:cacheprovider --junitxml=docking-tests.xml \
+            ros2/src/openamrobot_docking/test/test_docking_launch_remap.py
+
+      # A renamed or deleted test must not pass as an empty suite.
+      - name: Check that both profile cases ran
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('docking-tests.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          names = sorted(case.get('name') for case in suite.iter('testcase'))
+          print(f'{tests} tests, {skipped} skipped: {names}')
+          assert tests == 2 and skipped == 0, 'expected both profile cases, none skipped'
+          assert any('sim' in n for n in names), 'sim profile case missing'
+          assert any('real' in n for n in names), 'real profile case missing'
+          EOF
