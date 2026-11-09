@@ -27,8 +27,8 @@ def suites(path):
     """Return the <testsuite> elements of one JUnit file, or [] when it is not JUnit."""
     try:
         root = ET.parse(path).getroot()
-    except ET.ParseError:
-        return []
+    except ET.ParseError as exc:
+        raise ValueError('%s: malformed result XML: %s' % (path, exc)) from exc
     if root.tag == 'testsuite':
         return [root]
     if root.tag == 'testsuites':
@@ -68,7 +68,12 @@ def main(argv=None):
 
     rows, problems, total = [], [], 0
     for pkg in args.packages:
-        c = count(args.build_base, pkg)
+        try:
+            c = count(args.build_base, pkg)
+        except (OSError, ValueError) as exc:
+            problems.append('%s has incomplete test results: %s' % (pkg, exc))
+            rows.append('| %s | ? | ? | ? | ? | ? | INCOMPLETE RESULTS (failure) |' % pkg)
+            continue
         total += c['executed']
         note = ''
         if c['executed'] == 0:
