@@ -15,6 +15,10 @@ This is a functional inhibit. The hardwired E-stop chain is the safety function.
 import os
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from openamrobot_drivers.base_status_adapter import (
+    aux_snapshot, base_snapshot, FieldMap)
+from openamrobot_drivers.base_status_core import (
+    AUX_STALE_S, BaseGate, Blocker, FaultRegistry, STATUS_STALE_S)
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -22,11 +26,6 @@ from rosidl_runtime_py.utilities import get_message
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 import yaml
-
-from openamrobot_drivers.base_status_adapter import (
-    aux_snapshot, base_snapshot, FieldMap)
-from openamrobot_drivers.base_status_core import (
-    AUX_STALE_S, BaseGate, Blocker, FaultRegistry, STATUS_STALE_S)
 
 # I8 decision 9: reliable, transient local, depth 1.
 STATUS_QOS = QoSProfile(
@@ -69,7 +68,7 @@ class BaseStatusMonitor(Node):
         self.declare_parameter('controller_state_enum', ['__none__'])
         self.declare_parameter('safety_state_enum', ['__none__'])
 
-        self._clock = clock_fn or (lambda: self.get_clock().now().nanoseconds * 1e-9)
+        self._now = clock_fn or (lambda: self.get_clock().now().nanoseconds * 1e-9)
         self._fmap = FieldMap(self._pairs('field_names'), {
             'controller_state': self._pairs('controller_state_enum'),
             'safety_state': self._pairs('safety_state_enum')})
@@ -123,21 +122,21 @@ class BaseStatusMonitor(Node):
 
     # -- inputs --------------------------------------------------------------
     def _on_status_msg(self, msg):
-        self.gate.on_status(base_snapshot(msg, self._fmap), self._clock())
+        self.gate.on_status(base_snapshot(msg, self._fmap), self._now())
 
     def _on_aux_msg(self, msg):
-        self.gate.on_aux(aux_snapshot(msg, self._fmap), self._clock())
+        self.gate.on_aux(aux_snapshot(msg, self._fmap), self._now())
 
     def _on_resume(self, request, response):
         del request
-        response.success, response.message = self.gate.resume(self._clock())
+        response.success, response.message = self.gate.resume(self._now())
         self.get_logger().info('resume: %s' % response.message)
         self._publish_lock()
         return response
 
     # -- outputs -------------------------------------------------------------
     def _publish_lock(self):
-        state = self.gate.evaluate(self._clock())
+        state = self.gate.evaluate(self._now())
         self._lock_pub.publish(Bool(data=bool(state.locked)))
         if state.summary != self._last_text:
             self._last_text = state.summary
@@ -145,7 +144,7 @@ class BaseStatusMonitor(Node):
             self.get_logger().info('base gate: %s' % state.summary)
 
     def _publish_diagnostics(self):
-        now = self._clock()
+        now = self._now()
         state = self.gate.evaluate(now)
         status = DiagnosticStatus(name='base_status_monitor', hardware_id='base_controller')
         if not state.locked:

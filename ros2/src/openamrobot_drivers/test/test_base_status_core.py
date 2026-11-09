@@ -1,9 +1,8 @@
 """Tests of the base gate: freshness, latch, fault text and the resume rule."""
-import pytest
-
 from openamrobot_drivers.base_status_core import (
     AuxSnapshot, BaseGate, BaseSnapshot, Blocker, Fault, FaultRegistry, Freshness, Malformed,
     validate_base)
+import pytest
 
 BOOT = (1, 2, 3, 4)
 

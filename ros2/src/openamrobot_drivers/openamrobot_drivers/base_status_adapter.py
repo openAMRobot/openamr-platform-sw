@@ -63,8 +63,7 @@ def _get(msg, name):
 
 
 def _boot_id(value):
-    if isinstance(value, (list, tuple, bytes, bytearray)):
-        return bytes(value) if not isinstance(value, tuple) else tuple(value)
+    """Return the boot identity as a hashable, comparable value."""
     try:
         return tuple(value)
     except TypeError:
