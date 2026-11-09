@@ -10,7 +10,12 @@ from conftest import REPO
 
 import check_tf_tree as t  # noqa: E402  (tools/ is on sys.path via conftest)
 
-HAVE_ROS = os.path.isdir('/opt/ros/jazzy') or 'AMENT_PREFIX_PATH' in os.environ
+try:
+    import launch  # noqa: F401
+    import xacro  # noqa: F401
+    HAVE_ROS = True
+except ImportError:
+    HAVE_ROS = False
 
 
 def _tree(*edges):
