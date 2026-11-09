@@ -24,7 +24,7 @@ EXPECT_L4T_RELEASE="${EXPECT_L4T_RELEASE:-R39}"          # JetPack 7.2.x is Jets
 EXPECT_L4T_REVISION="${EXPECT_L4T_REVISION:-2.1}"        # 7.2.1 = 39.2.1
 EXPECT_UBUNTU="${EXPECT_UBUNTU:-24.04}"
 ROS_DISTRO_NAME="${ROS_DISTRO_NAME:-jazzy}"
-ZED_SDK_VERSION="${ZED_SDK_VERSION:-5.5.1}"              # findings: SDK 5.5.1 for JP 7.2
+ZED_SDK_VERSION="${ZED_SDK_VERSION:-5.5.1}"              # SDK release for JetPack 7.2
 ZED_WRAPPER_TAG="${ZED_WRAPPER_TAG:-v5.5.0}"
 ORBBEC_FW_EXPECTED="${ORBBEC_FW_EXPECTED:-1.8.10}"       # Gemini 336L firmware in the SDK docs
 NV_TEGRA_RELEASE_FILE="${NV_TEGRA_RELEASE_FILE:-/etc/nv_tegra_release}"

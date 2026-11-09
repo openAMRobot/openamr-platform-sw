@@ -95,3 +95,6 @@ temp/
 
 # UI — lives in its own separate repo (openamrobot-ui)
 ui/
+__pycache__/
+*.pyc
+.pytest_cache/
