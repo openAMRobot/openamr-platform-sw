@@ -40,6 +40,7 @@ import math
 import subprocess
 import threading
 import time
+import uuid
 
 import rclpy
 from rclpy.action import ActionClient
@@ -584,6 +585,13 @@ class DockTrigger(Node):
         self.dock_status_pub = self.create_publisher(String, 'dock_trigger_status', 10)
         self.create_timer(2.0, self._heartbeat_status, callback_group=self.cb_group)
 
+        # ── Goal-authority ledger wiring (platform-sw#124, D-13) ────────────
+        # undock_robot only - see safety_stop_gate_node.py's goal_authority.py
+        # for the wire protocol and why instance_id exists (restart detection).
+        self._goal_authority_instance_id = uuid.uuid4().hex
+        self._goal_authority_pub = self.create_publisher(
+            String, 'goal_authority_events', 10)
+
         # ── Triggers ────────────────────────────────────────────────────────
         self.create_subscription(
             Bool, self.trigger_topic, self.on_trigger, 10,
@@ -629,6 +637,16 @@ class DockTrigger(Node):
     def _heartbeat_status(self) -> None:
         if not self.busy:
             self._pub_status('docked' if self.is_docked else 'idle')
+
+        # D-13 (platform-sw#124): establishes "alive, nothing outstanding"
+        # for undock_robot without waiting on a goal - this is what makes a
+        # clean-boot Resume possible at all for this producer. Published
+        # unconditionally, even while self.busy is True: the ledger only
+        # updates instance_id/last-contact on a heartbeat (goal_authority.py's
+        # _touch()), never the outstanding count, so an in-flight undock's
+        # own sent/done pair still governs ACTIVE vs IDLE correctly.
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|heartbeat|{self._goal_authority_instance_id}'))
 
     def _on_stop_lock(self, msg: Bool) -> None:
         if msg.data and self.busy:
@@ -2812,7 +2830,35 @@ class DockTrigger(Node):
             return
         goal = UndockRobot.Goal()
         goal.dock_type = str(self.dock_type)
-        self.undock_client.send_goal_async(goal)
+
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|sent|{self._goal_authority_instance_id}'))
+        send_future = self.undock_client.send_goal_async(goal)
+        send_future.add_done_callback(self._on_undock_goal_response)
+
+    def _on_undock_goal_response(self, future) -> None:
+        """
+        Notify 'done' only off the actual result, not off goal acceptance.
+
+        D-13 (platform-sw#124): a cancel/rejection reply never counts as
+        terminal on its own. A rejected goal (never actually started) is
+        the one case where acceptance itself IS the terminal fact: there
+        is no result future to wait on at all.
+        """
+        gh = future.result()
+        if gh is None or not gh.accepted:
+            self._goal_authority_pub.publish(String(
+                data=f'undock_robot|done|{self._goal_authority_instance_id}'))
+            return
+        result_future = gh.get_result_async()
+        result_future.add_done_callback(self._on_undock_goal_result)
+
+    def _on_undock_goal_result(self, future) -> None:
+        del future  # success, failure or cancellation all mean "no longer
+        # outstanding" for the goal-authority ledger - the actual outcome
+        # is not this callback's concern.
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|done|{self._goal_authority_instance_id}'))
 
 
 def main():

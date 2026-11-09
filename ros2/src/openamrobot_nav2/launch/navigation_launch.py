@@ -18,7 +18,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
-from launch.actions import TimerAction
+from launch.actions import OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LoadComposableNodes, SetParameter
@@ -40,6 +40,7 @@ def generate_launch_description():
     container_name_full = (namespace, '/', container_name)
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
+    enabled_producers = LaunchConfiguration('enabled_producers')
 
     lifecycle_nodes = [
         'controller_server',
@@ -119,6 +120,17 @@ def generate_launch_description():
 
     declare_log_level_cmd = DeclareLaunchArgument(
         'log_level', default_value='info', description='log level'
+    )
+
+    declare_enabled_producers_cmd = DeclareLaunchArgument(
+        'enabled_producers',
+        default_value='navigate_to_pose,navigate_through_poses,dock_robot,undock_robot',
+        description=(
+            'Comma-separated subset of navigate_to_pose, navigate_through_poses, '
+            'dock_robot, undock_robot: the producers safety_stop_gate_node treats as '
+            'enabled for release condition (a) (platform-sw#124, D-13). A producer '
+            'left out is excluded by name, never inferred from an absence of traffic.'
+        ),
     )
 
     load_nodes = GroupAction(
@@ -294,16 +306,28 @@ def generate_launch_description():
     # Owns /safety/stop_lock + /safety/stop_lock_release + /safety/stop_lock_engage,
     # and publishes the zero Twist on cmd_vel_stop while locked - twist_mux never
     # does this itself (see safety_stop_gate_node.py). Starts locked by default.
-    safety_stop_gate_node = Node(
-        package='openamrobot_nav2',
-        executable='safety_stop_gate_node',
-        name='safety_stop_gate_node',
-        output='screen',
-        respawn=use_respawn,
-        respawn_delay=2.0,
-        parameters=[{'use_sim_time': use_sim_time}],
-        arguments=['--ros-args', '--log-level', log_level],
-    )
+    #
+    # enabled_producers is declared as a comma-separated string (launch arguments
+    # are string substitutions) and resolved to a real list here via
+    # OpaqueFunction, at launch time, into the enabled_producers parameter
+    # safety_stop_gate_node actually declares (platform-sw#124, D-13).
+    def _make_safety_stop_gate_node(context, *args, **kwargs):
+        producers = [
+            p.strip() for p in context.perform_substitution(enabled_producers).split(',')
+            if p.strip()
+        ]
+        return [Node(
+            package='openamrobot_nav2',
+            executable='safety_stop_gate_node',
+            name='safety_stop_gate_node',
+            output='screen',
+            respawn=use_respawn,
+            respawn_delay=2.0,
+            parameters=[{'use_sim_time': use_sim_time, 'enabled_producers': producers}],
+            arguments=['--ros-args', '--log-level', log_level],
+        )]
+
+    safety_stop_gate_node = OpaqueFunction(function=_make_safety_stop_gate_node)
 
     # Relays /ui/cmd_vel (TwistStamped) down to plain Twist on cmd_vel_joy, dropping
     # anything older than 0.25s off header.stamp - twist_mux's use_stamped is false
@@ -443,6 +467,7 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_enabled_producers_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)

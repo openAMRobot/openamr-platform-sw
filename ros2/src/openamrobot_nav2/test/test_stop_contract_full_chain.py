@@ -132,9 +132,18 @@ class StopContractFullChainCase(unittest.TestCase):
         self._dock_abort_service = self.probe.create_service(
             Trigger, '/dock_trigger/abort', self._on_abort)
 
+        # D-13 (platform-sw#124): undock_robot is governed by the
+        # goal-authority ledger, not the legacy status topic - a heartbeat
+        # is what establishes IDLE for it, same as _set_goal_status_all_clear
+        # does for the other three actions below.
+        self._goal_authority_pub = self.probe.create_publisher(
+            String, 'goal_authority_events', 10)
+        self._goal_authority_instance_id = 'test-instance'
+
         self._spin_for(0.5)  # let every client/subscriber above discover its match
         self._set_goal_status_all_clear()
         self._set_dock_status('idle')
+        self._publish_goal_authority_heartbeat()
         self._spin_for(0.2)
 
     def tearDown(self):
@@ -184,6 +193,10 @@ class StopContractFullChainCase(unittest.TestCase):
         for action in _CANCEL_ACTIONS:
             self._set_goal_status(action, [])
 
+    def _publish_goal_authority_heartbeat(self, producer='undock_robot'):
+        self._goal_authority_pub.publish(
+            String(data=f'{producer}|heartbeat|{self._goal_authority_instance_id}'))
+
     def _set_dock_status(self, status):
         self._dock_status = status
         self._dock_status_pub.publish(String(data=status))
@@ -208,6 +221,8 @@ class StopContractFullChainCase(unittest.TestCase):
         for action in _CANCEL_ACTIONS:
             if action not in skip_actions:
                 self._set_goal_status(action, self._current_goal_status[action])
+        if 'undock_robot' not in skip_actions:
+            self._publish_goal_authority_heartbeat()
         self._spin_for(0.1)
 
     def _take_down_cancel_service(self, action):
@@ -423,16 +438,20 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         self.assertIn('navigate_to_pose', response.message)
 
     def test_release_refused_when_the_action_server_is_gone(self):
-        # The last content we ever got from undock_robot was setUp's
-        # all-clear sample - by content alone that would satisfy condition
-        # (a). What must still block release is that its cancel_goal
-        # service is no longer reachable at all: the same, deliberately
-        # undifferentiated "status stale or never received" reason this
-        # gate gives for a server that never answered in the first place.
-        self._take_down_cancel_service('undock_robot')
-        response = self._try_release(skip_actions={'undock_robot'})
+        # The last content we ever got from navigate_through_poses was
+        # setUp's all-clear sample - by content alone that would satisfy
+        # condition (a). What must still block release is that its
+        # cancel_goal service is no longer reachable at all: the same,
+        # deliberately undifferentiated "status stale or never received"
+        # reason this gate gives for a server that never answered in the
+        # first place. navigate_through_poses, not undock_robot: undock_robot
+        # moved to the goal-authority ledger (D-13, platform-sw#124), which
+        # does not consult this client at all, so this legacy mechanism no
+        # longer applies to it.
+        self._take_down_cancel_service('navigate_through_poses')
+        response = self._try_release(skip_actions={'navigate_through_poses'})
         self.assertFalse(response.success)
-        self.assertIn('undock_robot', response.message)
+        self.assertIn('navigate_through_poses', response.message)
 
     def test_release_refused_when_dock_trigger_is_gone(self):
         # Same reasoning as the action case above, for the dock_trigger

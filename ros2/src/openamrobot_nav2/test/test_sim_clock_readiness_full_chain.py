@@ -308,6 +308,13 @@ class SimClockChainCase(unittest.TestCase):
         self._wait_for_subscriber(dock_pub, 'dock_trigger_status')
         dock_pub.publish(String(data='idle'))
         dock_pub.destroy()
+        # D-13 (platform-sw#124): undock_robot is governed by the
+        # goal-authority ledger, not the legacy status topic above - a
+        # heartbeat is what establishes IDLE for it.
+        authority_pub = self.probe.create_publisher(String, 'goal_authority_events', 10)
+        self._wait_for_subscriber(authority_pub, 'goal_authority_events')
+        authority_pub.publish(String(data='undock_robot|heartbeat|test-instance'))
+        authority_pub.destroy()
         self._run_once()
 
     def _trigger(self, service_name):

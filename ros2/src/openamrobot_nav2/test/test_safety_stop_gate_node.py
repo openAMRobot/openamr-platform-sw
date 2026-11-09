@@ -137,9 +137,16 @@ class NodeTestCase(unittest.TestCase):
             msg.status_list.append(gs)
         self._publish_to_gate(GoalStatusArray, f'{action}/_action/status', msg)
 
+    def _publish_goal_authority_heartbeat(
+            self, producer='undock_robot', instance_id='test-instance'):
+        """D-13 (platform-sw#124): establishes ledger IDLE for a producer off the legacy topic."""
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data=f'{producer}|heartbeat|{instance_id}'))
+
     def _publish_all_clear_goal_status(self):
         for action in _CANCEL_ACTIONS:
             self._publish_goal_status(action, [])
+        self._publish_goal_authority_heartbeat()
 
     def _publish_dock_status(self, status: str):
         self._ensure_dock_abort_service_reachable()
@@ -431,14 +438,18 @@ class TestReleaseBlockedByActiveGoal(NodeTestCase):
         # still refuse, with the same undifferentiated reason as "never
         # received," since this gate's job is to stay refused correctly,
         # not to tell those two cases apart (see _release_blockers).
+        # dock_robot, not undock_robot: this is the legacy status-topic
+        # reachability check (D-13, platform-sw#124) - undock_robot moved to
+        # the goal-authority ledger, which does not consult this client at
+        # all, so this scenario no longer applies to it.
         self.node._start -= Duration(seconds=T_READY + 1.0)
         self._publish_all_clear_goal_status()
         self._publish_dock_status('idle')
         self._spin_both(timeout_s=0.2)
-        self._take_down_cancel_service('undock_robot')
+        self._take_down_cancel_service('dock_robot')
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertFalse(result.success)
-        self.assertIn('undock_robot', result.message)
+        self.assertIn('dock_robot', result.message)
         self.assertIn('stale or never received', result.message)
 
     def test_release_accepted_once_every_action_reports_clear(self):

@@ -141,6 +141,7 @@ from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import Twist
 from openamr_nav_msgs.msg import StopState
+from openamrobot_nav2.goal_authority import GoalAuthority, ProducerState
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -160,6 +161,17 @@ _CANCEL_ACTIONS = (
     'dock_robot',
     'undock_robot',
 )
+# Producers backed by the goal-authority ledger (D-13) - a subset of
+# _CANCEL_ACTIONS. The other three stay on the OLD status-topic-content
+# check until openamrobot-ui also reports through this channel (cross-repo,
+# not in this PR) - see _release_blockers' "ledger" vs "legacy" branches.
+_LEDGER_PRODUCERS = ('undock_robot',)
+
+# How long without a heartbeat/notify before a ledger producer reads as
+# UNKNOWN again (D-13: "missing, stale... blocks"). Matches dock_trigger's
+# own 2.0s heartbeat period with a margin for one missed beat, same
+# reasoning as _CMD_VEL_INPUT_TIMEOUTS' per-topic values above.
+_LEDGER_STALE_AFTER_S = 4.5
 
 # cmd_vel inputs the gate reads directly for release condition (c), each with
 # its own twist_mux.yaml timeout - NOT re-derived here; keep these in sync
@@ -232,6 +244,20 @@ class SafetyStopGateNode(Node):
             self.create_subscription(
                 Twist, name, self._make_cmd_vel_cb(name), 10)
 
+        # --- goal authority ledger (platform-sw#124, D-13) ---
+        self._goal_authority = GoalAuthority(_LEDGER_PRODUCERS, _LEDGER_STALE_AFTER_S)
+        self.create_subscription(
+            String, 'goal_authority_events', self._on_goal_authority_event, 10)
+
+        # --- enabled producers (D-13: "the launch profile names the
+        # enabled producers... disabled producers excluded by name, never
+        # inferred from absence") ---
+        self.declare_parameter('enabled_producers', list(_CANCEL_ACTIONS))
+        self._enabled_producers = set(self.get_parameter('enabled_producers').value)
+        unknown = self._enabled_producers - set(_CANCEL_ACTIONS)
+        if unknown:
+            raise ValueError(f'enabled_producers names unknown action(s): {unknown}')
+
         self.create_timer(1.0 / TICK_HZ, self._tick)
         # Publish the initial state immediately, not just on the first timer
         # tick - the retained TRANSIENT_LOCAL sample exists from the first
@@ -256,6 +282,11 @@ class SafetyStopGateNode(Node):
         self._refusal_reason = ''
         self._cancel_all_goals()
         self._abort_docking()
+        for producer in _LEDGER_PRODUCERS:
+            self._goal_authority.reset_producer(producer)  # D-13/D-14: engage is the
+            # deliberate recovery action that can discard an orphaned ledger entry -
+            # see goal_authority.reset_producer()'s own docstring for why there is
+            # no automatic path.
         if self._locked:
             return False
         self._locked = True
@@ -299,6 +330,26 @@ class SafetyStopGateNode(Node):
             self._cmd_vel_last_at[name] = self.get_clock().now()
         return _cb
 
+    def _on_goal_authority_event(self, msg: String) -> None:
+        try:
+            producer, event, instance_id = msg.data.split('|', 2)
+        except ValueError:
+            self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
+            return
+        if producer not in _LEDGER_PRODUCERS:
+            self.get_logger().warn(
+                f'goal_authority_events for an unmanaged producer: {producer!r}')
+            return
+        now_s = self.get_clock().now().nanoseconds / 1e9
+        if event == 'heartbeat':
+            self._goal_authority.heartbeat(producer, instance_id, now_s)
+        elif event == 'sent':
+            self._goal_authority.notify_sent(producer, instance_id, now_s)
+        elif event == 'done':
+            self._goal_authority.notify_done(producer, instance_id, now_s)
+        else:
+            self.get_logger().warn(f'unknown goal_authority_events event: {event!r}')
+
     def _release_blockers(self) -> list:
         """
         Return a list of human-readable reasons release is still refused.
@@ -314,7 +365,20 @@ class SafetyStopGateNode(Node):
         not message age] note for why this is not time-based.
         """
         blockers = []
+        now_s = self.get_clock().now().nanoseconds / 1e9
         for action in _CANCEL_ACTIONS:
+            if action not in self._enabled_producers:
+                continue  # excluded by name (D-13) - never inferred, never checked
+            if action in _LEDGER_PRODUCERS:
+                state = self._goal_authority.state(action, now_s)
+                if state != ProducerState.IDLE:
+                    blockers.append(f'{action}: {state.value} (goal-authority ledger)')
+                continue
+            # LEGACY path - status-topic content, not the ledger. Known weaker
+            # than D-13's requirement (inherits the exact gap it was written
+            # to close) until this producer's sender(s) - today, openamrobot-ui
+            # for navigate_to_pose/navigate_through_poses, nothing yet sends
+            # dock_robot pending #125 - also report through goal_authority_events.
             statuses = self._goal_statuses[action]
             if statuses is None:
                 blockers.append(f'{action}: status stale or never received')
@@ -335,11 +399,10 @@ class SafetyStopGateNode(Node):
         for name, timeout in _CMD_VEL_INPUT_TIMEOUTS.items():
             last = self._cmd_vel_last[name]
             if last is None or last == Twist():
-                continue  # never received, or last known value is literally zero
+                continue
             age_s = (self.get_clock().now() - self._cmd_vel_last_at[name]).nanoseconds / 1e9
             if age_s <= timeout:
                 blockers.append(f'{name}: nonzero, {age_s:.2f}s old (timeout {timeout}s)')
-            # else: gone silent past its own twist_mux timeout - satisfied
 
         return blockers
 
