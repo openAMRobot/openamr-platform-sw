@@ -1,0 +1,137 @@
+# Command chain for the OpenAMRobot 2.0 base (real robot profile).
+#
+#   twist_mux -> velocity_smoother -> collision_monitor -> /cmd_vel -> base controller
+#
+# Sources: cmd_vel_nav (Nav2 controller and behaviours), cmd_vel_dock (docking),
+# cmd_vel_joy (operator manual drive). Final /cmd_vel has one publisher: collision_monitor.
+#
+# Limits (P-03 rev20.6 item 30 A5 and A6): speed ceiling 0.5 m/s, no 0.3 m/s cap;
+# deceleration 1.5 m/s2 for travel. The 1.0 m/s2 hold-and-move value needs the lift phase
+# from /base/aux_status and is not wired here (see the README of this package).
+# Reverse is off for Build 1 (item 30 A2): min_velocity x is 0.0.
+#
+# This is a functional chain. The hardwired E-stop is the safety function and the chain
+# does not replace it. Values marked TODO are not in P-03 or the inputs.
+
+twist_mux:
+  ros__parameters:
+    use_stamped: false
+    topics:
+      navigation:
+        topic: cmd_vel_nav
+        timeout: 0.5
+        priority: 10
+      docking:
+        topic: cmd_vel_dock
+        timeout: 0.3
+        priority: 20
+      manual:
+        topic: cmd_vel_joy
+        timeout: 0.25
+        priority: 100
+    locks:
+      # Held by openamrobot_drivers base_status_monitor. The monitor publishes at 20 Hz.
+      # A lock that stops arriving counts as engaged after the timeout, so a dead
+      # monitor fails closed. Priority 255 masks every input above.
+      base_status:
+        topic: /base/command_lock
+        timeout: 0.3
+        priority: 255
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    # x, y, theta. Speed ceiling 0.5 m/s (item 30 A5). No reverse for Build 1 (item 30 A2).
+    max_velocity: [0.5, 0.0, 0.5]
+    min_velocity: [0.0, 0.0, -0.5]
+    # TODO(Mohamed): the 0.5 rad/s yaw limit and the accelerations are carried over from
+    # the legacy Nav2 profile. They are not P-03 values.
+    max_accel: [1.0, 0.0, 3.0]
+    # Travel deceleration 1.5 m/s2 (item 30 A6). Yaw value carried over from legacy.
+    max_decel: [-1.5, 0.0, -3.0]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    # When the mux goes silent (lock engaged, sources timed out) the smoother ramps to zero.
+    velocity_timeout: 0.3
+
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.2
+    # Item 30 A2.
+    source_timeout: 0.5
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    # The first sub-polygon whose velocity window contains the command is used, so the
+    # order is stopped, rotation, forward.
+    polygons: ["StopZone"]
+    StopZone:
+      type: "velocity_polygon"
+      action_type: "stop"
+      min_points: 2
+      visualize: true
+      enabled: true
+      velocity_polygons: ["stopped", "rotation", "forward"]
+      # Frame is base_footprint, x forward. Footprint: x -0.390 to 0.415, y +-0.29 (same as
+      # nav2_params.yaml). Full footprint width in every zone (item 30 A2).
+      # TODO(Mohamed): the lengths below are a first estimate. Forward zone ends 0.205 m past
+      # the nose: stopping distance at 0.5 m/s and 1.5 m/s2 is 0.083 m, plus 0.2 s command
+      # latency at 0.5 m/s (0.100 m), plus 0.022 m margin. Replace with the measured stop
+      # distances from the stepped tests at 0.2, 0.3 and 0.5 m/s (item 30 A5).
+      forward:
+        points: "[[0.620, 0.290], [0.620, -0.290], [0.0, -0.290], [0.0, 0.290]]"
+        linear_min: 0.01
+        linear_max: 0.5
+        theta_min: -0.5
+        theta_max: 0.5
+      rotation:
+        points: "[[0.470, 0.340], [0.470, -0.340], [-0.440, -0.340], [-0.440, 0.340]]"
+        linear_min: -0.01
+        linear_max: 0.01
+        theta_min: -0.5
+        theta_max: 0.5
+      # Catch-all while the command is zero: anything inside the footprint plus a small margin.
+      stopped:
+        points: "[[0.450, 0.300], [0.450, -0.300], [-0.420, -0.300], [-0.420, 0.300]]"
+        linear_min: -0.01
+        linear_max: 0.01
+        theta_min: -0.01
+        theta_max: 0.01
+    observation_sources: ["scan", "tof", "ultrasonic"]
+    scan:
+      type: "scan"
+      topic: "scan_filtered"
+      # Item 30 A2: LiDAR minimum range 0.05 m.
+      min_height: 0.0
+      max_height: 2.0
+      min_range: 0.05
+      enabled: true
+    # ToF (TF-Luna) and ultrasonic (MB7060) are range sources (item 30 A2). Topic names, rate
+    # and publisher are open (I8 decision 12), so both stay disabled until they exist.
+    # TODO(Evans): range topic names.
+    tof:
+      type: "range"
+      topic: "range/tof"
+      obstacles_angle: 0.2
+      enabled: false
+    ultrasonic:
+      type: "range"
+      topic: "range/ultrasonic"
+      obstacles_angle: 0.3
+      enabled: false
+
+lifecycle_manager_cmd_chain:
+  ros__parameters:
+    autostart: true
+    # Bond off (item 30 A2). Loss of either node stops the final /cmd_vel, and the base
+    # stops on its 200 ms command watchdog.
+    bond_timeout: 0.0
+    attempt_respawn_reconnection: false
+    node_names: ["velocity_smoother", "collision_monitor"]

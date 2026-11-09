@@ -1,0 +1,23 @@
+# base_status_monitor parameters (I8 rev 3, frozen 6 Nov 2026).
+base_status_monitor:
+  ros__parameters:
+    status_topic: /base/status
+    aux_topic: /base/aux_status
+    status_type: openamr_base_msgs/msg/BaseStatus
+    aux_type: openamr_base_msgs/msg/BaseAuxStatus
+    lock_topic: /base/command_lock
+    resume_service: /base/resume
+    status_stale_s: 0.5      # 5 missed 10 Hz heartbeats
+    aux_stale_s: 0.6         # 3 missed 5 Hz heartbeats
+    require_aux: true
+    supported_contract_versions: [1]
+    lock_rate_hz: 20.0
+    # TODO(Evans): registry file path and format (I8 decision 5). Empty: faults are reported
+    # by code with a generic line.
+    fault_registry_file: ""
+    # TODO(Evans): field names and enum numbers from the openamr_base_msgs draft (interfaces
+    # #30). Entries are "name=value". While the enum tables are empty an integer state is
+    # Malformed and the lock stays engaged.
+    field_names: ["__none__"]
+    controller_state_enum: ["__none__"]
+    safety_state_enum: ["__none__"]

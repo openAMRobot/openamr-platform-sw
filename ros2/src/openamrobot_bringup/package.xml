@@ -17,6 +17,13 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>topic_tools</exec_depend>
+  <exec_depend>openamrobot_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <!-- openamrobot_gazebo is an OPTIONAL runtime dep (only for sim:=true). It is resolved
        lazily in bringup.launch.py, so a real-only install does not need it; not listed as a
        hard dependency to keep bringup buildable/runnable on the robot without Gazebo. -->

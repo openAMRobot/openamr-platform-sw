@@ -20,6 +20,7 @@ from openamrobot_drivers.base_status_adapter import (
 from openamrobot_drivers.base_status_core import (
     AUX_STALE_S, BaseGate, Blocker, FaultRegistry, STATUS_STALE_S)
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rosidl_runtime_py.utilities import get_message
@@ -183,7 +184,7 @@ def main(args=None):
     node = BaseStatusMonitor()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
