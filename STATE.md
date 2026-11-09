@@ -20,7 +20,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
-| Tests and CI: PSW-01, PSW-03, PSW-08, PSW-15, PSW-18 (29 Oct 2026) | this PR | draft | work-package owner: adopt, adapt or reject |
+| Tests and CI: PSW-01, PSW-03, PSW-08, PSW-15, PSW-18 (29 Oct 2026) | this PR | draft; local XML guard on 6a2c792: five regressions pass (9 Nov 2026) | owner adopts after #101; hosted workspace rerun pending |
 | ROS 2 verify gate (#98) | #101 | in review | owner review |
 | Command arbitration, twist_mux + stop gate (#35) | #90, review/issue35-arbitration | in review | owner review; then drop the PSW-03 xfail |
 | Recovery BT (#35/N4) | #91, #92 | in review | owner review |
