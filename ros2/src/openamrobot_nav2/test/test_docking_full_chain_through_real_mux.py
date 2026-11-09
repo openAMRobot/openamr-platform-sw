@@ -36,6 +36,7 @@ real with:
         src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py
 """
 from pathlib import Path
+import os
 import shutil
 import signal
 import subprocess
@@ -77,20 +78,27 @@ def _load_shipped_docking_topic_config():
 
 
 def _start_mux(params_path):
+    # Own process group: `ros2 run` starts the real twist_mux as a child,
+    # and signalling only the wrapper leaves that child running after the
+    # test. _stop_mux signals the whole group.
     return subprocess.Popen(
         ['ros2', 'run', 'twist_mux', 'twist_mux',
          '--ros-args', '--params-file', str(params_path),
          '-r', 'cmd_vel_out:=cmd_vel_mux'],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True)
 
 
 def _stop_mux(proc):
     if proc.poll() is None:
-        proc.send_signal(signal.SIGINT)
         try:
+            os.killpg(proc.pid, signal.SIGINT)
             proc.wait(timeout=3.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.wait(timeout=3.0)
 
 

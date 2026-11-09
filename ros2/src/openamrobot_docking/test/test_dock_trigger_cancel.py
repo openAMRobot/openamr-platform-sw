@@ -347,6 +347,19 @@ class TestD19ReverseAndAutoUndockDisabled(NodeTestCase):
             thread_cls.assert_not_called()
         self.assertFalse(self.node.busy)
 
+    def test_send_undock_via_trigger_false_also_refuses(self):
+        # on_trigger(False)'s undock_on_false path is a third, separate
+        # undock trigger (dormant by default, config/dock_trigger.yaml
+        # ships undock_on_false: false) that calls _send_undock() directly,
+        # bypassing run_undock_sequence() entirely - it must stay gated for
+        # the same D-19 reason, not just the two run_undock_sequence()
+        # callers.
+        self.node.undock_on_false = True
+        with patch.object(self.node, 'undock_client') as client_mock:
+            self.node.on_trigger(Bool(data=False))
+            client_mock.wait_for_server.assert_not_called()
+            client_mock.send_goal_async.assert_not_called()
+
     def test_run_undock_sequence_itself_refuses_as_the_single_chokepoint(self):
         # Defense in depth: whatever eventually calls run_undock_sequence()
         # directly (any caller, present or future) must still get refused

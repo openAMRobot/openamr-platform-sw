@@ -2863,6 +2863,16 @@ class DockTrigger(Node):
         return True
 
     def _send_undock(self):
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: on_trigger(False)'s undock_on_false path (dormant by
+            # default - config/dock_trigger.yaml ships it false) is still
+            # an undock trigger, so it stays gated for the same reason
+            # on_undock and on_goal_pose are, even though today nothing can
+            # reach this line in the shipped config.
+            self.get_logger().warn(
+                'Undock refused — reverse/automatic undock disabled for '
+                'Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return
         if not self.undock_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().warn('undock_robot action not available')
             return

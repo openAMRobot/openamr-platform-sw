@@ -19,6 +19,7 @@ the exact requirement Alex's/Mohamed's review set for this PR's remaining
 tests.
 """
 from pathlib import Path
+import os
 import shutil
 import signal
 import subprocess
@@ -62,21 +63,34 @@ _JOY_TIMEOUT_S = 0.25   # cmd_vel_joy, config/twist_mux.yaml
 
 
 def _start_mux():
+    # start_new_session=True puts the real twist_mux child (ros2 run is a
+    # thin wrapper around it) in its own process group - SIGINT/kill sent
+    # only to the wrapper's own PID does not reach that child, which is the
+    # root cause of the orphan-process contamination that has been hitting
+    # test_safety_stop_gate_node.py's TestPostMuxGate/SimClockPostMuxGate
+    # across unrelated test runs (found and confirmed while building D-13's
+    # own real-dock_trigger integration tests). Killing the whole group in
+    # _stop_mux() is what actually reaps it.
     return subprocess.Popen(
         ['ros2', 'run', 'twist_mux', 'twist_mux',
          '--ros-args', '--params-file', str(_SHIPPED_PARAMS_PATH),
          '-r', 'cmd_vel_out:=cmd_vel_mux'],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True)
 
 
 def _stop_mux(proc):
-    if proc is not None and proc.poll() is None:
-        proc.send_signal(signal.SIGINT)
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGINT)
+        proc.wait(timeout=3.0)
+    except (subprocess.TimeoutExpired, ProcessLookupError):
         try:
-            proc.wait(timeout=3.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=3.0)
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait(timeout=3.0)
 
 
 class StopContractFullChainCase(unittest.TestCase):
@@ -196,6 +210,14 @@ class StopContractFullChainCase(unittest.TestCase):
     def _publish_goal_authority_heartbeat(self, producer='undock_robot'):
         self._goal_authority_pub.publish(
             String(data=f'{producer}|heartbeat|{self._goal_authority_instance_id}'))
+
+    def _publish_goal_authority_event(self, producer, event, instance_id):
+        """Publish a real goal_authority_events wire message with an explicit instance_id.
+
+        For exercising the gate's own restart/orphan handling end to end,
+        not just GoalAuthority's own unit tests.
+        """
+        self._goal_authority_pub.publish(String(data=f'{producer}|{event}|{instance_id}'))
 
     def _set_dock_status(self, status):
         self._dock_status = status
@@ -557,6 +579,48 @@ class TestRepeatedStopResumeAndStopState(StopContractFullChainCase):
         self.assertTrue(late, 'a late-joining subscriber never received /safety/stop_state')
         self.assertEqual(late[0].state, StopState.STATE_LOCKED)
         qos_probe.destroy_node()
+
+
+class TestUndockRobotLedgerSurvivesARealRestart(StopContractFullChainCase):
+    """
+    D-13 test-status table row 3: a producer restart with something
+    outstanding -> UNKNOWN -> recovers, driven through the real
+    goal_authority_events wire protocol via the gate's actual subscription
+    (_on_goal_authority_event), not a direct GoalAuthority method call.
+
+    Not driven by a real dock_trigger.py subprocess: D-19 (platform-sw#124,
+    #78) gates every public entry point that could make it send a real
+    undock goal, so there is currently no way to produce a real `sent`
+    event through dock_trigger at all. This probe-publishes the exact same
+    wire messages dock_trigger would, which is what the gate actually
+    consumes - the gap this closes is "does the GATE handle a real restart
+    on the wire," not "can dock_trigger itself still send one today."
+    """
+
+    def test_a_restart_with_something_outstanding_blocks_until_recovery(self):
+        self._publish_goal_authority_event('undock_robot', 'sent', 'instance-a')
+        self._spin_for(0.1)
+
+        # instance 'a' is gone; instance 'b' starts up and heartbeats -
+        # orphaned, not silently cleared (platform-sw#124, D-13).
+        self._publish_goal_authority_event('undock_robot', 'heartbeat', 'instance-b')
+        self._spin_for(0.1)
+
+        response = self._try_release(skip_actions={'undock_robot'})
+        self.assertFalse(response.success)
+        self.assertIn('undock_robot', response.message)
+        self.assertIn('unknown', response.message)
+
+        # engage is the deliberate recovery action (platform-sw#90,
+        # panthera-momagdii's review: only a genuinely orphaned entry may
+        # be reset, which this one now is).
+        self._engage()
+        self._spin_for(0.1)
+        self._publish_goal_authority_event('undock_robot', 'heartbeat', 'instance-b')
+        self._spin_for(0.1)
+
+        response = self._try_release()
+        self.assertTrue(response.success, response.message)
 
 
 if __name__ == '__main__':

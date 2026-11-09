@@ -141,7 +141,11 @@ def _start_smoother(params_path):
          '-r', f'cmd_vel:={_IN_TOPIC}',
          '-r', f'cmd_vel_smoothed:={_OUT_TOPIC}',
          '-r', f'odom:={_ODOM_TOPIC}'],
-        stdout=log, stderr=subprocess.STDOUT)
+        stdout=log, stderr=subprocess.STDOUT,
+        # Own process group: `ros2 run` starts the real velocity_smoother as
+        # a child, and signalling only the wrapper leaves that child running
+        # after the test - _stop_smoother signals the whole group.
+        start_new_session=True)
     proc._openamr_log_path = log.name
     log.close()
     return proc
@@ -163,11 +167,14 @@ def _smoother_diagnostics(proc):
 
 def _stop_smoother(proc):
     if proc.poll() is None:
-        proc.send_signal(signal.SIGINT)
         try:
+            os.killpg(proc.pid, signal.SIGINT)
             proc.wait(timeout=3.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.wait(timeout=3.0)
     log_path = getattr(proc, '_openamr_log_path', None)
     if log_path:
