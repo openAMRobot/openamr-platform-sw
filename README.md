@@ -154,6 +154,8 @@ All containers use `network_mode: host`, so DDS discovery works between them aut
 
 > **NVIDIA GPU:** If you have an NVIDIA GPU and want hardware-accelerated Gazebo rendering, install [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) and uncomment the `openamr-gpu` service in [`docker-compose.yml`](docker-compose.yml).
 
+> **Saved maps:** the named volume `openamrobot_maps` is mounted at `/data/maps` in the container, so maps saved via `nav2_map_server`'s map saver survive container restarts.
+
 ---
 
 ## Option B — Manual install (Ubuntu 24.04)
