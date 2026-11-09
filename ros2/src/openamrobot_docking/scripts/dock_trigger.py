@@ -65,6 +65,18 @@ from nav2_msgs.action import (
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
 
+# D-19 (platform-sw#124, Alex's 8 Nov ruling, P-03 rev20.6 item 30 A2): reverse
+# and automatic undock are disabled for Build 1, for EVERY caller - the
+# explicit /undock_robot trigger included, not just the automatic goal_pose
+# path - until #78's cancellable, docked-only, rear-checked undock action is
+# accepted. A code constant, not a declared ROS parameter: re-enabling it is
+# a deliberate, reviewed change gated on #78's owner acceptance, not
+# something an operator can flip at launch time. run_undock_sequence() is the
+# single chokepoint every caller goes through before any reverse motion;
+# on_undock and on_goal_pose/_undock_then_forward also refuse early, so no
+# busy/thread-state churn happens for a sequence that cannot move anyway.
+BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED = True
+
 
 def quat_to_yaw(q):
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
@@ -1015,8 +1027,14 @@ class DockTrigger(Node):
         if self.busy:
             self.get_logger().warn('Sequence already in progress — ignoring undock')
             return
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            self.get_logger().warn(
+                'Undock refused — reverse/automatic undock disabled for '
+                'Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return
         if not self.is_docked:
-            self.get_logger().warn('Not docked — running undock maneuver anyway')
+            self.get_logger().warn('Not docked — undock request refused (D-19)')
+            return
         self._cancel_requested = False
         self.busy = True
         t = threading.Thread(target=self._undock_and_release, daemon=True)
@@ -1039,6 +1057,16 @@ class DockTrigger(Node):
         # through to Nav2 (which listens on goal_pose_forward_topic).
         if not self.is_docked:
             self.goal_pose_pub.publish(msg)
+            return
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: a navigation goal while docked must NOT silently undock
+            # and reverse - see the module constant's own docstring. The
+            # goal is dropped, not queued: Build 1 has no mechanism to
+            # resume it once #78 lands, and queuing it would just move the
+            # same undecided reverse to a later, less visible moment.
+            self.get_logger().warn(
+                'Navigation goal while docked ignored — automatic undock '
+                'disabled for Build 1 (D-19, platform-sw#78 not yet accepted)')
             return
         # Docked: undock first, then forward the goal.
         if self.busy:
@@ -1856,6 +1884,16 @@ class DockTrigger(Node):
         safety. Add a real rear sensor (bumper, rear camera, sonar) before
         re-introducing a guard here.
         """
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: the single chokepoint every caller goes through before
+            # any reverse motion - defense in depth beyond on_undock's and
+            # on_goal_pose's own early refusals, for whatever calls this
+            # directly, now or in the future.
+            self.get_logger().error(
+                'Undock sequence refused — reverse/automatic undock disabled '
+                'for Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return False
+
         self.get_logger().info(
             f'── UNDOCK: reverse {self.undock_reverse_distance:.2f}m, then spin 180°'
         )

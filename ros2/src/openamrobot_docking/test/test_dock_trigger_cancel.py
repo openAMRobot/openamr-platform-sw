@@ -30,6 +30,7 @@ import pytest
 
 rclpy = pytest.importorskip('rclpy')  # tracking: platform item 4
 
+from geometry_msgs.msg import PoseStamped  # noqa: E402,I100
 from std_msgs.msg import Bool  # noqa: E402,I100
 from std_srvs.srv import Trigger  # noqa: E402,I100
 
@@ -174,16 +175,24 @@ class TestCancelFlagResetsOnNewTrigger(NodeTestCase):
             'on_trigger must reset a stale cancel flag before starting a '
             'new sequence, or the new sequence would abort immediately')
 
-    def test_on_undock_resets_a_stale_cancel_flag(self):
+    def test_on_undock_no_longer_resets_a_stale_cancel_flag_because_it_is_refused(self):
+        # Superseded by D-19 (platform-sw#124, platform-sw#78): on_undock no
+        # longer starts a sequence at all while reverse/automatic undock is
+        # disabled for Build 1, docked or not - see TestD19ReverseAndAutoUndock
+        # Disabled below for the full set of required negative regressions.
+        # This test only confirms the refusal happens BEFORE the old
+        # cancel-flag-reset/thread-start code would have run; restore a
+        # positive "resets the flag" test alongside whatever re-enables D-19.
         self.node._cancel_requested = True
         self.node.busy = False
         self.node.is_docked = True
-        with patch('threading.Thread'):
+        with patch('threading.Thread') as thread_cls:
             self.node.on_undock(Bool(data=True))
-        self.assertFalse(
-            getattr(self.node, '_cancel_requested', True),
-            'on_undock must reset a stale cancel flag before starting a '
-            'new sequence')
+            thread_cls.assert_not_called()
+        self.assertTrue(
+            getattr(self.node, '_cancel_requested', False),
+            'on_undock is refused under D-19 before it would have reset the '
+            'cancel flag or started anything')
 
 
 class TestAbortService(NodeTestCase):
@@ -296,6 +305,67 @@ class TestEveryBlockingLoopChecksCancellation(unittest.TestCase):
             f'{not_checked} no longer call self._raise_if_cancelled() - a '
             f'Stop (software) during that phase would no longer cancel the '
             f'sequence (platform-sw#119 test 7)')
+
+
+class TestD19ReverseAndAutoUndockDisabled(NodeTestCase):
+    """
+    D-19 (platform-sw#124, Alex's 8 Nov ruling, P-03 rev20.6 item 30 A2):
+    reverse and automatic undock are disabled for Build 1, for EVERY caller,
+    until #78's cancellable, docked-only, rear-checked undock action is
+    accepted - panthera-momagdii's #90 review (id 5823873895), reproduced
+    and fixed here.
+
+    Required negative regressions per that review: (a) a docked /goal_pose
+    never initiates an undock/reverse; (b) an undock request while not
+    docked is rejected without motion. This repository's own decision
+    (asked and confirmed, not assumed) extends that to EVERY undock
+    request, docked or not - reverse itself is disabled, not just the
+    automatic path - until #78 lands.
+    """
+
+    def test_goal_pose_while_docked_does_not_auto_undock_or_forward(self):
+        self.node.is_docked = True
+        with patch('threading.Thread') as thread_cls:
+            self.node.on_goal_pose(PoseStamped())
+            thread_cls.assert_not_called()
+        self.assertFalse(self.node.busy)
+
+    def test_undock_request_while_not_docked_is_refused_without_motion(self):
+        self.node.is_docked = False
+        with patch('threading.Thread') as thread_cls:
+            self.node.on_undock(Bool(data=True))
+            thread_cls.assert_not_called()
+        self.assertFalse(self.node.busy)
+
+    def test_undock_request_while_docked_is_also_refused_without_motion(self):
+        # The broader of the two decisions asked and confirmed above:
+        # reverse itself is disabled, so even a genuinely docked, explicit
+        # undock request must not move the robot until #78 lands.
+        self.node.is_docked = True
+        with patch('threading.Thread') as thread_cls:
+            self.node.on_undock(Bool(data=True))
+            thread_cls.assert_not_called()
+        self.assertFalse(self.node.busy)
+
+    def test_run_undock_sequence_itself_refuses_as_the_single_chokepoint(self):
+        # Defense in depth: whatever eventually calls run_undock_sequence()
+        # directly (any caller, present or future) must still get refused
+        # here, not just at on_undock/on_goal_pose's own early checks.
+        with patch.object(self.node, '_reverse_distance') as reverse_mock:
+            result = self.node.run_undock_sequence()
+        reverse_mock.assert_not_called()
+        self.assertFalse(result)
+
+    def test_any_deliberate_re_enablement_is_a_code_change_not_a_parameter(self):
+        # (c) of the review's required set: re-enablement must stay gated on
+        # #78's owner acceptance, not something an operator can flip at
+        # launch time. Asserting the module constant (not a declared ROS
+        # parameter) is the gate is itself part of that guarantee.
+        self.assertFalse(
+            self.node.has_parameter('build1_reverse_and_auto_undock_disabled'),
+            'D-19 must stay a code constant, not a launch/runtime parameter - '
+            'an operator could otherwise re-enable reverse without #78')
+        self.assertTrue(self.dock_trigger_module.BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED)
 
 
 if __name__ == '__main__':
