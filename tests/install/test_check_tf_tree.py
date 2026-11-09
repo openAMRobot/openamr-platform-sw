@@ -111,7 +111,7 @@ class TestRepository:
             assert roots == {'odom'}
 
     def test_known_violation_combined_profile_is_not_a_tree(self):
-        # findings M-02 / L-02: URDF base_footprint -> base_link against the real
+        # Known mismatch: URDF base_footprint -> base_link against the real
         # odom -> base_link and base_link -> base_footprint, and duplicate sensor frames.
         problems = t.check_structure(t.build('combined'))
         assert any('lidar_link has two parents' in p for p in problems)
