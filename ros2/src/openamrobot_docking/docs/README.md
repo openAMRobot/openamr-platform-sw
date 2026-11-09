@@ -61,7 +61,7 @@ docs/
   - Camera intrinsics: `/camera_info` (bridged in this package's launch)
   - Tag detections: `/apriltag/detections`
   - Dock pose in map: `/detected_dock_pose` (PoseStamped, 10 Hz — from the centre tag)
-  - Drive commands: `/cmd_vel` (the sequencer publishes directly; Phase 1 goes through Nav2's action server)
+  - Drive commands: `cmd_vel_dock` (arbitrated through twist_mux since #35/#90; Phase 1 goes through Nav2's action server)
   - Trigger: `/dock_trigger` (Bool), `/undock_robot` (Bool)
 - **World coordinates** (Raj's `walled_world.sdf`):
   - Robot spawn: world `(0, 0, 0)` yaw=0
