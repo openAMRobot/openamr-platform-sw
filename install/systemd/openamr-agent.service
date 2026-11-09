@@ -1,0 +1,29 @@
+[Unit]
+Description=OpenAMRobot micro-ROS agent (base controller link)
+Documentation=https://github.com/openAMRobot/openamr-platform-sw
+PartOf=openamr.target
+After=network-online.target time-sync.target
+Wants=time-sync.target
+# The device name comes from install/udev/99-openamrobot.rules; the run script checks it.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=openamr
+Group=dialout
+EnvironmentFile=/etc/openamr/openamr.env
+ExecStart=/opt/openamr/bin/openamr-run.sh agent
+# A dead agent means no commands reach the base: the base stops by its own 200 ms /cmd_vel
+# watchdog. Restarting the agent only restores the link; it commands nothing.
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=openamr.target
