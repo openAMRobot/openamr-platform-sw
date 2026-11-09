@@ -283,10 +283,14 @@ class SafetyStopGateNode(Node):
         self._cancel_all_goals()
         self._abort_docking()
         for producer in _LEDGER_PRODUCERS:
-            self._goal_authority.reset_producer(producer)  # D-13/D-14: engage is the
-            # deliberate recovery action that can discard an orphaned ledger entry -
-            # see goal_authority.reset_producer()'s own docstring for why there is
-            # no automatic path.
+            if self._goal_authority.is_orphaned(producer):
+                self._goal_authority.reset_producer(producer)  # D-13/D-14: engage is
+                # the deliberate recovery action that may discard a genuinely
+                # orphaned ledger entry (left by a GONE instance) - never a live
+                # instance's own, currently-outstanding goal (platform-sw#90,
+                # panthera-momagdii's review, reproducer A: fire-and-forget
+                # cancellation plus a heartbeat is not proof the goal is gone).
+                # See goal_authority.is_orphaned()'s own docstring.
         if self._locked:
             return False
         self._locked = True

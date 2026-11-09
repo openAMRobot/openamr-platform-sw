@@ -118,6 +118,45 @@ class TestGoalAuthority(unittest.TestCase):
         self.assertEqual(authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE)
         self.assertEqual(authority.state('dock_robot', now_s=0.0), ProducerState.UNKNOWN)
 
+    def test_a_second_restart_does_not_erase_the_first_restarts_orphan(self):
+        # panthera-momagdii's #90 review, reproducer B: A sends a goal and
+        # never reports it done (gone). B restarts, correctly orphaned/
+        # UNKNOWN. C then restarts again with nothing of its OWN
+        # outstanding - _touch()'s orphan flag must stay sticky across that
+        # second transition, not get silently overwritten back to False
+        # just because C's own outstanding count happens to be zero. A's
+        # goal is still unaccounted for; only an explicit reset_producer()
+        # may clear it (see test_reset_producer_clears_an_orphan...).
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        authority.heartbeat('undock_robot', instance_id='b', now_s=1.0)
+        self.assertEqual(authority.state('undock_robot', now_s=1.0), ProducerState.UNKNOWN)
+        authority.heartbeat('undock_robot', instance_id='c', now_s=2.0)
+        self.assertEqual(
+            authority.state('undock_robot', now_s=2.0), ProducerState.UNKNOWN,
+            "a second restart (c) must not un-orphan a's unresolved goal just "
+            "because c's own outstanding count is zero")
+
+    def test_is_orphaned_is_false_for_a_live_instances_own_outstanding_goal(self):
+        # panthera-momagdii's #90 review, reproducer A: engage_lock() must
+        # be able to tell "this instance's own, currently-outstanding goal"
+        # apart from "an orphan left by a gone instance" - only the latter
+        # may ever be reset_producer()'d. A live instance mid-goal is not
+        # orphaned, even while locked/engaged.
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        self.assertFalse(authority.is_orphaned('undock_robot'))
+        self.assertEqual(authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE)
+
+    def test_is_orphaned_is_true_only_after_a_restart_leaves_something_outstanding(self):
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        self.assertFalse(authority.is_orphaned('undock_robot'))
+        authority.heartbeat('undock_robot', instance_id='b', now_s=1.0)
+        self.assertTrue(authority.is_orphaned('undock_robot'))
+        authority.reset_producer('undock_robot')
+        self.assertFalse(authority.is_orphaned('undock_robot'))
+
     def test_managed_lists_exactly_the_configured_producers(self):
         authority = GoalAuthority(['undock_robot', 'dock_robot'], stale_after_s=5.0)
         self.assertEqual(set(authority.managed()), {'undock_robot', 'dock_robot'})

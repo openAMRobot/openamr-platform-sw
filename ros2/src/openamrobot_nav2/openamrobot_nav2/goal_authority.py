@@ -1,8 +1,7 @@
 """
-Proposed new file: ros2/src/openamrobot_nav2/openamrobot_nav2/goal_authority.py
+Goal-authority ledger for the stop-path gate (platform-sw#124, D-13/D-14).
 
-NOT applied to the tree - this is a draft for the human safety-path owner to
-review and apply. Implements the "supervised goal proxy" platform-sw#124's
+Implements the "supervised goal proxy" platform-sw#124's
 D-13 ruling requires: a component that KNOWS "zero goals active", including
 at boot, without relying on the action status topic (Nikolai's 8 Nov
 measurement: the four */_action/status topics are silent on a genuinely idle
@@ -34,9 +33,10 @@ old sample - the same fail-closed intent as the old code's content check,
 now with an actual liveness signal behind it instead of inferring content
 age from a topic ROS2 actions do not publish periodically.
 
-Producers NOT yet wired to this ledger (today: navigate_to_pose and
-navigate_through_poses, both also sendable directly by openamrobot-ui) stay
-on the OLD status-topic-content check (see SafetyStopGateNode's own
+Producers NOT yet wired to this ledger (today: navigate_to_pose,
+navigate_through_poses and dock_robot - the first two also sendable
+directly by openamrobot-ui) stay on the OLD status-topic-content check (see
+SafetyStopGateNode's own
 _release_blockers for both paths side by side) - this is explicitly WEAKER
 than the ledger (it inherits the exact status-topic gap D-13 was written to
 close) and is called out as such in the release-blocker message, so this
@@ -94,8 +94,12 @@ class GoalAuthority:
         entry = self._entries[producer]
         if entry.instance_id is not None and entry.instance_id != instance_id:
             # a different process instance than the one we last heard from -
-            # whatever it had outstanding is now unaccountable, not cleared
-            entry.orphaned = entry.outstanding > 0
+            # whatever it had outstanding is now unaccountable, not cleared.
+            # Sticky (platform-sw#90, panthera-momagdii's review, reproducer
+            # B): a LATER restart whose own outstanding count happens to be
+            # zero must not un-orphan an EARLIER restart's still-unresolved
+            # goal - only reset_producer() may clear `orphaned`.
+            entry.orphaned = entry.orphaned or entry.outstanding > 0
             entry.outstanding = 0
         entry.instance_id = instance_id
         entry.last_contact_s = now_s
@@ -138,6 +142,22 @@ class GoalAuthority:
         first contact, not implicitly trusted as a continuation.
         """
         self._entries[producer] = _ProducerLedgerEntry()
+
+    def is_orphaned(self, producer: str) -> bool:
+        """
+        Report whether a now-gone instance left something outstanding.
+
+        This is deliberately narrower than `state(...) == UNKNOWN` (which
+        also covers "never heard from" and "stale") - it is the ONE
+        condition reset_producer() may be called for (platform-sw#90,
+        panthera-momagdii's review, reproducer A): a live instance's own,
+        currently-outstanding goal is not orphaned, and must not be reset
+        just because engage/Stop was pressed - fire-and-forget cancellation
+        is not proof the goal is gone, so the outstanding count must survive
+        until the real notify_done() arrives (or the instance itself
+        becomes a genuine orphan via a later restart).
+        """
+        return self._entries[producer].orphaned
 
     def state(self, producer: str, now_s: float) -> ProducerState:
         entry = self._entries[producer]

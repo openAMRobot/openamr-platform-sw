@@ -21,6 +21,7 @@ from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray  # noqa: E402,
 from action_msgs.srv import CancelGoal  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
+from openamrobot_nav2.goal_authority import ProducerState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
     _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
@@ -637,6 +638,76 @@ class TestEngageCancelsGoalsAndAbortsDocking(NodeTestCase):
         self._call_trigger('/safety/stop_lock_engage')
         self._spin_both(timeout_s=0.3)
         self.assertTrue(calls, 'dock_trigger ~/abort was never called')
+
+
+class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
+    """
+    platform-sw#90, panthera-momagdii's review (reproducer A): engage_lock()
+    discarded undock_robot's ledger entry on every call, including while a
+    goal was genuinely outstanding under the SAME, still-live instance -
+    fire-and-forget cancellation is not proof the goal is gone. Only a
+    genuinely orphaned entry (left by a GONE instance) may ever be
+    reset_producer()'d - see goal_authority.py's is_orphaned().
+    """
+
+    def test_engage_does_not_clear_an_active_undock_goal_from_the_ledger(self):
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=0.0)
+        self._call_trigger('/safety/stop_lock_engage')
+        self.assertEqual(
+            self.node._goal_authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE,
+            "engage_lock() discarded a live instance's own outstanding undock goal")
+
+    def test_repeated_engage_while_locked_does_not_clear_it_either(self):
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=0.0)
+        self._call_trigger('/safety/stop_lock_engage')
+        self._call_trigger('/safety/stop_lock_engage')  # repeated, already locked
+        self.assertEqual(
+            self.node._goal_authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE)
+
+    def test_release_stays_refused_through_engage_until_the_real_done_arrives(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        # Real wall-clock now_s throughout, matching what the gate's own
+        # _release_blockers() uses internally for the staleness check - a
+        # tiny fake now_s here would read as "stale" against the gate's
+        # real clock regardless of this test's actual subject.
+        now_s = self.node.get_clock().now().nanoseconds / 1e9
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=now_s)
+        self._call_trigger('/safety/stop_lock_engage')
+        # The three LEGACY actions only, by hand - not
+        # _publish_all_clear_goal_status(), which also heartbeats
+        # undock_robot's ledger under its own fixed 'test-instance' id and
+        # would spuriously orphan the 'live' instance this test is tracking.
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded although undock_robot was never confirmed done - '
+            'fire-and-forget cancellation plus a heartbeat is not proof (#90 review)')
+        self.assertIn('undock_robot', result.message)
+
+        # the real result finally arrives (dock_trigger's actual cancel/
+        # result callback, not engage_lock() guessing it is gone)
+        now_s = self.node.get_clock().now().nanoseconds / 1e9
+        self.node._goal_authority.notify_done('undock_robot', instance_id='live', now_s=now_s)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success, result.message)
+
+    def test_engage_still_clears_a_genuine_orphan(self):
+        # the positive case: a PRIOR instance left a goal outstanding and is
+        # gone (orphaned) - engage is still the correct, deliberate recovery
+        # trigger for THAT case, same as before this fix.
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='gone', now_s=0.0)
+        self.node._goal_authority.heartbeat('undock_robot', instance_id='live', now_s=1.0)
+        self.assertTrue(self.node._goal_authority.is_orphaned('undock_robot'))
+        self._call_trigger('/safety/stop_lock_engage')
+        self.assertFalse(
+            self.node._goal_authority.is_orphaned('undock_robot'),
+            'engage_lock() must still clear a genuine orphan (D-13/D-14: the '
+            'deliberate recovery action)')
 
 
 class TestStopStatePublishing(NodeTestCase):
