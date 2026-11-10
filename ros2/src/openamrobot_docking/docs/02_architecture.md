@@ -1,11 +1,11 @@
 # Docking Pipeline
 
-> ⚠️ **LEGACY — describes the original single-tag 4-phase pipeline.** The current docking stack uses a 3-tag bundle with camera-centric normal estimation; that architecture is described in [`13_perception_and_line.md`](13_perception_and_line.md) and [`14_docking_research.md`](14_docking_research.md). The single-tag flow below (`charging_dock_apriltag` frame, 4 phases) is preserved here for context — every reference to that frame is now produced as `charging_dock_tag_1` (the centre tag of the bundle), and the 4-phase narrative has been superseded by a 5-phase bundle sequence (centring → normal → goto-point + re-verify → two-regime final approach). The Nav2 / opennav_docking integration documented in this file is not current either: `launch/docking_real.launch.py` starts `dock_trigger.py`, `docking_server` is not launched, and `config/openamrobot_docking.yaml` does not exist.
+> ⚠️ **LEGACY — describes the original single-tag 4-phase pipeline.** The current docking stack uses a 3-tag bundle with camera-centric normal estimation; that architecture is described in [`13_perception_and_line.md`](13_perception_and_line.md) and [`14_docking_research.md`](14_docking_research.md). The single-tag flow below (`charging_dock_apriltag` frame, 4 phases) is preserved here for context — every reference to that frame is now produced as `charging_dock_tag_1` (the centre tag of the bundle), and the 4-phase narrative has been superseded by a 5-phase bundle sequence (centring → normal → goto-point + re-verify → two-regime final approach). The Nav2 / opennav_docking integration documented in this file is not current either: `config/openamrobot_docking.yaml` does not exist; the package README lists what each launch file starts.
 
 This package supports two docking flows that share the same AprilTag
 detection backbone:
 
-- **Real robot (legacy design, not launched)** — `opennav_docking::SimpleChargingDock` (upstream class name; docking is positioning only) with
+- **Real robot (legacy design)** — `opennav_docking::SimpleChargingDock` (upstream class name; docking is positioning only) with
   `graceful_controller`. Was configured in `config/openamrobot_docking.yaml` (no longer in the package).
   Triggered by `dock_trigger.py` calling the `DockRobot` action.
 - **Simulation** — uses a **custom 4-phase sequencer** in `dock_trigger.py`
