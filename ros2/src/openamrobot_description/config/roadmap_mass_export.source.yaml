@@ -2,5 +2,5 @@
 # of this file at this commit; the tests check the SHA-256. Update both together when the docs export changes.
 repository: openAMRobot/openamrobot-docs
 path: docs/assets/roadmap/model/mass_export.yaml
-commit: "eaa26aa464dc22597ba36491d868c6474f325151"
-sha256: c556569e914f8fbdd44d62011c8ceaadf5126b7d95b2febb0d60b67287df3031
+commit: "ff8ca57f2687c7c0c9b65005da9d24baf5db8e7c"
+sha256: 51ae3fb64db3117d1fafe839ed4af4b7125dd9aa762f605492eef6b932cdd1da
