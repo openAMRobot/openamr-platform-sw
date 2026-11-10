@@ -76,13 +76,40 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Install the packages this launch composes
+        shell: bash
         run: |
+          set -euo pipefail
           apt-get update
+          # The docking server lives in the navigation2 repository; the binary package name has
+          # differed across distributions, so resolve it rather than hard-code a guess.
           apt-get install -y --no-install-recommends \
-            python3-colcon-common-extensions ros-jazzy-ament-cmake \
-            ros-jazzy-nav2-docking ros-jazzy-nav2-lifecycle-manager \
-            ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge ros-jazzy-apriltag-ros \
-            ros-jazzy-tf2-ros
+            python3-colcon-common-extensions git \
+            ros-jazzy-nav2-msgs ros-jazzy-nav2-lifecycle-manager \
+            ros-jazzy-tf2-ros ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge \
+            ros-jazzy-apriltag-ros || true
+          DOCK_PKG=""
+          for candidate in ros-jazzy-opennav-docking ros-jazzy-nav2-docking; do
+            if apt-cache show "$candidate" >/dev/null 2>&1; then DOCK_PKG="$candidate"; break; fi
+          done
+          if [ -n "$DOCK_PKG" ]; then
+            echo "docking binary package: $DOCK_PKG"
+            apt-get install -y --no-install-recommends "$DOCK_PKG"
+            echo "DOCKING_FROM=apt" >> "$GITHUB_ENV"
+          else
+            echo "no docking binary package found; building opennav_docking from source"
+            echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build the docking server if it is not available as a binary
+        if: env.DOCKING_FROM == 'source'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p nav2_ws/src
+          git clone --depth 1 --branch jazzy https://github.com/ros-navigation/navigation2.git nav2_ws/src/navigation2
+          cd nav2_ws
+          colcon build --packages-up-to opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release
 
       - name: Build openamrobot_docking
         shell: bash
@@ -98,6 +125,7 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
+          if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
           bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
             openamrobot_docking openamrobot_docking.launch.py 1 \
             launch_trigger:=false use_sim_time:=false \
