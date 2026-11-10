@@ -136,24 +136,28 @@ jobs:
             docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml
 
       # Negative control: the same harness, the same launch, docking switched off, expecting one
-      # server. It must fail. This is what proves the check measures the graph rather than
-      # always succeeding - the failure mode the EXPECT=0 review finding was about.
-      - name: Harness fails when the server is switched off (negative control)
+      # server. It must report a MISMATCH (exit 10) - not merely fail. Any other non-zero exit is
+      # an infrastructure error (unqueryable graph, missing control node, launch crash) and proves
+      # nothing, so it is rejected rather than counted as the expected result.
+      - name: Harness reports a mismatch, not an error, when the server is switched off
         shell: bash
         run: |
+          set +e
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
           if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
           export HARNESS_TIMEOUT_S=60
-          if bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
+          bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
               openamrobot_docking openamrobot_docking.launch.py 1 \
               --control-node detected_dock_pose_publisher \
               -- launch_docking_server:=false launch_trigger:=false use_sim_time:=false \
               docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml \
-              > negative_control.log 2>&1; then
-            echo "FAIL: the harness passed with the docking server switched off"
-            cat negative_control.log
-            exit 1
-          fi
-          echo "PASS: the harness refused to pass with the server switched off"
-          tail -5 negative_control.log
+              > negative_control.log 2>&1
+          rc=$?
+          set -e
+          tail -6 negative_control.log
+          case "$rc" in
+            10) echo "PASS: healthy graph, control node visible, counts differ as expected (exit 10)";;
+            0)  echo "FAIL: the harness passed with the docking server switched off"; cat negative_control.log; exit 1;;
+            *)  echo "FAIL: the negative control errored (exit $rc) instead of reporting a mismatch - it proves nothing"; cat negative_control.log; exit 1;;
+          esac
