@@ -28,6 +28,7 @@ rclpy = pytest.importorskip('rclpy')  # tracking: #90, Alex's D-14 finding
 from ament_index_python.packages import get_package_share_directory  # noqa: E402
 from nav2_msgs.action import FollowWaypoints  # noqa: E402
 from rclpy.action import ActionClient  # noqa: E402
+from std_srvs.srv import Trigger  # noqa: E402
 
 
 def _start_navigation_launch():
@@ -76,6 +77,25 @@ class TestFollowWaypointsServerNeverExists(unittest.TestCase):
         self.node.destroy_node()
 
     def test_follow_waypoints_action_server_never_becomes_available(self):
+        # Sanity check first: this absence proves nothing if the launch
+        # itself never came up at all (e.g. a missing nav2 apt package in a
+        # minimal CI container) - everything would be equally absent then,
+        # not just waypoint_follower specifically. /safety/stop_lock_release
+        # is built in-repo (openamrobot_nav2) with no nav2-core apt
+        # dependency, so it is a reliable "the launch actually ran" signal
+        # (found the hard way: platform-sw#90, nav-status-tests.yml's
+        # minimal container never had nav2-bt-navigator/nav2-behaviors/
+        # nav2-controller/nav2-planner/nav2-collision-monitor/nav2-
+        # lifecycle-manager installed, which made this and the sibling
+        # behavior-server-direct-actions-absent test vacuously pass there).
+        release_client = self.node.create_client(Trigger, '/safety/stop_lock_release')
+        self.assertTrue(
+            release_client.wait_for_service(timeout_sec=20.0),
+            'navigation_launch.py never came up at all (safety_stop_gate_node '
+            'never advertised /safety/stop_lock_release) - the absence check '
+            'below would be meaningless if nothing in the launch ever started')
+        release_client.destroy()
+
         client = ActionClient(self.node, FollowWaypoints, 'follow_waypoints')
         # Generous window: long enough for every other node in the launch
         # (controller_server, planner_server, bt_navigator, ...) to fully
