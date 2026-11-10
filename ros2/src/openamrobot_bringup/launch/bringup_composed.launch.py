@@ -16,7 +16,10 @@ vision CPU ~124% -> ~55% and feeds the detector at the full 15 Hz. See
 docs/AUDIT-2026-07-03-cpu-pipeline-optimization.md.
 
   ros2 launch openamrobot_bringup bringup_composed.launch.py \
-      map:=/home/botshare/maps/piece_actuelle.yaml
+      map:=/home/botshare/maps/piece_actuelle.yaml imu_topic:=/imu/data
+
+imu_topic is forwarded to bringup.launch.py: /imu/data_raw (default) is the 2.0 base firmware
+(D-10); the Gate A Teensy on the existing robot publishes /imu/data, so pass it explicitly.
 
 Then: 2D Pose Estimate in RViz; dock with
 `ros2 topic pub --once /dock_trigger std_msgs/msg/Bool "{data: true}"`.
@@ -34,11 +37,16 @@ def generate_launch_description():
     bringup = get_package_share_directory('openamrobot_bringup')
     docking = get_package_share_directory('openamrobot_docking')
     map_yaml = LaunchConfiguration('map')
+    imu_topic = LaunchConfiguration('imu_topic')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'map', default_value='/home/botshare/maps/piece_actuelle.yaml',
             description='Map yaml for AMCL localization.'),
+        DeclareLaunchArgument(
+            'imu_topic', default_value='/imu/data_raw', choices=['/imu/data_raw', '/imu/data'],
+            description=('IMU topic the EKF reads, forwarded to bringup.launch.py: '
+                         '/imu/data_raw = 2.0 base firmware (D-10), /imu/data = Gate A Teensy.')),
 
         # nav + sensors, camera OFF (the composed container owns libcamera) and docking OFF
         # (started below, without a second apriltag).
@@ -47,7 +55,8 @@ def generate_launch_description():
                 os.path.join(bringup, 'launch', 'bringup.launch.py')),
             launch_arguments={'map': map_yaml,
                               'use_camera': 'false',
-                              'use_docking': 'false'}.items()),
+                              'use_docking': 'false',
+                              'imu_topic': imu_topic}.items()),
 
         # camera + apriltag composed intra-process (B1 15 fps + A1 zero-copy).
         IncludeLaunchDescription(
