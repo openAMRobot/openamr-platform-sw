@@ -164,10 +164,18 @@ class TestCleanBootResumeWithRealDockTrigger(_BaseCase):
             f'release never succeeded against the real dock_trigger subprocess '
             f'(last message: {result.message if result else "none"})')
         self.assertLess(
-            elapsed, 4.0,
-            f"D-13: clean-boot Resume should succeed within ~2s of dock_trigger's "
-            f'own heartbeat period once it exists, took {elapsed:.2f}s - no goal '
-            f'was ever sent to it')
+            elapsed, 2.5,
+            # Alex's approved D-13 bound is 2.0s, measured from dock_trigger
+            # existing (t0 above). 0.5s is the only slack added, and it is
+            # explicitly measurement/scheduling tolerance, not a looser
+            # acceptance criterion: this test's own polling granularity
+            # (_spin_both(0.1) between release attempts) and process/rclpy
+            # timer-callback scheduling jitter can each cost tens of ms: it
+            # is not an approved relaxation of the 2.0s bound itself
+            # (panthera-momagdii's review, P2).
+            f"D-13: clean-boot Resume must succeed within 2.0s (+0.5s measurement "
+            f"tolerance) of dock_trigger's own heartbeat period once it exists, "
+            f'took {elapsed:.2f}s - no goal was ever sent to it')
 
 
 class TestEnabledProducersExcludesUndockRobot(_BaseCase):

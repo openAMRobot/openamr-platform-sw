@@ -180,11 +180,20 @@ def launch_setup(context, *args, **kwargs):
         launch_arguments={
             'map': '', 'params_file': params_with_map, 'use_sim_time': sim,
         }.items()))
+    # enabled_producers (platform-sw#124, D-13; panthera-momagdii's #90 review, P1): derived
+    # from THIS profile's own use_docking, not left at navigation_launch.py's own default
+    # (which enables all four unconditionally). With use_docking:=false no docking server/
+    # heartbeat exists at all, so dock_robot/undock_robot must be excluded by name here, or
+    # _release_blockers() reads them as never-received/UNKNOWN forever and Resume never
+    # succeeds in nav-only mode.
+    enabled_producers = (
+        'navigate_to_pose,navigate_through_poses,dock_robot,undock_robot' if _truthy(use_docking)
+        else 'navigate_to_pose,navigate_through_poses')
     actions.append(IncludeLaunchDescription(
         src(nav2, 'navigation_launch.py'),
         # navigation_launch no longer runs a scan filter (it's owned by the data source above) —
         # it only consumes /scan_filtered. Exactly one /scan_filtered publisher per profile.
-        launch_arguments={'use_sim_time': sim}.items()))
+        launch_arguments={'use_sim_time': sim, 'enabled_producers': enabled_producers}.items()))
     actions.append(IncludeLaunchDescription(
         src(nav2, 'map_saver_launch.py'),
         launch_arguments={'use_sim_time': sim}.items()))
