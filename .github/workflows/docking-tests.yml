@@ -117,8 +117,12 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           mkdir -p ws/src
           cp -r ros2/src/openamrobot_docking ws/src/
+          # The launch declares its docking_server_params default with
+          # FindPackageShare('openamrobot_nav2'), which resolves at declaration time even when the
+          # argument is supplied - so the package has to exist in the underlay.
+          cp -r ros2/src/openamrobot_nav2 ws/src/
           cd ws
-          colcon build --packages-select openamrobot_docking
+          colcon build --packages-select openamrobot_docking openamrobot_nav2
 
       - name: Both docking action servers come up (sim profile)
         shell: bash
