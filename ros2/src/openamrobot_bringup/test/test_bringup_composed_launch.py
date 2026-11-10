@@ -42,10 +42,15 @@ def _description():
 
 
 def _bringup_include(description):
+    # The source path is a substitution until launch time, so find the bringup include by
+    # its arguments: it is the only include that passes use_camera.
+    context = LaunchContext()
     includes = [e for e in description.entities if isinstance(e, IncludeLaunchDescription)]
-    found = [i for i in includes
-             if i.launch_description_source.location.endswith('bringup.launch.py')
-             and 'bringup_composed' not in i.launch_description_source.location]
+
+    def names(include):
+        return {perform_substitutions(context, normalize_to_list_of_substitutions(k))
+                for k, _ in include.launch_arguments}
+    found = [i for i in includes if 'use_camera' in names(i)]
     assert len(found) == 1
     return found[0]
 
