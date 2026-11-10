@@ -42,13 +42,25 @@ def generate_launch_description():
     log_level = LaunchConfiguration('log_level')
     enabled_producers = LaunchConfiguration('enabled_producers')
 
+    # waypoint_follower is deliberately NOT started (Alex's finding on #90 at
+    # 2e0b8f3): follow_waypoints treats a stop-gate-cancelled child
+    # NavigateToPose as a failed waypoint, and with stop_on_failure: false
+    # (nav2_params.yaml) it just continues to the NEXT waypoint on its own -
+    # a new child goal with no fresh operator request, breaking D-14
+    # ("Resume clears the inhibit only, never restarts motion"). Disabled
+    # for Build 1 rather than gated: _CANCEL_ACTIONS/the goal-authority
+    # ledger only track single-goal actions, not a multi-goal sequencer's
+    # own internal continuation logic, so gating this properly needs its
+    # own design, not a quick addition here. Not starting it at all means
+    # no /follow_waypoints server ever exists, so an external client
+    # cannot submit that goal in the first place - see
+    # test_navigation_launch_no_waypoint_follower.py.
     lifecycle_nodes = [
         'controller_server',
         'planner_server',
         'smoother_server',
         'behavior_server',
         'bt_navigator',
-        'waypoint_follower',
         'velocity_smoother',
         'collision_monitor',
     ]
@@ -62,7 +74,19 @@ def generate_launch_description():
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
     # Create our own temporary YAML files that include substitutions
-    param_substitutions = {'autostart': autostart}
+    #
+    # default_nav_to_pose_bt_xml/default_nav_through_poses_bt_xml (D-19 audit,
+    # platform-sw#124): the YAML can only hold a relative placeholder string -
+    # nav2_bt_navigator needs an absolute path, so it's resolved here, same
+    # pattern as autostart above. See the BT files' own comments for why
+    # BackUp is removed from both.
+    param_substitutions = {
+        'autostart': autostart,
+        'default_nav_to_pose_bt_xml': os.path.join(
+            bringup_dir, 'behavior_trees', 'navigate_to_pose_no_backup.xml'),
+        'default_nav_through_poses_bt_xml': os.path.join(
+            bringup_dir, 'behavior_trees', 'navigate_through_poses_no_backup.xml'),
+    }
 
     configured_params = ParameterFile(
         RewrittenYaml(
@@ -207,17 +231,6 @@ def generate_launch_description():
                 # docked, then republishes here for Nav2. See openamrobot_docking
                 # dock_trigger.py (undock-before-navigate).
                 remappings=remappings + [('goal_pose', 'goal_pose_nav')],
-            ),
-            Node(
-                package='nav2_waypoint_follower',
-                executable='waypoint_follower',
-                name='waypoint_follower',
-                output='screen',
-                respawn=use_respawn,
-                respawn_delay=2.0,
-                parameters=[configured_params],
-                arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
             ),
             Node(
                 package='nav2_velocity_smoother',
@@ -410,13 +423,6 @@ def generate_launch_description():
                         # See the non-composed bt_navigator above: goal_pose is
                         # gated through the docking node for undock-before-navigate.
                         remappings=remappings + [('goal_pose', 'goal_pose_nav')],
-                    ),
-                    ComposableNode(
-                        package='nav2_waypoint_follower',
-                        plugin='nav2_waypoint_follower::WaypointFollower',
-                        name='waypoint_follower',
-                        parameters=[configured_params],
-                        remappings=remappings,
                     ),
                     ComposableNode(
                         package='nav2_velocity_smoother',

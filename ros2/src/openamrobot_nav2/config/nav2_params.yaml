@@ -64,8 +64,16 @@ bt_navigator:
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+      # D-19 audit (platform-sw#124, Alex's finding on #90): nav2_bt_navigator's
+      # own shipped default BT automatically commands a blind 0.30 m reverse
+      # (BackUp) as a controller/planner-failure recovery action - no external
+      # client, no docking involved, same LiDAR rear-blind-spot hazard D-19
+      # disables dock_trigger's undock reverse for. This is the same tree with
+      # only BackUp removed from RecoveryActions; Spin/Wait/clearing stay.
+      default_nav_to_pose_bt_xml: "behavior_trees/navigate_to_pose_no_backup.xml"
     navigate_through_poses:
       plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+      default_nav_through_poses_bt_xml: "behavior_trees/navigate_through_poses_no_backup.xml"
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code
