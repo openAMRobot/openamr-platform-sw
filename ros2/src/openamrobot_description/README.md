@@ -63,6 +63,23 @@ each part counted once on the link where it sits; `test/test_base_mass.py` check
 written into this table or the xacro by hand. `urdf/robot.sdf` is the legacy SolidWorks SDF, not used by any launch file and not
 a mass source.
 
+Three masses, three names (pinned export: openamrobot-docs ff8ca57, BOM Issue 7.15; design values, not weighed):
+
+| Name | Means | Value |
+|---|---|---|
+| base_link mass | the inertial of `base_link` only (chassis, battery, electronics, base camera, rigid parts) | 49.948 kg |
+| complete base mass | every base link with mass: base_link, both wheel links, four castor and castor-wheel links, lidar_link; what this URDF weighs | 58.163 kg |
+| whole-robot mass | complete base plus lift, lift carriage, arms, sensors and equipment (openamr-upperbody-sw links, not in this URDF) | 87.11 kg |
+
+The test checks that the expanded URDF has one inertial per link, that its total is the complete base mass, and that no
+part on a wheel, castor or LiDAR link is also counted on base_link.
+
+**Provisional hub motor inertial (owner decision 10 Nov 2026).** Each wheel link carries the whole ZLLG80 hub motor,
+3.45 kg, stator included, although only the rotor and tyre spin. This is valid for description, TF and integration work and
+for the complete base mass and centre of mass. It is not valid for dynamics acceptance (braking, motor effort, wheel
+contact). TODO(Alex): replace it with the ZLTECH rotor/stator split or a bounded estimate, in the docs mass ledger first,
+then re-pin. The note is recorded in `config/roadmap_mass_export.source.yaml` and checked by `test/test_base_mass.py`.
+
 | Link | Mass from the export | Collision Geometry |
 |---|---|---|
 | `base_link` | chassis, battery, electronics, base camera, rigid parts | box |

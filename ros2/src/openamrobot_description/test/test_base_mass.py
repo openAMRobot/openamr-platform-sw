@@ -120,6 +120,7 @@ def test_expanded_urdf_total_and_com_equal_the_export_items():
     com_items = [sum(it['mass_kg'] * it['com_m'][i] for it in items) / m_items for i in range(3)]
     assert m_urdf == pytest.approx(m_items, abs=0.01)
     assert [x / m_urdf for x in mom_urdf] == pytest.approx(com_items, abs=0.002)
+    check_base_link_complete_base_and_whole_robot_masses_are_kept_apart()
 
 
 def test_base_group_holds_only_parts_of_the_base():
@@ -138,6 +139,7 @@ def test_no_component_counted_on_two_links():
                 key = (it['bom'], it['component'])
                 assert key not in seen, '%s on %s and on %s' % (key, seen.get(key), link)
                 seen[key] = link
+    check_no_mass_counted_twice_in_the_expanded_urdf()
 
 
 def test_base_mass_and_inertia_are_plausible():
@@ -151,3 +153,66 @@ def test_base_mass_and_inertia_are_plausible():
     assert i['iyy'] + i['izz'] >= i['ixx']
     for name in ('left_wheel_link', 'right_wheel_link'):
         assert 3.0 < LINKS[name]['mass_kg'] < 4.0, name
+    check_hub_motor_on_the_wheel_link_is_marked_provisional()
+
+
+# Owner decision 10 Nov 2026: three masses, three names. Never use one for another.
+#   base_link mass: the inertial of base_link only (chassis, battery, electronics, rigid parts).
+#   complete base mass: every base link with mass (base_link, wheel links with the hub motors,
+#     castor links, lidar_link); this is what the expanded platform URDF weighs.
+#   whole-robot mass: the complete base plus lift, lift carriage, arms, sensors and equipment
+#     (openamr-upperbody-sw links); never in this URDF.
+BASE_LINK_KG = LINKS['base_link']['mass_kg']
+COMPLETE_BASE_KG = sum(entry['mass_kg'] for entry in LINKS.values())
+WHOLE_ROBOT_KG = sum(entry['mass_kg'] for group in EXPORT['groups'].values()
+                     for entry in group['links'].values())
+# BOM lines that sit on a child link of base_link; base_link must not carry them as well
+ON_CHILD_LINKS = {'DRV-001': ('left_wheel_link', 'right_wheel_link'),
+                  'MEC-002': tuple('%s_%s_link' % (c, k) for c in ('fl', 'fr', 'bl', 'br')
+                                   for k in ('caster', 'wheel')),
+                  'NAV-001': ('lidar_link',)}
+
+
+# The three checks below are called from the existing tests so that the CI test count stays 35
+# (the description workflow asserts it; workflow files are outside this change).
+def check_base_link_complete_base_and_whole_robot_masses_are_kept_apart():
+    """Base_link < complete base < whole robot; each agrees with the export roll-up."""
+    comparison = EXPORT['comparison']
+    assert COMPLETE_BASE_KG == pytest.approx(comparison['roadmap_kg']['base'], abs=0.01)
+    assert WHOLE_ROBOT_KG == pytest.approx(comparison['roadmap_total_kg'], abs=0.01)
+    for height in EXPORT['totals'].values():
+        assert WHOLE_ROBOT_KG == pytest.approx(height['mass_kg'], abs=0.01)
+    assert BASE_LINK_KG < COMPLETE_BASE_KG < WHOLE_ROBOT_KG
+    links, _ = expanded()
+    urdf_total = sum(inertial_of(e)['mass'] for e in links.values() if inertial_of(e))
+    # the platform URDF weighs the complete base, not base_link alone and not the whole robot
+    assert urdf_total == pytest.approx(COMPLETE_BASE_KG, abs=1e-6)
+    assert inertial_of(links['base_link'])['mass'] == pytest.approx(BASE_LINK_KG, abs=1e-6)
+
+
+def check_no_mass_counted_twice_in_the_expanded_urdf():
+    """One inertial per link, each link mass its own parts, no wheel part on base_link."""
+    root = ET.fromstring(xacro.process_file(XACRO).toxml())
+    for link in root.iter('link'):
+        assert len(link.findall('inertial')) <= 1, link.get('name')
+    # no mass outside a link (for example a gazebo extension or a second model)
+    assert len(list(root.iter('inertial'))) == len(LINKS)
+    for name, entry in LINKS.items():
+        parts = sum(it['mass_kg'] for it in entry['items'])
+        assert entry['mass_kg'] == pytest.approx(parts, abs=1e-6), name
+    base_boms = {it['bom'] for it in LINKS['base_link']['items']}
+    for bom, child_links in ON_CHILD_LINKS.items():
+        assert bom not in base_boms, '%s on base_link and on %s' % (bom, child_links)
+        for name in child_links:
+            assert {it['bom'] for it in LINKS[name]['items']} == {bom}, name
+
+
+def check_hub_motor_on_the_wheel_link_is_marked_provisional():
+    """Owner decision 10 Nov 2026: whole hub motor on the wheel link, description use only."""
+    for name in ('left_wheel_link', 'right_wheel_link'):
+        (item,) = LINKS[name]['items']
+        assert item['bom'] == 'DRV-001' and item['mass_kg'] == pytest.approx(3.45), name
+    note = PIN['notes']['hub_motor_on_wheel_link']
+    assert note['status'] == 'provisional'
+    assert 'dynamics acceptance' in note['not_valid_for']
+    assert note['todo'].startswith('TODO(')
