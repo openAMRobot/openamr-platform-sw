@@ -120,7 +120,14 @@ class GoalAuthority:
         notify_done already extend to the producer. default=0 keeps every
         existing caller that never sent a count (a genuinely idle heartbeat)
         behaving exactly as before.
+
+        Raises ValueError for a negative count (panthera-momagdii's #90
+        review, P2): state() treats any value <= 0 as IDLE, so a negative
+        count would silently read the same as a genuinely idle report -
+        this must never be stored, not just "normalized" to 0.
         """
+        if outstanding < 0:
+            raise ValueError(f'outstanding must be >= 0, got {outstanding}')
         entry = self._touch(producer, instance_id, now_s)
         entry.outstanding = outstanding
 

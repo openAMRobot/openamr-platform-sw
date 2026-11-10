@@ -363,28 +363,41 @@ class SafetyStopGateNode(Node):
         return _cb
 
     def _on_goal_authority_event(self, msg: String) -> None:
-        # 3 fields (legacy) or 4 (heartbeat carrying its own outstanding
-        # count - platform-sw#90, panthera-momagdii's P1 review): a gate
-        # that restarts between a producer's own 'sent' and 'done' never
-        # sees 'sent' on this fresh object, so the next heartbeat is the
-        # only remaining signal and must carry the real count.
+        # 'sent'/'done' take exactly 3 fields; 'heartbeat' REQUIRES a 4th
+        # field, its own outstanding count (platform-sw#90, panthera-
+        # momagdii's P1/P2 review) - a gate that restarts between a
+        # producer's own 'sent' and 'done' never sees 'sent' on this fresh
+        # object, so the next heartbeat is the only remaining signal and
+        # must carry the real count; the legacy 3-field heartbeat is no
+        # longer accepted, fail-closed, since silently defaulting to 0 let
+        # a rolling-update producer with a real goal outstanding make a
+        # restarted gate read IDLE.
         parts = msg.data.split('|')
         if len(parts) not in (3, 4):
             self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
             return
         producer, event, instance_id = parts[0], parts[1], parts[2]
-        try:
-            outstanding = int(parts[3]) if len(parts) == 4 else 0
-        except ValueError:
-            self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
-            return
         if producer not in _LEDGER_PRODUCERS:
             self.get_logger().warn(
                 f'goal_authority_events for an unmanaged producer: {producer!r}')
             return
         now_s = self.get_clock().now().nanoseconds / 1e9
         if event == 'heartbeat':
-            self._goal_authority.heartbeat(producer, instance_id, now_s, outstanding)
+            if len(parts) != 4:
+                self.get_logger().warn(
+                    f'heartbeat missing its outstanding count, rejected '
+                    f'fail-closed: {msg.data!r}')
+                return
+            try:
+                outstanding = int(parts[3])
+            except ValueError:
+                self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
+                return
+            try:
+                self._goal_authority.heartbeat(producer, instance_id, now_s, outstanding)
+            except ValueError:
+                self.get_logger().warn(
+                    f'heartbeat with a negative outstanding count rejected: {msg.data!r}')
         elif event == 'sent':
             self._goal_authority.notify_sent(producer, instance_id, now_s)
         elif event == 'done':
@@ -415,7 +428,24 @@ class SafetyStopGateNode(Node):
                 state = self._goal_authority.state(action, now_s)
                 if state != ProducerState.IDLE:
                     blockers.append(f'{action}: {state.value} (goal-authority ledger)')
+                    continue
+                # Reconcile with the retained action-status sample
+                # (platform-sw#90, panthera-momagdii's P1 review): the
+                # ledger alone cannot recover an orphan record lost across
+                # a gate restart that follows a producer restart - a fresh
+                # producer instance legitimately reports zero of ITS OWN
+                # outstanding goals (reading IDLE), even if the ORIGINAL
+                # goal (sent by the now-gone instance) is still executing
+                # on the real action server. The TRANSIENT_LOCAL status
+                # subscription (this same review round, P2) lets a freshly
+                # restarted gate still see that status if one was ever
+                # published.
+                statuses = self._goal_statuses[action]
+                if statuses and any(s in _ACTIVE_GOAL_STATUSES for s in statuses):
+                    blockers.append(
+                        f'{action}: goal still active (action status, ledger read idle)')
                 continue
+
             # LEGACY path - status-topic content, not the ledger. Known weaker
             # than D-13's requirement (inherits the exact gap it was written
             # to close) until this producer's sender(s) - today, openamrobot-ui

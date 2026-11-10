@@ -214,17 +214,24 @@ class StopContractFullChainCase(unittest.TestCase):
         for action in _CANCEL_ACTIONS:
             self._set_goal_status(action, [])
 
-    def _publish_goal_authority_heartbeat(self, producer='undock_robot'):
-        self._goal_authority_pub.publish(
-            String(data=f'{producer}|heartbeat|{self._goal_authority_instance_id}'))
+    def _publish_goal_authority_heartbeat(self, producer='undock_robot', outstanding=0):
+        # 4-field form (panthera-momagdii's #90 review, P2): the gate now
+        # requires a heartbeat to carry its outstanding count, fail-closed
+        # when missing - the legacy 3-field heartbeat is no longer accepted.
+        self._goal_authority_pub.publish(String(
+            data=f'{producer}|heartbeat|{self._goal_authority_instance_id}|{outstanding}'))
 
-    def _publish_goal_authority_event(self, producer, event, instance_id):
+    def _publish_goal_authority_event(self, producer, event, instance_id, outstanding=0):
         """Publish a real goal_authority_events wire message with an explicit instance_id.
 
         For exercising the gate's own restart/orphan handling end to end,
-        not just GoalAuthority's own unit tests.
+        not just GoalAuthority's own unit tests. outstanding is only
+        appended for 'heartbeat' - 'sent'/'done' take exactly 3 fields.
         """
-        self._goal_authority_pub.publish(String(data=f'{producer}|{event}|{instance_id}'))
+        data = f'{producer}|{event}|{instance_id}'
+        if event == 'heartbeat':
+            data += f'|{outstanding}'
+        self._goal_authority_pub.publish(String(data=data))
 
     def _set_dock_status(self, status):
         self._dock_status = status

@@ -150,10 +150,16 @@ class NodeTestCase(unittest.TestCase):
             qos=qos_profile_action_status_default)
 
     def _publish_goal_authority_heartbeat(
-            self, producer='undock_robot', instance_id='test-instance'):
-        """D-13 (platform-sw#124): establishes ledger IDLE for a producer off the legacy topic."""
+            self, producer='undock_robot', instance_id='test-instance', outstanding=0):
+        """D-13 (platform-sw#124): establishes ledger IDLE for a producer off the legacy topic.
+
+        4-field form (panthera-momagdii's #90 review, P2): the gate now
+        requires a heartbeat to carry its outstanding count, fail-closed
+        when missing.
+        """
         self._publish_to_gate(
-            String, 'goal_authority_events', String(data=f'{producer}|heartbeat|{instance_id}'))
+            String, 'goal_authority_events',
+            String(data=f'{producer}|heartbeat|{instance_id}|{outstanding}'))
 
     def _publish_all_clear_goal_status(self):
         for action in _CANCEL_ACTIONS:
@@ -805,6 +811,102 @@ class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
         self._spin_both(timeout_s=0.2)
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertTrue(result.success, result.message)
+
+
+class TestHeartbeatWireFormatIsStrict(NodeTestCase):
+    """
+    platform-sw#90, panthera-momagdii's P2 review: a heartbeat must carry
+    its outstanding count explicitly, and that count must never be
+    negative - both cases are rejected fail-closed (the message is simply
+    ignored, leaving any prior ledger state untouched), not silently
+    applied as outstanding=0.
+    """
+
+    def test_a_legacy_three_field_heartbeat_is_rejected_fail_closed(self):
+        # A producer still on the legacy (pre-fix) 3-field heartbeat form
+        # during a rolling update, with a real goal outstanding, must not
+        # silently clear the ledger to IDLE.
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=0.0)
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|live'))
+        self._spin_both(timeout_s=0.2)
+        self.assertEqual(
+            self.node._goal_authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE,
+            'a 3-field (legacy) heartbeat must be rejected fail-closed, not '
+            'applied with outstanding=0')
+
+    def test_a_negative_outstanding_count_is_rejected_fail_closed(self):
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=0.0)
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|live|-1'))
+        self._spin_both(timeout_s=0.2)
+        self.assertEqual(
+            self.node._goal_authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE,
+            'a negative outstanding count must be rejected fail-closed, not applied')
+
+
+class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
+    """
+    platform-sw#90, panthera-momagdii's P1 review: the ledger alone cannot
+    recover an orphan record lost across a gate restart that follows a
+    producer restart. A fresh producer instance legitimately reports zero
+    of its OWN outstanding goals, reading IDLE on a fresh ledger too, even
+    if the ORIGINAL goal (sent by the now-gone instance) is still executing
+    on the real action server - this exercises exactly that double-restart
+    sequence against a second, freshly-created gate node, with the action
+    server's own retained TRANSIENT_LOCAL status sample as the one thing
+    that survives both restarts.
+    """
+
+    def test_action_status_still_blocks_after_the_orphan_record_is_lost(self):
+        # The real action server's own retained status - same QoS the gate
+        # itself now uses - survives both the producer restart and the
+        # gate restart below, since it is the PUBLISHER's own retained
+        # sample, not anything either restarted process held in memory.
+        status_pub = self.probe.create_publisher(
+            GoalStatusArray, 'undock_robot/_action/status',
+            qos_profile_action_status_default)
+        active = GoalStatusArray()
+        gs = GoalStatus()
+        gs.status = GoalStatus.STATUS_EXECUTING
+        active.status_list.append(gs)
+        deadline = time.monotonic() + 2.0
+        while status_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            self._spin_both(0.02)
+        status_pub.publish(active)
+        self._spin_both(timeout_s=0.2)
+
+        # Instance 'a' sends a goal, then the PRODUCER restarts (instance
+        # 'b', outstanding=0 of its own) - gate 1 correctly orphans it.
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        self._spin_both(timeout_s=0.2)
+        self.assertTrue(self.node._goal_authority.is_orphaned('undock_robot'))
+
+        # Now the GATE itself restarts - a fresh node, fresh ledger, no
+        # memory of the orphan above. Only the retained action-status
+        # sample (published above, still alive) and the producer's own
+        # next heartbeat (still instance 'b', still outstanding=0 of its
+        # own) are available to it.
+        self.node.destroy_node()
+        self.node = SafetyStopGateNode()
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._spin_both(timeout_s=0.3)  # let the new node's subscriptions discover/match
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        self._spin_both(timeout_s=0.3)
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded after a gate restart lost the orphan record, '
+            'despite the real action server still reporting an active goal')
+        self.assertIn('undock_robot', result.message)
+        status_pub.destroy()
 
 
 class TestStopStatePublishing(NodeTestCase):

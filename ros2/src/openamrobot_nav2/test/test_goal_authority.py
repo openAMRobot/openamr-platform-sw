@@ -175,6 +175,14 @@ class TestGoalAuthority(unittest.TestCase):
         authority.heartbeat('undock_robot', instance_id='a', now_s=1.0, outstanding=0)
         self.assertEqual(authority.state('undock_robot', now_s=1.0), ProducerState.IDLE)
 
+    def test_heartbeat_rejects_a_negative_outstanding_count(self):
+        # panthera-momagdii's #90 review, P2: state() treats any value <= 0
+        # as IDLE, so a negative count would silently read the same as a
+        # genuinely idle report if merely accepted.
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        with self.assertRaises(ValueError):
+            authority.heartbeat('undock_robot', instance_id='a', now_s=0.0, outstanding=-1)
+
     def test_managed_lists_exactly_the_configured_producers(self):
         authority = GoalAuthority(['undock_robot', 'dock_robot'], stale_after_s=5.0)
         self.assertEqual(set(authority.managed()), {'undock_robot', 'dock_robot'})
