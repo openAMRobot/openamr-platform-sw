@@ -26,9 +26,8 @@ import pytest
 rclpy = pytest.importorskip('rclpy')  # tracking: #90, Alex's D-14 finding
 
 from ament_index_python.packages import get_package_share_directory  # noqa: E402
-from nav2_msgs.action import FollowWaypoints  # noqa: E402
+from nav2_msgs.action import FollowWaypoints, Spin  # noqa: E402
 from rclpy.action import ActionClient  # noqa: E402
-from std_srvs.srv import Trigger  # noqa: E402
 
 
 def _start_navigation_launch():
@@ -77,24 +76,31 @@ class TestFollowWaypointsServerNeverExists(unittest.TestCase):
         self.node.destroy_node()
 
     def test_follow_waypoints_action_server_never_becomes_available(self):
-        # Sanity check first: this absence proves nothing if the launch
-        # itself never came up at all (e.g. a missing nav2 apt package in a
-        # minimal CI container) - everything would be equally absent then,
-        # not just waypoint_follower specifically. /safety/stop_lock_release
-        # is built in-repo (openamrobot_nav2) with no nav2-core apt
-        # dependency, so it is a reliable "the launch actually ran" signal
-        # (found the hard way: platform-sw#90, nav-status-tests.yml's
-        # minimal container never had nav2-bt-navigator/nav2-behaviors/
-        # nav2-controller/nav2-planner/nav2-collision-monitor/nav2-
-        # lifecycle-manager installed, which made this and the sibling
-        # behavior-server-direct-actions-absent test vacuously pass there).
-        release_client = self.node.create_client(Trigger, '/safety/stop_lock_release')
+        # Positive control first (panthera-momagdii's #90 review, raised
+        # against the sibling behavior-server-direct-actions test but the
+        # same gap applies here): checking only a safety_stop_gate_node
+        # service proves that one separate, no-nav2-core-apt-dependency
+        # node started - it says nothing about whether the actual Nav2
+        # stack (bt_navigator, behavior_server, ...) that would otherwise
+        # run waypoint_follower ever came up. 'spin' stays registered in
+        # behavior_plugins specifically so this test has a true positive to
+        # wait for: it only becomes available once behavior_server itself
+        # is configured and active.
+        spin_client = ActionClient(self.node, Spin, 'spin')
+        behavior_server_up = False
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            if spin_client.wait_for_server(timeout_sec=0.0):
+                behavior_server_up = True
+                break
+        spin_client.destroy()
         self.assertTrue(
-            release_client.wait_for_service(timeout_sec=20.0),
-            'navigation_launch.py never came up at all (safety_stop_gate_node '
-            'never advertised /safety/stop_lock_release) - the absence check '
-            'below would be meaningless if nothing in the launch ever started')
-        release_client.destroy()
+            behavior_server_up,
+            'behavior_server never advertised spin (its own registered, '
+            'non-reverse-capable action) - the Nav2 stack likely never came '
+            'up at all, which would make the follow_waypoints absence below '
+            'meaningless')
 
         client = ActionClient(self.node, FollowWaypoints, 'follow_waypoints')
         # Generous window: long enough for every other node in the launch

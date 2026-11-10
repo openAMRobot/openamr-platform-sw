@@ -117,3 +117,62 @@ def test_real_nav_only_excludes_both_dock_producers_by_name(tmp_path):
     enabled = _enabled_producers_arg(include)
     assert enabled == 'navigate_to_pose,navigate_through_poses', (
         f'use_docking:=false must exclude dock_robot and undock_robot by name, got {enabled!r}')
+
+
+def _includes(actions, filename):
+    return [
+        a for a in actions
+        if isinstance(a, IncludeLaunchDescription)
+        and _location(a).endswith(os.path.join('launch', filename))
+    ]
+
+
+# nikgolobo's #90 review, P2: enabled_producers is a fail-open lever if a
+# profile misnames it - excluding a producer that is actually running
+# removes its goal from the release check, and nothing above compared the
+# declared list to what the launch actually starts. These four tests close
+# that gap for both profiles currently in use: the declared enabled_
+# producers string must agree with whether the docking server (the only
+# sender of dock_robot/undock_robot goals today) is actually launched, not
+# just with what a human intended it to say.
+
+def test_sim_nav_only_launches_no_docking_server(tmp_path):
+    actions = _actions_for(_module(tmp_path), 'true', 'false')
+    assert _includes(actions, 'openamrobot_docking.launch.py') == [], (
+        'use_docking:=false (sim) must not launch the docking server - '
+        'enabled_producers already excludes dock_robot/undock_robot by name')
+    assert len(_includes(actions, 'goal_relay.launch.py')) == 1, (
+        'use_docking:=false (sim) must launch exactly one goal_relay forwarder')
+
+
+def test_sim_with_docking_launches_the_docking_server(tmp_path):
+    actions = _actions_for(_module(tmp_path), 'true', 'true')
+    assert len(_includes(actions, 'openamrobot_docking.launch.py')) == 1, (
+        'use_docking:=true (sim) must launch exactly one docking server - '
+        'enabled_producers already enables dock_robot/undock_robot by name')
+    assert _includes(actions, 'goal_relay.launch.py') == [], (
+        'use_docking:=true (sim) must not also launch the plain goal relay - '
+        'exactly one forwarder runs, never both')
+
+
+def test_real_nav_only_launches_no_docking_server(tmp_path):
+    real_map = tmp_path / 'real_map.yaml'
+    real_map.write_text('')
+    actions = _actions_for(_module(tmp_path), 'false', 'false', str(real_map))
+    assert _includes(actions, 'docking_real.launch.py') == [], (
+        'use_docking:=false (real) must not launch the docking server - '
+        'enabled_producers already excludes dock_robot/undock_robot by name')
+    assert len(_includes(actions, 'goal_relay.launch.py')) == 1, (
+        'use_docking:=false (real) must launch exactly one goal_relay forwarder')
+
+
+def test_real_with_docking_launches_the_docking_server(tmp_path):
+    real_map = tmp_path / 'real_map.yaml'
+    real_map.write_text('')
+    actions = _actions_for(_module(tmp_path), 'false', 'true', str(real_map))
+    assert len(_includes(actions, 'docking_real.launch.py')) == 1, (
+        'use_docking:=true (real) must launch exactly one docking server - '
+        'enabled_producers already enables dock_robot/undock_robot by name')
+    assert _includes(actions, 'goal_relay.launch.py') == [], (
+        'use_docking:=true (real) must not also launch the plain goal relay - '
+        'exactly one forwarder runs, never both')

@@ -25,9 +25,8 @@ import pytest
 rclpy = pytest.importorskip('rclpy')  # tracking: #90, panthera-momagdii's D-19 review
 
 from ament_index_python.packages import get_package_share_directory  # noqa: E402
-from nav2_msgs.action import AssistedTeleop, BackUp, DriveOnHeading  # noqa: E402
+from nav2_msgs.action import AssistedTeleop, BackUp, DriveOnHeading, Spin  # noqa: E402
 from rclpy.action import ActionClient  # noqa: E402
-from std_srvs.srv import Trigger  # noqa: E402
 
 _ACTIONS = (
     ('backup', BackUp),
@@ -81,24 +80,30 @@ class TestBehaviorServerDirectActionsNeverAvailable(unittest.TestCase):
         self.node.destroy_node()
 
     def test_none_of_the_three_reverse_capable_actions_ever_becomes_available(self):
-        # Sanity check first: this absence proves nothing if the launch
-        # itself never came up at all (e.g. a missing nav2 apt package in a
-        # minimal CI container) - everything would be equally absent then,
-        # not just these three specifically. /safety/stop_lock_release is
-        # built in-repo (openamrobot_nav2) with no nav2-core apt
-        # dependency, so it is a reliable "the launch actually ran" signal
-        # (found the hard way: platform-sw#90, nav-status-tests.yml's
-        # minimal container never had nav2-bt-navigator/nav2-behaviors/
-        # nav2-controller/nav2-planner/nav2-collision-monitor/nav2-
-        # lifecycle-manager installed, which made this and the sibling
-        # waypoint-follower-absent test vacuously pass there).
-        release_client = self.node.create_client(Trigger, '/safety/stop_lock_release')
+        # Positive control first (panthera-momagdii's #90 review): an
+        # earlier version of this sanity check only confirmed
+        # safety_stop_gate_node started (a separate node, no nav2-core apt
+        # dependency) - behavior_server itself could still fail to
+        # configure/activate while that service stayed up, and all three
+        # absences below would hold vacuously. 'spin' stays registered in
+        # behavior_plugins (it does not reverse the chassis) specifically
+        # so this test has something true to wait for: it only becomes
+        # available once behavior_server itself is actually configured and
+        # active, which is what this absence check needs to mean anything.
+        spin_client = ActionClient(self.node, Spin, 'spin')
+        became_available = False
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            if spin_client.wait_for_server(timeout_sec=0.0):
+                became_available = True
+                break
+        spin_client.destroy()
         self.assertTrue(
-            release_client.wait_for_service(timeout_sec=20.0),
-            'navigation_launch.py never came up at all (safety_stop_gate_node '
-            'never advertised /safety/stop_lock_release) - the absence check '
-            'below would be meaningless if nothing in the launch ever started')
-        release_client.destroy()
+            became_available,
+            'behavior_server never advertised spin (its own registered, '
+            'non-reverse-capable action) - the launch likely never came up '
+            'at all, which would make the three absences below meaningless')
 
         clients = [ActionClient(self.node, action_type, name) for name, action_type in _ACTIONS]
         # Generous window: long enough for every other node in the launch
