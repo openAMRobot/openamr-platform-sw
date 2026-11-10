@@ -30,6 +30,9 @@ from std_msgs.msg import Bool, String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
 
+_NAV_ONLY_PRODUCERS = [a for a in _CANCEL_ACTIONS if a not in ('dock_robot', 'undock_robot')]
+
+
 class NodeTestCase(unittest.TestCase):
 
     @classmethod
@@ -529,6 +532,43 @@ class TestReleaseBlockedByDockTrigger(NodeTestCase):
         self.assertFalse(result.success)
         self.assertIn('dock_trigger', result.message)
         self.assertIn('stale or never received', result.message)
+
+
+class TestReleaseIgnoresDockTriggerWhenDockingDisabled(NodeTestCase):
+    """
+    platform-sw#90, panthera-momagdii's review: _release_blockers() used to
+    require dock_trigger_status/dock_trigger/abort unconditionally, even on
+    the nav-only profile where enabled_producers excludes both dock_robot
+    and undock_robot and no dock_trigger process ever starts at all - that
+    blocked Resume forever on that profile.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Global CLI parameter override, same pattern
+        # test_d13_real_dock_trigger_clean_boot_and_exclusion.py's
+        # TestEnabledProducersExcludesUndockRobot already uses -
+        # SafetyStopGateNode's own __init__ takes no kwargs to forward one
+        # through directly.
+        rclpy.init(args=[
+            '--ros-args', '-p',
+            f"enabled_producers:=[{','.join(_NAV_ONLY_PRODUCERS)}]",
+        ])
+
+    def test_release_succeeds_with_no_dock_trigger_contact_ever(self):
+        self.assertEqual(self.node._enabled_producers, set(_NAV_ONLY_PRODUCERS))
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for action in _NAV_ONLY_PRODUCERS:
+            self._publish_goal_status(action, [])
+        self._spin_both(timeout_s=0.2)
+        # Deliberately never publishes dock_trigger_status and never stands
+        # up /dock_trigger/abort - the nav-only profile starts no
+        # dock_trigger process at all.
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(
+            result.success,
+            f'nav-only profile (no dock_robot/undock_robot enabled) still '
+            f'blocked on dock_trigger despite it never starting: {result.message}')
 
 
 class TestReleaseBlockedByCmdVelInputs(NodeTestCase):

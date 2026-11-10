@@ -94,7 +94,18 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_velocity_smoother_publisher_loss_distance.py \
             ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py \
             ros2/src/openamrobot_nav2/test/test_sim_clock_readiness_full_chain.py \
-            ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py
+            ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_no_waypoint_follower.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_waypoint_follower_server_absent.py \
+            ros2/src/openamrobot_nav2/test/test_behavior_trees_no_backup.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_bt_xml_resolves_to_no_backup.py \
+            ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_behavior_server_direct_actions_absent.py
+          # test_d13_real_dock_trigger_clean_boot_and_exclusion.py (platform-sw#124/#90)
+          # is deliberately NOT run here: openamrobot_docking (apriltag_msgs,
+          # apriltag_ros, openamrobot_gazebo) is not built in this job, and
+          # adding that dependency footprint to this workflow is an owner
+          # decision, not yet made - see STATE.md.
 
       # tools/issue35_arbitration/stop_lock_invariants.py (platform-sw#90, Alex's
       # review): the graph-shape invariant the Python tests above cannot check

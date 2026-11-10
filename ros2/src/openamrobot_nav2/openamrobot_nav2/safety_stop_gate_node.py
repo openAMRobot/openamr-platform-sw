@@ -421,12 +421,19 @@ class SafetyStopGateNode(Node):
             if not self._cancel_clients[action].service_is_ready():
                 blockers.append(f'{action}: status stale or never received')
 
-        if self._dock_status is None:
-            blockers.append('dock_trigger: status stale or never received')
-        elif self._dock_status in ('docking', 'undocking'):
-            blockers.append(f'dock_trigger: {self._dock_status}')
-        elif not self._dock_abort_client.service_is_ready():
-            blockers.append('dock_trigger: status stale or never received')
+        if self._enabled_producers & {'dock_robot', 'undock_robot'}:
+            # Only check dock_trigger when docking is actually enabled (D-13,
+            # panthera-momagdii's #90 review) - the nav-only profile starts no
+            # dock_trigger process at all, so requiring its status/abort
+            # service unconditionally would block Resume forever on that
+            # profile. Excluded by name, same as _CANCEL_ACTIONS above -
+            # never inferred, never checked.
+            if self._dock_status is None:
+                blockers.append('dock_trigger: status stale or never received')
+            elif self._dock_status in ('docking', 'undocking'):
+                blockers.append(f'dock_trigger: {self._dock_status}')
+            elif not self._dock_abort_client.service_is_ready():
+                blockers.append('dock_trigger: status stale or never received')
 
         for name, timeout in _CMD_VEL_INPUT_TIMEOUTS.items():
             last = self._cmd_vel_last[name]
