@@ -24,12 +24,14 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
+| Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
+| Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
 | Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
-| Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | this PR | draft | work-package owner: adopt, adapt or reject; reaches the combined model with the upperbody PLATFORM-PIN move after upperbody PR #14 |
+| Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 
 ## Decisions this repository implements
 
