@@ -62,3 +62,43 @@ jobs:
           assert any('sim' in n for n in names), 'sim profile case missing'
           assert any('real' in n for n in names), 'real profile case missing'
           EOF
+
+  # Proves the servers actually become reachable, which the AST test cannot: it only sees the
+  # Node(...) declaration. Boots the real launch, waits for the lifecycle manager, and counts
+  # action servers. The expected count is a parameter because the D-19 enforcement decision
+  # (platform-sw#125) changes it for the Build 1 real profile: 1 = server exposed, 0 = disabled.
+  docking-action-servers:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 25
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install the packages this launch composes
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions ros-jazzy-ament-cmake \
+            ros-jazzy-nav2-docking ros-jazzy-nav2-lifecycle-manager \
+            ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge ros-jazzy-apriltag-ros \
+            ros-jazzy-tf2-ros
+
+      - name: Build openamrobot_docking
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p ws/src
+          cp -r ros2/src/openamrobot_docking ws/src/
+          cd ws
+          colcon build --packages-select openamrobot_docking
+
+      - name: Both docking action servers come up (sim profile)
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
+            openamrobot_docking openamrobot_docking.launch.py 1 \
+            launch_trigger:=false use_sim_time:=false \
+            docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml
