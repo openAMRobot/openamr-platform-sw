@@ -4,6 +4,20 @@ subprocess - closing the "mechanism exists, unit-tested only" gap on PR
 #90's own test-status table, rows 1 (clean-boot) and 2 (enabled_producers
 exclusion).
 
+Scope correction (panthera-momagdii's #90 review, P2): row 1's test below
+covers the undock_robot LEDGER path only, not real clean-boot evidence for
+either profile. _serve_legacy_actions_clear() publishes an empty
+GoalStatusArray() for navigate_to_pose/navigate_through_poses/dock_robot to
+give them a believable baseline so undock_robot's real ledger is what
+release actually hinges on here - but a real Nav2/opennav_docking server
+never publishes that before its first goal (rclcpp_action only publishes
+status on a transition; Nikolai measured 0 status messages over 12s on an
+idle stack, twice). On the real graph, both profiles still cannot Resume
+from a genuinely fresh boot: nav-only blocks on
+"navigate_to_pose: status stale or never received" until those three
+producers are also on the ledger (D-13 row 1 remains NOT MET for them -
+see STATE.md and the PR body).
+
 Unlike test_stop_contract_full_chain.py (which fakes the dock-trigger
 status/abort entirely - see its own docstring on why dock_trigger's phase
 loops are out of reach there), this file only needs dock_trigger.py's
@@ -35,6 +49,7 @@ from action_msgs.srv import CancelGoal  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
     _CANCEL_ACTIONS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
+from rclpy.qos import qos_profile_action_status_default  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
@@ -89,7 +104,14 @@ class _BaseCase(unittest.TestCase):
                 return response
             self._cancel_services[action] = self.probe.create_service(
                 CancelGoal, f'{action}/_action/cancel_goal', _cb)
-            pub = self.probe.create_publisher(GoalStatusArray, f'{action}/_action/status', 10)
+            # Matches the gate's own subscription QoS (platform-sw#90,
+            # panthera-momagdii's P2 review): real action status is
+            # RELIABLE + TRANSIENT_LOCAL depth 1
+            # (rcl_action_qos_profile_status_default), not the prior
+            # default volatile.
+            pub = self.probe.create_publisher(
+                GoalStatusArray, f'{action}/_action/status',
+                qos_profile_action_status_default)
             deadline = time.monotonic() + 2.0
             while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
                 self._spin_both(0.02)
@@ -109,10 +131,16 @@ class _BaseCase(unittest.TestCase):
         return future.result()
 
 
-class TestCleanBootResumeWithRealDockTrigger(_BaseCase):
+class TestUndockRobotLedgerCleanBootResumeWithRealDockTrigger(_BaseCase):
     """
-    D-13 test-status table row 1: clean-boot Resume within ~2s, with no
-    goal ever sent, against the REAL dock_trigger.py - not a fake heartbeat.
+    D-13 test-status table row 1, UNDOCK_ROBOT LEDGER ONLY: Resume within
+    ~2s of a real dock_trigger.py existing, with no goal ever sent, via the
+    real ledger - not a fake heartbeat.
+
+    NOT clean-boot evidence for navigate_to_pose/navigate_through_poses/
+    dock_robot (panthera-momagdii's #90 review, P2) - see the module
+    docstring. Their legacy status is faked clear here specifically so this
+    test isolates the undock_robot ledger path.
     """
 
     @classmethod
@@ -134,7 +162,8 @@ class TestCleanBootResumeWithRealDockTrigger(_BaseCase):
         self.gate.destroy_node()
         self.probe.destroy_node()
 
-    def test_release_succeeds_within_a_few_seconds_of_dock_trigger_construction(self):
+    def test_release_succeeds_within_a_few_seconds_of_dock_trigger_construction_undock_ledger_only(
+            self):
         self._serve_legacy_actions_clear()
 
         # Wait for dock_trigger to be past construction (its ~/abort

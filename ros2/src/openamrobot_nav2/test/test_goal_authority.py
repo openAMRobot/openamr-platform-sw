@@ -157,6 +157,24 @@ class TestGoalAuthority(unittest.TestCase):
         authority.reset_producer('undock_robot')
         self.assertFalse(authority.is_orphaned('undock_robot'))
 
+    def test_a_heartbeat_reporting_a_nonzero_outstanding_count_is_active(self):
+        # platform-sw#90, panthera-momagdii's P1 review: a gate that
+        # restarts between a producer's own notify_sent() and notify_done()
+        # never saw the sent event on this (new) ledger object - only the
+        # producer's own next heartbeat carries the truth after that. A
+        # fresh ledger's first-ever contact with a producer reporting
+        # outstanding=1 must read ACTIVE, not IDLE.
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        authority.heartbeat('undock_robot', instance_id='a', now_s=0.0, outstanding=1)
+        self.assertEqual(authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE)
+
+    def test_heartbeat_outstanding_count_updates_on_every_call(self):
+        authority = GoalAuthority(['undock_robot'], stale_after_s=5.0)
+        authority.heartbeat('undock_robot', instance_id='a', now_s=0.0, outstanding=1)
+        self.assertEqual(authority.state('undock_robot', now_s=0.0), ProducerState.ACTIVE)
+        authority.heartbeat('undock_robot', instance_id='a', now_s=1.0, outstanding=0)
+        self.assertEqual(authority.state('undock_robot', now_s=1.0), ProducerState.IDLE)
+
     def test_managed_lists_exactly_the_configured_producers(self):
         authority = GoalAuthority(['undock_robot', 'dock_robot'], stale_after_s=5.0)
         self.assertEqual(set(authority.managed()), {'undock_robot', 'dock_robot'})

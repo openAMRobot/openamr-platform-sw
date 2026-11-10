@@ -25,7 +25,8 @@ from openamrobot_nav2.goal_authority import ProducerState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
     _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E402
+from rclpy.qos import (  # noqa: E402
+    DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_action_status_default)
 from std_msgs.msg import Bool, String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
@@ -72,9 +73,9 @@ class NodeTestCase(unittest.TestCase):
         self.assertTrue(future.done(), f'{service_name} call timed out')
         return future.result()
 
-    def _publish_to_gate(self, msg_type, topic, msg):
+    def _publish_to_gate(self, msg_type, topic, msg, qos=10):
         """Publish once to a topic the gate subscribes to, waiting for it to match first."""
-        pub = self.probe.create_publisher(msg_type, topic, 10)
+        pub = self.probe.create_publisher(msg_type, topic, qos)
         deadline = time.monotonic() + 1.0
         while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
             rclpy.spin_once(self.probe, timeout_sec=0.02)
@@ -139,7 +140,14 @@ class NodeTestCase(unittest.TestCase):
             gs = GoalStatus()
             gs.status = s
             msg.status_list.append(gs)
-        self._publish_to_gate(GoalStatusArray, f'{action}/_action/status', msg)
+        # Matches the gate's own subscription QoS (platform-sw#90, panthera-
+        # momagdii's P2 review): real action status is RELIABLE +
+        # TRANSIENT_LOCAL depth 1 (rcl_action_qos_profile_status_default),
+        # not the default volatile this test used before - a mismatch here
+        # means the publisher/subscriber never even match.
+        self._publish_to_gate(
+            GoalStatusArray, f'{action}/_action/status', msg,
+            qos=qos_profile_action_status_default)
 
     def _publish_goal_authority_heartbeat(
             self, producer='undock_robot', instance_id='test-instance'):
@@ -748,6 +756,55 @@ class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
             self.node._goal_authority.is_orphaned('undock_robot'),
             'engage_lock() must still clear a genuine orphan (D-13/D-14: the '
             'deliberate recovery action)')
+
+
+class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
+    """
+    platform-sw#90, panthera-momagdii's P1 review: a gate that restarts
+    between a producer's own 'sent' and 'done' never sees 'sent' on its
+    fresh ledger object - only the producer's next heartbeat carries the
+    truth after that. Simulated by publishing a real goal_authority_events
+    heartbeat message with a nonzero outstanding count, WITHOUT ever
+    publishing a 'sent' event first on this gate's own ledger - exactly
+    what a restarted gate sees.
+    """
+
+    def test_heartbeat_reporting_outstanding_blocks_release(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+        self._publish_to_gate(
+            String, 'goal_authority_events',
+            String(data='undock_robot|heartbeat|gate-restart-sim|1'))
+        self._spin_both(timeout_s=0.2)
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded despite a heartbeat reporting outstanding=1 - '
+            'this ledger never saw a sent event (simulating a gate restart '
+            "mid-undock), so the heartbeat itself must carry the truth")
+        self.assertIn('undock_robot', result.message)
+
+    def test_a_later_heartbeat_reporting_zero_clears_it(self):
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+        self._publish_to_gate(
+            String, 'goal_authority_events',
+            String(data='undock_robot|heartbeat|gate-restart-sim|1'))
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+
+        self._publish_to_gate(
+            String, 'goal_authority_events',
+            String(data='undock_robot|heartbeat|gate-restart-sim|0'))
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(result.success, result.message)
 
 
 class TestStopStatePublishing(NodeTestCase):

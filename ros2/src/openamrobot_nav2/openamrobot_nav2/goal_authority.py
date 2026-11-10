@@ -77,10 +77,12 @@ class GoalAuthority:
     send_goal.
 
     Owned by (not a separate node from) SafetyStopGateNode - see that file's
-    integration. No ROS publishers/subscribers of its own; the gate exposes
-    heartbeat/notify_sent/notify_done as plain services so a producer in
-    this same package can call them without a new message type, and reads
-    state() directly (same process, no IPC) for its own release decision.
+    integration. No ROS publishers/subscribers of its own; producers call
+    heartbeat()/notify_sent()/notify_done() indirectly, by publishing a
+    plain std_msgs/String on the goal_authority_events topic
+    (SafetyStopGateNode._on_goal_authority_event parses it and calls these
+    methods), and the gate reads state() directly (same process, no IPC)
+    for its own release decision.
     All methods take now_s explicitly (the caller's own clock reading) -
     this class is deliberately clock-free, same testing convention as
     status_trackers.py's trackers.
@@ -105,9 +107,22 @@ class GoalAuthority:
         entry.last_contact_s = now_s
         return entry
 
-    def heartbeat(self, producer: str, instance_id: str, now_s: float) -> None:
-        """Report "I am alive and currently idle" - no outstanding-count change."""
-        self._touch(producer, instance_id, now_s)
+    def heartbeat(
+            self, producer: str, instance_id: str, now_s: float, outstanding: int = 0) -> None:
+        """
+        Report liveness and the producer's own current outstanding count.
+
+        panthera-momagdii's #90 review, P1: a gate that restarts between a
+        producer's own notify_sent() and notify_done() never saw the sent
+        event - without this, the next heartbeat alone would read IDLE with
+        a goal genuinely still in flight. The producer's self-reported count
+        is taken as truth here, the same trust boundary notify_sent/
+        notify_done already extend to the producer. default=0 keeps every
+        existing caller that never sent a count (a genuinely idle heartbeat)
+        behaving exactly as before.
+        """
+        entry = self._touch(producer, instance_id, now_s)
+        entry.outstanding = outstanding
 
     def notify_sent(self, producer: str, instance_id: str, now_s: float) -> None:
         entry = self._touch(producer, instance_id, now_s)

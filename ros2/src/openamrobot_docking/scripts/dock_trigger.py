@@ -601,6 +601,11 @@ class DockTrigger(Node):
         # undock_robot only - see safety_stop_gate_node.py's goal_authority.py
         # for the wire protocol and why instance_id exists (restart detection).
         self._goal_authority_instance_id = uuid.uuid4().hex
+        # panthera-momagdii's #90 review, P1: a gate that restarts between
+        # this producer's own 'sent' and 'done' events never saw 'sent' on
+        # its fresh ledger - the next heartbeat is the only remaining signal,
+        # so it must carry the real outstanding count, not just "alive".
+        self._undock_outstanding = 0
         self._goal_authority_pub = self.create_publisher(
             String, 'goal_authority_events', 10)
 
@@ -650,15 +655,16 @@ class DockTrigger(Node):
         if not self.busy:
             self._pub_status('docked' if self.is_docked else 'idle')
 
-        # D-13 (platform-sw#124): establishes "alive, nothing outstanding"
-        # for undock_robot without waiting on a goal - this is what makes a
-        # clean-boot Resume possible at all for this producer. Published
-        # unconditionally, even while self.busy is True: the ledger only
-        # updates instance_id/last-contact on a heartbeat (goal_authority.py's
-        # _touch()), never the outstanding count, so an in-flight undock's
-        # own sent/done pair still governs ACTIVE vs IDLE correctly.
+        # D-13 (platform-sw#124): establishes liveness for undock_robot
+        # without waiting on a goal - this is what makes a clean-boot
+        # Resume possible at all for this producer. Published
+        # unconditionally, even while self.busy is True: this is the one
+        # signal a gate that restarted mid-undock has, since it never saw
+        # this instance's own 'sent' event on its fresh ledger object -
+        # panthera-momagdii's #90 review, P1.
         self._goal_authority_pub.publish(String(
-            data=f'undock_robot|heartbeat|{self._goal_authority_instance_id}'))
+            data=f'undock_robot|heartbeat|{self._goal_authority_instance_id}|'
+            f'{self._undock_outstanding}'))
 
     def _on_stop_lock(self, msg: Bool) -> None:
         if msg.data and self.busy:
@@ -2879,6 +2885,7 @@ class DockTrigger(Node):
         goal = UndockRobot.Goal()
         goal.dock_type = str(self.dock_type)
 
+        self._undock_outstanding += 1
         self._goal_authority_pub.publish(String(
             data=f'undock_robot|sent|{self._goal_authority_instance_id}'))
         send_future = self.undock_client.send_goal_async(goal)
@@ -2895,6 +2902,7 @@ class DockTrigger(Node):
         """
         gh = future.result()
         if gh is None or not gh.accepted:
+            self._undock_outstanding = max(0, self._undock_outstanding - 1)
             self._goal_authority_pub.publish(String(
                 data=f'undock_robot|done|{self._goal_authority_instance_id}'))
             return
@@ -2905,6 +2913,7 @@ class DockTrigger(Node):
         del future  # success, failure or cancellation all mean "no longer
         # outstanding" for the goal-authority ledger - the actual outcome
         # is not this callback's concern.
+        self._undock_outstanding = max(0, self._undock_outstanding - 1)
         self._goal_authority_pub.publish(String(
             data=f'undock_robot|done|{self._goal_authority_instance_id}'))
 

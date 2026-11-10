@@ -144,7 +144,8 @@ from openamr_nav_msgs.msg import StopState
 from openamrobot_nav2.goal_authority import GoalAuthority, ProducerState
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import (
+    DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_action_status_default)
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 
@@ -236,9 +237,15 @@ class SafetyStopGateNode(Node):
         # engage, same reasoning as the ledger's own orphaned flag.
         self._cancel_rejected = {action: False for action in _CANCEL_ACTIONS}
         for action in _CANCEL_ACTIONS:
+            # Action status is published RELIABLE + TRANSIENT_LOCAL, depth 1
+            # (rcl_action_qos_profile_status_default) - the default (volatile)
+            # QoS used here before meant a restarted gate missed a server's
+            # already-published last status and read "never received" until
+            # the next goal state change, even when the server had already
+            # reported done (platform-sw#90, panthera-momagdii's review, P2).
             self.create_subscription(
                 GoalStatusArray, f'{action}/_action/status',
-                self._make_goal_status_cb(action), 10)
+                self._make_goal_status_cb(action), qos_profile_action_status_default)
 
         # --- dock_trigger abort (release condition b) ---
         self._dock_abort_client = self.create_client(Trigger, '/dock_trigger/abort')
@@ -356,8 +363,18 @@ class SafetyStopGateNode(Node):
         return _cb
 
     def _on_goal_authority_event(self, msg: String) -> None:
+        # 3 fields (legacy) or 4 (heartbeat carrying its own outstanding
+        # count - platform-sw#90, panthera-momagdii's P1 review): a gate
+        # that restarts between a producer's own 'sent' and 'done' never
+        # sees 'sent' on this fresh object, so the next heartbeat is the
+        # only remaining signal and must carry the real count.
+        parts = msg.data.split('|')
+        if len(parts) not in (3, 4):
+            self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
+            return
+        producer, event, instance_id = parts[0], parts[1], parts[2]
         try:
-            producer, event, instance_id = msg.data.split('|', 2)
+            outstanding = int(parts[3]) if len(parts) == 4 else 0
         except ValueError:
             self.get_logger().warn(f'malformed goal_authority_events message: {msg.data!r}')
             return
@@ -367,7 +384,7 @@ class SafetyStopGateNode(Node):
             return
         now_s = self.get_clock().now().nanoseconds / 1e9
         if event == 'heartbeat':
-            self._goal_authority.heartbeat(producer, instance_id, now_s)
+            self._goal_authority.heartbeat(producer, instance_id, now_s, outstanding)
         elif event == 'sent':
             self._goal_authority.notify_sent(producer, instance_id, now_s)
         elif event == 'done':

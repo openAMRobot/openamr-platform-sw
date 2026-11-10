@@ -76,7 +76,8 @@ from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
     _CANCEL_ACTIONS, SafetyStopGateNode)
 
 from rclpy.parameter import Parameter  # noqa: E402
-from rclpy.qos import QoSProfile, ReliabilityPolicy  # noqa: E402
+from rclpy.qos import (  # noqa: E402
+    QoSProfile, ReliabilityPolicy, qos_profile_action_status_default)
 
 from rosgraph_msgs.msg import Clock  # noqa: E402
 
@@ -299,8 +300,14 @@ class SimClockChainCase(unittest.TestCase):
                     and self.gate._dock_abort_client.service_is_ready()):
                 self._spin_all()
         for action in _CANCEL_ACTIONS:
+            # Matches the gate's own subscription QoS (platform-sw#90,
+            # panthera-momagdii's P2 review): real action status is
+            # RELIABLE + TRANSIENT_LOCAL depth 1
+            # (rcl_action_qos_profile_status_default), not the prior
+            # default volatile.
             pub = self.probe.create_publisher(
-                GoalStatusArray, f'{action}/_action/status', 10)
+                GoalStatusArray, f'{action}/_action/status',
+                qos_profile_action_status_default)
             self._wait_for_subscriber(pub, f'{action}/_action/status')
             pub.publish(GoalStatusArray())
             pub.destroy()

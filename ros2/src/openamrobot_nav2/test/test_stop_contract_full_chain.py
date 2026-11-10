@@ -54,6 +54,7 @@ from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
     _CANCEL_ACTIONS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
+from rclpy.qos import qos_profile_action_status_default  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
@@ -136,8 +137,14 @@ class StopContractFullChainCase(unittest.TestCase):
         self._current_goal_status = {action: [] for action in _CANCEL_ACTIONS}
         self._cancel_services = {}
         for action in _CANCEL_ACTIONS:
+            # Matches the gate's own subscription QoS (platform-sw#90,
+            # panthera-momagdii's P2 review): real action status is
+            # RELIABLE + TRANSIENT_LOCAL depth 1
+            # (rcl_action_qos_profile_status_default), not the prior
+            # default volatile.
             self._goal_status_pubs[action] = self.probe.create_publisher(
-                GoalStatusArray, f'{action}/_action/status', 10)
+                GoalStatusArray, f'{action}/_action/status',
+                qos_profile_action_status_default)
             self._cancel_services[action] = self.probe.create_service(
                 CancelGoal, f'{action}/_action/cancel_goal', self._make_cancel_cb(action))
 
