@@ -71,7 +71,13 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
         _stop_navigation_launch(self._proc)
         self.node.destroy_node()
 
-    def _get_bt_navigator_param(self, name, timeout_s=30.0):
+    def _get_bt_navigator_param(self, name, timeout_s=90.0):
+        # 30.0 was enough locally but timed out on the hosted CI runner
+        # (shared, under load from the rest of this same suite already
+        # having launched the full stack several times) - this is the
+        # full Nav2 stack (controller_server, planner_server, bt_navigator,
+        # behavior_server, collision_monitor, lifecycle_manager, ...), not
+        # a lightweight launch, so it needs real margin here.
         client = self.node.create_client(GetParameters, '/bt_navigator/get_parameters')
         deadline = time.monotonic() + timeout_s
         while not client.wait_for_service(timeout_sec=0.5) and time.monotonic() < deadline:
