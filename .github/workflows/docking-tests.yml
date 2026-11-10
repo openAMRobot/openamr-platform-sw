@@ -12,11 +12,16 @@ on:
   pull_request:
     paths:
       - 'ros2/src/openamrobot_docking/**'
+      # The docking launch loads the docking_server block from this file, so a change
+      # to the plugin, controller, dock or timeout parameters must re-run these checks
+      # (review on #125: path filters that miss the config leave the regression silent).
+      - 'ros2/src/openamrobot_nav2/config/**'
       - '.github/workflows/docking-tests.yml'
   push:
     branches: [main]
     paths:
       - 'ros2/src/openamrobot_docking/**'
+      - 'ros2/src/openamrobot_nav2/config/**'
       - '.github/workflows/docking-tests.yml'
   workflow_dispatch:
 
