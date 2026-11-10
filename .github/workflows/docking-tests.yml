@@ -134,3 +134,26 @@ jobs:
             openamrobot_docking openamrobot_docking.launch.py 1 \
             launch_trigger:=false use_sim_time:=false \
             docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml
+
+      # Negative control: the same harness, the same launch, docking switched off, expecting one
+      # server. It must fail. This is what proves the check measures the graph rather than
+      # always succeeding - the failure mode the EXPECT=0 review finding was about.
+      - name: Harness fails when the server is switched off (negative control)
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
+          export HARNESS_TIMEOUT_S=60
+          if bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
+              openamrobot_docking openamrobot_docking.launch.py 1 \
+              --control-node detected_dock_pose_publisher \
+              -- launch_docking_server:=false launch_trigger:=false use_sim_time:=false \
+              docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml \
+              > negative_control.log 2>&1; then
+            echo "FAIL: the harness passed with the docking server switched off"
+            cat negative_control.log
+            exit 1
+          fi
+          echo "PASS: the harness refused to pass with the server switched off"
+          tail -5 negative_control.log
