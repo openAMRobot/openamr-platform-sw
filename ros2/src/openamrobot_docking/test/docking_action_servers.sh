@@ -15,6 +15,11 @@
 # Fails closed. A query that errors, or output without an "Action servers:" line, is UNKNOWN and
 # fails the run — it is never read as zero. When expecting zero, a positive control node must be
 # named and visible, so that "no servers" cannot be the same observation as "no graph".
+#
+# The launch is started in its own session and torn down by process group: `ros2 launch` is a
+# supervisor, so killing only the parent leaves the node processes behind. An orphaned
+# docking_server from an earlier step is exactly how the first negative control passed with the
+# server switched off.
 set -uo pipefail
 
 PKG="${1:?package required}"
@@ -35,11 +40,14 @@ TIMEOUT_S=${HARNESS_TIMEOUT_S:-150}
 ACTIONS=(/dock_robot /undock_robot)
 
 cleanup() {
-  if [[ -n "${LAUNCH_PID:-}" ]] && kill -0 "$LAUNCH_PID" 2>/dev/null; then
-    kill -INT "$LAUNCH_PID" 2>/dev/null
+  if [[ -n "${LAUNCH_PID:-}" ]]; then
+    kill -INT -"$LAUNCH_PID" 2>/dev/null
     sleep 3
-    kill -9 "$LAUNCH_PID" 2>/dev/null
+    kill -9 -"$LAUNCH_PID" 2>/dev/null
   fi
+  pkill -9 -f 'opennav_docking' 2>/dev/null
+  pkill -9 -f 'lifecycle_manager_docking' 2>/dev/null
+  sleep 2
 }
 trap cleanup EXIT
 
@@ -59,16 +67,28 @@ query_count() {
   printf '%s\n' "$out" | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1
 }
 
-echo "launch: ros2 launch ${PKG} ${LAUNCH_FILE} ${EXTRA_ARGS[*]:-} (expect ${EXPECT} server(s) per action)"
 if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then
   echo "FAIL: expecting zero servers requires --control-node, so 'no servers' cannot mean 'no graph'"
   exit 1
 fi
-ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 &
-LAUNCH_PID=$!
+
+# Nothing left over from an earlier step may still be advertising these actions.
+pkill -9 -f 'opennav_docking' 2>/dev/null
+sleep 2
+for action in "${ACTIONS[@]}"; do
+  pre=$(timeout 10 ros2 action info "$action" -t 2>/dev/null | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1)
+  if [[ "${pre:-0}" != "0" ]]; then
+    echo "FAIL: ${action} already advertises ${pre} server(s) before this run started"
+    exit 1
+  fi
+done
+
+echo "launch: ros2 launch ${PKG} ${LAUNCH_FILE} ${EXTRA_ARGS[*]:-} (expect ${EXPECT} server(s) per action)"
+LAUNCH_PID=$(setsid ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 & echo $!)
 
 deadline=$((SECONDS + TIMEOUT_S))
 declare -A seen=()
+control_ok="n/a"
 while (( SECONDS < deadline )); do
   if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
     echo "FAIL: launch process exited before the servers settled"
@@ -107,7 +127,7 @@ done
 
 echo "FAIL: timed out after ${TIMEOUT_S}s waiting for ${EXPECT} server(s) per action"
 for action in "${ACTIONS[@]}"; do echo "  ${action}: ${seen[$action]:-UNKNOWN}"; done
-echo "control node /${CONTROL_NODE:-<none>} visible: ${control_ok:-n/a}"
+echo "control node /${CONTROL_NODE:-<none>} visible: ${control_ok}"
 echo "--- lifecycle state ---"
 for node in /docking_server /lifecycle_manager_docking; do
   printf '%s: ' "$node"
