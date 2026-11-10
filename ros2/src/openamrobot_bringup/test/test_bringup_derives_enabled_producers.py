@@ -18,7 +18,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-"""bringup.launch.py's navigation_launch.py include must pass enabled_producers.
+"""
+bringup.launch.py's navigation_launch.py include must pass enabled_producers.
 
 Derived from THIS profile's own use_docking (platform-sw#124, D-13;
 panthera-momagdii's #90 review, P1).
