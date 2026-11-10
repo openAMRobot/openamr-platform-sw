@@ -226,6 +226,15 @@ class SafetyStopGateNode(Node):
             for action in _CANCEL_ACTIONS
         }
         self._goal_statuses = {action: None for action in _CANCEL_ACTIONS}  # list[int] or None
+        # True once a CancelGoal response for this action came back rejected
+        # (Mohamed's 7 Nov 05:23 review, panthera-momagdii's #90 re-review):
+        # content-plus-service-readiness alone cannot see a rejected cancel
+        # against an already-"clear" status - this is independent evidence,
+        # the actual CancelGoal.Response, not inferred from anything else.
+        # Only ever updated from a real response (see
+        # _make_cancel_response_cb); a reject here is never auto-cleared by
+        # engage, same reasoning as the ledger's own orphaned flag.
+        self._cancel_rejected = {action: False for action in _CANCEL_ACTIONS}
         for action in _CANCEL_ACTIONS:
             self.create_subscription(
                 GoalStatusArray, f'{action}/_action/status',
@@ -312,9 +321,10 @@ class SafetyStopGateNode(Node):
         result.
         """
         zero_goal = GoalInfo()
-        for client in self._cancel_clients.values():
+        for action, client in self._cancel_clients.items():
             if client.service_is_ready():
-                client.call_async(CancelGoal.Request(goal_info=zero_goal))
+                future = client.call_async(CancelGoal.Request(goal_info=zero_goal))
+                future.add_done_callback(self._make_cancel_response_cb(action))
 
     def _abort_docking(self) -> None:
         if self._dock_abort_client.service_is_ready():
@@ -323,6 +333,17 @@ class SafetyStopGateNode(Node):
     def _make_goal_status_cb(self, action: str):
         def _cb(msg: GoalStatusArray) -> None:
             self._goal_statuses[action] = [s.status for s in msg.status_list]
+        return _cb
+
+    def _make_cancel_response_cb(self, action: str):
+        def _cb(future) -> None:
+            try:
+                response = future.result()
+            except Exception:
+                return
+            if response is None:
+                return
+            self._cancel_rejected[action] = response.return_code != CancelGoal.Response.ERROR_NONE
         return _cb
 
     def _on_dock_status(self, msg: String) -> None:
@@ -383,6 +404,13 @@ class SafetyStopGateNode(Node):
             # to close) until this producer's sender(s) - today, openamrobot-ui
             # for navigate_to_pose/navigate_through_poses, nothing yet sends
             # dock_robot pending #125 - also report through goal_authority_events.
+            if self._cancel_rejected[action]:
+                # Independent of status content/service-readiness: a
+                # rejected cancel is never terminal evidence, and must keep
+                # blocking even if the last-seen status already looked
+                # clear (Mohamed's 7 Nov 05:23 review).
+                blockers.append(f'{action}: cancel rejected')
+                continue
             statuses = self._goal_statuses[action]
             if statuses is None:
                 blockers.append(f'{action}: status stale or never received')

@@ -430,12 +430,6 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         self.assertFalse(response.success)
         self.assertIn('dock_robot', response.message)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            'known gap, contract decision pending: service_is_ready() does not prove a '
-            "cancel was accepted, so a rejected cancel against an already-'clear' status "
-            'is invisible - tracking: #122'))
     def test_release_refused_when_the_cancel_is_rejected_and_status_was_already_clear(self):
         # Mohamed's 7 Nov 05:23 counterexample to the P1 fix: if the LAST
         # content we ever saw for an action was already empty (no goal ever
