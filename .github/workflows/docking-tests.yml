@@ -89,8 +89,17 @@ jobs:
           # and cppzmq-dev live in Ubuntu's `universe`. Without that component every Nav2 behaviour
           # package is "not installable", which is what made this job fail on some runners and pass
           # on others. Enable it explicitly rather than depending on the image's defaults.
-          apt-get install -y --no-install-recommends software-properties-common ca-certificates
-          add-apt-repository -y universe || true
+          # This image ships only the ROS apt source, so Ubuntu's own components are missing and
+          # libzmq5/cppzmq-dev (needed by ros-jazzy-behaviortree-cpp) are "not installable". Add
+          # main+universe ourselves; software-properties-common is not available to do it.
+          if ! apt-cache show libzmq5 >/dev/null 2>&1; then
+            printf '%s\n' \
+              'deb http://archive.ubuntu.com/ubuntu noble main universe' \
+              'deb http://archive.ubuntu.com/ubuntu noble-updates main universe' \
+              'deb http://security.ubuntu.com/ubuntu noble-security main universe' \
+              > /etc/apt/sources.list.d/ubuntu-extra.list
+            echo "added Ubuntu main+universe sources"
+          fi
           for attempt in 1 2 3; do
             apt-get update && break
             echo "apt-get update failed (attempt ${attempt}); retrying"
