@@ -88,6 +88,14 @@ jobs:
           # anything about the repository.
           APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=25"
 
+          # Update first: a fresh container has no package lists, and the ROS source is reachable
+          # even when the Ubuntu mirrors are not.
+          for attempt in 1 2 3; do
+            apt-get ${APT_OPTS} update && break
+            echo "apt-get update failed (attempt ${attempt}); retrying in 20s"
+            sleep 20
+          done
+
           apt-get ${APT_OPTS} install -y --no-install-recommends \
             python3-colcon-common-extensions git ros-jazzy-nav2-msgs \
             ros-jazzy-nav2-lifecycle-manager ros-jazzy-tf2-ros
