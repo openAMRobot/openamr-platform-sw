@@ -122,7 +122,8 @@ controller_server:
       simulate_ahead_time: 1.0
       rotate_to_goal_heading: true
       debug_trajectory_details: True
-      min_vel_x: -0.05          # small reverse only when stuck (collision_monitor guards the rear ~0.365m)
+      min_vel_x: 0.0           # D-19 (platform-sw#90): collision_monitor cannot guard the
+                                 # rear, its sectors are masked - no reverse is offered
       min_vel_y: 0.0
       max_vel_x: 0.20          # forward speed (raised 0.12->0.20, the -2.5 braking absorbs the momentum)
       max_vel_y: 0.0
@@ -309,17 +310,19 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    # Removed from behavior_plugins entirely (platform-sw#90, D-19, Alex's
+    # 8 Nov ruling on platform-sw#124: reverse is not offered in Build 1,
+    # rear sectors masked): backup/drive_on_heading/assisted_teleop are
+    # each their own directly-callable action, independent of any BT -
+    # spin (rotation only) and wait (no motion) are the only two that
+    # cannot reverse the chassis, so they are the only two still
+    # registered. Reintroduced here independently of #90 before this fix,
+    # flagged in BotshareAI's #90 review (11 Nov).
+    behavior_plugins: ["spin", "wait"]
     spin:
       plugin: "nav2_behaviors::Spin"
-    backup:
-      plugin: "nav2_behaviors::BackUp"
-    drive_on_heading:
-      plugin: "nav2_behaviors::DriveOnHeading"
     wait:
       plugin: "nav2_behaviors::Wait"
-    assisted_teleop:
-      plugin: "nav2_behaviors::AssistedTeleop"
     local_frame: odom
     global_frame: map
     robot_base_frame: base_link
@@ -348,7 +351,9 @@ velocity_smoother:
     # Aligned to the SINGLE approved real-robot limit = the DWB limits below (Raj review PR4):
     # max_velocity matches max_vel_x / max_vel_theta; accel/decel match acc_lim_* / decel_lim_*.
     max_velocity: [0.20, 0.0, 0.5]   # = max_vel_x 0.20, max_vel_theta 0.5
-    min_velocity: [-0.20, 0.0, -0.5]
+    min_velocity: [0.0, 0.0, -0.5]  # D-19 (platform-sw#90): linear.x floor only -
+                                     # angular.z stays negative, rotation does not
+                                     # reverse the chassis
     max_accel: [1.0, 0.0, 3.0]       # = acc_lim_x 1.0, acc_lim_theta 3.0 (stiction-deadlock fix)
     max_decel: [-2.5, 0.0, -3.0]     # = decel_lim_x -2.5, decel_lim_theta -3.0
     odom_topic: "odom"

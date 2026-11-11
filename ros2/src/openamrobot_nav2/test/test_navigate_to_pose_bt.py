@@ -124,19 +124,24 @@ def test_inline_clears_are_preceded_by_a_named_wait():
 
 def test_outer_round_robin_recovery_actions_are_unchanged_from_stock():
     """
-    Pin today's stock Spin/Wait(5.0)/BackUp values.
+    Pin today's stock Spin/Wait(5.0) values; BackUp is REMOVED, not stock.
 
-    Zone-gating them is explicitly out of scope here (blocked on #73/N2's
-    zone data) - pinning these values makes a future change to them a
-    deliberate, reviewed decision, not an accidental side effect of
-    something else touching this file.
+    Zone-gating Spin/Wait is explicitly out of scope here (blocked on
+    #73/N2's zone data) - pinning these values makes a future change to
+    them a deliberate, reviewed decision, not an accidental side effect of
+    something else touching this file. BackUp is pinned ABSENT instead
+    (platform-sw#90, D-19, Alex's 8 Nov ruling on platform-sw#124: reverse
+    is not offered in Build 1, the rear sectors are masked) - flagged in
+    BotshareAI's #90 review (11 Nov) as a reintroduction of exactly the
+    hazard #90 removed, since this file predates that fix.
     """
     root = _parse().getroot()
     spin = root.find('.//Spin')
     assert spin is not None and spin.get('spin_dist') == '1.57'
-    backup = root.find('.//BackUp')
-    assert backup is not None and backup.get('backup_dist') == '0.30' \
-        and backup.get('backup_speed') == '0.15'
+    assert root.find('.//BackUp') is None, (
+        'BackUp must stay removed from the outer round-robin (platform-sw#90, D-19) '
+        '- it is a directly-callable, reverse-capable recovery action, not just a '
+        'rare BT fallback, and the rear sectors are masked so nothing guards it.')
     waits = [w.get('wait_duration') for w in root.iter('Wait')]
     assert '5.0' in waits, 'Outer round-robin Wait(5.0) is missing.'
 

@@ -44,10 +44,16 @@
   navigate_to_pose.xml: the RateController hz="0.333" (through-poses' own lower
   replanning rate - unrelated to recovery policy, not touched), ComputePathThroughPoses/
   RemovePassedGoals/ReactiveSequence (multi-goal path handling, unrelated), the outer
-  round-robin's Spin/Wait(5.0)/BackUp (zone-gating needs N2/#73's zone data, not yet
-  merged), and retry-exhaustion escalation itself (already wired in #91 via
+  round-robin's Spin/Wait(5.0) (zone-gating needs N2/#73's zone data, not yet merged),
+  and retry-exhaustion escalation itself (already wired in #91 via
   status_rules.py/navigation_status_node.py - this file needs no changes for that,
   since RecoveryTracker counts by BT node name, not by which tree is running).
+
+  BackUp REMOVED from the outer round-robin (platform-sw#90, D-19, Alex's 8 Nov
+  ruling on platform-sw#124: reverse is not offered in Build 1, the rear sectors are
+  masked so collision_monitor cannot guard a blind 0.30m reverse) - this file predates
+  #90's own navigate_through_poses_no_backup.xml; BotshareAI's #90 review (11 Nov)
+  flagged it as a reintroduction and asked for the same removal here.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -91,7 +97,6 @@
             </Sequence>
             <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
             <Wait wait_duration="5.0"/>
-            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_error_code}"/>
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>
