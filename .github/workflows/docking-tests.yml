@@ -81,14 +81,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apt-get update
-          # The docking server lives in the navigation2 repository; the binary package name has
-          # differed across distributions, so resolve it rather than hard-code a guess.
+          # Two passes on purpose. The core install must succeed and must not be poisoned by an
+          # optional package with unmet dependencies: an earlier run failed here because a bulk
+          # install pulled ros-jazzy-behaviortree-cpp (libzmq5 et al. uninstallable) and left apt
+          # in a broken state, which then blocked the docking package itself.
+          for attempt in 1 2 3; do
+            apt-get update && break
+            echo "apt-get update failed (attempt ${attempt}); retrying"
+            sleep 5
+          done
           apt-get install -y --no-install-recommends \
-            python3-colcon-common-extensions git \
-            ros-jazzy-nav2-msgs ros-jazzy-nav2-lifecycle-manager \
-            ros-jazzy-tf2-ros ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge \
-            ros-jazzy-apriltag-ros || true
+            python3-colcon-common-extensions git ros-jazzy-nav2-msgs \
+            ros-jazzy-nav2-lifecycle-manager ros-jazzy-tf2-ros
+
+          # Docking server: required. Resolve the name rather than hard-code a guess; the Jazzy
+          # binary is ros-jazzy-opennav-docking, not ros-jazzy-nav2-docking.
           DOCK_PKG=""
           for candidate in ros-jazzy-opennav-docking ros-jazzy-nav2-docking; do
             if apt-cache show "$candidate" >/dev/null 2>&1; then DOCK_PKG="$candidate"; break; fi
@@ -101,6 +108,13 @@ jobs:
             echo "no docking binary package found; building opennav_docking from source"
             echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
           fi
+
+          # Optional: the other nodes this launch starts (Gazebo bridge, camera-info sync, AprilTag).
+          # Allowed to fail; if they are missing the launch reports it and the harness fails loudly,
+          # which is a visible failure rather than a masked one.
+          apt-get install -y --no-install-recommends \
+            ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge ros-jazzy-apriltag-ros \
+            || echo "WARNING: optional launch dependencies unavailable in this container"
 
       - name: Build the docking server if it is not available as a binary
         if: env.DOCKING_FROM == 'source'
