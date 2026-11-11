@@ -23,7 +23,7 @@ from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.goal_authority import ProducerState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, _LEDGER_PRODUCERS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import (  # noqa: E402
     DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_action_status_default)
@@ -164,7 +164,12 @@ class NodeTestCase(unittest.TestCase):
     def _publish_all_clear_goal_status(self):
         for action in _CANCEL_ACTIONS:
             self._publish_goal_status(action, [])
-        self._publish_goal_authority_heartbeat()
+        # Every ledger producer (platform-sw#124, D-13) needs its own
+        # heartbeat - publishing an empty legacy status for one is harmless
+        # but establishes nothing on its own, now that navigate_to_pose is
+        # also ledger-backed (navigate_to_pose_goal_proxy_node.py).
+        for producer in _LEDGER_PRODUCERS:
+            self._publish_goal_authority_heartbeat(producer=producer)
 
     def _publish_dock_status(self, status: str):
         self._ensure_dock_abort_service_reachable()
@@ -424,17 +429,45 @@ class TestReleaseBlockedByActiveGoal(NodeTestCase):
     def test_release_refused_while_an_actions_status_was_never_received(self):
         # platform-sw#119: "stale or missing status means refused" - a status
         # array we have never seen at all must not be treated as "probably
-        # fine." Every action but navigate_to_pose gets a clear status here.
+        # fine." navigate_to_pose is ledger-backed now (D-13,
+        # navigate_to_pose_goal_proxy_node.py), not status-topic-content, so
+        # this targets navigate_through_poses instead - still on the legacy
+        # path. Every action but it gets a clear status/heartbeat here.
         self.node._start -= Duration(seconds=T_READY + 1.0)
         for action in _CANCEL_ACTIONS:
-            if action != 'navigate_to_pose':
+            if action == 'navigate_through_poses':
+                continue
+            if action in _LEDGER_PRODUCERS:
+                self._publish_goal_authority_heartbeat(producer=action)
+            else:
+                self._publish_goal_status(action, [])
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.2)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(result.success)
+        self.assertIn('navigate_through_poses', result.message)
+        self.assertIn('never received', result.message)
+
+    def test_release_refused_while_the_ledger_producer_was_never_heard_from(self):
+        # The ledger-side equivalent of the test above, for navigate_to_pose
+        # specifically: no heartbeat, no sent/done, ever - D-13 rejects
+        # inferring "clear" from silence here too, same as the legacy path,
+        # just with the ledger's own wording ("unknown", not "never
+        # received") since it is a different mechanism underneath.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for action in _CANCEL_ACTIONS:
+            if action == 'navigate_to_pose':
+                continue
+            if action in _LEDGER_PRODUCERS:
+                self._publish_goal_authority_heartbeat(producer=action)
+            else:
                 self._publish_goal_status(action, [])
         self._publish_dock_status('idle')
         self._spin_both(timeout_s=0.2)
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertFalse(result.success)
         self.assertIn('navigate_to_pose', result.message)
-        self.assertIn('never received', result.message)
+        self.assertIn('unknown', result.message)
 
     def test_release_accepted_with_an_old_all_clear_sample_if_the_server_is_reachable(self):
         # platform-sw#90, Mohamed's review (P1): ROS 2 action status only
@@ -573,7 +606,10 @@ class TestReleaseIgnoresDockTriggerWhenDockingDisabled(NodeTestCase):
         self.assertEqual(self.node._enabled_producers, set(_NAV_ONLY_PRODUCERS))
         self.node._start -= Duration(seconds=T_READY + 1.0)
         for action in _NAV_ONLY_PRODUCERS:
-            self._publish_goal_status(action, [])
+            if action in _LEDGER_PRODUCERS:
+                self._publish_goal_authority_heartbeat(producer=action)
+            else:
+                self._publish_goal_status(action, [])
         self._spin_both(timeout_s=0.2)
         # Deliberately never publishes dock_trigger_status and never stands
         # up /dock_trigger/abort - the nav-only profile starts no
@@ -727,12 +763,15 @@ class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
         now_s = self.node.get_clock().now().nanoseconds / 1e9
         self.node._goal_authority.notify_sent('undock_robot', instance_id='live', now_s=now_s)
         self._call_trigger('/safety/stop_lock_engage')
-        # The three LEGACY actions only, by hand - not
+        # The two LEGACY actions only, by hand - not
         # _publish_all_clear_goal_status(), which also heartbeats
         # undock_robot's ledger under its own fixed 'test-instance' id and
         # would spuriously orphan the 'live' instance this test is tracking.
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+        # navigate_to_pose is ledger-backed too now, but under a DIFFERENT
+        # producer name/entry - a plain heartbeat for it is harmless here.
+        for legacy_action in ('navigate_through_poses', 'dock_robot'):
             self._publish_goal_status(legacy_action, [])
+        self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
         self._publish_dock_status('idle')
         self._spin_both(timeout_s=0.2)
 
@@ -777,8 +816,9 @@ class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
 
     def test_heartbeat_reporting_outstanding_blocks_release(self):
         self.node._start -= Duration(seconds=T_READY + 1.0)
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+        for legacy_action in ('navigate_through_poses', 'dock_robot'):
             self._publish_goal_status(legacy_action, [])
+        self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events',
@@ -795,8 +835,9 @@ class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
 
     def test_a_later_heartbeat_reporting_zero_clears_it(self):
         self.node._start -= Duration(seconds=T_READY + 1.0)
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+        for legacy_action in ('navigate_through_poses', 'dock_robot'):
             self._publish_goal_status(legacy_action, [])
+        self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events',
@@ -907,6 +948,46 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
             'despite the real action server still reporting an active goal')
         self.assertIn('undock_robot', result.message)
         status_pub.destroy()
+
+    def test_release_refused_before_the_retained_status_has_a_chance_to_arrive(self):
+        # panthera-momagdii's P1 re-review: the original version of this
+        # fix only checked statuses truthy-vs-not, so "never arrived yet"
+        # and "will never arrive" were indistinguishable and the former
+        # fell through to allow release. Reproduced here by calling
+        # release IMMEDIATELY after constructing the new gate - no spin at
+        # all - so even a genuinely active retained sample has had zero
+        # chance to be delivered yet. The explicit discovery-grace barrier
+        # must refuse regardless of real DDS timing, not rely on luck.
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        self._spin_both(timeout_s=0.2)
+        self.assertTrue(self.node._goal_authority.is_orphaned('undock_robot'))
+
+        self.node.destroy_node()
+        self.node = SafetyStopGateNode()
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        # Reset the grace-period clock to "now" right before release,
+        # deterministically - the setup above (3 legacy publishes, each
+        # waiting on its own subscription match) takes real, variable wall
+        # time that is not bounded under full-suite CPU load, so relying on
+        # total elapsed-since-construction staying under the grace period
+        # is inherently flaky. This proves the barrier itself blocks when
+        # the window has NOT elapsed, independent of how long setup took.
+        self.node._constructed_at_s = self.node.get_clock().now().nanoseconds / 1e9
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded immediately after a gate restart, before the '
+            'discovery-grace period elapsed - an active retained sample '
+            'would have had no chance to arrive yet')
+        self.assertIn('undock_robot', result.message)
 
 
 class TestStopStatePublishing(NodeTestCase):

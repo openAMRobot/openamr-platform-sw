@@ -97,12 +97,24 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_no_waypoint_follower.py \
             ros2/src/openamrobot_nav2/test/test_behavior_trees_no_backup.py \
-            ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py
+            ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py \
+            ros2/src/openamrobot_nav2/test/test_navigate_to_pose_goal_proxy_node.py
           # test_d13_real_dock_trigger_clean_boot_and_exclusion.py (platform-sw#124/#90)
           # is deliberately NOT run here: openamrobot_docking (apriltag_msgs,
           # apriltag_ros, openamrobot_gazebo) is not built in this job, and
           # adding that dependency footprint to this workflow is an owner
           # decision, not yet made - see STATE.md.
+          #
+          # test_navigation_launch_navigate_to_pose_proxy_remap.py
+          # (platform-sw#124/#90) is ALSO deliberately NOT run here, same
+          # reasoning as the other 3 live navigation_launch.py tests already
+          # excluded above: it needs the real bt_navigator
+          # (navigate_to_pose_real), and this job's "Install dependencies"
+          # step never installs nav2-bt-navigator. Runs and passes locally -
+          # see STATE.md. test_navigate_to_pose_goal_proxy_node.py above
+          # does NOT need this: it stands up its own fake "real" action
+          # server directly in-process, no navigation_launch.py or
+          # bt_navigator involved.
           #
           # test_navigation_launch_waypoint_follower_server_absent.py,
           # test_navigation_launch_bt_xml_resolves_to_no_backup.py and

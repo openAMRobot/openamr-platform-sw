@@ -151,6 +151,15 @@ from std_srvs.srv import Trigger
 
 TICK_HZ = 20.0
 T_READY = 1.0  # twice the longest mux input timeout (0.5 s)
+# How long after construction to trust an action-status topic's silence as
+# "nothing was ever published" for a ledger producer, rather than "not yet
+# delivered" (platform-sw#90, panthera-momagdii's P1 re-review): a retained
+# TRANSIENT_LOCAL sample for a goal that survived a producer-then-gate
+# restart needs a bounded chance to arrive before release can trust its
+# absence. Deliberately NOT T_READY, which tests backdate to bypass, and
+# which exists for an unrelated reason (mux-input settling). Short - local
+# DDS discovery/delivery normally completes in well under 100ms.
+_LEDGER_STATUS_DISCOVERY_GRACE_S = 0.5
 
 # Actions the gate cancels on engage and re-cancels every tick while locked
 # (platform-sw#119). Cancellation itself is fire-and-forget per tick; whether
@@ -163,10 +172,17 @@ _CANCEL_ACTIONS = (
     'undock_robot',
 )
 # Producers backed by the goal-authority ledger (D-13) - a subset of
-# _CANCEL_ACTIONS. The other three stay on the OLD status-topic-content
-# check until openamrobot-ui also reports through this channel (cross-repo,
-# not in this PR) - see _release_blockers' "ledger" vs "legacy" branches.
-_LEDGER_PRODUCERS = ('undock_robot',)
+# _CANCEL_ACTIONS. navigate_to_pose is now owned end to end by
+# navigate_to_pose_goal_proxy_node.py (platform-sw#124, BotshareAI's #90
+# review: "one platform node that owns the goal handles" - every existing
+# sender, dock_trigger.py's own ActionClient and openamrobot-ui's direct
+# one, is transparently redirected through it by navigation_launch.py's own
+# remap, with no change needed in either). navigate_through_poses and
+# dock_robot stay on the OLD status-topic-content check until the same
+# proxy pattern covers them too (tracked as a fast-follow) or
+# openamrobot-ui reports through this channel directly (cross-repo) - see
+# _release_blockers' "ledger" vs "legacy" branches.
+_LEDGER_PRODUCERS = ('undock_robot', 'navigate_to_pose')
 
 # How long without a heartbeat/notify before a ledger producer reads as
 # UNKNOWN again (D-13: "missing, stale... blocks"). Matches dock_trigger's
@@ -199,6 +215,11 @@ class SafetyStopGateNode(Node):
         # this node in an unlocked state before it has decided it is locked.
         self._locked = True
         self._start = self.get_clock().now()
+        # Separate from self._start (which tests deliberately backdate to
+        # bypass T_READY) - this one must stay a true, untouched read of
+        # construction time for _LEDGER_STATUS_DISCOVERY_GRACE_S to mean
+        # anything in a test.
+        self._constructed_at_s = self.get_clock().now().nanoseconds / 1e9
         self._release_refused = False
         self._refusal_reason = ''
 
@@ -441,7 +462,20 @@ class SafetyStopGateNode(Node):
                 # restarted gate still see that status if one was ever
                 # published.
                 statuses = self._goal_statuses[action]
-                if statuses and any(s in _ACTIVE_GOAL_STATUSES for s in statuses):
+                if statuses is None:
+                    # panthera-momagdii's P1 re-review: "never received" is
+                    # genuinely ambiguous here - clean boot (nothing was
+                    # ever published, the expected case) looks identical to
+                    # "a retained sample exists but has not reached this
+                    # fresh subscription yet" at any single instant. Give
+                    # the grace period above a bounded chance before
+                    # trusting the silence.
+                    if now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S:
+                        blockers.append(
+                            f'{action}: action-status discovery grace period not yet '
+                            f'elapsed (goal-authority ledger read idle)')
+                    continue
+                if any(s in _ACTIVE_GOAL_STATUSES for s in statuses):
                     blockers.append(
                         f'{action}: goal still active (action status, ledger read idle)')
                 continue

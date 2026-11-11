@@ -52,7 +52,7 @@ from action_msgs.srv import CancelGoal  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import qos_profile_action_status_default  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
@@ -164,7 +164,8 @@ class StopContractFullChainCase(unittest.TestCase):
         self._spin_for(0.5)  # let every client/subscriber above discover its match
         self._set_goal_status_all_clear()
         self._set_dock_status('idle')
-        self._publish_goal_authority_heartbeat()
+        for producer in _LEDGER_PRODUCERS:
+            self._publish_goal_authority_heartbeat(producer=producer)
         self._spin_for(0.2)
 
     def tearDown(self):
@@ -257,8 +258,9 @@ class StopContractFullChainCase(unittest.TestCase):
         for action in _CANCEL_ACTIONS:
             if action not in skip_actions:
                 self._set_goal_status(action, self._current_goal_status[action])
-        if 'undock_robot' not in skip_actions:
-            self._publish_goal_authority_heartbeat()
+        for producer in _LEDGER_PRODUCERS:
+            if producer not in skip_actions:
+                self._publish_goal_authority_heartbeat(producer=producer)
         self._spin_for(0.1)
 
     def _take_down_cancel_service(self, action):
@@ -450,22 +452,26 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         # reported active - e.g. a goal accepted a moment ago has not yet
         # published its first status), a rejected cancel is invisible to a
         # purely content-based check. service_is_ready() alone does not
-        # prove the cancel took.
-        self._cancel_responses['navigate_to_pose'] = 'reject'
-        self._set_goal_status('navigate_to_pose', [])  # already "clear" before engage
+        # prove the cancel took. navigate_through_poses, not navigate_to_pose
+        # (the latter is ledger-backed now, via navigate_to_pose_goal_proxy_
+        # node.py - its own 'done' event never fires until the real goal
+        # actually finishes, so this exact content-vs-cancel race does not
+        # exist for it in the first place).
+        self._cancel_responses['navigate_through_poses'] = 'reject'
+        self._set_goal_status('navigate_through_poses', [])  # already "clear" before engage
         self._spin_for(0.1)
         self._engage()
         self._spin_for(0.3)
         self.assertTrue(
-            self._cancel_calls['navigate_to_pose'], 'cancel_goal was never called')
+            self._cancel_calls['navigate_through_poses'], 'cancel_goal was never called')
 
         response = self._try_release()
         self.assertFalse(
             response.success,
-            "release succeeded despite navigate_to_pose's cancel_goal having been "
-            'rejected - content-plus-liveness alone does not prove the cancel took '
-            "(platform-sw#90, Mohamed's review, 7 Nov 05:23)")
-        self.assertIn('navigate_to_pose', response.message)
+            "release succeeded despite navigate_through_poses's cancel_goal having "
+            'been rejected - content-plus-liveness alone does not prove the cancel '
+            "took (platform-sw#90, Mohamed's review, 7 Nov 05:23)")
+        self.assertIn('navigate_through_poses', response.message)
 
     def test_release_refused_when_the_action_server_is_gone(self):
         # The last content we ever got from navigate_through_poses was

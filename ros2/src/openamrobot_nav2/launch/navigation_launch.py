@@ -229,8 +229,18 @@ def generate_launch_description():
                 # goal_pose is remapped to goal_pose_nav so the docking node can
                 # gate it: it owns /goal_pose, undocks first if the robot is
                 # docked, then republishes here for Nav2. See openamrobot_docking
-                # dock_trigger.py (undock-before-navigate).
-                remappings=remappings + [('goal_pose', 'goal_pose_nav')],
+                # dock_trigger.py (undock-before-navigate). navigate_to_pose is
+                # remapped to navigate_to_pose_real so
+                # navigate_to_pose_goal_proxy_node.py can claim the public
+                # navigate_to_pose name instead (platform-sw#124, D-13: "one
+                # platform node that owns the goal handles") - every existing
+                # sender (dock_trigger.py's own ActionClient, openamrobot-ui's
+                # direct one) keeps calling the same name and is transparently
+                # redirected through the proxy, no change needed in either.
+                remappings=remappings + [
+                    ('goal_pose', 'goal_pose_nav'),
+                    ('navigate_to_pose', 'navigate_to_pose_real'),
+                ],
             ),
             Node(
                 package='nav2_velocity_smoother',
@@ -288,6 +298,25 @@ def generate_launch_description():
         package='openamrobot_nav2',
         executable='navigation_status_node',
         name='navigation_status_node',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # Plain Python node, not composable, so it runs unconditionally here too,
+    # regardless of use_composition - same reasoning as status_node above.
+    # Owns every navigate_to_pose goal handle (platform-sw#124, D-13):
+    # bt_navigator's own navigate_to_pose is remapped to navigate_to_pose_real
+    # in both GroupActions above, and this node claims the public name instead,
+    # relaying every goal end to end and reporting sent/done to the
+    # goal-authority ledger via goal_authority_events - see its own module
+    # docstring.
+    navigate_to_pose_goal_proxy_node = Node(
+        package='openamrobot_nav2',
+        executable='navigate_to_pose_goal_proxy_node',
+        name='navigate_to_pose_goal_proxy',
         output='screen',
         respawn=use_respawn,
         respawn_delay=2.0,
@@ -421,8 +450,12 @@ def generate_launch_description():
                         name='bt_navigator',
                         parameters=[configured_params],
                         # See the non-composed bt_navigator above: goal_pose is
-                        # gated through the docking node for undock-before-navigate.
-                        remappings=remappings + [('goal_pose', 'goal_pose_nav')],
+                        # gated through the docking node for undock-before-navigate,
+                        # navigate_to_pose through navigate_to_pose_goal_proxy_node.
+                        remappings=remappings + [
+                            ('goal_pose', 'goal_pose_nav'),
+                            ('navigate_to_pose', 'navigate_to_pose_real'),
+                        ],
                     ),
                     ComposableNode(
                         package='nav2_velocity_smoother',
@@ -478,6 +511,7 @@ def generate_launch_description():
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
     ld.add_action(status_node)
+    ld.add_action(navigate_to_pose_goal_proxy_node)
     ld.add_action(twist_mux_node)
     ld.add_action(safety_stop_gate_node)
     ld.add_action(delayed_ui_cmd_vel_relay_node)

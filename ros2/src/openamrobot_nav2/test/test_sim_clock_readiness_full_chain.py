@@ -73,7 +73,7 @@ from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, SafetyStopGateNode)
+    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, SafetyStopGateNode)
 
 from rclpy.parameter import Parameter  # noqa: E402
 from rclpy.qos import (  # noqa: E402
@@ -315,12 +315,14 @@ class SimClockChainCase(unittest.TestCase):
         self._wait_for_subscriber(dock_pub, 'dock_trigger_status')
         dock_pub.publish(String(data='idle'))
         dock_pub.destroy()
-        # D-13 (platform-sw#124): undock_robot is governed by the
-        # goal-authority ledger, not the legacy status topic above - a
-        # heartbeat is what establishes IDLE for it.
+        # D-13 (platform-sw#124): every ledger producer (undock_robot,
+        # navigate_to_pose) is governed by the goal-authority ledger, not
+        # the legacy status topic above - a heartbeat is what establishes
+        # IDLE for each.
         authority_pub = self.probe.create_publisher(String, 'goal_authority_events', 10)
         self._wait_for_subscriber(authority_pub, 'goal_authority_events')
-        authority_pub.publish(String(data='undock_robot|heartbeat|test-instance|0'))
+        for producer in _LEDGER_PRODUCERS:
+            authority_pub.publish(String(data=f'{producer}|heartbeat|test-instance|0'))
         authority_pub.destroy()
         self._run_once()
 

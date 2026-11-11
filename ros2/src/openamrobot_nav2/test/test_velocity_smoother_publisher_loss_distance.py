@@ -346,6 +346,45 @@ class TestPublisherLossDistance(unittest.TestCase):
             f'publisher is driving the robot further than the configured '
             f'limits should allow (platform-sw#90)')
 
+    def test_a_negative_linear_x_command_is_clamped_to_zero_at_the_output(self):
+        # BotshareAI's #90 review (11 Nov), D-19 session-profile negative
+        # test: "a negative x from the UI or a direct /cmd_vel publish is
+        # clamped to zero after the mux." This is the final stage of that
+        # chain - whatever reaches velocity_smoother's own input, a negative
+        # linear.x must never reach its output, regardless of source,
+        # because velocity_smoother.min_velocity[0] is 0.0 (D-19, #90).
+        # Against the REAL nav2_velocity_smoother executable, not asserted
+        # from the static config alone (see test_nav2_params_no_reverse.py
+        # for that half of the proof).
+        min_vx = self._params['min_velocity'][0]
+        self.assertGreaterEqual(
+            min_vx, 0.0,
+            f'velocity_smoother.min_velocity[0] is {min_vx} in the shipped '
+            f'config - this test assumes D-19 already clamped it to 0.0; '
+            f'fix the config, do not loosen this assertion')
+
+        _lifecycle_transition('configure', proc=self._proc)
+        _lifecycle_transition('activate', proc=self._proc)
+        self.assertIsNone(
+            self._proc.poll(),
+            f'velocity_smoother exited early (code {self._proc.poll()}) during startup')
+
+        negative_cmd = Twist()
+        negative_cmd.linear.x = -1.0  # far outside any legitimate limit
+        smoothing_hz = self._params['smoothing_frequency']
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            self._out_pub.publish(negative_cmd)
+            self._spin_for(1.0 / smoothing_hz)
+
+        self.assertTrue(self._received, 'velocity_smoother never produced any output')
+        negative_outputs = [(t, v) for t, v in self._received if v < 0.0]
+        self.assertEqual(
+            negative_outputs, [],
+            f'velocity_smoother emitted {len(negative_outputs)} message(s) with a '
+            f'negative linear.x despite min_velocity[0]=0.0 and a sustained -1.0 '
+            f'input - D-19 is not enforced at the real output: {negative_outputs[:5]}')
+
 
 if __name__ == '__main__':
     import pytest

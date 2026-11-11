@@ -47,13 +47,18 @@ rclpy = pytest.importorskip('rclpy')  # tracking: #124
 from action_msgs.msg import GoalStatusArray  # noqa: E402
 from action_msgs.srv import CancelGoal  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import qos_profile_action_status_default  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
 _LEGACY_ACTIONS = [a for a in _CANCEL_ACTIONS if a != 'undock_robot']
+# Actions still on the legacy status-topic-content check specifically (D-13
+# ledger producers other than undock_robot - today, navigate_to_pose via
+# navigate_to_pose_goal_proxy_node.py - need a heartbeat instead, see
+# _serve_legacy_actions_clear).
+_STATUS_TOPIC_ACTIONS = [a for a in _LEGACY_ACTIONS if a not in _LEDGER_PRODUCERS]
 
 
 def _start_dock_trigger():
@@ -92,12 +97,14 @@ class _BaseCase(unittest.TestCase):
             rclpy.spin_once(self.probe, timeout_sec=0.01)
 
     def _serve_legacy_actions_clear(self):
-        # navigate_to_pose/navigate_through_poses/dock_robot stay on the
-        # legacy status-topic check - give them a believable "clear"
-        # baseline so undock_robot's REAL ledger is what release refusal
-        # actually hinges on in these tests.
+        # navigate_through_poses/dock_robot stay on the legacy status-topic
+        # check - give them a believable "clear" baseline so undock_robot's
+        # REAL ledger is what release refusal actually hinges on in these
+        # tests. navigate_to_pose is ledger-backed too now
+        # (navigate_to_pose_goal_proxy_node.py) - heartbeated instead, same
+        # as undock_robot's own test isolates it from the one under test.
         self._cancel_services = {}
-        for action in _LEGACY_ACTIONS:
+        for action in _STATUS_TOPIC_ACTIONS:
             def _cb(request, response):
                 del request
                 response.return_code = CancelGoal.Response.ERROR_NONE
@@ -117,6 +124,16 @@ class _BaseCase(unittest.TestCase):
                 self._spin_both(0.02)
             pub.publish(GoalStatusArray())
             pub.destroy()
+
+        other_ledger_producers = [p for p in _LEDGER_PRODUCERS if p != 'undock_robot']
+        if other_ledger_producers:
+            authority_pub = self.probe.create_publisher(String, 'goal_authority_events', 10)
+            deadline = time.monotonic() + 2.0
+            while authority_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+                self._spin_both(0.02)
+            for producer in other_ledger_producers:
+                authority_pub.publish(String(data=f'{producer}|heartbeat|test-instance|0'))
+            authority_pub.destroy()
         self._spin_both(0.2)
 
     def _try_release(self):
