@@ -113,18 +113,18 @@ jobs:
             echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
           fi
 
-          # Optional: the other nodes this launch starts (Gazebo bridge, camera-info sync, AprilTag).
-          # Allowed to fail; if they are missing the launch reports it and the harness fails loudly,
-          # which is a visible failure rather than a masked one.
-          apt-get install -y --no-install-recommends \
-            ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge ros-jazzy-apriltag-ros \
-            || echo "WARNING: optional launch dependencies unavailable in this container"
+          # The camera -> AprilTag -> dock-pose pipeline (ros_gz_bridge, cv_bridge, apriltag_ros)
+          # is NOT installed here: this container cannot resolve its OpenCV/protobuf deps, and the
+          # check below runs the launch with launch_camera_pipeline:=false, which starts only
+          # dock_trigger's server side. Tracking the server's availability must not depend on the
+          # camera stack being installable.
 
       - name: Build the docking server if it is not available as a binary
         if: env.DOCKING_FROM == 'source'
         shell: bash
         run: |
-          set -euo pipefail
+          # No `-u`: the ROS setup scripts reference unset variables (AMENT_TRACE_SETUP_FILES).
+          set -eo pipefail
           source /opt/ros/jazzy/setup.bash
           mkdir -p nav2_ws/src
           git clone --depth 1 --branch jazzy https://github.com/ros-navigation/navigation2.git nav2_ws/src/navigation2
@@ -152,7 +152,7 @@ jobs:
           if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
           bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
             openamrobot_docking openamrobot_docking.launch.py 1 \
-            launch_trigger:=false use_sim_time:=false \
+            launch_trigger:=false launch_camera_pipeline:=false use_sim_time:=false \
             docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml
 
       # Negative control: the same harness, the same launch, docking switched off, expecting one
@@ -170,7 +170,7 @@ jobs:
           bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
               openamrobot_docking openamrobot_docking.launch.py 1 \
               --control-node detected_dock_pose_publisher \
-              -- launch_docking_server:=false launch_trigger:=false use_sim_time:=false \
+              -- launch_docking_server:=false launch_trigger:=false launch_camera_pipeline:=false use_sim_time:=false \
               docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml \
               > negative_control.log 2>&1
           rc=$?

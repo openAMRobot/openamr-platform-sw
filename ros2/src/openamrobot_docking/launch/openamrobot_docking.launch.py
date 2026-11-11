@@ -65,6 +65,7 @@ def generate_launch_description():
     launch_trigger = LaunchConfiguration('launch_trigger')
     trigger_params = LaunchConfiguration('trigger_params')
     launch_docking_server = LaunchConfiguration('launch_docking_server')
+    launch_camera_pipeline = LaunchConfiguration('launch_camera_pipeline')
     # The docking server's parameters live with the rest of the Nav2 config.
     nav2_params = PathJoinSubstitution(
         [FindPackageShare('openamrobot_nav2'), 'config', 'nav2_params.yaml']
@@ -101,6 +102,12 @@ def generate_launch_description():
             ),
             description='Path to dock_trigger params YAML.'
         ),
+        DeclareLaunchArgument(
+            'launch_camera_pipeline', default_value='true',
+            description='Start the camera->AprilTag->dock-pose pipeline (Gazebo bridge, '
+                        'camera_info_sync, apriltag_ros, detected_dock_pose_publisher). False '
+                        'starts only dock_trigger and the docking server, which is what a '
+                        'deployment without a camera, and the hosted action-server check, need.'),
         DeclareLaunchArgument(
             'launch_docking_server',
             default_value='true',
@@ -144,6 +151,7 @@ def generate_launch_description():
             arguments=['/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo'],
             parameters=[{'use_sim_time': use_sim_time}],
             output='screen',
+            condition=IfCondition(launch_camera_pipeline),
         ),
 
         # Gazebo image and CameraInfo streams can arrive at different rates.
@@ -159,6 +167,7 @@ def generate_launch_description():
                 'synced_camera_info_topic': '/camera_info_synced',
             }],
             output='screen',
+            condition=IfCondition(launch_camera_pipeline),
         ),
 
         # apriltag_ros (simulation variant) — subscribes to /rgb_image
@@ -172,6 +181,7 @@ def generate_launch_description():
                      'launch', 'apriltag_sim.launch.yml']
                 )
             ),
+            condition=IfCondition(launch_camera_pipeline),
         ),
 
         # TF -> /detected_dock_pose bridge at 10 Hz.
@@ -183,6 +193,7 @@ def generate_launch_description():
                 )
             ),
             launch_arguments={'use_sim_time': use_sim_time}.items(),
+            condition=IfCondition(launch_camera_pipeline),
         ),
 
         # Bundle docking sequencer (multi-phase: centring scan → normal
