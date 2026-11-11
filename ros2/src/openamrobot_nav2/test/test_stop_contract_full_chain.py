@@ -52,7 +52,7 @@ from action_msgs.srv import CancelGoal  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, _real_action_server_name, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import qos_profile_action_status_default  # noqa: E402
 from std_msgs.msg import String  # noqa: E402
@@ -143,10 +143,11 @@ class StopContractFullChainCase(unittest.TestCase):
             # (rcl_action_qos_profile_status_default), not the prior
             # default volatile.
             self._goal_status_pubs[action] = self.probe.create_publisher(
-                GoalStatusArray, f'{action}/_action/status',
+                GoalStatusArray, f'{_real_action_server_name(action)}/_action/status',
                 qos_profile_action_status_default)
             self._cancel_services[action] = self.probe.create_service(
-                CancelGoal, f'{action}/_action/cancel_goal', self._make_cancel_cb(action))
+                CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal',
+                self._make_cancel_cb(action))
 
         self._dock_status_pub = self.probe.create_publisher(String, 'dock_trigger_status', 10)
         self._abort_calls = []
@@ -514,7 +515,7 @@ class TestReleaseSucceedsOnAHealthyIdleSystemDespiteStaleStatus(StopContractFull
     def test_release_succeeds_with_an_old_all_clear_sample_if_the_server_is_reachable(self):
         self._take_down_cancel_service('navigate_to_pose')  # discard setUp's own service
         self._cancel_services['navigate_to_pose'] = self.probe.create_service(
-            CancelGoal, 'navigate_to_pose/_action/cancel_goal',
+            CancelGoal, f'{_real_action_server_name("navigate_to_pose")}/_action/cancel_goal',
             self._make_cancel_cb('navigate_to_pose'))
         self._spin_for(0.2)
 

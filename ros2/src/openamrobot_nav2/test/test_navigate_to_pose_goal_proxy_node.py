@@ -16,6 +16,7 @@ not just mark the wrapper cancelled while the real goal keeps executing.
 import threading
 import time
 import unittest
+import unittest.mock
 
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
@@ -40,16 +41,27 @@ class _FakeRealServer:
     test explicitly finishes or cancels it, so cancellation-forwarding has
     something real to observe: if the proxy's own cancel never reaches here,
     this goal simply never ends.
+
+    start_delayed=True defers standing up the ActionServer itself until
+    start() is called - used to reproduce the exact window between the
+    proxy accepting a goal and the real server existing at all (panthera-
+    momagdii's #90 review, P1/P2 races), deterministically rather than by
+    racing real timing.
     """
 
-    def __init__(self, node):
+    def __init__(self, node, start_delayed=False):
         self.node = node
         self.cancel_requested = threading.Event()
         self._goal_handle = None
         self._finish = threading.Event()
         self._cb_group = ReentrantCallbackGroup()
+        self._server = None
+        if not start_delayed:
+            self.start()
+
+    def start(self):
         self._server = ActionServer(
-            node, NavigateToPose, 'navigate_to_pose_real',
+            self.node, NavigateToPose, 'navigate_to_pose_real',
             execute_callback=self._execute,
             goal_callback=lambda _req: GoalResponse.ACCEPT,
             cancel_callback=self._on_cancel,
@@ -75,7 +87,8 @@ class _FakeRealServer:
         return NavigateToPose.Result()
 
     def destroy(self):
-        self._server.destroy()
+        if self._server is not None:
+            self._server.destroy()
 
 
 class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
@@ -90,7 +103,11 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
 
     def setUp(self):
         self.real_server_node = rclpy.create_node('fake_navigate_to_pose_real_server')
-        self.fake_real = _FakeRealServer(self.real_server_node)
+        # Delayed - most tests call self.fake_real.start() as their own
+        # first line; the two race tests below deliberately delay it
+        # further to reproduce the exact windows panthera-momagdii's #90
+        # review found.
+        self.fake_real = _FakeRealServer(self.real_server_node, start_delayed=True)
         self.proxy = NavigateToPoseGoalProxy()
         self.probe = rclpy.create_node('navigate_to_pose_goal_proxy_probe')
         self._received_events = []
@@ -133,6 +150,7 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         return goal_handle
 
     def test_a_goal_is_relayed_to_the_real_server_and_completes(self):
+        self.fake_real.start()
         goal_handle = self._send_goal()
         end = time.monotonic() + 2.0
         while self.fake_real._goal_handle is None and time.monotonic() < end:
@@ -153,6 +171,7 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         # The safety-critical property: a cancel on the WRAPPER must reach
         # the REAL goal, not just mark the wrapper cancelled while the real
         # one keeps executing underneath.
+        self.fake_real.start()
         goal_handle = self._send_goal()
         end = time.monotonic() + 2.0
         while self.fake_real._goal_handle is None and time.monotonic() < end:
@@ -178,6 +197,7 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         self.assertEqual(result_future.result().status, GoalStatus.STATUS_CANCELED)
 
     def test_goal_authority_events_bracket_the_real_goals_lifetime(self):
+        self.fake_real.start()
         goal_handle = self._send_goal()
         end = time.monotonic() + 2.0
         while 'navigate_to_pose|sent|' not in str(self._received_events) \
@@ -210,6 +230,7 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         # Clean-boot story (D-13/D-14): no goal ever sent, and this
         # producer's own heartbeat alone must still establish IDLE within
         # the same ~2s bound dock_trigger.py's heartbeat does.
+        self.fake_real.start()
         deadline = time.monotonic() + 3.0
         heartbeats = []
         while time.monotonic() < deadline:
@@ -221,6 +242,84 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(heartbeats, 'no heartbeat seen within 3s of startup')
         _, _, _, outstanding = heartbeats[0].split('|')
         self.assertEqual(outstanding, '0')
+
+    def test_heartbeat_never_reports_zero_between_acceptance_and_execute_starting(self):
+        # panthera-momagdii's #90 review, P1: the public ActionServer
+        # accepts a goal before _execute (an independently-scheduled
+        # coroutine on a separate MultiThreadedExecutor task) ever runs.
+        # A live, timing-based version of this test (send a goal, fire one
+        # heartbeat, assert outstanding != 0) is NOT reliable either way:
+        # verified directly against the pre-fix code (old _execute() doing
+        # the increment/publish itself, no handle_accepted_callback) that
+        # such a test still passes, because in practice the executor
+        # schedules _execute's first two lines fast enough to win a single
+        # manually-triggered heartbeat almost every time - the real gap
+        # this finding describes is real but too small for a poll-based
+        # test to depend on.
+        #
+        # White-box instead: call _handle_accepted directly with a stub
+        # goal handle and assert the ordering invariant the fix
+        # establishes structurally - outstanding is incremented and 'sent'
+        # is published strictly before goal_handle.execute() is invoked,
+        # with no async gap in between at all (same call stack, same
+        # thread). The pre-fix code has no _handle_accepted method wired
+        # into handle_accepted_callback, so execute() runs with no
+        # ordering guarantee relative to the bookkeeping at all.
+        self._received_events.clear()
+        events = []
+        goal_handle = unittest.mock.Mock()
+        goal_handle.execute.side_effect = lambda: events.append('execute')
+
+        self.proxy._handle_accepted(goal_handle)
+
+        self.assertEqual(
+            self.proxy._outstanding, 1,
+            '_handle_accepted must increment outstanding synchronously, '
+            'before goal_handle.execute() schedules _execute at all')
+        deadline = time.monotonic() + 2.0
+        sent_events = []
+        while time.monotonic() < deadline:
+            sent_events = [
+                e for e in self._received_events if e.startswith('navigate_to_pose|sent|')]
+            if sent_events:
+                break
+            time.sleep(0.02)
+        self.assertTrue(sent_events, 'no sent event published by _handle_accepted')
+        self.assertEqual(
+            events, ['execute'],
+            'goal_handle.execute() must be called, and only after the '
+            'outstanding/sent bookkeeping above has already happened')
+
+    def test_a_cancel_before_the_real_handle_exists_is_replayed_once_it_appears(self):
+        # panthera-momagdii's #90 review, P2: a cancel can arrive after the
+        # proxy accepted the goal but before send_goal_async completes and
+        # _real_goal_handles[key] is populated. The real server is started
+        # here only AFTER the cancel request below, guaranteeing that
+        # window is hit deterministically rather than raced.
+        goal_handle = self._send_goal()  # accepted - real server still not started
+
+        cancel_future = goal_handle.cancel_goal_async()
+        end = time.monotonic() + 2.0
+        while not cancel_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(cancel_future.done(), 'cancel_goal_async never completed')
+
+        # Only now does the real server (and therefore a real goal handle
+        # for the proxy to attach the pending cancel to) come into being.
+        self.fake_real.start()
+
+        self.assertTrue(
+            self.fake_real.cancel_requested.wait(timeout=5.0),
+            'the real (fake) server never received a cancel request - a cancel '
+            'that arrived before the real handle existed was dropped instead '
+            'of being replayed once the handle appeared')
+
+        result_future = goal_handle.get_result_async()
+        end = time.monotonic() + 5.0
+        while not result_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(result_future.done(), 'get_result_async never completed')
+        self.assertEqual(result_future.result().status, GoalStatus.STATUS_CANCELED)
 
 
 if __name__ == '__main__':

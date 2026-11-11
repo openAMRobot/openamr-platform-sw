@@ -24,7 +24,11 @@ import pytest
 rclpy = pytest.importorskip('rclpy')  # tracking: #90, Alex's D-19 audit finding
 
 from ament_index_python.packages import get_package_share_directory  # noqa: E402
+from geometry_msgs.msg import TransformStamped  # noqa: E402
+from lifecycle_msgs.msg import State  # noqa: E402
+from lifecycle_msgs.srv import GetState  # noqa: E402
 from rcl_interfaces.srv import GetParameters  # noqa: E402
+from tf2_ros import StaticTransformBroadcaster  # noqa: E402
 
 
 def _start_navigation_launch():
@@ -66,6 +70,28 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
     def setUp(self):
         self._proc = _start_navigation_launch()
         self.node = rclpy.create_node('bt_xml_resolution_probe')
+        # Static identity map->odom->base_link, published once (TRANSIENT_
+        # LOCAL by default for StaticTransformBroadcaster): without this,
+        # local_costmap (global_frame odom) and global_costmap (global_frame
+        # map) both block forever waiting for a transform that nothing in
+        # this lightweight launch ever publishes, controller_server never
+        # activates, and nav2_lifecycle_manager's sequential bringup never
+        # reaches bt_navigator at all regardless of the BT xml fix under
+        # test here - confirmed by running navigation_launch.py directly and
+        # reading its own log (platform-sw#90).
+        self._tf_broadcaster = StaticTransformBroadcaster(self.node)
+        now = self.node.get_clock().now().to_msg()
+        map_to_odom = TransformStamped()
+        map_to_odom.header.stamp = now
+        map_to_odom.header.frame_id = 'map'
+        map_to_odom.child_frame_id = 'odom'
+        map_to_odom.transform.rotation.w = 1.0
+        odom_to_base = TransformStamped()
+        odom_to_base.header.stamp = now
+        odom_to_base.header.frame_id = 'odom'
+        odom_to_base.child_frame_id = 'base_link'
+        odom_to_base.transform.rotation.w = 1.0
+        self._tf_broadcaster.sendTransform([map_to_odom, odom_to_base])
 
     def tearDown(self):
         _stop_navigation_launch(self._proc)
@@ -92,17 +118,60 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
         return future.result().values[0].string_value
 
     def test_default_nav_to_pose_bt_xml_resolves_to_the_no_backup_file(self):
-        value = self._get_bt_navigator_param('navigate_to_pose.default_nav_to_pose_bt_xml')
+        # Top-level name, not nested under navigate_to_pose. (panthera-
+        # momagdii's #90 review, P1): Jazzy only ever reads the top-level
+        # key - querying the nested name would have kept "passing" even
+        # when bt_navigator itself never looked at it, since
+        # automatically_declare_parameters_from_overrides(true) declares it
+        # regardless of whether any navigator code reads it.
+        value = self._get_bt_navigator_param('default_nav_to_pose_bt_xml')
         self.assertTrue(
             value.endswith(os.path.join('behavior_trees', 'navigate_to_pose_no_backup.xml')),
             f'bt_navigator resolved default_nav_to_pose_bt_xml to {value!r}, expected it to '
             'end with behavior_trees/navigate_to_pose_no_backup.xml')
 
     def test_default_nav_through_poses_bt_xml_resolves_to_the_no_backup_file(self):
-        value = self._get_bt_navigator_param(
-            'navigate_through_poses.default_nav_through_poses_bt_xml')
+        value = self._get_bt_navigator_param('default_nav_through_poses_bt_xml')
         self.assertTrue(
             value.endswith(
                 os.path.join('behavior_trees', 'navigate_through_poses_no_backup.xml')),
             f'bt_navigator resolved default_nav_through_poses_bt_xml to {value!r}, expected '
             'it to end with behavior_trees/navigate_through_poses_no_backup.xml')
+
+    def test_bt_navigator_reaches_active_with_no_backup_tree_loaded(self):
+        # panthera-momagdii's #90 review, P1: the live tests on this branch
+        # previously stopped at parameter resolution or server
+        # advertisement - neither proves bt_navigator actually activated.
+        # With backup removed from behavior_plugins, a BtActionNode throws
+        # in its own constructor when its action server is missing
+        # (bt_action_node.hpp, createActionClient) - if the BT xml paths
+        # were ever misread and the STOCK tree (which references BackUp)
+        # loaded instead, on_activate's BT-loading step would throw and
+        # bt_navigator would never reach ACTIVE. Confirming ACTIVE here is
+        # confirming, end to end, that the no-backup tree is what actually
+        # loaded - not just that the right string is sitting in a
+        # parameter nobody reads.
+        client = self.node.create_client(GetState, '/bt_navigator/get_state')
+        deadline = time.monotonic() + 90.0
+        while not client.wait_for_service(timeout_sec=0.5) and time.monotonic() < deadline:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+        self.assertTrue(client.service_is_ready(), '/bt_navigator/get_state never came up')
+
+        state_id = None
+        while time.monotonic() < deadline:
+            future = client.call_async(GetState.Request())
+            end = time.monotonic() + 3.0
+            while not future.done() and time.monotonic() < end:
+                rclpy.spin_once(self.node, timeout_sec=0.1)
+            if future.done() and future.result() is not None:
+                state_id = future.result().current_state.id
+                if state_id == State.PRIMARY_STATE_ACTIVE:
+                    break
+            time.sleep(0.2)
+        client.destroy()
+        self.assertEqual(
+            state_id, State.PRIMARY_STATE_ACTIVE,
+            f'/bt_navigator never reached ACTIVE (last state id: {state_id}) - if the '
+            'BT xml paths silently fell back to the stock tree (which references '
+            'BackUp, removed from behavior_plugins), BT loading in on_activate '
+            'throws and the node never activates')

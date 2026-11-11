@@ -73,7 +73,7 @@ from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402,I100
 
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, SafetyStopGateNode)
+    _CANCEL_ACTIONS, _LEDGER_PRODUCERS, _real_action_server_name, SafetyStopGateNode)
 
 from rclpy.parameter import Parameter  # noqa: E402
 from rclpy.qos import (  # noqa: E402
@@ -215,7 +215,8 @@ class SimClockChainCase(unittest.TestCase):
         # content/liveness distinction) keep releasing successfully.
         self._cancel_services = {
             action: self.probe.create_service(
-                CancelGoal, f'{action}/_action/cancel_goal', self._on_cancel_goal)
+                CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal',
+                self._on_cancel_goal)
             for action in _CANCEL_ACTIONS
         }
         self._dock_abort_service = self.probe.create_service(
@@ -305,10 +306,11 @@ class SimClockChainCase(unittest.TestCase):
             # RELIABLE + TRANSIENT_LOCAL depth 1
             # (rcl_action_qos_profile_status_default), not the prior
             # default volatile.
+            real_name = _real_action_server_name(action)
             pub = self.probe.create_publisher(
-                GoalStatusArray, f'{action}/_action/status',
+                GoalStatusArray, f'{real_name}/_action/status',
                 qos_profile_action_status_default)
-            self._wait_for_subscriber(pub, f'{action}/_action/status')
+            self._wait_for_subscriber(pub, f'{real_name}/_action/status')
             pub.publish(GoalStatusArray())
             pub.destroy()
         dock_pub = self.probe.create_publisher(String, 'dock_trigger_status', 10)

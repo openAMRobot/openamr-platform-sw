@@ -23,7 +23,8 @@ from geometry_msgs.msg import Twist  # noqa: E402
 from openamr_nav_msgs.msg import StopState  # noqa: E402
 from openamrobot_nav2.goal_authority import ProducerState  # noqa: E402
 from openamrobot_nav2.safety_stop_gate_node import (  # noqa: E402
-    _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, _LEDGER_PRODUCERS, SafetyStopGateNode, T_READY)
+    _CANCEL_ACTIONS, _CMD_VEL_INPUT_TIMEOUTS, _LEDGER_PRODUCERS, _LEDGER_STATUS_DISCOVERY_GRACE_S,
+    _real_action_server_name, SafetyStopGateNode, T_READY)
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.qos import (  # noqa: E402
     DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_action_status_default)
@@ -103,7 +104,7 @@ class NodeTestCase(unittest.TestCase):
             response.return_code = CancelGoal.Response.ERROR_NONE
             return response
         self._cancel_services[action] = self.probe.create_service(
-            CancelGoal, f'{action}/_action/cancel_goal', _cb)
+            CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal', _cb)
         self._spin_both(timeout_s=0.3)  # let the gate's client discover it
 
     def _take_down_cancel_service(self, action):
@@ -146,7 +147,7 @@ class NodeTestCase(unittest.TestCase):
         # not the default volatile this test used before - a mismatch here
         # means the publisher/subscriber never even match.
         self._publish_to_gate(
-            GoalStatusArray, f'{action}/_action/status', msg,
+            GoalStatusArray, f'{_real_action_server_name(action)}/_action/status', msg,
             qos=qos_profile_action_status_default)
 
     def _publish_goal_authority_heartbeat(
@@ -689,7 +690,8 @@ class TestEngageCancelsGoalsAndAbortsDocking(NodeTestCase):
             response.return_code = 0
             return response
 
-        self.probe.create_service(CancelGoal, f'{action}/_action/cancel_goal', _cb)
+        self.probe.create_service(
+            CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal', _cb)
         return calls
 
     def test_engage_calls_cancel_goal_on_every_tracked_action(self):
@@ -728,6 +730,53 @@ class TestEngageCancelsGoalsAndAbortsDocking(NodeTestCase):
         self._call_trigger('/safety/stop_lock_engage')
         self._spin_both(timeout_s=0.3)
         self.assertTrue(calls, 'dock_trigger ~/abort was never called')
+
+    def test_a_goal_that_bypassed_the_proxy_via_goal_pose_is_still_cancelled_and_blocks_resume(
+            self):
+        # panthera-momagdii's #90 second review, the safety-critical finding:
+        # a goal submitted via RViz/goal_pose_nav never reaches
+        # navigate_to_pose_goal_proxy_node.py at all - bt_navigator's own
+        # internal self_client_ sends it directly on navigate_to_pose_real
+        # (same node-level remap, navigate_to_pose.cpp:47,269-273). Before
+        # the gate's cancel client/status subscription were redirected to
+        # navigate_to_pose_real, Stop never reached this goal and Resume
+        # could release while bt_navigator was still driving it. Standing in
+        # for that goal here the same way this file's other tests stand in
+        # for a real action server - a fake cancel_goal service plus a real
+        # action-status sample - directly on navigate_to_pose_real. The
+        # proxy's own heartbeat (published below via
+        # _publish_all_clear_goal_status) truthfully reports zero
+        # outstanding goals of ITS OWN the whole time, since this goal
+        # never went through it - exactly like production, the ledger
+        # alone would read IDLE here; only the independent action-status
+        # reconciliation against navigate_to_pose_real catches this.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+        self._publish_all_clear_goal_status()
+        self._publish_dock_status('idle')
+        calls = self._serve_cancel_goal('navigate_to_pose')
+        self._publish_goal_status('navigate_to_pose', [GoalStatus.STATUS_EXECUTING])
+        self._spin_both(timeout_s=0.3)
+
+        self._call_trigger('/safety/stop_lock_engage')
+        self._spin_both(timeout_s=0.3)
+        self.assertTrue(
+            calls, 'engage never called cancel_goal on navigate_to_pose_real - a goal that '
+            'bypassed the proxy via goal_pose_nav would have kept driving through Stop')
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'Resume succeeded while the bypass-path goal on navigate_to_pose_real was still '
+            'EXECUTING - cancelling it is not evidence it has actually stopped')
+        self.assertIn('navigate_to_pose', result.message)
+
+        self._publish_goal_status('navigate_to_pose', [])
+        self._spin_both(timeout_s=0.3)
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertTrue(
+            result.success,
+            f'Resume stayed refused once navigate_to_pose_real genuinely went clear: '
+            f'{result.message}')
 
 
 class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
@@ -988,6 +1037,51 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
             'discovery-grace period elapsed - an active retained sample '
             'would have had no chance to arrive yet')
         self.assertIn('undock_robot', result.message)
+
+    def test_a_late_publisher_match_gets_its_own_fresh_grace_window(self):
+        # panthera-momagdii's #90 second review: the original fix anchored
+        # the whole grace period to node construction, so slow discovery
+        # (busy executor, loaded CI runner) could let the window elapse
+        # BEFORE a genuinely active retained sample ever got a chance to be
+        # delivered - a release that only ever checked elapsed-since-
+        # construction would have wrongly gone through here. Reproduced by
+        # backdating _constructed_at_s far past the grace window FIRST,
+        # then only standing up undock_robot's status publisher afterward -
+        # discovery of it (and this test's grace window) can only start
+        # from that later moment, never from the (already long expired)
+        # construction time.
+        self.node._goal_authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        self._spin_both(timeout_s=0.2)
+        self.assertTrue(self.node._goal_authority.is_orphaned('undock_robot'))
+        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+
+        # Construction-anchored window is already long over by now.
+        self.node._constructed_at_s -= (_LEDGER_STATUS_DISCOVERY_GRACE_S + 5.0)
+
+        # The real server's status publisher only shows up now - standing
+        # in for the slow-discovery case this fix exists for.
+        status_pub = self.probe.create_publisher(
+            GoalStatusArray, 'undock_robot/_action/status',
+            qos_profile_action_status_default)
+        deadline = time.monotonic() + 2.0
+        while status_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            self._spin_both(0.02)
+        # Deliberately no publish() here: proving the match itself (not
+        # yet having delivered any sample) still starts a fresh window,
+        # not that a construction-anchored deadline had already passed.
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded right as undock_robot\'s status publisher was '
+            'first discovered - a fresh grace window anchored to that match '
+            'must still apply, independent of how long ago construction was')
+        self.assertIn('undock_robot', result.message)
+        status_pub.destroy()
 
 
 class TestStopStatePublishing(NodeTestCase):

@@ -66,6 +66,12 @@ class NavigateToPoseGoalProxy(Node):
         self._instance_id = uuid.uuid4().hex
         self._outstanding = 0
         self._real_goal_handles = {}  # proxy goal uuid bytes -> real ClientGoalHandle
+        # panthera-momagdii's #90 review, P2: a cancel can arrive after
+        # acceptance but before send_goal_async resolves and
+        # _real_goal_handles is populated - tracked here and replayed the
+        # instant the real handle appears, instead of being silently
+        # dropped.
+        self._pending_cancels = set()  # proxy goal uuid bytes
         cb_group = ReentrantCallbackGroup()
 
         self._goal_authority_pub = self.create_publisher(String, 'goal_authority_events', 10)
@@ -74,6 +80,7 @@ class NavigateToPoseGoalProxy(Node):
         self._server = ActionServer(
             self, NavigateToPose, _PUBLIC_ACTION_NAME,
             execute_callback=self._execute,
+            handle_accepted_callback=self._handle_accepted,
             cancel_callback=self._handle_cancel,
             callback_group=cb_group)
         self.create_timer(_HEARTBEAT_PERIOD_S, self._heartbeat, callback_group=cb_group)
@@ -82,21 +89,45 @@ class NavigateToPoseGoalProxy(Node):
         self._goal_authority_pub.publish(String(
             data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
 
+    def _handle_accepted(self, goal_handle) -> None:
+        # panthera-momagdii's #90 review, P1: the public ActionServer
+        # accepts a goal (and could be queried via GoalAuthority/the
+        # heartbeat timer) before _execute, an independently-scheduled
+        # coroutine under this node's MultiThreadedExecutor/
+        # ReentrantCallbackGroup, ever gets to run - a heartbeat firing in
+        # that gap would report outstanding=0 with an accepted goal already
+        # sitting there. handle_accepted_callback runs synchronously as
+        # part of the server's own acceptance sequence, before
+        # goal_handle.execute() schedules _execute at all, so there is no
+        # gap here for the heartbeat to interleave into.
+        self._outstanding += 1
+        self._goal_authority_pub.publish(String(
+            data=f'{_PRODUCER_NAME}|sent|{self._instance_id}'))
+        goal_handle.execute()
+
     def _handle_cancel(self, goal_handle) -> CancelResponse:
         # Forward immediately, fire-and-forget (same convention
         # safety_stop_gate_node.py's own _cancel_all_goals uses): the real
         # goal's own result, not this call's response, is what the ledger's
         # 'done' event and this proxy's own goal_handle.canceled()/succeed()
         # ultimately depend on - never assumed from the cancel reply alone.
-        real_handle = self._real_goal_handles.get(bytes(goal_handle.goal_id.uuid))
+        key = bytes(goal_handle.goal_id.uuid)
+        real_handle = self._real_goal_handles.get(key)
         if real_handle is not None:
             real_handle.cancel_goal_async()
+        else:
+            # Either the real goal was never sent (this goal is still
+            # between acceptance and send_goal_async resolving), or it has
+            # already finished - replay it in _execute if the former turns
+            # out to be true; harmless if the goal is already gone, since
+            # _execute's own finally clause always discards this.
+            self._pending_cancels.add(key)
         return CancelResponse.ACCEPT
 
     async def _execute(self, goal_handle):
-        self._outstanding += 1
-        self._goal_authority_pub.publish(String(
-            data=f'{_PRODUCER_NAME}|sent|{self._instance_id}'))
+        # Outstanding count and the 'sent' event are handled in
+        # _handle_accepted (panthera-momagdii's #90 review, P1) - not here,
+        # to avoid double-counting.
         try:
             if not self._real_client.wait_for_server(timeout_sec=5.0):
                 self.get_logger().error(
@@ -120,14 +151,33 @@ class NavigateToPoseGoalProxy(Node):
 
             key = bytes(goal_handle.goal_id.uuid)
             self._real_goal_handles[key] = real_goal_handle
+            if key in self._pending_cancels:
+                # panthera-momagdii's #90 review, P2: a cancel arrived
+                # before this real handle existed - replay it now instead
+                # of having silently dropped it in _handle_cancel.
+                self._pending_cancels.discard(key)
+                real_goal_handle.cancel_goal_async()
             try:
                 result_response = await real_goal_handle.get_result_async()
             finally:
                 self._real_goal_handles.pop(key, None)
+                self._pending_cancels.discard(key)
 
             if goal_handle.is_active:
                 if result_response.status == GoalStatus.STATUS_CANCELED:
-                    goal_handle.canceled()
+                    # The real goal can end up CANCELED through a path that
+                    # never went through THIS wrapper's own cancel_callback
+                    # (e.g. safety_stop_gate_node.py cancelling
+                    # navigate_to_pose_real directly) - canceled() is only a
+                    # valid transition if a cancel was actually requested
+                    # and accepted on this goal handle; calling it
+                    # otherwise raises. abort() reports the same practical
+                    # outcome (goal did not succeed) without that
+                    # precondition.
+                    if goal_handle.is_cancel_requested:
+                        goal_handle.canceled()
+                    else:
+                        goal_handle.abort()
                 elif result_response.status == GoalStatus.STATUS_SUCCEEDED:
                     goal_handle.succeed()
                 else:

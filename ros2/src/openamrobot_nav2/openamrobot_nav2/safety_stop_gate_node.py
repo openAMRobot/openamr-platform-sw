@@ -171,6 +171,29 @@ _CANCEL_ACTIONS = (
     'dock_robot',
     'undock_robot',
 )
+
+# Real action-server name per tracked action, for the cancel client and
+# status subscription below (platform-sw#90, panthera-momagdii's second
+# review). navigate_to_pose_goal_proxy_node.py owns the PUBLIC
+# navigate_to_pose name, but a goal submitted via RViz/goal_pose_nav never
+# reaches it: navigation_launch.py's own node-level remap
+# ('navigate_to_pose', 'navigate_to_pose_real') also renames bt_navigator's
+# internal self_client_ (navigate_to_pose.cpp:47,269-273), since it is
+# created under the same node - that goal runs entirely on
+# navigate_to_pose_real with nothing the proxy ever sees. Cancelling and
+# reading status against the proxy's own name therefore misses those
+# goals; reaching navigate_to_pose_real directly covers every goal
+# regardless of which path it came in on. The proxy's own heartbeat
+# (goal_authority_events) is unaffected and stays the clean-boot evidence
+# source for navigate_to_pose (D-13) - this remap only changes the
+# independent action-status reconciliation/cancellation path below.
+_REAL_ACTION_SERVER_NAMES = {
+    'navigate_to_pose': 'navigate_to_pose_real',
+}
+
+
+def _real_action_server_name(action: str) -> str:
+    return _REAL_ACTION_SERVER_NAMES.get(action, action)
 # Producers backed by the goal-authority ledger (D-13) - a subset of
 # _CANCEL_ACTIONS. navigate_to_pose is now owned end to end by
 # navigate_to_pose_goal_proxy_node.py (platform-sw#124, BotshareAI's #90
@@ -244,10 +267,22 @@ class SafetyStopGateNode(Node):
 
         # --- goal cancellation (platform-sw#119, release condition a) ---
         self._cancel_clients = {
-            action: self.create_client(CancelGoal, f'{action}/_action/cancel_goal')
+            action: self.create_client(
+                CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal')
             for action in _CANCEL_ACTIONS
         }
         self._goal_statuses = {action: None for action in _CANCEL_ACTIONS}  # list[int] or None
+        # panthera-momagdii's #90 second review: _LEDGER_STATUS_DISCOVERY_
+        # GRACE_S counted from node construction lets a slow-to-discover
+        # retained sample arrive AFTER the window has already elapsed,
+        # independent of real discovery progress. Anchored instead to the
+        # moment this node's own subscription actually matches a publisher
+        # on that topic (get_publishers_info_by_topic) - once matched,
+        # delivery of an already-retained TRANSIENT_LOCAL sample over an
+        # established match is effectively immediate, so a fixed grace
+        # window counted from THAT moment bounds the real remaining risk
+        # instead of guessing at discovery time. None until first matched.
+        self._status_publisher_matched_at = {action: None for action in _LEDGER_PRODUCERS}
         # True once a CancelGoal response for this action came back rejected
         # (Mohamed's 7 Nov 05:23 review, panthera-momagdii's #90 re-review):
         # content-plus-service-readiness alone cannot see a rejected cancel
@@ -265,7 +300,7 @@ class SafetyStopGateNode(Node):
             # the next goal state change, even when the server had already
             # reported done (platform-sw#90, panthera-momagdii's review, P2).
             self.create_subscription(
-                GoalStatusArray, f'{action}/_action/status',
+                GoalStatusArray, f'{_real_action_server_name(action)}/_action/status',
                 self._make_goal_status_cb(action), qos_profile_action_status_default)
 
         # --- dock_trigger abort (release condition b) ---
@@ -468,9 +503,35 @@ class SafetyStopGateNode(Node):
                     # ever published, the expected case) looks identical to
                     # "a retained sample exists but has not reached this
                     # fresh subscription yet" at any single instant. Give
-                    # the grace period above a bounded chance before
-                    # trusting the silence.
-                    if now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S:
+                    # the grace period a bounded chance before trusting the
+                    # silence.
+                    #
+                    # Anchored to publisher-match time, not construction
+                    # (panthera-momagdii's second review) - see self.
+                    # _status_publisher_matched_at's own comment above - but
+                    # only once a publisher is actually seen: a producer
+                    # with no action-status publisher at all (nothing wrong,
+                    # e.g. a disabled profile's own server never started)
+                    # must still eventually trust the silence the same way
+                    # the original construction-anchored version did, or
+                    # release would block forever waiting for a match that
+                    # will never come. The construction anchor stays as
+                    # that fallback ceiling; the match anchor only ever
+                    # EXTENDS protection past it, when discovery is slow
+                    # enough that a publisher is found after the
+                    # construction-anchored window would already have
+                    # elapsed - it never shortens the window.
+                    if self._status_publisher_matched_at[action] is None:
+                        topic = f'{_real_action_server_name(action)}/_action/status'
+                        if self.get_publishers_info_by_topic(topic):
+                            self._status_publisher_matched_at[action] = now_s
+                    matched_at = self._status_publisher_matched_at[action]
+                    if matched_at is not None:
+                        still_in_grace = now_s - matched_at < _LEDGER_STATUS_DISCOVERY_GRACE_S
+                    else:
+                        still_in_grace = (
+                            now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S)
+                    if still_in_grace:
                         blockers.append(
                             f'{action}: action-status discovery grace period not yet '
                             f'elapsed (goal-authority ledger read idle)')

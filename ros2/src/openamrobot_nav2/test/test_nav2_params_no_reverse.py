@@ -58,21 +58,57 @@ def test_behavior_plugins_excludes_every_reverse_capable_interface():
 def test_dwb_followpath_min_vel_x_is_not_negative():
     params = _params()['controller_server']['ros__parameters']['FollowPath']
     min_vel_x = params['min_vel_x']
-    assert min_vel_x >= 0.0, (
-        f"FollowPath's min_vel_x is {min_vel_x} - D-19 (platform-sw#124): "
-        'any negative value lets DWB itself command a blind reverse during '
-        "ordinary path following, and collision_monitor's rear sectors are "
-        "masked (panthera-momagdii's #90 review), so it cannot see behind "
-        'the robot to guard it.')
+    # Exactly 0.0, not merely >= 0.0 (panthera-momagdii's #90 review, P2):
+    # a small positive value would pass a looser check too, but there is no
+    # legitimate reason for min_vel_x to be anything other than exactly
+    # clamped - forward motion is max_vel_x's job.
+    assert min_vel_x == 0.0, (
+        f"FollowPath's min_vel_x is {min_vel_x}, expected exactly 0.0 - D-19 "
+        '(platform-sw#124): any nonzero-negative value lets DWB itself command '
+        "a blind reverse during ordinary path following, and collision_monitor's "
+        "rear sectors are masked (panthera-momagdii's #90 review), so it cannot "
+        'see behind the robot to guard it.')
 
 
 def test_velocity_smoother_min_velocity_linear_x_is_not_negative():
     min_velocity = _params()['velocity_smoother']['ros__parameters']['min_velocity']
-    assert min_velocity[0] >= 0.0, (
-        f'velocity_smoother min_velocity linear.x is {min_velocity[0]} - D-19 '
-        '(platform-sw#124): this is the final backstop before the real '
-        '/cmd_vel, and it must not let a reverse command through from any '
-        'upstream source either.')
+    # Exactly 0.0, same reasoning as min_vel_x above (panthera-momagdii's #90
+    # review, P2).
+    assert min_velocity[0] == 0.0, (
+        f'velocity_smoother min_velocity linear.x is {min_velocity[0]}, expected '
+        'exactly 0.0 - D-19 (platform-sw#124): this is the final backstop '
+        'before the real /cmd_vel, and it must not let a reverse command '
+        'through from any upstream source either.')
+
+
+def test_bt_xml_paths_are_top_level_bt_navigator_parameters():
+    # panthera-momagdii's #90 review, P1: Jazzy's NavigateToPoseNavigator/
+    # NavigateThroughPosesNavigator only ever read default_nav_to_pose_bt_xml/
+    # default_nav_through_poses_bt_xml at the TOP LEVEL of
+    # bt_navigator.ros__parameters (nav2_bt_navigator/src/navigators/
+    # navigate_to_pose.cpp, navigate_through_poses.cpp) - nested inside the
+    # navigate_to_pose:/navigate_through_poses: sub-blocks, Jazzy's
+    # automatically_declare_parameters_from_overrides(true) still lets them
+    # exist as declared parameters (so a naive parameter-read check can pass
+    # even when the real navigator never looks at them), but the navigators
+    # themselves silently fall back to the stock trees, which contain BackUp.
+    params = _params()['bt_navigator']['ros__parameters']
+    assert 'default_nav_to_pose_bt_xml' in params, (
+        'default_nav_to_pose_bt_xml must be a TOP-LEVEL bt_navigator.ros__'
+        'parameters key, not nested inside navigate_to_pose: - Jazzy only '
+        'reads it there')
+    assert 'default_nav_through_poses_bt_xml' in params, (
+        'default_nav_through_poses_bt_xml must be a TOP-LEVEL bt_navigator.'
+        'ros__parameters key, not nested inside navigate_through_poses: - '
+        'Jazzy only reads it there')
+    assert 'default_nav_to_pose_bt_xml' not in params.get('navigate_to_pose', {}), (
+        'default_nav_to_pose_bt_xml is still ALSO nested inside navigate_to_pose: '
+        '- remove the nested copy entirely, it is declared-but-unused there and '
+        'invites exactly this confusion again')
+    assert 'default_nav_through_poses_bt_xml' not in params.get(
+        'navigate_through_poses', {}), (
+        'default_nav_through_poses_bt_xml is still ALSO nested inside '
+        'navigate_through_poses: - remove the nested copy entirely')
 
 
 if __name__ == '__main__':
