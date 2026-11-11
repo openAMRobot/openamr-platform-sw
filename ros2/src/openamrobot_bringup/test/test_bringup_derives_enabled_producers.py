@@ -119,6 +119,46 @@ def test_real_nav_only_excludes_both_dock_producers_by_name(tmp_path):
         f'use_docking:=false must exclude dock_robot and undock_robot by name, got {enabled!r}')
 
 
+def test_sim_default_use_docking_enables_all_four_producers(tmp_path):
+    # D-19 (Alex, 11 Nov owner decision; carried over from #125's
+    # fix/123-start-docking-server at 3713a428, panthera-momagdii's #90
+    # review, P1): use_docking's own default_value is now '' (empty), not
+    # 'true' - launch_setup must still resolve the EMPTY default to ON in
+    # simulation, not accidentally treat '' as falsy and silently disable
+    # docking for every caller that omits the argument.
+    include = _navigation_launch_include(_actions_for(_module(tmp_path), 'true', ''))
+    enabled = _enabled_producers_arg(include)
+    assert enabled == 'navigate_to_pose,navigate_through_poses,dock_robot,undock_robot', (
+        f"use_docking's own empty default must resolve to ON in simulation, got {enabled!r}")
+
+
+def test_real_default_use_docking_excludes_both_dock_producers_by_name(tmp_path):
+    # D-19, same finding as above: the empty default must resolve to OFF on
+    # the real profile - opennav_docking exposes a direct /undock_robot the
+    # #90 stop-gate constant cannot gate, so the real robot must not start
+    # it until D-19's three conditions (see the use_docking
+    # DeclareLaunchArgument's own description) are met.
+    real_map = tmp_path / 'real_map.yaml'
+    real_map.write_text('')
+    include = _navigation_launch_include(
+        _actions_for(_module(tmp_path), 'false', '', str(real_map)))
+    enabled = _enabled_producers_arg(include)
+    assert enabled == 'navigate_to_pose,navigate_through_poses', (
+        f"use_docking's own empty default must resolve to OFF on the real profile, "
+        f'got {enabled!r}')
+
+
+def test_real_default_use_docking_launches_no_docking_server(tmp_path):
+    real_map = tmp_path / 'real_map.yaml'
+    real_map.write_text('')
+    actions = _actions_for(_module(tmp_path), 'false', '', str(real_map))
+    assert _includes(actions, 'docking_real.launch.py') == [], (
+        "use_docking's own empty default must not launch the docking server on the real "
+        'profile - enabled_producers already excludes dock_robot/undock_robot by name')
+    assert len(_includes(actions, 'goal_relay.launch.py')) == 1, (
+        "use_docking's own empty default (real) must launch exactly one goal_relay forwarder")
+
+
 def _includes(actions, filename):
     return [
         a for a in actions
