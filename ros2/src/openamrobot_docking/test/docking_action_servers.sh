@@ -61,6 +61,7 @@ cleanup() {
   fi
   pkill -9 -f 'opennav_docking' 2>/dev/null
   pkill -9 -f 'lifecycle_manager_docking' 2>/dev/null
+  pkill -9 -f 'dock_trigger.py' 2>/dev/null
   sleep 2
 }
 trap cleanup EXIT
@@ -134,6 +135,7 @@ fi
 
 # Nothing left over from an earlier step may still be advertising these actions.
 pkill -9 -f 'opennav_docking' 2>/dev/null
+pkill -9 -f 'dock_trigger.py' 2>/dev/null
 sleep 2
 for action in "${ACTIONS[@]}"; do
   pre=$(timeout 10 ros2 action info "$action" -t 2>/dev/null | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1)

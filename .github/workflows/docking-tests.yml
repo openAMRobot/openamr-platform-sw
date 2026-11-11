@@ -169,8 +169,8 @@ jobs:
           export HARNESS_TIMEOUT_S=60
           bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
               openamrobot_docking openamrobot_docking.launch.py 1 \
-              --control-node detected_dock_pose_publisher \
-              -- launch_docking_server:=false launch_trigger:=false launch_camera_pipeline:=false use_sim_time:=false \
+              --control-node dock_trigger \
+              -- launch_docking_server:=false launch_trigger:=true launch_camera_pipeline:=false use_sim_time:=false \
               docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml \
               > negative_control.log 2>&1
           rc=$?
