@@ -48,11 +48,18 @@
      retry while Nav2 itself is still legitimately recovering (Mohamed's review).
      navigate_through_poses.xml (#92) carries the same naming already.
 
-  Left unchanged from stock, out of scope for this PR: Spin/Wait(5.0)/BackUp in the
-  outer round-robin (zone-gating them to site policy needs N2/#73's zone data, not yet
+  Left unchanged from stock, out of scope for this PR: Spin/Wait(5.0) in the outer
+  round-robin (zone-gating them to site policy needs N2/#73's zone data, not yet
   merged), and the outer RecoveryNode's retry-exhaustion behavior itself (surfacing
   that to an operator is the status_rules.py/navigation_status_node.py change in the
   same PR, not a BT-side change).
+
+  BackUp REMOVED from the outer round-robin (platform-sw#90, D-19, Alex's 8 Nov
+  ruling on platform-sw#124: reverse is not offered in Build 1, the rear sectors are
+  masked so collision_monitor cannot guard a blind 0.30m reverse) - this file is new
+  in this PR and was wired to a stock copy before this fix landed, independently of
+  #90's own navigate_to_pose_no_backup.xml; BotshareAI's #90 review (11 Nov) flagged
+  it as a reintroduction and asked for the same removal here.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -93,7 +100,6 @@
             </Sequence>
             <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
             <Wait wait_duration="5.0"/>
-            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>
