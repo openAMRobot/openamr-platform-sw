@@ -100,12 +100,16 @@ jobs:
           for candidate in ros-jazzy-opennav-docking ros-jazzy-nav2-docking; do
             if apt-cache show "$candidate" >/dev/null 2>&1; then DOCK_PKG="$candidate"; break; fi
           done
-          if [ -n "$DOCK_PKG" ]; then
-            echo "docking binary package: $DOCK_PKG"
-            apt-get install -y --no-install-recommends "$DOCK_PKG"
+          # The binary is preferred, but this container's apt index is not reliable: some runs
+          # cannot resolve ros-jazzy-behaviortree-cpp's libzmq deps, which makes the docking
+          # package uninstallable through no change of ours. Fall back to the source build rather
+          # than failing on mirror state.
+          if [ -n "$DOCK_PKG" ] && apt-get install -y --no-install-recommends "$DOCK_PKG"; then
+            echo "docking binary package installed: $DOCK_PKG"
             echo "DOCKING_FROM=apt" >> "$GITHUB_ENV"
           else
-            echo "no docking binary package found; building opennav_docking from source"
+            echo "docking binary unavailable in this run; building opennav_docking from source"
+            apt-get -f install -y || true
             echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
           fi
 
