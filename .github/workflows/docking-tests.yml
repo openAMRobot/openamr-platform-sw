@@ -80,65 +80,51 @@ jobs:
       - name: Install the packages this launch composes
         shell: bash
         run: |
-          set -euo pipefail
-          # Two passes on purpose. The core install must succeed and must not be poisoned by an
-          # optional package with unmet dependencies: an earlier run failed here because a bulk
-          # install pulled ros-jazzy-behaviortree-cpp (libzmq5 et al. uninstallable) and left apt
-          # in a broken state, which then blocked the docking package itself.
-          # The docking server's dependency chain reaches ros-jazzy-behaviortree-cpp, whose libzmq5
-          # and cppzmq-dev live in Ubuntu's `universe`. Without that component every Nav2 behaviour
-          # package is "not installable", which is what made this job fail on some runners and pass
-          # on others. Enable it explicitly rather than depending on the image's defaults.
-          # This image ships only the ROS apt source, so Ubuntu's own components are missing and
-          # libzmq5/cppzmq-dev (needed by ros-jazzy-behaviortree-cpp) are "not installable". Add
-          # main+universe ourselves; software-properties-common is not available to do it.
-          if ! apt-cache show libzmq5 >/dev/null 2>&1; then
-            printf '%s\n' \
-              'deb http://archive.ubuntu.com/ubuntu noble main universe' \
-              'deb http://archive.ubuntu.com/ubuntu noble-updates main universe' \
-              'deb http://security.ubuntu.com/ubuntu noble-security main universe' \
-              > /etc/apt/sources.list.d/ubuntu-extra.list
-            echo "added Ubuntu main+universe sources"
-          fi
-          for attempt in 1 2 3; do
-            apt-get update && break
-            echo "apt-get update failed (attempt ${attempt}); retrying"
-            sleep 5
-          done
-          apt-cache policy libzmq5 | head -3 || true
-          apt-get install -y --no-install-recommends \
+          set -eo pipefail
+          # This runner intermittently cannot resolve archive.ubuntu.com / security.ubuntu.com
+          # (only packages.ros.org resolves), and ros-jazzy-behaviortree-cpp needs libzmq5 and
+          # cppzmq-dev from Ubuntu universe. That is the whole reason this job flips between green
+          # and red with identical steps. Retry with backoff and Acquire::Retries before deciding
+          # anything about the repository.
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=25"
+
+          apt-get ${APT_OPTS} install -y --no-install-recommends \
             python3-colcon-common-extensions git ros-jazzy-nav2-msgs \
             ros-jazzy-nav2-lifecycle-manager ros-jazzy-tf2-ros
 
-          # Docking server: required. Resolve the name rather than hard-code a guess; the Jazzy
-          # binary is ros-jazzy-opennav-docking, not ros-jazzy-nav2-docking.
           DOCK_PKG=""
           for candidate in ros-jazzy-opennav-docking ros-jazzy-nav2-docking; do
             if apt-cache show "$candidate" >/dev/null 2>&1; then DOCK_PKG="$candidate"; break; fi
           done
-          # The binary is preferred, but this container's apt index is not reliable: some runs
-          # cannot resolve ros-jazzy-behaviortree-cpp's libzmq deps, which makes the docking
-          # package uninstallable through no change of ours. Fall back to the source build rather
-          # than failing on mirror state.
-          if [ -n "$DOCK_PKG" ] && apt-get install -y --no-install-recommends "$DOCK_PKG"; then
+
+          UBUNTU_OK=0
+          if apt-cache show libzmq5 >/dev/null 2>&1; then UBUNTU_OK=1; fi
+
+          installed=0
+          if [ -n "$DOCK_PKG" ]; then
+            for attempt in 1 2 3; do
+              echo "attempt ${attempt}: apt-get update + install ${DOCK_PKG}"
+              if apt-get ${APT_OPTS} update >/dev/null 2>&1 \
+                 && apt-get ${APT_OPTS} install -y --no-install-recommends "$DOCK_PKG"; then
+                installed=1
+                break
+              fi
+              echo "attempt ${attempt} failed; waiting 30s (Ubuntu mirror DNS: $([ "$UBUNTU_OK" = 1 ] && echo resolvable || echo unresolved))"
+              sleep 30
+            done
+          fi
+
+          if [ "$installed" = "1" ]; then
             echo "docking binary package installed: $DOCK_PKG"
             echo "DOCKING_FROM=apt" >> "$GITHUB_ENV"
           else
-            echo "docking binary unavailable in this run; building opennav_docking from source"
+            echo "::warning title=Docking binary unavailable::Ubuntu mirror DNS or apt resolution failed in this runner; building opennav_docking from source instead."
             apt-get -f install -y || true
-            # Build only the docking package, against Nav2 from apt, so the source path does not
-            # have to compile the whole navigation2 stack (which needs test_msgs and friends).
-            apt-get install -y --no-install-recommends \
+            apt-get ${APT_OPTS} install -y --no-install-recommends \
               ros-jazzy-test-msgs ros-jazzy-nav2-util ros-jazzy-nav2-msgs ros-jazzy-nav2-core \
               || echo "WARNING: some Nav2 dependencies unavailable; the source build may fail"
             echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
           fi
-
-          # The camera -> AprilTag -> dock-pose pipeline (ros_gz_bridge, cv_bridge, apriltag_ros)
-          # is NOT installed here: this container cannot resolve its OpenCV/protobuf deps, and the
-          # check below runs the launch with launch_camera_pipeline:=false, which starts only
-          # dock_trigger's server side. Tracking the server's availability must not depend on the
-          # camera stack being installable.
 
       - name: Build the docking server if it is not available as a binary
         if: env.DOCKING_FROM == 'source'
