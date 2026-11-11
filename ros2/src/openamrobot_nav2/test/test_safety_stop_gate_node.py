@@ -1050,12 +1050,27 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         # discovery of it (and this test's grace window) can only start
         # from that later moment, never from the (already long expired)
         # construction time.
-        self.node._goal_authority.notify_sent('undock_robot', instance_id='a', now_s=0.0)
+        #
+        # Deliberately no notify_sent/instance-mismatch dance here (unlike
+        # TestLedgerReconciliationAcrossProducerAndGateRestart's other
+        # tests): that marks the ledger entry `orphaned`, and state()
+        # returns UNKNOWN unconditionally for an orphaned entry regardless
+        # of now_s - the ledger branch would then block on its own, above,
+        # and this test would never actually reach the discovery-grace
+        # code it means to exercise. A single fresh heartbeat establishes
+        # a clean IDLE with no orphan, so release falls through to the
+        # status-reconciliation branch below, which is what this test is
+        # about.
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
         self._spin_both(timeout_s=0.2)
-        self.assertTrue(self.node._goal_authority.is_orphaned('undock_robot'))
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
+        self.assertFalse(self.node._goal_authority.is_orphaned('undock_robot'))
+        # navigate_to_pose is ledger-backed too (not legacy) - heartbeat it
+        # cleanly so its own discovery-grace/reconciliation never surfaces
+        # as a blocker here and masks whether undock_robot specifically
+        # blocked, which is all this test cares about.
+        self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
+        for legacy_action in ('navigate_through_poses', 'dock_robot'):
             self._publish_goal_status(legacy_action, [])
         self._publish_dock_status('idle')
 
@@ -1080,6 +1095,61 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
             'release succeeded right as undock_robot\'s status publisher was '
             'first discovered - a fresh grace window anchored to that match '
             'must still apply, independent of how long ago construction was')
+        self.assertIn('undock_robot', result.message)
+        status_pub.destroy()
+
+    def test_release_stays_refused_past_the_grace_window_if_no_sample_ever_arrives(self):
+        # panthera-momagdii's #90 third review, P1: the previous version of
+        # this fix only re-anchored the WINDOW to publisher-match time, but
+        # once that window elapsed with statuses still None, it appended no
+        # blocker at all and fell through - trusting silence from a
+        # publisher KNOWN to exist, which is not the same as having
+        # actually received its retained sample. Reproduced by matching the
+        # publisher, waiting past the grace window, and never publishing
+        # anything on it at all - release must stay refused indefinitely,
+        # not just for one grace period.
+        #
+        # Deliberately no notify_sent/instance-mismatch dance here - same
+        # reasoning as test_a_late_publisher_match_gets_its_own_fresh_
+        # grace_window just above: that would mark the entry `orphaned`,
+        # which blocks unconditionally via the ledger branch and would
+        # never actually exercise the status-reconciliation code below.
+        self._publish_to_gate(
+            String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        self._spin_both(timeout_s=0.2)
+        self.assertFalse(self.node._goal_authority.is_orphaned('undock_robot'))
+        # navigate_to_pose is ledger-backed too (not legacy) - heartbeat it
+        # cleanly so its own discovery-grace/reconciliation never surfaces
+        # as a blocker here and masks whether undock_robot specifically
+        # blocked, which is all this test cares about.
+        self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
+        for legacy_action in ('navigate_through_poses', 'dock_robot'):
+            self._publish_goal_status(legacy_action, [])
+        self._publish_dock_status('idle')
+
+        # Real server exists (its status publisher is up) but - standing in
+        # for delivery lagging further than discovery, or the server simply
+        # never having published anything at all yet - never sends a sample.
+        status_pub = self.probe.create_publisher(
+            GoalStatusArray, 'undock_robot/_action/status',
+            qos_profile_action_status_default)
+        deadline = time.monotonic() + 2.0
+        while status_pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+            self._spin_both(0.02)
+
+        # Force the match to be recorded now, then wait past the grace
+        # window - deterministic, not real elapsed wall time.
+        self._spin_both(timeout_s=0.1)
+        self.node._status_publisher_matched_at['undock_robot'] = (
+            self.node.get_clock().now().nanoseconds / 1e9 - (_LEDGER_STATUS_DISCOVERY_GRACE_S + 1.0))
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded after the grace window elapsed with undock_robot\'s status '
+            'publisher matched but no sample ever received - a known-to-exist publisher '
+            'that has not delivered a sample must block indefinitely, not just during '
+            'the grace window')
         self.assertIn('undock_robot', result.message)
         status_pub.destroy()
 

@@ -527,11 +527,32 @@ class SafetyStopGateNode(Node):
                             self._status_publisher_matched_at[action] = now_s
                     matched_at = self._status_publisher_matched_at[action]
                     if matched_at is not None:
-                        still_in_grace = now_s - matched_at < _LEDGER_STATUS_DISCOVERY_GRACE_S
-                    else:
-                        still_in_grace = (
-                            now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S)
-                    if still_in_grace:
+                        # panthera-momagdii's #90 third review, P1: matching
+                        # a publisher proves one EXISTS, not that its
+                        # retained sample has actually been received -
+                        # letting the grace window expire and then
+                        # trusting the silence here would accept Resume
+                        # with no action-status evidence at all once
+                        # discovery is slow. A known-to-exist publisher
+                        # that has not yet delivered a sample must block
+                        # indefinitely, not just for the grace window - the
+                        # window only ever delays the block, it never
+                        # expires it once a publisher is confirmed.
+                        if now_s - matched_at < _LEDGER_STATUS_DISCOVERY_GRACE_S:
+                            blockers.append(
+                                f'{action}: action-status discovery grace period not yet '
+                                f'elapsed (goal-authority ledger read idle)')
+                        else:
+                            blockers.append(
+                                f'{action}: status publisher matched but no sample received '
+                                f'yet (goal-authority ledger read idle)')
+                    elif now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S:
+                        # No publisher has ever been seen at all (e.g. this
+                        # action's real server was never enabled) - trust
+                        # the silence once this short, bounded window from
+                        # construction has passed, same as before this
+                        # review round; a publisher appearing later always
+                        # takes over via the branch above.
                         blockers.append(
                             f'{action}: action-status discovery grace period not yet '
                             f'elapsed (goal-authority ledger read idle)')
@@ -541,11 +562,15 @@ class SafetyStopGateNode(Node):
                         f'{action}: goal still active (action status, ledger read idle)')
                 continue
 
-            # LEGACY path - status-topic content, not the ledger. Known weaker
-            # than D-13's requirement (inherits the exact gap it was written
-            # to close) until this producer's sender(s) - today, openamrobot-ui
-            # for navigate_to_pose/navigate_through_poses, nothing yet sends
-            # dock_robot pending #125 - also report through goal_authority_events.
+            # LEGACY path - status-topic content, not the ledger. navigate_to_pose
+            # is NOT here any more (ChatGPT Codex Connector/panthera-momagdii's #90
+            # review): it is in _LEDGER_PRODUCERS above, proxied end to end by
+            # navigate_to_pose_goal_proxy_node.py. Only navigate_through_poses and
+            # dock_robot still take this path - known weaker than D-13's
+            # requirement (inherits the exact gap it was written to close) until
+            # their sender(s) - openamrobot-ui for navigate_through_poses, nothing
+            # yet sends dock_robot pending #125 - also report through
+            # goal_authority_events.
             if self._cancel_rejected[action]:
                 # Independent of status content/service-readiness: a
                 # rejected cancel is never terminal evidence, and must keep
