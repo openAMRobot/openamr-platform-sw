@@ -110,6 +110,11 @@ jobs:
           else
             echo "docking binary unavailable in this run; building opennav_docking from source"
             apt-get -f install -y || true
+            # Build only the docking package, against Nav2 from apt, so the source path does not
+            # have to compile the whole navigation2 stack (which needs test_msgs and friends).
+            apt-get install -y --no-install-recommends \
+              ros-jazzy-test-msgs ros-jazzy-nav2-util ros-jazzy-nav2-msgs ros-jazzy-nav2-core \
+              || echo "WARNING: some Nav2 dependencies unavailable; the source build may fail"
             echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
           fi
 
@@ -129,7 +134,7 @@ jobs:
           mkdir -p nav2_ws/src
           git clone --depth 1 --branch jazzy https://github.com/ros-navigation/navigation2.git nav2_ws/src/navigation2
           cd nav2_ws
-          colcon build --packages-up-to opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release
+          colcon build --packages-select opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release
 
       - name: Build openamrobot_docking
         shell: bash
