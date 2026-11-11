@@ -94,6 +94,7 @@ ros2 launch openamrobot_bringup real_bringup.launch.py
 # T2 — Nav2 with your real map (AMCL needs a non-empty map)
 ros2 launch openamrobot_nav2 localization_launch.py map:=/path/to/real_map.yaml use_sim_time:=false
 ros2 launch openamrobot_nav2 navigation_launch.py use_sim_time:=false use_scan_filter:=false
+ros2 launch openamrobot_nav2 map_saver_launch.py use_sim_time:=false
 
 # T3 — forwarder: pick EXACTLY ONE
 #   (a) nav-only

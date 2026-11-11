@@ -18,13 +18,16 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
+| Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
-| Recovery BT + retry escalation (#35/N4) | #91 | in review (Mohamed), Wait-naming fix pushed 5 Nov 2026 (12e5090) | owner review |
-| navigate_through_poses BT fast-follow (#35/N4) | #92 | in review, rebased onto #91 5 Nov 2026 | owner review; squash #91's nav2_params stock-tree comment once #91 merges |
+| Recovery BT + retry escalation (#35/N4) | #91 | changes requested (BotshareAI's #90 review, 11 Nov) - see its own STATE.md row history; D-19 reintroduction fixed, 145 passed/1 skipped | owner/Mohamed review |
+| navigate_through_poses BT fast-follow (#35/N4) | #92 | changes requested (BotshareAI's #90 review, 11 Nov): same D-19 reintroduction as #91, in both navigate_to_pose.xml (merged from #91) and its own navigate_through_poses.xml - both BackUp nodes removed, both pinned tests inverted, nav2_params.yaml velocity limits clamped, test_nav2_params_no_reverse.py added; RED/GREEN confirmed via git stash; 136 passed/1 skipped | owner review; squash #91's nav2_params stock-tree comment once #91 merges |
+| Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
+| Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
 | Sensor frames to P-03 rev19.7 | #93 | draft | owner review |
 | 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
 | Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
