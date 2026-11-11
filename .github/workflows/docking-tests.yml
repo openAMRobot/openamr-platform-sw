@@ -85,11 +85,18 @@ jobs:
           # optional package with unmet dependencies: an earlier run failed here because a bulk
           # install pulled ros-jazzy-behaviortree-cpp (libzmq5 et al. uninstallable) and left apt
           # in a broken state, which then blocked the docking package itself.
+          # The docking server's dependency chain reaches ros-jazzy-behaviortree-cpp, whose libzmq5
+          # and cppzmq-dev live in Ubuntu's `universe`. Without that component every Nav2 behaviour
+          # package is "not installable", which is what made this job fail on some runners and pass
+          # on others. Enable it explicitly rather than depending on the image's defaults.
+          apt-get install -y --no-install-recommends software-properties-common ca-certificates
+          add-apt-repository -y universe || true
           for attempt in 1 2 3; do
             apt-get update && break
             echo "apt-get update failed (attempt ${attempt}); retrying"
             sleep 5
           done
+          apt-cache policy libzmq5 | head -3 || true
           apt-get install -y --no-install-recommends \
             python3-colcon-common-extensions git ros-jazzy-nav2-msgs \
             ros-jazzy-nav2-lifecycle-manager ros-jazzy-tf2-ros
