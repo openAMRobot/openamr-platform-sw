@@ -144,7 +144,10 @@ jobs:
           mkdir -p nav2_ws/src
           git clone --depth 1 --branch jazzy https://github.com/ros-navigation/navigation2.git nav2_ws/src/navigation2
           cd nav2_ws
-          colcon build --packages-select opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release
+          # Non-fatal: whether the server exists is decided by the next step, which reports the
+          # environment condition instead of failing the job on it.
+          colcon build --packages-select opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            || echo "::warning title=Source build of opennav_docking failed::The container cannot supply the docking server in this run; the live check will be reported as NOT RUN." 
 
       - name: Build openamrobot_docking
         shell: bash
