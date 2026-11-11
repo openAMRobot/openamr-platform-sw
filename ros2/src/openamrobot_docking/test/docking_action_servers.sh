@@ -34,20 +34,22 @@ EXIT_PASS=0
 EXIT_MISMATCH=10
 EXIT_ERROR=20
 
-PKG="${1:?package required}"
-LAUNCH_FILE="${2:?launch file required}"
-EXPECT="${3:?expected servers per action required}"
-shift 3
+if [[ "${1:-}" != "--self-test-parse" && "${1:-}" != "--parse-count" ]]; then
+  PKG="${1:?package required}"
+  LAUNCH_FILE="${2:?launch file required}"
+  EXPECT="${3:?expected servers per action required}"
+  shift 3
 
-CONTROL_NODE=""
-if [[ "${1:-}" == "--control-node" ]]; then
-  CONTROL_NODE="${2:?control node name required}"
-  shift 2
+  CONTROL_NODE=""
+  if [[ "${1:-}" == "--control-node" ]]; then
+    CONTROL_NODE="${2:?control node name required}"
+    shift 2
+  fi
+  [[ "${1:-}" == "--" ]] && shift
+  EXTRA_ARGS=("$@")
 fi
-[[ "${1:-}" == "--" ]] && shift
-EXTRA_ARGS=("$@")
 
-LOG=$(mktemp /tmp/docking_harness_XXXX.log)
+LOG="${TMPDIR:-/tmp}/docking_harness_$$.log"   # created lazily before the launch; keeps --parse-count side-effect free
 TIMEOUT_S=${HARNESS_TIMEOUT_S:-150}
 ACTIONS=(/dock_robot /undock_robot)
 
@@ -63,12 +65,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Echo the server count, or the literal string UNKNOWN. Never converts a failure into a 0.
-query_count() {
-  local action="$1" out rc
-  out=$(timeout 10 ros2 action info "$action" -t 2>&1)
-  rc=$?
-  if [[ $rc -ne 0 ]]; then
+# Parse an action-info result into a count, or the literal string UNKNOWN.
+#
+# Fails closed on all three shapes: a failing command, output with no "Action servers:" line, and a
+# line whose value is not a bare non-negative integer. The last case is what makes a truncated or
+# reworded upstream output unmeasurable instead of accidentally matching an expected zero/mismatch.
+parse_count() {
+  local out="$1" rc="$2" n
+  if [[ "${rc:-1}" -ne 0 ]]; then
     echo "UNKNOWN"
     return
   fi
@@ -76,8 +80,52 @@ query_count() {
     echo "UNKNOWN"
     return
   fi
-  printf '%s\n' "$out" | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1
+  n=$(printf '%s\n' "$out" | sed -n 's/^Action servers: \([0-9]\{1,\}\)[[:space:]]*$/\1/p' | head -1)
+  if [[ -z "$n" ]]; then
+    echo "UNKNOWN"
+    return
+  fi
+  echo "$n"
 }
+
+query_count() {
+  local action="$1" out rc
+  out=$(timeout 10 ros2 action info "$action" -t 2>&1)
+  rc=$?
+  parse_count "$out" "$rc"
+}
+
+# Direct parser probe: --parse-count "<action info output>" <exit code>. Used by
+# test_docking_action_servers_parse.py so the two rejection cases are regressions in the suite.
+if [[ "${1:-}" == "--parse-count" ]]; then
+  parse_count "${2:-}" "${3:-1}"
+  exit 0
+fi
+
+# Regression mode: no ROS, no launch. Exercises the parser against the shapes that must not be
+# read as a count. Wired into pytest as test_docking_action_servers_parse.py.
+if [[ "${1:-}" == "--self-test-parse" ]]; then
+  fail=0
+  check() {
+    local name="$1" want="$2" out="$3" rc="$4" got
+    got=$(parse_count "$out" "$rc")
+    if [[ "$got" == "$want" ]]; then
+      echo "ok   ${name}: ${got}"
+    else
+      echo "FAIL ${name}: want ${want}, got ${got}"
+      fail=1
+    fi
+  }
+  check "well-formed count"        "1"       "Action servers: 1"  0
+  check "zero is a real count"     "0"       "Action servers: 0"  0
+  check "non-numeric value"        "UNKNOWN" "Action servers: x"  0
+  check "missing count field"      "UNKNOWN" "Action servers:"    0
+  check "line absent entirely"     "UNKNOWN" "No action servers here" 0
+  check "command failed"           "UNKNOWN" "Action servers: 1"  1
+  check "empty output"             "UNKNOWN" ""                    0
+  exit $fail
+fi
+
 
 if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then
   echo "ERROR: expecting zero servers requires --control-node, so 'no servers' cannot mean 'no graph'"
@@ -95,6 +143,7 @@ for action in "${ACTIONS[@]}"; do
   fi
 done
 
+: >"$LOG"
 echo "launch: ros2 launch ${PKG} ${LAUNCH_FILE} ${EXTRA_ARGS[*]:-} (expect ${EXPECT} server(s) per action)"
 LAUNCH_PID=$(setsid ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 & echo $!)
 

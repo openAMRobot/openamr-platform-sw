@@ -46,7 +46,8 @@ jobs:
       - name: Run the docking launch regressions
         run: |
           python3 -m pytest -v -p no:cacheprovider --junitxml=docking-tests.xml \
-            ros2/src/openamrobot_docking/test/test_docking_launch_remap.py
+            ros2/src/openamrobot_docking/test/test_docking_launch_remap.py \
+            ros2/src/openamrobot_docking/test/test_docking_action_servers_parse.py
 
       # A renamed or deleted test must not pass as an empty suite.
       - name: Check that both profile cases ran
@@ -58,9 +59,10 @@ jobs:
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           names = sorted(case.get('name') for case in suite.iter('testcase'))
           print(f'{tests} tests, {skipped} skipped: {names}')
-          assert tests == 2 and skipped == 0, 'expected both profile cases, none skipped'
-          assert any('sim' in n for n in names), 'sim profile case missing'
-          assert any('real' in n for n in names), 'real profile case missing'
+          assert tests == 6 and skipped == 0, f'expected 6 cases, none skipped, got {tests}'
+          for probe in ('sim_profile', 'real_profile', 'does_not_default_docking_on',
+                        'non_numeric', 'missing_count', 'well_formed'):
+              assert any(probe in n for n in names), f'{probe} case missing'
           EOF
 
   # Proves the servers actually become reachable, which the AST test cannot: it only sees the

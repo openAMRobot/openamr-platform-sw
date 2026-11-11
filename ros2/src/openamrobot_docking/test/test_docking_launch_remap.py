@@ -95,3 +95,38 @@ def test_sim_profile_starts_the_docking_server():
 
 def test_real_profile_starts_the_docking_server():
     _check_profile(PROFILES[1])
+
+
+BRINGUP_LAUNCH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'openamrobot_bringup', 'launch', 'bringup.launch.py')
+
+
+def test_real_profile_does_not_default_docking_on():
+    """D-19 (Alex, 11 Nov): the real launch keeps docking off by default.
+
+    Guarded at source level so a revert to a hard-coded default cannot pass quietly: the argument
+    must be declared empty and resolved from `sim`, never declared 'true'.
+    """
+    source = open(BRINGUP_LAUNCH).read()
+    tree = ast.parse(source)
+
+    declared = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = getattr(node.func, 'id', None)
+        if func != 'DeclareLaunchArgument' or not node.args:
+            continue
+        first = node.args[0]
+        if not (isinstance(first, ast.Constant) and first.value == 'use_docking'):
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+        declared = keywords.get('default_value')
+    assert declared is not None, 'bringup.launch.py no longer declares use_docking'
+    assert isinstance(declared, ast.Constant) and declared.value == '', (
+        'use_docking must be declared with an empty default and resolved from sim; '
+        'a hard-coded default re-enables docking on the real robot against D-19')
+
+    assert "use_docking = 'true' if is_sim else 'false'" in source, (
+        'the sim/real resolution of use_docking is missing from bringup.launch.py')
