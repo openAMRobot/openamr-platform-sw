@@ -59,9 +59,8 @@ cleanup() {
     sleep 3
     kill -9 -"$LAUNCH_PID" 2>/dev/null
   fi
-  pkill -9 -f 'opennav_docking' 2>/dev/null
-  pkill -9 -f 'lifecycle_manager_docking' 2>/dev/null
-  pkill -9 -f 'dock_trigger.py' 2>/dev/null
+  # No pkill: this harness must never signal a process it did not start. Another ROS stack on the
+  # same host is none of its business. The process group above is the only thing it owns.
   sleep 2
 }
 trap cleanup EXIT
@@ -133,14 +132,13 @@ if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then
   exit $EXIT_ERROR
 fi
 
-# Nothing left over from an earlier step may still be advertising these actions.
-pkill -9 -f 'opennav_docking' 2>/dev/null
-pkill -9 -f 'dock_trigger.py' 2>/dev/null
-sleep 2
+# Refuse to start next to another docking stack. Detection only: this harness never signals a
+# process it did not start, so a stale run from something else is reported, not killed.
 for action in "${ACTIONS[@]}"; do
   pre=$(timeout 10 ros2 action info "$action" -t 2>/dev/null | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1)
   if [[ "${pre:-0}" != "0" ]]; then
-    echo "ERROR: ${action} already advertises ${pre} server(s) before this run started"
+    echo "ERROR: ${action} already advertises ${pre} server(s) before this run started."
+    echo "       Another docking stack is running on this graph; refusing to measure against it."
     exit $EXIT_ERROR
   fi
 done
