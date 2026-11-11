@@ -59,8 +59,9 @@ jobs:
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           names = sorted(case.get('name') for case in suite.iter('testcase'))
           print(f'{tests} tests, {skipped} skipped: {names}')
-          assert tests == 6 and skipped == 0, f'expected 6 cases, none skipped, got {tests}'
-          for probe in ('sim_profile', 'real_profile', 'does_not_default_docking_on',
+          assert tests == 8 and skipped == 0, f'expected 8 cases, none skipped, got {tests}'
+          for probe in ('sim_profile_starts', 'real_profile_starts', 'does_not_default_docking_on',
+                        'real_profile_defaults_the_server_off', 'sim_profile_keeps_the_server_on',
                         'non_numeric', 'missing_count', 'well_formed'):
               assert any(probe in n for n in names), f'{probe} case missing'
           EOF

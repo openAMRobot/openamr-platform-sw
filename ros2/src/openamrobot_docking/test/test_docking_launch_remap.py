@@ -97,6 +97,46 @@ def test_real_profile_starts_the_docking_server():
     _check_profile(PROFILES[1])
 
 
+def _declared_default(path, argument):
+    """Literal default_value of a DeclareLaunchArgument in one launch file, or None."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "id", None) != "DeclareLaunchArgument" or not node.args:
+            continue
+        first = node.args[0]
+        if not (isinstance(first, ast.Constant) and first.value == argument):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+        return _const_str(kwargs["default_value"]) if "default_value" in kwargs else None
+    return None
+
+
+def test_real_profile_defaults_the_server_off():
+    """D-19 (Alex, 11 Nov): the standalone real launch must not start the server by default.
+
+    The server exposes a direct /undock_robot that #90's dock_trigger constant cannot gate, and the
+    real profile is the one that runs on hardware. The node stays declared (so an explicit
+    launch_docking_server:=true still works once the three #124 conditions are met) but the default
+    must be false.
+    """
+    path = os.path.join(LAUNCH_DIR, PROFILES[1])
+    default = _declared_default(path, "launch_docking_server")
+    assert default == "false", (
+        f"docking_real.launch.py declares launch_docking_server default={default!r}; D-19 requires "
+        "'false' on the real profile until the #124 conditions are met")
+
+
+def test_sim_profile_keeps_the_server_on():
+    """Positive control for the test above: simulation keeps docking on."""
+    path = os.path.join(LAUNCH_DIR, PROFILES[0])
+    default = _declared_default(path, "launch_docking_server")
+    assert default == "true", (
+        f"openamrobot_docking.launch.py declares launch_docking_server default={default!r}; "
+        "simulation is where the docking stack is exercised")
+
+
 BRINGUP_LAUNCH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     'openamrobot_bringup', 'launch', 'bringup.launch.py')

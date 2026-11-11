@@ -61,12 +61,16 @@ def generate_launch_description():
             'use_sim_time', default_value='false',
             description='Real robot uses the real clock (false).'),
         DeclareLaunchArgument(
-            'launch_docking_server', default_value='true',
+            'launch_docking_server', default_value='false',
             description=(
                 'Start the opennav_docking action server (/dock_robot, '
-                '/undock_robot). D-13 requires every enabled motion producer to '
-                'exist; set false only where docking is an explicitly named '
-                'disabled producer in the launch profile.'
+                '/undock_robot). OFF by default on the real robot: D-19 (Alex, '
+                '11 Nov) keeps reverse and automatic undock disabled in Build 1, '
+                'and this server exposes a direct /undock_robot that the '
+                'dock_trigger constant cannot gate. Enable it only once (1) '
+                'release no longer needs a dock_robot server, (2) a direct '
+                '/undock_robot produces no motion, and (3) the real-profile '
+                'runtime test runs. Simulation keeps its own default (on).'
             )),
         DeclareLaunchArgument(
             'docking_server_params', default_value=nav2_params_default,
