@@ -34,7 +34,8 @@ EXIT_PASS=0
 EXIT_MISMATCH=10
 EXIT_ERROR=20
 
-if [[ "${1:-}" != "--self-test-parse" && "${1:-}" != "--parse-count" ]]; then
+if [[ "${1:-}" != "--self-test-parse" && "${1:-}" != "--parse-count" \
+   && "${1:-}" != "--preflight-only" && "${1:-}" != "--self-test-preflight" ]]; then
   PKG="${1:?package required}"
   LAUNCH_FILE="${2:?launch file required}"
   EXPECT="${3:?expected servers per action required}"
@@ -52,6 +53,17 @@ fi
 LOG="${TMPDIR:-/tmp}/docking_harness_$$.log"   # created lazily before the launch; keeps --parse-count side-effect free
 TIMEOUT_S=${HARNESS_TIMEOUT_S:-150}
 ACTIONS=(/dock_robot /undock_robot)
+
+# `timeout` is coreutils: present on the hosted runner, absent on macOS. Without this the command
+# itself does not exist, every query returns "command not found", and — under the fail-closed parser
+# — that reads as UNKNOWN. Portable wrapper instead of assuming either environment.
+_run() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 10 "$@"
+  else
+    "$@"
+  fi
+}
 
 cleanup() {
   if [[ -n "${LAUNCH_PID:-}" ]]; then
@@ -90,7 +102,7 @@ parse_count() {
 
 query_count() {
   local action="$1" out rc
-  out=$(timeout 10 ros2 action info "$action" -t 2>&1)
+  out=$(_run ros2 action info "$action" -t 2>&1)
   rc=$?
   parse_count "$out" "$rc"
 }
@@ -127,21 +139,67 @@ if [[ "${1:-}" == "--self-test-parse" ]]; then
 fi
 
 
+# Pre-start check. Refuse to start beside another docking stack, and refuse to start when the graph
+# cannot be queried at all: a failed query is UNKNOWN, which is not the same observation as zero.
+# Detection only — this harness never signals a process it did not start.
+preflight() {
+  local action pre
+  for action in "${ACTIONS[@]}"; do
+    pre=$(query_count "$action")
+    if [[ "$pre" == "UNKNOWN" ]]; then
+      echo "ERROR: could not query ${action} before the run — UNKNOWN, not zero."
+      echo "       A failed graph query is not proof that no server exists."
+      return $EXIT_ERROR
+    fi
+    if [[ "$pre" != "0" ]]; then
+      echo "ERROR: ${action} already advertises ${pre} server(s) before this run started."
+      echo "       Another docking stack is running on this graph; refusing to measure against it."
+      return $EXIT_ERROR
+    fi
+  done
+  return 0
+}
+
+# Regression modes for the preflight decision. No ROS needed: a stub `ros2` on PATH produces the
+# three shapes that must be told apart. Wired into pytest as test_docking_action_servers_preflight.py.
+if [[ "${1:-}" == "--preflight-only" ]]; then
+  shift
+  [[ $# -gt 0 ]] && ACTIONS=("$@")
+  preflight
+  exit $?
+fi
+
+if [[ "${1:-}" == "--self-test-preflight" ]]; then
+  fail=0
+  run_case() {
+    local name="$1" want="$2" stub="$3" rc
+    local dir
+    dir=$(mktemp -d)
+    mkdir -p "$dir/bin"
+    printf '#!/bin/sh\n%s\n' "$stub" >"$dir/bin/ros2"
+    chmod +x "$dir/bin/ros2"
+    PATH="$dir/bin:$PATH" bash "${BASH_SOURCE[0]}" --preflight-only /dock_robot /undock_robot >/dev/null 2>&1
+    rc=$?
+    rm -rf "$dir"
+    if [[ "$rc" == "$want" ]]; then
+      echo "ok   ${name}: exit ${rc}"
+    else
+      echo "FAIL ${name}: want exit ${want}, got ${rc}"
+      fail=1
+    fi
+  }
+  run_case "graph queryable, no servers"   0  'echo "Action servers: 0"; exit 0'
+  run_case "query fails (exit 1)"          20 'exit 1'
+  run_case "query returns prose only"      20 'echo "unknown action"; exit 0'
+  run_case "foreign stack present"         20 'echo "Action servers: 2"; exit 0'
+  exit $fail
+fi
 if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then
   echo "ERROR: expecting zero servers requires --control-node, so 'no servers' cannot mean 'no graph'"
   exit $EXIT_ERROR
 fi
 
-# Refuse to start next to another docking stack. Detection only: this harness never signals a
-# process it did not start, so a stale run from something else is reported, not killed.
-for action in "${ACTIONS[@]}"; do
-  pre=$(timeout 10 ros2 action info "$action" -t 2>/dev/null | sed -n 's/^Action servers: \([0-9]\+\).*/\1/p' | head -1)
-  if [[ "${pre:-0}" != "0" ]]; then
-    echo "ERROR: ${action} already advertises ${pre} server(s) before this run started."
-    echo "       Another docking stack is running on this graph; refusing to measure against it."
-    exit $EXIT_ERROR
-  fi
-done
+preflight || exit $?
 
 : >"$LOG"
 echo "launch: ros2 launch ${PKG} ${LAUNCH_FILE} ${EXTRA_ARGS[*]:-} (expect ${EXPECT} server(s) per action)"
@@ -161,7 +219,7 @@ while (( SECONDS < deadline )); do
   # started, before any server count — especially a zero — is believed.
   control_ok=1
   if [[ -n "$CONTROL_NODE" ]]; then
-    nodes=$(timeout 10 ros2 node list 2>/dev/null || true)
+    nodes=$(_run ros2 node list 2>/dev/null || true)
     if printf '%s\n' "$nodes" | grep -qx "/${CONTROL_NODE}"; then
       control_seen=1
     else
@@ -203,7 +261,7 @@ if [[ "$unknown_final" == "1" || ( -n "$CONTROL_NODE" && "$control_seen" != "1" 
   echo "--- lifecycle state ---"
   for node in /docking_server /lifecycle_manager_docking; do
     printf '%s: ' "$node"
-    timeout 10 ros2 lifecycle get "$node" 2>&1 | tail -1
+    _run ros2 lifecycle get "$node" 2>&1 | tail -1
   done
   echo "--- launch log tail ---"
   tail -60 "$LOG"
