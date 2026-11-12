@@ -453,42 +453,42 @@ class TestCancelFailureKeepsReleaseRefused(StopContractFullChainCase):
         # reported active - e.g. a goal accepted a moment ago has not yet
         # published its first status), a rejected cancel is invisible to a
         # purely content-based check. service_is_ready() alone does not
-        # prove the cancel took. navigate_through_poses, not navigate_to_pose
-        # (the latter is ledger-backed now, via navigate_to_pose_goal_proxy_
-        # node.py - its own 'done' event never fires until the real goal
-        # actually finishes, so this exact content-vs-cancel race does not
-        # exist for it in the first place).
-        self._cancel_responses['navigate_through_poses'] = 'reject'
-        self._set_goal_status('navigate_through_poses', [])  # already "clear" before engage
+        # prove the cancel took. dock_robot, not navigate_to_pose/
+        # navigate_through_poses (both ledger-backed now, via their own
+        # goal_proxy_node.py - their own 'done' event never fires until the
+        # real goal actually finishes, so this exact content-vs-cancel race
+        # does not exist for either of them any more).
+        self._cancel_responses['dock_robot'] = 'reject'
+        self._set_goal_status('dock_robot', [])  # already "clear" before engage
         self._spin_for(0.1)
         self._engage()
         self._spin_for(0.3)
         self.assertTrue(
-            self._cancel_calls['navigate_through_poses'], 'cancel_goal was never called')
+            self._cancel_calls['dock_robot'], 'cancel_goal was never called')
 
         response = self._try_release()
         self.assertFalse(
             response.success,
-            "release succeeded despite navigate_through_poses's cancel_goal having "
+            "release succeeded despite dock_robot's cancel_goal having "
             'been rejected - content-plus-liveness alone does not prove the cancel '
             "took (platform-sw#90, Mohamed's review, 7 Nov 05:23)")
-        self.assertIn('navigate_through_poses', response.message)
+        self.assertIn('dock_robot', response.message)
 
     def test_release_refused_when_the_action_server_is_gone(self):
-        # The last content we ever got from navigate_through_poses was
-        # setUp's all-clear sample - by content alone that would satisfy
-        # condition (a). What must still block release is that its
-        # cancel_goal service is no longer reachable at all: the same,
-        # deliberately undifferentiated "status stale or never received"
-        # reason this gate gives for a server that never answered in the
-        # first place. navigate_through_poses, not undock_robot: undock_robot
+        # The last content we ever got from dock_robot was setUp's all-clear
+        # sample - by content alone that would satisfy condition (a). What
+        # must still block release is that its cancel_goal service is no
+        # longer reachable at all: the same, deliberately undifferentiated
+        # "status stale or never received" reason this gate gives for a
+        # server that never answered in the first place. dock_robot, not
+        # undock_robot/navigate_to_pose/navigate_through_poses: those three
         # moved to the goal-authority ledger (D-13, platform-sw#124), which
         # does not consult this client at all, so this legacy mechanism no
-        # longer applies to it.
-        self._take_down_cancel_service('navigate_through_poses')
-        response = self._try_release(skip_actions={'navigate_through_poses'})
+        # longer applies to them.
+        self._take_down_cancel_service('dock_robot')
+        response = self._try_release(skip_actions={'dock_robot'})
         self.assertFalse(response.success)
-        self.assertIn('navigate_through_poses', response.message)
+        self.assertIn('dock_robot', response.message)
 
     def test_release_refused_when_dock_trigger_is_gone(self):
         # Same reasoning as the action case above, for the dock_trigger

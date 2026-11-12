@@ -7,36 +7,40 @@ exclusion).
 Scope correction (panthera-momagdii's #90 review, P2): row 1's test below
 covers the undock_robot LEDGER path only, not real clean-boot evidence for
 either profile. _serve_legacy_actions_clear() publishes an empty
-GoalStatusArray() for navigate_through_poses/dock_robot (navigate_to_pose
-is no longer legacy - see below) to give them a believable baseline so
+GoalStatusArray() for dock_robot (navigate_to_pose/navigate_through_poses
+are no longer legacy - see below) to give it a believable baseline so
 undock_robot's real ledger is what release actually hinges on here - but a
 real Nav2/opennav_docking server never publishes that before its first
 goal (rclcpp_action only publishes status on a transition; Nikolai measured
 0 status messages over 12s on an idle stack, twice).
 
-navigate_to_pose IS now on the ledger (navigate_to_pose_goal_proxy_node.py,
-D-13) and D-13 test 1 (clean-boot Resume within the ~2s heartbeat bound,
-real action servers, no goal ever sent) now passes for it - see
-D13TestOneCleanBootResumeTestCase in
-test_navigate_to_pose_goal_proxy_node.py, which proves this end to end with
-real rclpy action servers. This required two things beyond the ledger
-membership alone (panthera-momagdii's #90 sixth review): the gate's own
-discovery-grace barrier must trust the ledger once its bounded wait
+navigate_to_pose and navigate_through_poses ARE now on the ledger (their
+own goal_proxy_node.py, D-13) and D-13 test 1 (clean-boot Resume within the
+~2s heartbeat bound, real action servers, no goal ever sent) now passes for
+both - see D13TestOneCleanBootResumeTestCase in
+test_navigate_to_pose_goal_proxy_node.py and
+D13TestOneCleanBootResumeNavigateThroughPosesTestCase in
+test_navigate_through_poses_goal_proxy_node.py, which each prove this end
+to end with real rclpy action servers. This required two things beyond the
+ledger membership alone (panthera-momagdii's #90 sixth review): the gate's
+own discovery-grace barrier must trust the ledger once its bounded wait
 elapses, not block indefinitely on a publisher that is matched but has
 never published anything (a real idle action server does not publish
 until its first goal - "matched but no sample" is the PERMANENT state on a
-clean boot, not a transient race); and the proxy's own heartbeat must
-reflect navigate_to_pose_real's actual readiness (fires immediately at
+clean boot, not a transient race); and each proxy's own heartbeat must
+reflect its own real server's actual readiness (fires immediately at
 construction, suppressed while the real server is not ready) rather than
 blindly reporting "idle" on a fixed timer regardless of whether there is a
 real server behind it.
 
-navigate_through_poses and dock_robot are still NOT on the ledger: on the
-real graph, both profiles still cannot Resume from a genuinely fresh boot
-purely via those two - nav-only blocks on
-"navigate_through_poses: status stale or never received" until they are
-also on the ledger (D-13 row 1 remains NOT MET for them - see STATE.md and
-the PR body).
+dock_robot is still NOT on the ledger. The nav-only profile's own enabled
+producers (navigate_to_pose, navigate_through_poses - dock_robot/
+undock_robot excluded by name) are now BOTH ledger-backed, so D-13 test 1
+is MET for that profile specifically on this axis. Only a docking-enabled
+profile still cannot Resume from a genuinely fresh boot purely via
+dock_robot - it blocks on "dock_robot: status stale or never received"
+until it is also on the ledger (D-13 row 1 remains NOT MET for the
+docking-enabled profile - see STATE.md and the PR body).
 
 Unlike test_stop_contract_full_chain.py (which fakes the dock-trigger
 status/abort entirely - see its own docstring on why dock_trigger's phase
@@ -117,12 +121,12 @@ class _BaseCase(unittest.TestCase):
             rclpy.spin_once(self.probe, timeout_sec=0.01)
 
     def _serve_legacy_actions_clear(self):
-        # navigate_through_poses/dock_robot stay on the legacy status-topic
-        # check - give them a believable "clear" baseline so undock_robot's
-        # REAL ledger is what release refusal actually hinges on in these
-        # tests. navigate_to_pose is ledger-backed too now
-        # (navigate_to_pose_goal_proxy_node.py) - heartbeated instead, same
-        # as undock_robot's own test isolates it from the one under test.
+        # dock_robot stays on the legacy status-topic check - give it a
+        # believable "clear" baseline so undock_robot's REAL ledger is what
+        # release refusal actually hinges on in these tests.
+        # navigate_to_pose/navigate_through_poses are ledger-backed too now
+        # (their own goal_proxy_node.py) - heartbeated instead, same as
+        # undock_robot's own test isolates it from the one under test.
         self._cancel_services = {}
         for action in _STATUS_TOPIC_ACTIONS:
             def _cb(request, response):
@@ -174,10 +178,11 @@ class TestUndockRobotLedgerCleanBootResumeWithRealDockTrigger(_BaseCase):
     ~2s of a real dock_trigger.py existing, with no goal ever sent, via the
     real ledger - not a fake heartbeat.
 
-    NOT clean-boot evidence for navigate_to_pose/navigate_through_poses/
-    dock_robot (panthera-momagdii's #90 review, P2) - see the module
-    docstring. Their legacy status is faked clear here specifically so this
-    test isolates the undock_robot ledger path.
+    NOT clean-boot evidence for dock_robot (panthera-momagdii's #90 review,
+    P2) - see the module docstring. navigate_to_pose/navigate_through_poses
+    are heartbeated (real ledger IDLE, not a fake) and dock_robot's legacy
+    status is faked clear, specifically so this test isolates the
+    undock_robot ledger path.
     """
 
     @classmethod

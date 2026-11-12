@@ -33,28 +33,27 @@ old sample - the same fail-closed intent as the old code's content check,
 now with an actual liveness signal behind it instead of inferring content
 age from a topic ROS2 actions do not publish periodically.
 
-navigate_to_pose IS wired to this ledger (platform-sw#90, panthera-momagdii's
-review): navigate_to_pose_goal_proxy_node.py claims the public navigate_to_pose
-action name and heartbeats/notifies through here on every goal it relays - no
-openamrobot-ui change needed, since navigation_launch.py's own node-level
-remap transparently redirects every existing sender into the proxy. The one
-path still NOT covered by this ledger is bt_navigator's own internal
-self_client_ (goal_pose/goal_pose_nav-triggered goals), which the SAME
-node-level remap also renames but which never passes through the proxy at
-all - SafetyStopGateNode's own _release_blockers reconciles against that
-server's real action-status topic (navigate_to_pose_real) for this specific
-gap, independent of this ledger.
+navigate_to_pose and navigate_through_poses ARE wired to this ledger
+(platform-sw#90, panthera-momagdii's review): their own goal_proxy_node.py
+claims each public action name and heartbeats/notifies through here on
+every goal it relays - no openamrobot-ui change needed, since
+navigation_launch.py's own node-level remap transparently redirects every
+existing sender into the proxy. The one path still NOT covered by this
+ledger is bt_navigator's own internal self_client_ for navigate_to_pose
+(goal_pose/goal_pose_nav-triggered goals), which the SAME node-level remap
+also renames but which never passes through the proxy at all -
+SafetyStopGateNode's own _release_blockers reconciles against that
+server's real action-status topic (navigate_to_pose_real) for this
+specific gap, independent of this ledger. Stock Nav2 has no documented
+analogous bypass for navigate_through_poses.
 
-navigate_through_poses and dock_robot are NOT yet wired to this ledger (the
-former also sendable directly by openamrobot-ui) and stay on the OLD
+dock_robot is NOT yet wired to this ledger and stays on the OLD
 status-topic-content check (see SafetyStopGateNode's own _release_blockers
 for both paths side by side) - this is explicitly WEAKER than the ledger (it
 inherits the exact status-topic gap D-13 was written to close) and is called
 out as such in the release-blocker message, so this isn't silently assumed
 fixed. Closing that gap for real needs the same goal-owning-proxy pattern
-applied to each, or (for navigate_through_poses) openamrobot-ui to
-heartbeat/notify through this node too - a cross-repo contract change for
-the UI case, not something this file can do alone.
+applied to it too, once #125's docking_server work lands.
 
 Restart detection: each producer passes its own process-lifetime instance_id
 (e.g. a uuid4 generated once in its __init__, stable until that process
