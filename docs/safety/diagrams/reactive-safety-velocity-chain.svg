@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="600" viewBox="0 0 1360 600" font-family="'Segoe UI',Arial,sans-serif">
+  <defs>
+    <marker id="ab" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- FULL-CANVAS WHITE BACKGROUND -->
+  <rect x="0" y="0" width="1360" height="600" fill="#ffffff"/>
+
+  <text x="40" y="40" font-weight="700" font-size="20px" fill="#1a1a1a">Nav2 velocity command chain (/cmd_vel pipeline)</text>
+  <text x="40" y="62" font-weight="400" font-size="12.5px" fill="#1a1a1a">controller_server &#8594; velocity_smoother &#8594; collision_monitor &#8594; base · docking final approach bypasses the chain</text>
+
+  <!-- ===== FOOTPRINTAPPROACH NOTE ===== -->
+  <rect x="558" y="76" width="432" height="120" rx="8" fill="#eefaf3" stroke="#2e8b57" stroke-width="1.6"/>
+  <text x="574" y="99" font-weight="700" font-size="12.5px" fill="#2e8b57">collision_monitor · FootprintApproach</text>
+  <text x="574" y="119" font-size="11px" fill="#1a1a1a">Projects the footprint forward along the</text>
+  <text x="574" y="136" font-size="11px" fill="#1a1a1a">commanded velocity; scales /cmd_vel down</text>
+  <text x="574" y="153" font-size="11px" fill="#1a1a1a">as an obstacle enters the projected zone —</text>
+  <text x="574" y="170" font-size="11px" fill="#1a1a1a">slows, then stops before contact.</text>
+  <!-- mini footprint sketch -->
+  <rect x="843" y="128" width="28" height="22" rx="2" fill="#ffffff" stroke="#444444" stroke-width="1.3"/>
+  <polygon points="871,126 928,120 928,158 871,152" fill="#e9f7ef" stroke="#2e8b57" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <circle cx="908" cy="139" r="4.5" fill="#c0392b"/>
+  <text x="857" y="166" text-anchor="middle" font-size="9px" fill="#444444">footprint</text>
+  <text x="905" y="182" text-anchor="middle" font-weight="700" font-size="9.5px" fill="#c0392b">slow / stop</text>
+  <!-- pointer to collision_monitor -->
+  <line x1="785" y1="196" x2="785" y2="210" stroke="#2e8b57" stroke-width="1.4" stroke-dasharray="3 3"/>
+
+  <!-- ===== LEGEND ===== -->
+  <rect x="1010" y="76" width="330" height="120" rx="8" fill="#ffffff" stroke="#bbbbbb" stroke-width="1.3"/>
+  <text x="1026" y="99" font-weight="700" font-size="12.5px" fill="#1a1a1a">Colour legend</text>
+  <line x1="1026" y1="119" x2="1052" y2="119" stroke="#2c6fbb" stroke-width="3"/>
+  <text x="1060" y="123" font-size="11.5px" fill="#1a1a1a">Nav2 node</text>
+  <line x1="1026" y1="141" x2="1052" y2="141" stroke="#888888" stroke-width="3"/>
+  <text x="1060" y="145" font-size="11.5px" fill="#1a1a1a">topic / data flow</text>
+  <line x1="1026" y1="163" x2="1052" y2="163" stroke="#2e8b57" stroke-width="3"/>
+  <text x="1060" y="167" font-size="11.5px" fill="#1a1a1a">safety / OK behaviour</text>
+  <line x1="1026" y1="185" x2="1052" y2="185" stroke="#c0392b" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="1060" y="189" font-size="11.5px" fill="#1a1a1a">docking bypass / warning</text>
+
+  <!-- ===== PIPELINE NODES ===== -->
+  <rect x="40" y="210" width="240" height="100" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="160" y="252" text-anchor="middle" font-weight="700" font-size="13px" fill="#1a1a1a">controller_server</text>
+  <text x="160" y="272" text-anchor="middle" font-size="11px" fill="#1a1a1a">Nav2 local controller</text>
+
+  <rect x="360" y="210" width="240" height="100" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="480" y="252" text-anchor="middle" font-weight="700" font-size="13px" fill="#1a1a1a">velocity_smoother</text>
+  <text x="480" y="272" text-anchor="middle" font-size="11px" fill="#1a1a1a">ramp &amp; limit velocity</text>
+
+  <rect x="680" y="210" width="250" height="100" rx="10" fill="#f4f8fd" stroke="#2c6fbb" stroke-width="1.6"/>
+  <text x="805" y="252" text-anchor="middle" font-weight="700" font-size="13px" fill="#1a1a1a">collision_monitor</text>
+  <text x="805" y="272" text-anchor="middle" font-size="11px" fill="#1a1a1a">FootprintApproach safety</text>
+
+  <rect x="1090" y="210" width="230" height="100" rx="10" fill="#f4f4f4" stroke="#444444" stroke-width="1.6"/>
+  <text x="1205" y="252" text-anchor="middle" font-weight="700" font-size="13px" fill="#1a1a1a">Robot base</text>
+  <text x="1205" y="272" text-anchor="middle" font-size="11px" fill="#1a1a1a">subscribes /cmd_vel</text>
+
+  <!-- ===== TOPIC ARROWS (grey) ===== -->
+  <line x1="280" y1="260" x2="360" y2="260" stroke="#888888" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="320" y="251" text-anchor="middle" font-size="10.5px" fill="#888888">/cmd_vel_nav</text>
+  <line x1="600" y1="260" x2="680" y2="260" stroke="#888888" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="640" y="251" text-anchor="middle" font-size="10.5px" fill="#888888">/cmd_vel_smoothed</text>
+  <line x1="930" y1="260" x2="1090" y2="260" stroke="#888888" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="1010" y="251" text-anchor="middle" font-size="10.5px" fill="#888888">/cmd_vel (final)</text>
+  <text x="1010" y="277" text-anchor="middle" font-size="9.5px" fill="#2e8b57">collision-checked</text>
+
+  <!-- ===== OBSERVATION SOURCE ===== -->
+  <rect x="680" y="400" width="250" height="64" rx="10" fill="#f6f6f6" stroke="#888888" stroke-width="1.6"/>
+  <text x="805" y="426" text-anchor="middle" font-weight="700" font-size="12.5px" fill="#1a1a1a">/scan_filtered</text>
+  <text x="805" y="446" text-anchor="middle" font-size="10.5px" fill="#1a1a1a">LIDAR observation source</text>
+  <line x1="805" y1="400" x2="805" y2="310" stroke="#888888" stroke-width="2" marker-end="url(#ab)"/>
+  <text x="815" y="360" font-size="10px" fill="#888888">observation</text>
+
+  <!-- ===== DOCKING SEQUENCER + RED BYPASS ===== -->
+  <rect x="40" y="470" width="280" height="84" rx="10" fill="#fdf2f0" stroke="#c0392b" stroke-width="1.8"/>
+  <text x="180" y="500" text-anchor="middle" font-weight="700" font-size="13px" fill="#1a1a1a">docking sequencer</text>
+  <text x="180" y="520" text-anchor="middle" font-size="11px" fill="#1a1a1a">final-approach controller</text>
+  <text x="180" y="538" text-anchor="middle" font-size="11px" fill="#c0392b">publishes /cmd_vel directly</text>
+
+  <polyline points="320,512 1205,512 1205,310" fill="none" stroke="#c0392b" stroke-width="2.4" stroke-dasharray="7 5" marker-end="url(#ab)"/>
+  <text x="770" y="504" text-anchor="middle" font-weight="700" font-size="11px" fill="#c0392b">BYPASS during docking final approach — /cmd_vel direct to base (no smoother, no collision_monitor)</text>
+
+  <!-- ===== BOTTOM NOTE ===== -->
+  <text x="40" y="586" font-size="11px" fill="#1a1a1a">Normal driving: base takes /cmd_vel from collision_monitor.  During docking: the sequencer owns /cmd_vel and the safety chain is intentionally skipped for the low-speed final approach.</text>
+</svg>

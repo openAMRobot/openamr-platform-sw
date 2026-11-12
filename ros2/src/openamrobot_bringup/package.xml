@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openamrobot_bringup</name>
+  <version>0.1.0</version>
+  <description>Top-level launch composition for OpenAMRobot. Brings up the real-robot
+    data sources (drivers, perception, EKF, static TFs) so the same Nav2/SLAM/docking
+    stack runs on hardware as in simulation.</description>
+
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>openamrobot_drivers</exec_depend>
+  <exec_depend>openamrobot_perception</exec_depend>
+  <exec_depend>openamrobot_nav2</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <!-- openamrobot_gazebo is an OPTIONAL runtime dep (only for sim:=true). It is resolved
+       lazily in bringup.launch.py, so a real-only install does not need it; not listed as a
+       hard dependency to keep bringup buildable/runnable on the robot without Gazebo. -->
+  <!-- openamrobot_docking is an OPTIONAL runtime dep (real sim:=false with use_docking:=true).
+       Resolved lazily in bringup.launch.py; with use_docking:=false the bringup falls back to a
+       plain goal relay and does not need it. -->
+  <exec_depend>openamrobot_docking</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

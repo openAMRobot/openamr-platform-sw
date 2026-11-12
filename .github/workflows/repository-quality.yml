@@ -1,0 +1,14 @@
+name: Repository quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-quality:
+    name: repository-quality
+    uses: openAMRobot/.github/.github/workflows/repository-quality-reusable.yml@main
