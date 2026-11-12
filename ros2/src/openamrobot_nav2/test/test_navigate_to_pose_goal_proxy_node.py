@@ -400,6 +400,47 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(heartbeat_done.is_set(), '_heartbeat() never completed after the lock '
                          'was released')
 
+    def test_cancel_and_real_handle_install_are_mutually_exclusive(self):
+        # panthera-momagdii's #90 eighth review, P2: _handle_cancel's own
+        # lookup-or-add (real_goal_handles.get(key) -> pending_cancels.add)
+        # and _execute's own install-and-check (real_goal_handles[key] = ...
+        # -> key in pending_cancels) must never interleave. If they do: a
+        # cancel can observe no real handle yet, _execute can then install
+        # the handle and observe no pending cancel yet (the cancel has not
+        # added it), and both sides finish believing the other handles it -
+        # the cancel is silently lost and the real goal is never cancelled.
+        # panthera reproduced this exact ordering with a barrier-controlled
+        # isolated model of the dict/set operations.
+        #
+        # Proven deterministically here the same way as the heartbeat/lock
+        # test above: hold the proxy's own lock (simulating being inside
+        # either critical section) and confirm a concurrent call to
+        # _handle_cancel cannot proceed past it until the lock is released.
+        goal_handle = unittest.mock.Mock()
+        goal_handle.goal_id.uuid = list(range(16))
+
+        cancel_started = threading.Event()
+        cancel_done = threading.Event()
+
+        def _run_cancel():
+            cancel_started.set()
+            self.proxy._handle_cancel(goal_handle)
+            cancel_done.set()
+
+        with self.proxy._lock:
+            t = threading.Thread(target=_run_cancel, daemon=True)
+            t.start()
+            self.assertTrue(cancel_started.wait(timeout=1.0), 'cancel thread never started')
+            time.sleep(0.2)
+            self.assertFalse(
+                cancel_done.is_set(),
+                '_handle_cancel() proceeded while another critical section held the lock - '
+                'it can interleave with _execute installing the real handle, silently '
+                'losing a cancel that arrives in the gap between the two')
+        t.join(timeout=2.0)
+        self.assertTrue(cancel_done.is_set(), '_handle_cancel() never completed after the lock '
+                         'was released')
+
 
 class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
     """

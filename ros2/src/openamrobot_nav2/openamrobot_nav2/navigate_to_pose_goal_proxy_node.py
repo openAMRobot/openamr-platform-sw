@@ -88,7 +88,17 @@ class NavigateToPoseGoalProxy(Node):
         # acceptance but before send_goal_async resolves and
         # _real_goal_handles is populated - tracked here and replayed the
         # instant the real handle appears, instead of being silently
-        # dropped.
+        # dropped. panthera-momagdii's #90 eighth review, P2: reading
+        # _real_goal_handles.get(key) in _handle_cancel and installing it in
+        # _execute are two separate steps - without the SAME lock around
+        # both the read-or-add in _handle_cancel and the install-and-check
+        # in _execute, a cancel could observe no real handle yet, _execute
+        # could then install the handle and observe no pending cancel yet
+        # (since the cancel had not added it), and both sides would finish
+        # believing the other one will handle it - the cancel is silently
+        # lost and the real goal keeps running. self._lock (already used
+        # for the outstanding/heartbeat race below) also guards every
+        # access to _real_goal_handles/_pending_cancels for this reason.
         self._pending_cancels = set()  # proxy goal uuid bytes
         cb_group = ReentrantCallbackGroup()
 
@@ -150,16 +160,27 @@ class NavigateToPoseGoalProxy(Node):
         # 'done' event and this proxy's own goal_handle.canceled()/succeed()
         # ultimately depend on - never assumed from the cancel reply alone.
         key = bytes(goal_handle.goal_id.uuid)
-        real_handle = self._real_goal_handles.get(key)
+        # panthera-momagdii's #90 eighth review, P2: the lookup here and
+        # the install in _execute must be mutually exclusive - see
+        # self._lock's own comment above. Whichever side gets the lock
+        # first decides correctly: if this runs first, the handle is
+        # genuinely not installed yet, so pending_cancels is the right
+        # place; if _execute's install runs first, the handle is already
+        # there and this cancels it directly instead of ever touching
+        # pending_cancels - either order, exactly one of the two paths
+        # below fires, never neither.
+        with self._lock:
+            real_handle = self._real_goal_handles.get(key)
+            if real_handle is None:
+                # Either the real goal was never sent (this goal is still
+                # between acceptance and send_goal_async resolving), or it
+                # has already finished - replay it in _execute if the
+                # former turns out to be true; harmless if the goal is
+                # already gone, since _execute's own finally clause always
+                # discards this.
+                self._pending_cancels.add(key)
         if real_handle is not None:
             real_handle.cancel_goal_async()
-        else:
-            # Either the real goal was never sent (this goal is still
-            # between acceptance and send_goal_async resolving), or it has
-            # already finished - replay it in _execute if the former turns
-            # out to be true; harmless if the goal is already gone, since
-            # _execute's own finally clause always discards this.
-            self._pending_cancels.add(key)
         return CancelResponse.ACCEPT
 
     async def _execute(self, goal_handle):
@@ -188,18 +209,26 @@ class NavigateToPoseGoalProxy(Node):
                 return NavigateToPose.Result()
 
             key = bytes(goal_handle.goal_id.uuid)
-            self._real_goal_handles[key] = real_goal_handle
-            if key in self._pending_cancels:
-                # panthera-momagdii's #90 review, P2: a cancel arrived
-                # before this real handle existed - replay it now instead
-                # of having silently dropped it in _handle_cancel.
-                self._pending_cancels.discard(key)
+            # panthera-momagdii's #90 eighth review, P2: install and the
+            # pending-cancel check must be one atomic step against
+            # _handle_cancel's own lookup-or-add - see self._lock's own
+            # comment and _handle_cancel's.
+            with self._lock:
+                self._real_goal_handles[key] = real_goal_handle
+                replay_cancel = key in self._pending_cancels
+                if replay_cancel:
+                    self._pending_cancels.discard(key)
+            if replay_cancel:
+                # A cancel arrived before this real handle existed - replay
+                # it now instead of having silently dropped it in
+                # _handle_cancel.
                 real_goal_handle.cancel_goal_async()
             try:
                 result_response = await real_goal_handle.get_result_async()
             finally:
-                self._real_goal_handles.pop(key, None)
-                self._pending_cancels.discard(key)
+                with self._lock:
+                    self._real_goal_handles.pop(key, None)
+                    self._pending_cancels.discard(key)
 
             if goal_handle.is_active:
                 if result_response.status == GoalStatus.STATUS_CANCELED:
