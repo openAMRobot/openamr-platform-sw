@@ -1,0 +1,296 @@
+# openamrobot_nav2
+
+ROS 2 package for OpenAMRobot Nav2 bringup and navigation configuration — combines **Nav2**, **SLAM Toolbox**, and **AMCL** into a ready-to-run navigation stack for **both simulation and the real robot** (one `nav2_params.yaml`, switched by `use_sim_time`).
+
+## Contents
+
+This package contains:
+
+- Nav2 launch files
+- Navigation parameters
+- SLAM Toolbox configuration
+- AMCL configuration
+- Maps
+- RViz navigation layouts
+- Behavior trees
+
+## Boundaries
+
+This package should not contain:
+
+- Robot URDF/xacro files
+- Robot meshes
+- Gazebo robot description files
+- Docking controller logic
+
+Those belong to the `openamrobot_description`, `openamrobot_gazebo`, and `openamrobot_docking` packages.
+
+## Status
+
+Experimental.
+
+---
+
+## Package Layout
+
+```
+openamrobot_nav2/
+├── behavior_trees/             # Custom Nav2 behavior tree XML files
+├── config/
+│   ├── slam.yaml               # SLAM Toolbox parameters
+│   ├── nav2_params.yaml        # Nav2 stack parameters
+│   └── scan_body_filter_sim.yaml  # Sim mask bounds for openamrobot_perception/scan_body_filter (issue #74)
+├── launch/
+│   ├── online_async_launch.py  # SLAM mapping (async mode)
+│   ├── localization_launch.py  # AMCL localization on a saved map
+│   ├── navigation_launch.py    # Full Nav2 navigation stack
+│   └── sim_bringup_launch.py   # All-in-one: localization + nav + RViz
+├── maps/
+│   ├── my_map.pgm              # Pre-built occupancy grid image
+│   └── my_map.yaml             # Map metadata (resolution 0.05 m/px)
+├── rviz/
+│   ├── openamr_nav.rviz        # RViz preset — REAL robot (map, lidar, /plan + /local_plan Paths, footprint); see docs/real_robot/01_bringup.md
+│   └── nav2_view.rviz          # RViz preset — SIMULATION (used by sim_bringup_launch.py; no Path displays)
+├── package.xml
+├── setup.cfg
+└── setup.py
+```
+
+---
+
+## Prerequisites
+
+| Requirement | Version |
+|---|---|
+| ROS 2 | Jazzy |
+| Nav2 | Jazzy release |
+| SLAM Toolbox | Jazzy release |
+| Gazebo | Harmonic |
+| Python | 3.10+ |
+
+Install Nav2 and SLAM Toolbox:
+
+```bash
+sudo apt install \
+  ros-jazzy-nav2-bringup \
+  ros-jazzy-slam-toolbox \
+  ros-jazzy-nav2-amcl \
+  ros-jazzy-nav2-map-server \
+  ros-jazzy-nav2-lifecycle-manager \
+  ros-jazzy-laser-filters \
+  ros-jazzy-opennav-docking
+```
+
+---
+
+## Building
+
+```bash
+cd openamr-platform-sw
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select openamrobot_nav2
+source install/setup.bash
+```
+
+Do not mix install spaces. If you source `openamr-platform-sw/install`, build
+from `openamr-platform-sw`; if you source `openamr-platform-sw/ros2/install`,
+build from `openamr-platform-sw/ros2`.
+
+---
+
+## Usage
+
+### 1 — Build a Map (SLAM)
+
+```bash
+ros2 launch openamrobot_nav2 online_async_launch.py
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_sim_time` | `true` | Use Gazebo clock |
+| `slam_params_file` | `config/slam.yaml` | Path to SLAM parameters |
+| `autostart` | `true` | Auto-activate lifecycle node |
+| `use_lifecycle_manager` | `false` | Enable bond connection |
+
+Save the map when done:
+
+```bash
+ros2 run nav2_map_server map_saver_cli -f ~/my_map
+```
+
+### 2 — Localize on a Saved Map
+
+```bash
+ros2 launch openamrobot_nav2 localization_launch.py \
+  map:=/path/to/my_map.yaml \
+  use_sim_time:=true
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `map` | *(empty — uses params file)* | Full path to map YAML |
+| `use_sim_time` | `false` | Set `true` for Gazebo |
+| `params_file` | `config/nav2_params.yaml` | Nav2 parameters |
+| `use_composition` | `false` | Run nodes in a composable container |
+| `use_respawn` | `false` | Restart nodes on crash |
+| `log_level` | `info` | ROS logging level |
+
+### 3 — Run the Navigation Stack
+
+```bash
+ros2 launch openamrobot_nav2 navigation_launch.py use_sim_time:=true
+```
+
+Starts: `controller_server`, `planner_server`, `smoother_server`, `behavior_server`, `bt_navigator`, and `waypoint_follower`.
+
+Current simulation wiring publishes Nav2 velocity commands directly to `/cmd_vel`,
+which is bridged to Gazebo's diff-drive plugin. `velocity_smoother` and
+`collision_monitor` remain configured in `nav2_params.yaml` for future tuning,
+but they are not launched in the current direct-motion setup.
+
+### 4 — All-in-One Simulation Bringup
+
+Starts localization (with the bundled map), the full Nav2 stack, and RViz in one command:
+
+```bash
+ros2 launch openamrobot_nav2 sim_bringup_launch.py
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `use_rviz` | `false` | Start RViz with the bundled navigation view |
+
+---
+
+## Configuration
+
+### SLAM Toolbox (`config/slam.yaml`)
+
+| Parameter | Value | Effect |
+|---|---|---|
+| `resolution` | `0.05` | Map resolution (metres/cell) |
+| `max_laser_range` | `10.0 m` | Maximum usable laser range |
+| `map_update_interval` | `5.0 s` | How often the map image is updated |
+| `do_loop_closing` | `true` | Enables loop-closure correction |
+| `scan_topic` | `/scan` | Expected laser topic name |
+| `mode` | `mapping` | Switch to `localization` to reuse a map |
+
+### Nav2 (`config/nav2_params.yaml`)
+
+| Node | Plugin / Key values |
+|---|---|
+| `planner_server` | SmacPlanner2D (A*), tolerance 0.5 m |
+| `controller_server` | DWB local planner, 20 Hz, direct `/cmd_vel`, **max 0.16 m/s** / 2.0 rad/s; critics include **`ObstacleFootprint`** (checks the whole footprint, not just the centre — needed for the large non-circular base) |
+| `local_costmap` | 3×3 m rolling window, VoxelLayer + InflationLayer (**radius 0.15 m**), **real footprint** (0.78×0.58 m octagon, base_link offset, +0.12 m padding) — not `robot_radius`; `obstacle_min_range 0.0` (body already removed by the scan filter) |
+| `global_costmap` | StaticLayer + ObstacleLayer + InflationLayer (**radius 0.40 m**, cost_scaling 2.5 → plan stays centred / clear of walls), same real footprint |
+| `amcl` | Differential motion model, 500–2000 particles, likelihood field |
+| `velocity_smoother` | Config present but not launched in the current direct `/cmd_vel` setup |
+| `collision_monitor` | Config present but not launched in the current direct `/cmd_vel` setup |
+| `docking_server` | Parameters present for future Nav2 docking integration; current autodocking uses `openamrobot_docking` |
+
+> **Shared sim + real profile.** `nav2_params.yaml` is the SAME file for simulation and the
+> real robot — `use_sim_time` is set by the launch, not the file. The values above are the
+> real-robot-validated tuning for the same physical 0.78×0.58 m robot (which Gazebo also
+> simulates). The old sim `robot_radius: 0.22` was a simplification; the real footprint +
+> `ObstacleFootprint` make both profiles accurate. `max_vel_x 0.16` is the real hardware
+> limit (sim runs at the same speed). Switch profiles with
+> `ros2 launch openamrobot_bringup bringup.launch.py sim:=true|false`.
+
+### Motion Debugging
+
+After launching, verify the command path:
+
+```bash
+ros2 topic info /cmd_vel
+ros2 topic echo /cmd_vel
+ros2 topic echo /odom --once
+```
+
+Expected with the current launch: `/cmd_vel` has a Nav2 publisher and a Gazebo
+bridge subscriber. If `velocity_smoother` or `collision_monitor` appears in the
+launch log, an old install space is being sourced.
+
+### Pre-built Map (`maps/my_map.yaml`)
+
+| Property | Value |
+|---|---|
+| Resolution | 0.050 m/px |
+| Origin | `[-5.391, -5.189, 0]` |
+| Occupied threshold | 0.65 |
+| Free threshold | 0.196 |
+
+---
+
+## Navigation Status Producer
+
+`navigation_status_node` publishes `openamr_nav_msgs/NavigationStatus` on
+`/navigation/status` (reliable, transient-local). A status goes out as soon as
+something changes, and otherwise once per heartbeat (2 Hz). It summarises Nav2
+stack readiness, sensor freshness, localization, the current goal, recovery and
+collision-monitor state in one message for the mission and UI layers. It only
+observes: it never sends velocity or goals.
+
+- Sensors, motion-source coverage and every numeric limit come from
+  `config/navigation_status_profile.yaml` (the `sim` profile, `sim-v1`
+  thresholds). The producer has no numbers of its own. A limit that is missing
+  leaves what it decides UNKNOWN, never OK: the sim profile leaves the
+  covariance limits out on purpose, so localization stays UNKNOWN until real
+  robot data sets them.
+- `navigation_readiness` is READY only when the stack is active, every required
+  sensor is OK and localization is OK, on top of the I8 dependency. A profile
+  that can not be loaded, or has no required sensor, reports `NAV_CONFIG_FAULT`
+  and stays NOT_READY.
+- `active_reasons` rolls up the reasons of every group, and a state other than
+  OK never carries `NONE`. `PARTIAL` motion-source coverage reports the
+  stricter `MOTION_SOURCE_UNPROTECTED` until a reason of its own exists.
+- Status, feedback and results are matched to the goal id being tracked, so a
+  late message from an old goal is dropped. The recovery count starts over
+  with each new goal, and its limit is the `recovery_attempt_limit` parameter.
+- Each watched Nav2 node is asked for its lifecycle state once a second
+  (`lifecycle_poll_period_s`). One that stops answering counts as unknown
+  after `lifecycle_stale_after_s` (3 s by default), so a crashed node cannot
+  stay `ACTIVE`.
+- A stack stuck with some nodes active and some not is reported `RESETTING`
+  at first — a node bouncing briefly is normal. If it is still stuck there
+  past `stack_failed_after_s` (15 s by default), the stack is reported
+  `FAILED` instead, and `health` escalates to `FAULT` rather than the
+  `DEGRADED` a merely-resetting stack gets. This default is a configurable
+  status-reporting value, not a hardware-validated or safety timeout.
+- There is no I8 base-status adapter yet, so `navigation_readiness` stays
+  `NOT_READY` with `BASE_LINK_LOST` until one exists.
+- It needs `openamr_nav_msgs` from `openamrobot-interfaces`, which is not part
+  of this repository. Build it in an underlay and source it first.
+- `use_sim_time` is left to the launch file or parameters: pass
+  `use_sim_time:=true` in the simulation and leave it off on a real robot.
+- It also mirrors a plain `diagnostic_msgs/DiagnosticArray` on `/diagnostics`,
+  published every tick regardless of whether `/navigation/status` itself was
+  due, so generic diagnostic tooling sees this node without understanding
+  `NavigationStatus`. It currently covers overall `health` and one entry per
+  sensor only — stack, localization, recovery and protection are not mirrored
+  there yet.
+
+```bash
+source ~/nav_msgs_ws/install/setup.bash   # wherever openamr_nav_msgs is built
+ros2 run openamrobot_nav2 navigation_status_node --ros-args -p use_sim_time:=true
+ros2 topic echo /navigation/status --once
+```
+
+This does not complete #34. `constraints` stays empty (nothing publishes
+`/speed_limit` in simulation), `distance_remaining` keeps its last value
+after a goal ends, and localization stays UNKNOWN until AMCL publishes its
+next pose. Sim only, nothing validated on hardware.
+
+---
+
+## Related Packages
+
+- `openamrobot_description` — URDF/xacro robot model
+- `openamrobot_gazebo` — Gazebo simulation bringup
+- `openamrobot_docking` — Docking controller logic
+
+---
+
+## License
+
+MIT
