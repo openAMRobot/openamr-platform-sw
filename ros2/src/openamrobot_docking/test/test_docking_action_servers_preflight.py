@@ -28,6 +28,8 @@ CASES = [
      "an existing stack must be refused, not joined"),
     ("empty output", "exit 0", 20,
      "silence is not a count"),
+    ("hung query", "sleep 600", 20,
+     "a query that never answers must be killed by the fallback deadline, not waited on"),
 ]
 
 
@@ -39,6 +41,9 @@ def _run_preflight(tmp_path: Path, stub_body: str) -> subprocess.CompletedProces
     stub.chmod(0o755)
     env = dict(os.environ)
     env["PATH"] = f"{bindir}:{env['PATH']}"
+    # Without coreutils `timeout` the fallback deadline is the only bound; keep it short so the
+    # hung-query case is a test rather than a hang.
+    env["QUERY_TIMEOUT_S"] = "2"
     return subprocess.run(
         ["bash", str(SCRIPT), "--preflight-only", "/dock_robot", "/undock_robot"],
         capture_output=True, text=True, env=env, timeout=120,
@@ -63,4 +68,4 @@ def test_preflight_self_test_passes():
         capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.count("ok   ") == 4, result.stdout
+    assert result.stdout.count("ok   ") == 5, result.stdout

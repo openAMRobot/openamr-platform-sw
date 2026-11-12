@@ -54,15 +54,29 @@ LOG="${TMPDIR:-/tmp}/docking_harness_$$.log"   # created lazily before the launc
 TIMEOUT_S=${HARNESS_TIMEOUT_S:-150}
 ACTIONS=(/dock_robot /undock_robot)
 
-# `timeout` is coreutils: present on the hosted runner, absent on macOS. Without this the command
-# itself does not exist, every query returns "command not found", and — under the fail-closed parser
-# — that reads as UNKNOWN. Portable wrapper instead of assuming either environment.
+# `timeout` is coreutils: present on the hosted runner, absent on macOS. Without a bound the query
+# can hang the harness forever, which breaks the one promise this script makes — every unanswerable
+# query is UNKNOWN, never a wait. So the fallback carries its own deadline rather than running bare.
+QUERY_TIMEOUT_S=${QUERY_TIMEOUT_S:-10}
 _run() {
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 10 "$@"
-  else
-    "$@"
-  fi
+  local pid watch rc t=$QUERY_TIMEOUT_S
+  if command -v timeout >/dev/null 2>&1; then timeout "$t" "$@"; return $?; fi
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout "$t" "$@"; return $?; fi
+  # The command gets its own process group (`set -m`), and the deadline kills the group. Killing
+  # only the parent leaves grandchildren alive — and a grandchild still holding stdout keeps the
+  # caller's command substitution open, which is a hang by another name.
+  set -m
+  "$@" &
+  pid=$!
+  ( sleep "$t"; kill -TERM -"$pid" 2>/dev/null; sleep 1; kill -9 -"$pid" 2>/dev/null ) &
+  watch=$!
+  wait "$pid"
+  rc=$?
+  kill -TERM -"$watch" 2>/dev/null
+  kill -9 -"$watch" 2>/dev/null
+  wait "$watch" 2>/dev/null
+  set +m
+  return $rc
 }
 
 cleanup() {
@@ -172,13 +186,13 @@ fi
 if [[ "${1:-}" == "--self-test-preflight" ]]; then
   fail=0
   run_case() {
-    local name="$1" want="$2" stub="$3" rc
+    local name="$1" want="$2" stub="$3" envs="${4:-}" rc
     local dir
     dir=$(mktemp -d)
     mkdir -p "$dir/bin"
     printf '#!/bin/sh\n%s\n' "$stub" >"$dir/bin/ros2"
     chmod +x "$dir/bin/ros2"
-    PATH="$dir/bin:$PATH" bash "${BASH_SOURCE[0]}" --preflight-only /dock_robot /undock_robot >/dev/null 2>&1
+    env PATH="$dir/bin:$PATH" $envs bash "${BASH_SOURCE[0]}" --preflight-only /dock_robot /undock_robot >/dev/null 2>&1
     rc=$?
     rm -rf "$dir"
     if [[ "$rc" == "$want" ]]; then
@@ -192,6 +206,9 @@ if [[ "${1:-}" == "--self-test-preflight" ]]; then
   run_case "query fails (exit 1)"          20 'exit 1'
   run_case "query returns prose only"      20 'echo "unknown action"; exit 0'
   run_case "foreign stack present"         20 'echo "Action servers: 2"; exit 0'
+  # A query that never answers must still end the run: the fallback deadline kills it and the parser
+  # reports UNKNOWN. Without this the macOS path blocks forever (review P2, 12 Nov).
+  run_case "hung query"                    20 'sleep 300' "QUERY_TIMEOUT_S=2"
   exit $fail
 fi
 if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then

@@ -47,7 +47,8 @@ jobs:
         run: |
           python3 -m pytest -v -p no:cacheprovider --junitxml=docking-tests.xml \
             ros2/src/openamrobot_docking/test/test_docking_launch_remap.py \
-            ros2/src/openamrobot_docking/test/test_docking_action_servers_parse.py
+            ros2/src/openamrobot_docking/test/test_docking_action_servers_parse.py \
+            ros2/src/openamrobot_docking/test/test_docking_action_servers_preflight.py
 
       # A renamed or deleted test must not pass as an empty suite.
       - name: Check that both profile cases ran
@@ -59,10 +60,14 @@ jobs:
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           names = sorted(case.get('name') for case in suite.iter('testcase'))
           print(f'{tests} tests, {skipped} skipped: {names}')
-          assert tests == 8 and skipped == 0, f'expected 8 cases, none skipped, got {tests}'
+          # 8 launch/parser + 6 preflight. The preflight file was in the repo but not in this
+          # command, so its cases were never CI-enforced (review P2, 12 Nov).
+          assert tests == 15 and skipped == 0, f'expected 15 cases, none skipped, got {tests}'
           for probe in ('sim_profile_starts', 'real_profile_starts', 'does_not_default_docking_on',
                         'real_profile_defaults_the_server_off', 'sim_profile_keeps_the_server_on',
-                        'non_numeric', 'missing_count', 'well_formed'):
+                        'non_numeric', 'missing_count', 'well_formed',
+                        'preflight_fails_closed', 'query_fails', 'prose_without_a_count',
+                        'foreign_stack_present', 'empty_output', 'hung_query'):
               assert any(probe in n for n in names), f'{probe} case missing'
           EOF
 
