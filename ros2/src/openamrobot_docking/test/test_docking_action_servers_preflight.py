@@ -17,23 +17,27 @@ import pytest
 SCRIPT = Path(__file__).parent / "docking_action_servers.sh"
 
 CASES = [
-    # name, stub script body, expected exit code, why
+    # name, stub script body, expected exit code, why, force_fallback
     ("queryable, no servers", 'echo "Action servers: 0"; exit 0', 0,
-     "a healthy graph with no servers is the only case that may proceed"),
+     "a healthy graph with no servers is the only case that may proceed", False),
     ("query fails", "exit 1", 20,
-     "a failing query is UNKNOWN, not zero"),
+     "a failing query is UNKNOWN, not zero", False),
     ("prose without a count", 'echo "unknown action"; exit 0', 20,
-     "output that cannot be parsed is UNKNOWN"),
+     "output that cannot be parsed is UNKNOWN", False),
     ("foreign stack present", 'echo "Action servers: 2"; exit 0', 20,
-     "an existing stack must be refused, not joined"),
+     "an existing stack must be refused, not joined", False),
     ("empty output", "exit 0", 20,
-     "silence is not a count"),
+     "silence is not a count", False),
+    # HARNESS_FORCE_FALLBACK=1 makes this case skip the runner's coreutils `timeout` and exercise
+    # the hand-rolled deadline. Without it the host `timeout` answers in 2 s and the fallback path
+    # is never run, so a broken fallback would still pass (review P2, 12 Nov).
     ("hung query", "sleep 600", 20,
-     "a query that never answers must be killed by the fallback deadline, not waited on"),
+     "a query that never answers must be killed by the fallback deadline, not waited on", True),
 ]
 
 
-def _run_preflight(tmp_path: Path, stub_body: str) -> subprocess.CompletedProcess:
+def _run_preflight(tmp_path: Path, stub_body: str,
+                   force_fallback: bool = False) -> subprocess.CompletedProcess:
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "ros2"
@@ -44,6 +48,10 @@ def _run_preflight(tmp_path: Path, stub_body: str) -> subprocess.CompletedProces
     # Without coreutils `timeout` the fallback deadline is the only bound; keep it short so the
     # hung-query case is a test rather than a hang.
     env["QUERY_TIMEOUT_S"] = "2"
+    if force_fallback:
+        # Force the hand-rolled deadline even though the host may have coreutils `timeout`, so the
+        # fallback path is the code under test (review P2, 12 Nov).
+        env["HARNESS_FORCE_FALLBACK"] = "1"
     return subprocess.run(
         ["bash", str(SCRIPT), "--preflight-only", "/dock_robot", "/undock_robot"],
         capture_output=True, text=True, env=env, timeout=120,
@@ -51,13 +59,21 @@ def _run_preflight(tmp_path: Path, stub_body: str) -> subprocess.CompletedProces
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
-@pytest.mark.parametrize("name,stub_body,expected,why", CASES, ids=[c[0] for c in CASES])
-def test_preflight_fails_closed(tmp_path, name, stub_body, expected, why):
-    result = _run_preflight(tmp_path, stub_body)
+@pytest.mark.parametrize("name,stub_body,expected,why,force_fallback", CASES,
+                         ids=[c[0] for c in CASES])
+def test_preflight_fails_closed(tmp_path, name, stub_body, expected, why, force_fallback):
+    import time
+    start = time.monotonic()
+    result = _run_preflight(tmp_path, stub_body, force_fallback)
+    elapsed = time.monotonic() - start
     assert result.returncode == expected, (
         f"{name}: expected exit {expected} ({why}), got {result.returncode}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+    if force_fallback:
+        # The forced fallback deadline is QUERY_TIMEOUT_S=2; the process must end within a few
+        # seconds, not wait out the stub's `sleep 600`. A hung fallback is the macOS defect here.
+        assert elapsed < 20, f"{name}: fallback deadline did not fire (took {elapsed:.1f}s)"
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")

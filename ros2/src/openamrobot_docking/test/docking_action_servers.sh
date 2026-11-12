@@ -60,8 +60,13 @@ ACTIONS=(/dock_robot /undock_robot)
 QUERY_TIMEOUT_S=${QUERY_TIMEOUT_S:-10}
 _run() {
   local pid watch rc t=$QUERY_TIMEOUT_S
-  if command -v timeout >/dev/null 2>&1; then timeout "$t" "$@"; return $?; fi
-  if command -v gtimeout >/dev/null 2>&1; then gtimeout "$t" "$@"; return $?; fi
+  # HARNESS_FORCE_FALLBACK=1 skips coreutils `timeout`/`gtimeout` and exercises the hand-rolled
+  # deadline below. The regression tests set it; otherwise the hosted runner's `timeout` binary
+  # answers the hung-query case and this fallback path is never executed (review P2, 12 Nov).
+  if [[ "${HARNESS_FORCE_FALLBACK:-0}" != "1" ]]; then
+    if command -v timeout >/dev/null 2>&1; then timeout "$t" "$@"; return $?; fi
+    if command -v gtimeout >/dev/null 2>&1; then gtimeout "$t" "$@"; return $?; fi
+  fi
   # The command gets its own process group (`set -m`), and the deadline kills the group. Killing
   # only the parent leaves grandchildren alive — and a grandchild still holding stdout keeps the
   # caller's command substitution open, which is a hang by another name.
@@ -208,7 +213,7 @@ if [[ "${1:-}" == "--self-test-preflight" ]]; then
   run_case "foreign stack present"         20 'echo "Action servers: 2"; exit 0'
   # A query that never answers must still end the run: the fallback deadline kills it and the parser
   # reports UNKNOWN. Without this the macOS path blocks forever (review P2, 12 Nov).
-  run_case "hung query"                    20 'sleep 300' "QUERY_TIMEOUT_S=2"
+  run_case "hung query"                    20 'sleep 300' "QUERY_TIMEOUT_S=2 HARNESS_FORCE_FALLBACK=1"
   exit $fail
 fi
 if [[ "$EXPECT" == "0" && -z "$CONTROL_NODE" ]]; then
