@@ -173,7 +173,7 @@ jobs:
           # Non-fatal: whether this container can build the launch packages is decided by the next
           # step, which reports the environment condition instead of failing the job on it.
           colcon build --packages-select openamrobot_docking openamrobot_nav2 \
-            || echo "::warning title=Workspace build incomplete::openamrobot_docking/openamrobot_nav2 did not build in this container; the live check will be reported as NOT RUN.
+            || echo "::warning title=Workspace build incomplete::openamrobot_docking/openamrobot_nav2 did not build in this container; the live check will be reported as NOT RUN."
 
       # The container's apt state is not reliable: some runners cannot resolve Ubuntu mirrors, and
       # some cannot satisfy ros-jazzy-behaviortree-cpp (libzmq5) even when they can. Rather than let
