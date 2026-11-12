@@ -220,15 +220,36 @@ preflight || exit $?
 
 : >"$LOG"
 echo "launch: ros2 launch ${PKG} ${LAUNCH_FILE} ${EXTRA_ARGS[*]:-} (expect ${EXPECT} server(s) per action)"
-LAUNCH_PID=$(setsid ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 & echo $!)
+# Start the launch in its own process group so teardown can kill the whole tree. `setsid` is
+# util-linux and absent on macOS; job control gives a background job its own group just as well.
+if command -v setsid >/dev/null 2>&1; then
+  LAUNCH_PID=$(setsid ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 & echo $!)
+else
+  set -m
+  ros2 launch "$PKG" "$LAUNCH_FILE" "${EXTRA_ARGS[@]}" >"$LOG" 2>&1 &
+  LAUNCH_PID=$!
+  set +m
+fi
 
 deadline=$((SECONDS + TIMEOUT_S))
-declare -A seen=()
+# Indexed arrays, parallel to ACTIONS: bash 3.2 (macOS) has no associative arrays, and a harness
+# that cannot run on the developer's own machine is a harness that is only ever tested in CI.
+SEEN=()
+for i in "${!ACTIONS[@]}"; do SEEN[$i]="UNKNOWN"; done
 control_seen=0
 while (( SECONDS < deadline )); do
   if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
     echo "ERROR: launch process exited before the servers settled"
     tail -40 "$LOG"
+    exit $EXIT_ERROR
+  fi
+
+  # A launch that dies inside its own supervisor can leave a live process with an empty graph. That
+  # would otherwise be reported as "counts differ" (exit 10) — a measurement of nothing, and exactly
+  # the shape the negative control is meant to reject.
+  if [[ -f "$LOG" ]] && grep -qE "Caught exception in launch|not found, searching" "$LOG"; then
+    echo "ERROR: the launch itself failed; there is no graph to count"
+    grep -E "Caught exception in launch|not found, searching" "$LOG" | tail -3
     exit $EXIT_ERROR
   fi
 
@@ -246,9 +267,9 @@ while (( SECONDS < deadline )); do
 
   all_match=1
   unknown=0
-  for action in "${ACTIONS[@]}"; do
-    count=$(query_count "$action")
-    seen[$action]=$count
+  for i in "${!ACTIONS[@]}"; do
+    count=$(query_count "${ACTIONS[$i]}")
+    SEEN[$i]=$count
     [[ "$count" == "UNKNOWN" ]] && unknown=1
     [[ "$count" == "$EXPECT" ]] || all_match=0
   done
@@ -257,7 +278,7 @@ while (( SECONDS < deadline )); do
     echo "waiting: at least one action graph query is unavailable (not treated as zero)"
   elif [[ "$all_match" == "1" && "$control_ok" == "1" ]]; then
     echo "PASS: every action advertises ${EXPECT} server(s)${CONTROL_NODE:+ (control node /${CONTROL_NODE} visible)}"
-    for action in "${ACTIONS[@]}"; do echo "  ${action}: ${seen[$action]}"; done
+    for i in "${!ACTIONS[@]}"; do echo "  ${ACTIONS[$i]}: ${SEEN[$i]}"; done
     exit $EXIT_PASS
   elif [[ "$all_match" == "1" && "$control_ok" == "0" ]]; then
     echo "waiting: counts match but the control node /${CONTROL_NODE} is not visible"
@@ -265,13 +286,13 @@ while (( SECONDS < deadline )); do
   sleep 5
 done
 
-for action in "${ACTIONS[@]}"; do echo "  ${action}: ${seen[$action]:-UNKNOWN}"; done
+for i in "${!ACTIONS[@]}"; do echo "  ${ACTIONS[$i]}: ${SEEN[$i]:-UNKNOWN}"; done
 echo "control node /${CONTROL_NODE:-<none>} seen during run: ${control_seen}"
 
 # Distinguish "healthy graph, wrong counts" from "could not measure".
 unknown_final=0
-for action in "${ACTIONS[@]}"; do
-  [[ "${seen[$action]:-UNKNOWN}" == "UNKNOWN" ]] && unknown_final=1
+for i in "${!ACTIONS[@]}"; do
+  [[ "${SEEN[$i]:-UNKNOWN}" == "UNKNOWN" ]] && unknown_final=1
 done
 if [[ "$unknown_final" == "1" || ( -n "$CONTROL_NODE" && "$control_seen" != "1" ) ]]; then
   echo "ERROR: timed out after ${TIMEOUT_S}s without a healthy, observable graph — this proves nothing"

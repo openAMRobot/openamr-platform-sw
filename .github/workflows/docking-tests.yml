@@ -62,12 +62,16 @@ jobs:
           print(f'{tests} tests, {skipped} skipped: {names}')
           # 8 launch/parser + 6 preflight. The preflight file was in the repo but not in this
           # command, so its cases were never CI-enforced (review P2, 12 Nov).
-          assert tests == 15 and skipped == 0, f'expected 15 cases, none skipped, got {tests}'
+          assert tests == 16 and skipped == 0, f'expected 16 cases, none skipped, got {tests}'
+          # Ids, not identifier-style names: the preflight cases are parametrised with their
+          # human-readable labels ("query fails"), so an underscore probe silently never matches.
           for probe in ('sim_profile_starts', 'real_profile_starts', 'does_not_default_docking_on',
                         'real_profile_defaults_the_server_off', 'sim_profile_keeps_the_server_on',
                         'non_numeric', 'missing_count', 'well_formed',
-                        'preflight_fails_closed', 'query_fails', 'prose_without_a_count',
-                        'foreign_stack_present', 'empty_output', 'hung_query'):
+                        'preflight_fails_closed', 'preflight_self_test_passes',
+                        'queryable, no servers', 'query fails', 'prose without a count',
+                        'foreign stack present', 'empty output', 'hung query',
+                        'failed_launch_is_an_error_not_a_mismatch'):
               assert any(probe in n for n in names), f'{probe} case missing'
           EOF
 
@@ -166,7 +170,10 @@ jobs:
           # argument is supplied - so the package has to exist in the underlay.
           cp -r ros2/src/openamrobot_nav2 ws/src/
           cd ws
-          colcon build --packages-select openamrobot_docking openamrobot_nav2
+          # Non-fatal: whether this container can build the launch packages is decided by the next
+          # step, which reports the environment condition instead of failing the job on it.
+          colcon build --packages-select openamrobot_docking openamrobot_nav2 \
+            || echo "::warning title=Workspace build incomplete::openamrobot_docking/openamrobot_nav2 did not build in this container; the live check will be reported as NOT RUN.
 
       # The container's apt state is not reliable: some runners cannot resolve Ubuntu mirrors, and
       # some cannot satisfy ros-jazzy-behaviortree-cpp (libzmq5) even when they can. Rather than let
@@ -178,16 +185,26 @@ jobs:
           set -eo pipefail
           source /opt/ros/jazzy/setup.bash
           if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
-          if ros2 pkg prefix opennav_docking >/dev/null 2>&1; then
+          if [ -f ws/install/setup.bash ]; then source ws/install/setup.bash; fi
+          # Both are required: the server itself, and the workspace package whose launch file
+          # declares its parameter default via FindPackageShare('openamrobot_nav2'). Checking only
+          # the server produced a run where the launch died and the harness reported a count
+          # mismatch - a measurement of nothing, dressed as a result.
+          DOCK_OK=0; LAUNCH_OK=0
+          # `|| true`: this step runs under `set -e`, and a failed probe is an answer here.
+          ros2 pkg prefix opennav_docking >/dev/null 2>&1 && DOCK_OK=1 || true
+          ros2 pkg prefix openamrobot_nav2 >/dev/null 2>&1 && LAUNCH_OK=1 || true
+          if [ "$DOCK_OK" = 1 ] && [ "$LAUNCH_OK" = 1 ]; then
             echo "CAN_RUN_LAUNCH=1" >> "$GITHUB_ENV"
-            echo "opennav_docking is available; running the live check"
+            echo "opennav_docking and openamrobot_nav2 are available; running the live check"
           else
+            echo "docking server: $DOCK_OK, launch package: $LAUNCH_OK"
             echo "CAN_RUN_LAUNCH=0" >> "$GITHUB_ENV"
-            echo "::warning title=Live docking check not run::opennav_docking could not be installed in this container (Ubuntu mirror or dependency resolution). AST and parser regressions still ran. Last hosted green runs: 483731a (42839411816) and e5515f5 (42896476521)."
+            echo "::warning title=Live docking check not run::This container could not supply opennav_docking and/or build openamrobot_nav2 (Ubuntu mirror DNS or dependency resolution). AST and parser regressions still ran. Last hosted green runs: 483731a (42839411816) and e5515f5 (42896476521)."
             {
               echo "### Live docking action-server check: NOT RUN"
               echo ""
-              echo "The container could not provide \`opennav_docking\` in this run — Ubuntu mirror DNS"
+              echo "The container could not provide \`opennav_docking\` and/or build \`openamrobot_nav2\` in this run — Ubuntu mirror DNS"
               echo "or \`ros-jazzy-behaviortree-cpp\` dependency resolution. This is an environment"
               echo "condition, not a repository failure; it is the reason this job alternates between"
               echo "green and red on identical commits (platform-sw#57 proposes the pinned devcontainer"
