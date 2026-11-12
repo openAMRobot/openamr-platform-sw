@@ -33,10 +33,12 @@ accepted on this node's own (proxy) goal handle must reach the REAL goal on
 bt_navigator, not just mark the wrapper cancelled while the real goal keeps
 executing - see _handle_cancel and its own regression test.
 
-navigate_through_poses and dock_robot are NOT yet covered by this pattern -
-same architecture, tracked as a fast-follow, not attempted here to keep
-this node reviewable on its own.
+navigate_through_poses is now covered by the same pattern -
+navigate_through_poses_goal_proxy_node.py. dock_robot is NOT yet covered -
+same architecture, tracked as a further fast-follow (needs #125's
+docking_server work first).
 """
+import threading
 import uuid
 
 from action_msgs.msg import GoalStatus
@@ -65,6 +67,22 @@ class NavigateToPoseGoalProxy(Node):
         super().__init__('navigate_to_pose_goal_proxy')
         self._instance_id = uuid.uuid4().hex
         self._outstanding = 0
+        # panthera-momagdii's #90 seventh review, P1: the heartbeat timer
+        # and the goal-execution callbacks all run under this node's own
+        # MultiThreadedExecutor/ReentrantCallbackGroup, genuinely
+        # concurrently (not just interleaved coroutines) - _heartbeat()
+        # reads/publishes self._outstanding as an authoritative SNAPSHOT
+        # (GoalAuthority.heartbeat() overwrites the ledger's count with it),
+        # while 'sent'/'done' are DELTA events (+1/-1). Without this lock, a
+        # heartbeat can read _outstanding strictly between _execute's own
+        # decrement and its 'done' publish, publishing an
+        # already-decremented snapshot; the gate then applies that snapshot
+        # AND the delta from the 'done' event that follows, decrementing
+        # twice for one real completion. Every mutation of _outstanding and
+        # every publish derived from it happens inside this lock, as one
+        # atomic unit, so a heartbeat can never observe a count from
+        # between a decrement and its own matching event's publish.
+        self._lock = threading.Lock()
         self._real_goal_handles = {}  # proxy goal uuid bytes -> real ClientGoalHandle
         # panthera-momagdii's #90 review, P2: a cancel can arrive after
         # acceptance but before send_goal_async resolves and
@@ -104,8 +122,9 @@ class NavigateToPoseGoalProxy(Node):
         # producer back to UNKNOWN on its own.
         if not self._real_client.server_is_ready():
             return
-        self._goal_authority_pub.publish(String(
-            data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
+        with self._lock:
+            self._goal_authority_pub.publish(String(
+                data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
 
     def _handle_accepted(self, goal_handle) -> None:
         # panthera-momagdii's #90 review, P1: the public ActionServer
@@ -118,9 +137,10 @@ class NavigateToPoseGoalProxy(Node):
         # part of the server's own acceptance sequence, before
         # goal_handle.execute() schedules _execute at all, so there is no
         # gap here for the heartbeat to interleave into.
-        self._outstanding += 1
-        self._goal_authority_pub.publish(String(
-            data=f'{_PRODUCER_NAME}|sent|{self._instance_id}'))
+        with self._lock:
+            self._outstanding += 1
+            self._goal_authority_pub.publish(String(
+                data=f'{_PRODUCER_NAME}|sent|{self._instance_id}'))
         goal_handle.execute()
 
     def _handle_cancel(self, goal_handle) -> CancelResponse:
@@ -202,9 +222,10 @@ class NavigateToPoseGoalProxy(Node):
                     goal_handle.abort()
             return result_response.result
         finally:
-            self._outstanding = max(0, self._outstanding - 1)
-            self._goal_authority_pub.publish(String(
-                data=f'{_PRODUCER_NAME}|done|{self._instance_id}'))
+            with self._lock:
+                self._outstanding = max(0, self._outstanding - 1)
+                self._goal_authority_pub.publish(String(
+                    data=f'{_PRODUCER_NAME}|done|{self._instance_id}'))
 
 
 def main():

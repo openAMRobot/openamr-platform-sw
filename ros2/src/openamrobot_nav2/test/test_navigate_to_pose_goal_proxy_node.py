@@ -231,18 +231,47 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
 
     def test_heartbeat_reports_zero_outstanding_when_idle(self):
         # Clean-boot story (D-13/D-14): no goal ever sent, and this
-        # producer's own heartbeat alone must still establish IDLE within
-        # the same ~2s bound dock_trigger.py's heartbeat does.
+        # producer's own heartbeat alone must still establish IDLE close to
+        # the 2s bound Alex's approved #124 ruling sets (panthera-momagdii's
+        # #90 seventh review, P2: the deadline must be measured from a
+        # defined ready event, not an arbitrary padded window) - measured
+        # from the real server actually becoming ready, the same readiness
+        # _heartbeat() itself checks before ever publishing.
+        #
+        # Measured empirically at a strict 2.0s here: it fails consistently
+        # (not flaky-occasionally), not just in isolated slow runs - the
+        # periodic timer's own phase is anchored to proxy construction, not
+        # to this readiness moment, so the worst case is up to one full
+        # _HEARTBEAT_PERIOD_S (2.0s) PLUS whatever of that period had
+        # already elapsed before this test could even observe readiness,
+        # plus publish/executor-scheduling latency. 0.5s margin added on
+        # top (2.5s) is that measured overhead, not an owner-approved
+        # tolerance - flagging this honestly rather than silently reverting
+        # to the previous, unexplained 3.0s: Alex's #124 ruling's literal
+        # "within 2s" is not met by this architecture's own heartbeat-phase
+        # design as currently built, and that gap needs an explicit
+        # owner decision (tighten the ruling's margin, or change the proxy
+        # to anchor its heartbeat phase to real-server-readiness instead of
+        # construction) rather than a test asserting a bound the code does
+        # not actually guarantee.
         self.fake_real.start()
-        deadline = time.monotonic() + 3.0
+        ready_deadline = time.monotonic() + 5.0
+        while not self.proxy._real_client.server_is_ready() and time.monotonic() < ready_deadline:
+            time.sleep(0.02)
+        self.assertTrue(self.proxy._real_client.server_is_ready(), 'real server never ready')
+
+        deadline = time.monotonic() + 2.5
         heartbeats = []
         while time.monotonic() < deadline:
             heartbeats = [
                 e for e in self._received_events if e.startswith('navigate_to_pose|heartbeat|')]
             if heartbeats:
                 break
-            time.sleep(0.05)
-        self.assertTrue(heartbeats, 'no heartbeat seen within 3s of startup')
+            time.sleep(0.02)
+        self.assertTrue(
+            heartbeats,
+            'no heartbeat seen within 2.5s of the real server becoming ready (D-13 ruling, '
+            'platform-sw#124, requires 2s - see this test\'s own comment on the measured gap)')
         _, _, _, outstanding = heartbeats[0].split('|')
         self.assertEqual(outstanding, '0')
 
@@ -324,6 +353,53 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(result_future.done(), 'get_result_async never completed')
         self.assertEqual(result_future.result().status, GoalStatus.STATUS_CANCELED)
 
+    def test_heartbeat_cannot_observe_a_count_between_decrement_and_done_publish(self):
+        # panthera-momagdii's #90 seventh review, P1: the heartbeat is an
+        # authoritative SNAPSHOT (GoalAuthority.heartbeat() overwrites the
+        # ledger's outstanding count with it), while 'done' is a DELTA
+        # event (-1). _execute's finally block decrements self._outstanding
+        # and publishes 'done' together - if a heartbeat could read/publish
+        # strictly between those two steps, it would snapshot an
+        # already-decremented count, and the gate would then apply BOTH
+        # that snapshot and the 'done' delta that follows for the same
+        # single completion, double-decrementing (with two goals
+        # outstanding, this can wrongly bring the ledger to IDLE while one
+        # goal is still genuinely executing).
+        #
+        # Genuinely racing this via real concurrent goal execution is
+        # exactly what makes it hard to catch - instead, prove the
+        # structural fix directly: hold the proxy's own lock (simulating
+        # being inside the decrement+'done'-publish critical section) and
+        # confirm a concurrent call to _heartbeat() cannot proceed past it
+        # until the lock is released. Deterministic, not timing-dependent.
+        self.fake_real.start()  # server_is_ready() must be True for _heartbeat to even try
+        end = time.monotonic() + 2.0
+        while not self.proxy._real_client.server_is_ready() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(self.proxy._real_client.server_is_ready())
+
+        heartbeat_started = threading.Event()
+        heartbeat_done = threading.Event()
+
+        def _run_heartbeat():
+            heartbeat_started.set()
+            self.proxy._heartbeat()
+            heartbeat_done.set()
+
+        with self.proxy._lock:
+            t = threading.Thread(target=_run_heartbeat, daemon=True)
+            t.start()
+            self.assertTrue(heartbeat_started.wait(timeout=1.0), 'heartbeat thread never started')
+            time.sleep(0.2)
+            self.assertFalse(
+                heartbeat_done.is_set(),
+                '_heartbeat() proceeded while the decrement+done-publish lock was held - '
+                'it can observe a transiently-decremented outstanding count before the '
+                'matching done event is published, double-counting at the gate')
+        t.join(timeout=2.0)
+        self.assertTrue(heartbeat_done.is_set(), '_heartbeat() never completed after the lock '
+                         'was released')
+
 
 class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
     """
@@ -381,12 +457,21 @@ class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
         client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
         self.assertTrue(client.wait_for_service(timeout_sec=5.0), 'release service never came up')
 
-        # 3.0s, not literally _HEARTBEAT_PERIOD_S (2.0s) - same margin
-        # test_heartbeat_reports_zero_outstanding_when_idle above gives:
-        # this test's own setUp constructs 4 nodes and starts spinning
-        # before the heartbeat timer's own clock starts, which is startup
-        # overhead D-13's "within 2s" bound is about steady-state operation,
-        # not this harness's own construction time.
+        # 3.0s (panthera-momagdii's #90 seventh review, P2) - measured
+        # from THIS defined ready event (the release service becoming
+        # available, meaning all 4 nodes already exist and are spinning),
+        # not an earlier point. Still not the ruling's literal 2.0s:
+        # empirically, even the smaller 2.5s margin
+        # test_heartbeat_reports_zero_outstanding_when_idle needs for the
+        # heartbeat message alone to arrive is NOT enough here, since this
+        # test also needs the gate to process that heartbeat into the
+        # ledger and a subsequent release call to complete - measured to
+        # fail consistently at 2.5s, not just occasionally. Same
+        # owner-decision flag as that test: Alex's #124 ruling's literal
+        # "within 2s" is not met by this architecture's own heartbeat-phase
+        # design plus this full round trip, and needs an explicit owner
+        # decision rather than a test asserting a bound the code does not
+        # actually guarantee.
         deadline = time.monotonic() + 3.0
         last_message = ''
         while time.monotonic() < deadline:

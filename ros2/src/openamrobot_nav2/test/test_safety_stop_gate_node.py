@@ -167,8 +167,9 @@ class NodeTestCase(unittest.TestCase):
             self._publish_goal_status(action, [])
         # Every ledger producer (platform-sw#124, D-13) needs its own
         # heartbeat - publishing an empty legacy status for one is harmless
-        # but establishes nothing on its own, now that navigate_to_pose is
-        # also ledger-backed (navigate_to_pose_goal_proxy_node.py).
+        # but establishes nothing on its own, now that navigate_to_pose and
+        # navigate_through_poses are also ledger-backed (their own
+        # goal_proxy_node.py).
         for producer in _LEDGER_PRODUCERS:
             self._publish_goal_authority_heartbeat(producer=producer)
 
@@ -430,13 +431,13 @@ class TestReleaseBlockedByActiveGoal(NodeTestCase):
     def test_release_refused_while_an_actions_status_was_never_received(self):
         # platform-sw#119: "stale or missing status means refused" - a status
         # array we have never seen at all must not be treated as "probably
-        # fine." navigate_to_pose is ledger-backed now (D-13,
-        # navigate_to_pose_goal_proxy_node.py), not status-topic-content, so
-        # this targets navigate_through_poses instead - still on the legacy
-        # path. Every action but it gets a clear status/heartbeat here.
+        # fine." navigate_to_pose and navigate_through_poses are ledger-backed
+        # now (D-13, their own goal_proxy_node.py), not status-topic-content,
+        # so this targets dock_robot instead - the only action still on the
+        # legacy path. Every action but it gets a clear status/heartbeat here.
         self.node._start -= Duration(seconds=T_READY + 1.0)
         for action in _CANCEL_ACTIONS:
-            if action == 'navigate_through_poses':
+            if action == 'dock_robot':
                 continue
             if action in _LEDGER_PRODUCERS:
                 self._publish_goal_authority_heartbeat(producer=action)
@@ -446,7 +447,7 @@ class TestReleaseBlockedByActiveGoal(NodeTestCase):
         self._spin_both(timeout_s=0.2)
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertFalse(result.success)
-        self.assertIn('navigate_through_poses', result.message)
+        self.assertIn('dock_robot', result.message)
         self.assertIn('never received', result.message)
 
     def test_release_refused_while_the_ledger_producer_was_never_heard_from(self):
@@ -612,6 +613,13 @@ class TestReleaseIgnoresDockTriggerWhenDockingDisabled(NodeTestCase):
             else:
                 self._publish_goal_status(action, [])
         self._spin_both(timeout_s=0.2)
+        # Deterministically past the ledger producers' own discovery-grace
+        # window (no fake real-server status publisher exists for either in
+        # this test) - relying on 0.2s of real wall-clock spin to exceed the
+        # 0.5s window was a marginal, flaky bet even with one ledger
+        # producer, more so with two now that navigate_through_poses is
+        # ledger-backed too.
+        self.node._constructed_at_s -= (_LEDGER_STATUS_DISCOVERY_GRACE_S + 1.0)
         # Deliberately never publishes dock_trigger_status and never stands
         # up /dock_trigger/abort - the nav-only profile starts no
         # dock_trigger process at all.
@@ -816,11 +824,12 @@ class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
         # _publish_all_clear_goal_status(), which also heartbeats
         # undock_robot's ledger under its own fixed 'test-instance' id and
         # would spuriously orphan the 'live' instance this test is tracking.
-        # navigate_to_pose is ledger-backed too now, but under a DIFFERENT
-        # producer name/entry - a plain heartbeat for it is harmless here.
-        for legacy_action in ('navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        # navigate_to_pose/navigate_through_poses are ledger-backed too now,
+        # but under DIFFERENT producer names/entries - a plain heartbeat for
+        # each is harmless here.
+        self._publish_goal_status('dock_robot', [])
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
+        self._publish_goal_authority_heartbeat(producer='navigate_through_poses')
         self._publish_dock_status('idle')
         self._spin_both(timeout_s=0.2)
 
@@ -837,6 +846,52 @@ class TestEngageDoesNotClearALiveLedgerEntry(NodeTestCase):
         self.node._goal_authority.notify_done('undock_robot', instance_id='live', now_s=now_s)
         result = self._call_trigger('/safety/stop_lock_release')
         self.assertTrue(result.success, result.message)
+
+    def test_release_refused_when_a_direct_undock_robot_cancel_is_rejected_despite_idle_ledger(
+            self):
+        # panthera-momagdii's #90 seventh review, P1: a direct goal on
+        # undock_robot's real server - bypassing dock_trigger.py's own
+        # ledger reporting entirely (nothing stops a client other than
+        # dock_trigger.py from calling the real action server directly) -
+        # can have its cancel REJECTED while the ledger itself still reads
+        # IDLE (dock_trigger's own goals are all done) and no active status
+        # has arrived yet. _release_blockers()'s ledger branch previously
+        # never consulted _cancel_rejected at all - only the legacy branch
+        # did - so this rejection was invisible and Resume could be
+        # accepted with a goal a direct caller is still actually running.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
+
+        def _reject_cb(request, response):
+            del request
+            # Anything other than ERROR_NONE - the real server is refusing
+            # to cancel whatever a direct caller sent it.
+            response.return_code = CancelGoal.Response.ERROR_GOAL_TERMINATED
+            return response
+        self.probe.create_service(CancelGoal, 'undock_robot/_action/cancel_goal', _reject_cb)
+        self._publish_all_clear_goal_status()  # heartbeats undock_robot IDLE, same instance
+        self._publish_dock_status('idle')
+        self._spin_both(timeout_s=0.3)
+
+        self._call_trigger('/safety/stop_lock_engage')
+        self._spin_both(timeout_s=0.3)
+        self.assertTrue(
+            self.node._cancel_rejected['undock_robot'],
+            'undock_robot cancel_goal was never rejected - the fake service never responded')
+
+        now_s = self.node.get_clock().now().nanoseconds / 1e9
+        self.assertEqual(
+            self.node._goal_authority.state('undock_robot', now_s), ProducerState.IDLE,
+            'the ledger itself should genuinely read IDLE here - the bypassing goal never '
+            'went through dock_trigger.py, so there is nothing for the ledger to disagree '
+            'with; the rejected cancel is the ONLY evidence this goal is still live')
+
+        result = self._call_trigger('/safety/stop_lock_release')
+        self.assertFalse(
+            result.success,
+            'release succeeded despite a rejected cancel on undock_robot - the ledger '
+            'branch must respect a rejected cancel the same way the legacy path already '
+            'does, independent of the ledger otherwise reading IDLE')
+        self.assertIn('undock_robot', result.message)
 
     def test_engage_still_clears_a_genuine_orphan(self):
         # the positive case: a PRIOR instance left a goal outstanding and is
@@ -865,9 +920,9 @@ class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
 
     def test_heartbeat_reporting_outstanding_blocks_release(self):
         self.node._start -= Duration(seconds=T_READY + 1.0)
-        for legacy_action in ('navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_status('dock_robot', [])
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
+        self._publish_goal_authority_heartbeat(producer='navigate_through_poses')
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events',
@@ -884,9 +939,9 @@ class TestHeartbeatOutstandingCountIsTakenAsTruth(NodeTestCase):
 
     def test_a_later_heartbeat_reporting_zero_clears_it(self):
         self.node._start -= Duration(seconds=T_READY + 1.0)
-        for legacy_action in ('navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_status('dock_robot', [])
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
+        self._publish_goal_authority_heartbeat(producer='navigate_through_poses')
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events',
@@ -983,11 +1038,12 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         self.node = SafetyStopGateNode()
         self.node._start -= Duration(seconds=T_READY + 1.0)
         self._spin_both(timeout_s=0.3)  # let the new node's subscriptions discover/match
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_status('dock_robot', [])
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        for ledger_producer in ('navigate_to_pose', 'navigate_through_poses'):
+            self._publish_goal_authority_heartbeat(producer=ledger_producer)
         self._spin_both(timeout_s=0.3)
 
         result = self._call_trigger('/safety/stop_lock_release')
@@ -1016,11 +1072,12 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         self.node.destroy_node()
         self.node = SafetyStopGateNode()
         self.node._start -= Duration(seconds=T_READY + 1.0)
-        for legacy_action in ('navigate_to_pose', 'navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_status('dock_robot', [])
         self._publish_dock_status('idle')
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
+        for ledger_producer in ('navigate_to_pose', 'navigate_through_poses'):
+            self._publish_goal_authority_heartbeat(producer=ledger_producer)
         # Reset the grace-period clock to "now" right before release,
         # deterministically - the setup above (3 legacy publishes, each
         # waiting on its own subscription match) takes real, variable wall
@@ -1061,17 +1118,26 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         # a clean IDLE with no orphan, so release falls through to the
         # status-reconciliation branch below, which is what this test is
         # about.
+        #
+        # Backdated explicitly rather than relying on real wall-clock time
+        # to exceed T_READY during this test's own body - that was a
+        # latent flakiness risk other tests in this file avoid the same
+        # way; exposed here once this test's own body got marginally
+        # faster (fewer legacy-status calls after the navigate_through_poses
+        # migration).
+        self.node._start -= Duration(seconds=T_READY + 1.0)
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
         self._spin_both(timeout_s=0.2)
         self.assertFalse(self.node._goal_authority.is_orphaned('undock_robot'))
-        # navigate_to_pose is ledger-backed too (not legacy) - heartbeat it
-        # cleanly so its own discovery-grace/reconciliation never surfaces
-        # as a blocker here and masks whether undock_robot specifically
-        # blocked, which is all this test cares about.
+        # navigate_to_pose/navigate_through_poses are ledger-backed too (not
+        # legacy) - heartbeat them cleanly so their own discovery-grace/
+        # reconciliation never surfaces as a blocker here and masks whether
+        # undock_robot specifically blocked, which is all this test cares
+        # about.
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
-        for legacy_action in ('navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_authority_heartbeat(producer='navigate_through_poses')
+        self._publish_goal_status('dock_robot', [])
         self._publish_dock_status('idle')
 
         # Construction-anchored window is already long over by now.
@@ -1117,13 +1183,18 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         # D13TestOneCleanBootResumeTestCase in
         # test_navigate_to_pose_goal_proxy_node.py, which is D-13's own
         # "test 1" with real action servers end to end.
+        #
+        # Backdated explicitly rather than relying on real wall-clock time
+        # to exceed T_READY during this test's own body - same fix as
+        # test_a_late_publisher_match_gets_its_own_fresh_grace_window above.
+        self.node._start -= Duration(seconds=T_READY + 1.0)
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
         self._spin_both(timeout_s=0.2)
         self.assertFalse(self.node._goal_authority.is_orphaned('undock_robot'))
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
-        for legacy_action in ('navigate_through_poses', 'dock_robot'):
-            self._publish_goal_status(legacy_action, [])
+        self._publish_goal_authority_heartbeat(producer='navigate_through_poses')
+        self._publish_goal_status('dock_robot', [])
         self._publish_dock_status('idle')
 
         # Real server exists (its status publisher is up) but - standing in

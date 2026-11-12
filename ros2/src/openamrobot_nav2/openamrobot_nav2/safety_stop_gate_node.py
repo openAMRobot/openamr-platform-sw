@@ -174,44 +174,49 @@ _CANCEL_ACTIONS = (
 
 # Real action-server name per tracked action, for the cancel client and
 # status subscription below (platform-sw#90, panthera-momagdii's second
-# review). navigate_to_pose_goal_proxy_node.py owns the PUBLIC
-# navigate_to_pose name, but a goal submitted via RViz/goal_pose_nav never
-# reaches it: navigation_launch.py's own node-level remap
+# review). navigate_to_pose_goal_proxy_node.py/
+# navigate_through_poses_goal_proxy_node.py each own their PUBLIC name, but
+# a goal submitted via RViz/goal_pose_nav never reaches the navigate_to_pose
+# one: navigation_launch.py's own node-level remap
 # ('navigate_to_pose', 'navigate_to_pose_real') also renames bt_navigator's
 # internal self_client_ (navigate_to_pose.cpp:47,269-273), since it is
 # created under the same node - that goal runs entirely on
 # navigate_to_pose_real with nothing the proxy ever sees. Cancelling and
 # reading status against the proxy's own name therefore misses those
 # goals; reaching navigate_to_pose_real directly covers every goal
-# regardless of which path it came in on. The proxy's own heartbeat
-# (goal_authority_events) is unaffected and stays the clean-boot evidence
-# source for navigate_to_pose (D-13) - panthera-momagdii's #90 sixth
-# review: this depends on NavigateToPoseGoalProxy sending its first
-# heartbeat immediately at construction and suppressing heartbeats while
-# navigate_to_pose_real is not ready (see that class's own __init__/
+# regardless of which path it came in on. Stock Nav2 has no documented
+# analogous self_client_ bypass for navigate_through_poses, but the same
+# redirect is applied for defensive symmetry (and because the node-level
+# remap would catch any such client if one existed). The proxies' own
+# heartbeats (goal_authority_events) are unaffected and stay the clean-boot
+# evidence source for each action (D-13) - panthera-momagdii's #90 sixth
+# review: this depends on each proxy sending its first heartbeat
+# immediately at construction and suppressing heartbeats while its own
+# _real server is not ready (see each proxy class's own __init__/
 # _heartbeat comments), not merely on this file's own bounded-wait logic
 # below, which cannot by itself tell a genuine clean boot apart from an
 # absent real server. This remap only changes the independent
 # action-status reconciliation/cancellation path below.
 _REAL_ACTION_SERVER_NAMES = {
     'navigate_to_pose': 'navigate_to_pose_real',
+    'navigate_through_poses': 'navigate_through_poses_real',
 }
 
 
 def _real_action_server_name(action: str) -> str:
     return _REAL_ACTION_SERVER_NAMES.get(action, action)
 # Producers backed by the goal-authority ledger (D-13) - a subset of
-# _CANCEL_ACTIONS. navigate_to_pose is now owned end to end by
-# navigate_to_pose_goal_proxy_node.py (platform-sw#124, BotshareAI's #90
-# review: "one platform node that owns the goal handles" - every existing
-# sender, dock_trigger.py's own ActionClient and openamrobot-ui's direct
-# one, is transparently redirected through it by navigation_launch.py's own
-# remap, with no change needed in either). navigate_through_poses and
-# dock_robot stay on the OLD status-topic-content check until the same
-# proxy pattern covers them too (tracked as a fast-follow) or
-# openamrobot-ui reports through this channel directly (cross-repo) - see
-# _release_blockers' "ledger" vs "legacy" branches.
-_LEDGER_PRODUCERS = ('undock_robot', 'navigate_to_pose')
+# _CANCEL_ACTIONS. navigate_to_pose and navigate_through_poses are now
+# owned end to end by their own goal_proxy_node.py (platform-sw#124,
+# BotshareAI's #90 review: "one platform node that owns the goal handles" -
+# every existing sender, dock_trigger.py's own ActionClient and
+# openamrobot-ui's direct one, is transparently redirected through them by
+# navigation_launch.py's own remap, with no change needed in either).
+# dock_robot stays on the OLD status-topic-content check until the same
+# proxy pattern covers it too (tracked as a further fast-follow, needs
+# #125's docking_server work first) - see _release_blockers' "ledger" vs
+# "legacy" branches.
+_LEDGER_PRODUCERS = ('undock_robot', 'navigate_to_pose', 'navigate_through_poses')
 
 # How long without a heartbeat/notify before a ledger producer reads as
 # UNKNOWN again (D-13: "missing, stale... blocks"). Matches dock_trigger's
@@ -487,6 +492,19 @@ class SafetyStopGateNode(Node):
             if action not in self._enabled_producers:
                 continue  # excluded by name (D-13) - never inferred, never checked
             if action in _LEDGER_PRODUCERS:
+                # panthera-momagdii's #90 seventh review, P1: a direct goal
+                # on this action's REAL server (bypassing the owning
+                # producer's own ledger reporting entirely - e.g. a direct
+                # /undock_robot call that never goes through dock_trigger.py)
+                # can get a CancelGoal rejected here while the ledger itself
+                # still reads IDLE (that producer's own goals are all done)
+                # and no active status has arrived yet. Independent of
+                # ledger/status content, same as the legacy path below - a
+                # rejected cancel is never terminal evidence and must keep
+                # blocking regardless of what the ledger says.
+                if self._cancel_rejected[action]:
+                    blockers.append(f'{action}: cancel rejected')
+                    continue
                 state = self._goal_authority.state(action, now_s)
                 if state != ProducerState.IDLE:
                     blockers.append(f'{action}: {state.value} (goal-authority ledger)')
@@ -576,14 +594,14 @@ class SafetyStopGateNode(Node):
                 continue
 
             # LEGACY path - status-topic content, not the ledger. navigate_to_pose
-            # is NOT here any more (ChatGPT Codex Connector/panthera-momagdii's #90
-            # review): it is in _LEDGER_PRODUCERS above, proxied end to end by
-            # navigate_to_pose_goal_proxy_node.py. Only navigate_through_poses and
-            # dock_robot still take this path - known weaker than D-13's
-            # requirement (inherits the exact gap it was written to close) until
-            # their sender(s) - openamrobot-ui for navigate_through_poses, nothing
-            # yet sends dock_robot pending #125 - also report through
-            # goal_authority_events.
+            # and navigate_through_poses are NOT here any more (ChatGPT Codex
+            # Connector/panthera-momagdii's #90 review): both are in
+            # _LEDGER_PRODUCERS above, each proxied end to end by their own
+            # goal_proxy_node.py. Only dock_robot still takes this path - known
+            # weaker than D-13's requirement (inherits the exact gap it was
+            # written to close) until a sender reports it through
+            # goal_authority_events too (nothing yet sends dock_robot pending
+            # #125).
             if self._cancel_rejected[action]:
                 # Independent of status content/service-readiness: a
                 # rejected cancel is never terminal evidence, and must keep
