@@ -185,8 +185,14 @@ _CANCEL_ACTIONS = (
 # goals; reaching navigate_to_pose_real directly covers every goal
 # regardless of which path it came in on. The proxy's own heartbeat
 # (goal_authority_events) is unaffected and stays the clean-boot evidence
-# source for navigate_to_pose (D-13) - this remap only changes the
-# independent action-status reconciliation/cancellation path below.
+# source for navigate_to_pose (D-13) - panthera-momagdii's #90 sixth
+# review: this depends on NavigateToPoseGoalProxy sending its first
+# heartbeat immediately at construction and suppressing heartbeats while
+# navigate_to_pose_real is not ready (see that class's own __init__/
+# _heartbeat comments), not merely on this file's own bounded-wait logic
+# below, which cannot by itself tell a genuine clean boot apart from an
+# absent real server. This remap only changes the independent
+# action-status reconciliation/cancellation path below.
 _REAL_ACTION_SERVER_NAMES = {
     'navigate_to_pose': 'navigate_to_pose_real',
 }
@@ -521,38 +527,45 @@ class SafetyStopGateNode(Node):
                     # enough that a publisher is found after the
                     # construction-anchored window would already have
                     # elapsed - it never shortens the window.
+                    # panthera-momagdii's #90 sixth review, P1: the "fail
+                    # closed indefinitely once matched" version (added last
+                    # round) breaks D-13 test 1 - on a genuine clean boot,
+                    # bt_navigator (a real rclpy action server) never
+                    # publishes ANY status until its first goal state
+                    # change (rclcpp_action Jazzy server.cpp:609,:687;
+                    # server.hpp:487,:504; Nikolai measured 0 status
+                    # messages in 12s on an idle stack), so "matched but no
+                    # sample" is the PERMANENT state for navigate_to_pose at
+                    # boot, not a transient race - the indefinite block made
+                    # a real clean boot indistinguishable from the bug it
+                    # was meant to catch. Reverted to a bounded wait: trust
+                    # the ledger's IDLE read once the grace window elapses,
+                    # same as before that round. The actual remaining gap
+                    # (the proxy's own heartbeat not being reliable boot
+                    # evidence) is closed instead at the proxy - see
+                    # NavigateToPoseGoalProxy.__init__/_heartbeat's own
+                    # comments: one heartbeat fires immediately at
+                    # construction, and heartbeats are suppressed while
+                    # navigate_to_pose_real is not ready, so an absent real
+                    # server goes stale/UNKNOWN rather than this gate ever
+                    # trusting a false "idle".
                     if self._status_publisher_matched_at[action] is None:
                         topic = f'{_real_action_server_name(action)}/_action/status'
                         if self.get_publishers_info_by_topic(topic):
                             self._status_publisher_matched_at[action] = now_s
                     matched_at = self._status_publisher_matched_at[action]
                     if matched_at is not None:
-                        # panthera-momagdii's #90 third review, P1: matching
-                        # a publisher proves one EXISTS, not that its
-                        # retained sample has actually been received -
-                        # letting the grace window expire and then
-                        # trusting the silence here would accept Resume
-                        # with no action-status evidence at all once
-                        # discovery is slow. A known-to-exist publisher
-                        # that has not yet delivered a sample must block
-                        # indefinitely, not just for the grace window - the
-                        # window only ever delays the block, it never
-                        # expires it once a publisher is confirmed.
-                        if now_s - matched_at < _LEDGER_STATUS_DISCOVERY_GRACE_S:
-                            blockers.append(
-                                f'{action}: action-status discovery grace period not yet '
-                                f'elapsed (goal-authority ledger read idle)')
-                        else:
-                            blockers.append(
-                                f'{action}: status publisher matched but no sample received '
-                                f'yet (goal-authority ledger read idle)')
-                    elif now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S:
+                        still_in_grace = now_s - matched_at < _LEDGER_STATUS_DISCOVERY_GRACE_S
+                    else:
                         # No publisher has ever been seen at all (e.g. this
                         # action's real server was never enabled) - trust
                         # the silence once this short, bounded window from
                         # construction has passed, same as before this
                         # review round; a publisher appearing later always
                         # takes over via the branch above.
+                        still_in_grace = (
+                            now_s - self._constructed_at_s < _LEDGER_STATUS_DISCOVERY_GRACE_S)
+                    if still_in_grace:
                         blockers.append(
                             f'{action}: action-status discovery grace period not yet '
                             f'elapsed (goal-authority ledger read idle)')

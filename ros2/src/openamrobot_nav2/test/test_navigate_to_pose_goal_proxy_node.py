@@ -24,13 +24,16 @@ import pytest
 
 rclpy = pytest.importorskip('rclpy')  # tracking: #90/#124
 
-from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse  # noqa: E402
-from rclpy.callback_groups import ReentrantCallbackGroup  # noqa: E402
-from rclpy.executors import MultiThreadedExecutor  # noqa: E402
-from std_msgs.msg import String  # noqa: E402
-
 from openamrobot_nav2.navigate_to_pose_goal_proxy_node import (  # noqa: E402
     NavigateToPoseGoalProxy)
+from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode, T_READY  # noqa: E402
+
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse  # noqa: E402
+from rclpy.callback_groups import ReentrantCallbackGroup  # noqa: E402
+from rclpy.duration import Duration  # noqa: E402
+from rclpy.executors import MultiThreadedExecutor  # noqa: E402
+from std_msgs.msg import String  # noqa: E402
+from std_srvs.srv import Trigger  # noqa: E402
 
 
 class _FakeRealServer:
@@ -320,6 +323,86 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
             time.sleep(0.02)
         self.assertTrue(result_future.done(), 'get_result_async never completed')
         self.assertEqual(result_future.result().status, GoalStatus.STATUS_CANCELED)
+
+
+class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
+    """
+    D-13 ruling's own "test 1": clean-boot Resume with real action servers.
+
+    Platform-sw#124, panthera-momagdii's #90 sixth review: with real rclpy
+    action servers and no goal ever sent, Resume must succeed within the
+    ~2s heartbeat bound. This is the exact graph a clean boot presents -
+    the proxy's own heartbeat is this node's boot evidence for
+    navigate_to_pose, and a fail-closed-forever version of the gate's
+    discovery-grace logic (a round this branch has since reverted) made
+    this permanently unreachable, since bt_navigator (a real action
+    server) never publishes ANY status until its first goal - this test
+    exists specifically to keep that regression from coming back.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        rclpy.init(args=[])
+
+    @classmethod
+    def tearDownClass(cls):
+        rclpy.shutdown()
+
+    def setUp(self):
+        self.real_server_node = rclpy.create_node('d13_test1_fake_real_server')
+        self.fake_real = _FakeRealServer(self.real_server_node)  # up immediately - clean boot
+        self.proxy = NavigateToPoseGoalProxy()
+        self.gate = SafetyStopGateNode()
+        # Excluded by name (D-13), not inferred: this test is about
+        # navigate_to_pose specifically, not the other three producers,
+        # which would each need their own fake server/status to let
+        # release succeed and are irrelevant to the property under test.
+        self.gate._enabled_producers = {'navigate_to_pose'}
+        self.gate._start -= Duration(seconds=T_READY + 1.0)
+        self.probe = rclpy.create_node('d13_test1_probe')
+
+        self.executor = MultiThreadedExecutor()
+        for node in (self.real_server_node, self.proxy, self.gate, self.probe):
+            self.executor.add_node(node)
+        self._spin_thread = threading.Thread(target=self.executor.spin, daemon=True)
+        self._spin_thread.start()
+
+    def tearDown(self):
+        self.fake_real.finish_now()
+        self.executor.shutdown(timeout_sec=2.0)
+        self._spin_thread.join(timeout=2.0)
+        self.fake_real.destroy()
+        self.proxy.destroy_node()
+        self.gate.destroy_node()
+        self.real_server_node.destroy_node()
+        self.probe.destroy_node()
+
+    def test_resume_succeeds_within_the_heartbeat_bound_on_a_clean_boot(self):
+        client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
+        self.assertTrue(client.wait_for_service(timeout_sec=5.0), 'release service never came up')
+
+        # 3.0s, not literally _HEARTBEAT_PERIOD_S (2.0s) - same margin
+        # test_heartbeat_reports_zero_outstanding_when_idle above gives:
+        # this test's own setUp constructs 4 nodes and starts spinning
+        # before the heartbeat timer's own clock starts, which is startup
+        # overhead D-13's "within 2s" bound is about steady-state operation,
+        # not this harness's own construction time.
+        deadline = time.monotonic() + 3.0
+        last_message = ''
+        while time.monotonic() < deadline:
+            future = client.call_async(Trigger.Request())
+            end = time.monotonic() + 0.5
+            while not future.done() and time.monotonic() < end:
+                time.sleep(0.02)
+            if future.done() and future.result() is not None:
+                if future.result().success:
+                    return
+                last_message = future.result().message
+            time.sleep(0.05)
+        self.fail(
+            'Resume did not succeed within the heartbeat bound of a clean boot with no goal '
+            f'ever sent - D-13 test 1 requires this with real action servers; last refusal: '
+            f'{last_message!r}')
 
 
 if __name__ == '__main__':

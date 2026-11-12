@@ -84,8 +84,26 @@ class NavigateToPoseGoalProxy(Node):
             cancel_callback=self._handle_cancel,
             callback_group=cb_group)
         self.create_timer(_HEARTBEAT_PERIOD_S, self._heartbeat, callback_group=cb_group)
+        # panthera-momagdii's #90 sixth review, P1: D-13 makes this proxy
+        # the clean-boot evidence for navigate_to_pose ("that node knows
+        # zero goals active, including at boot") - waiting for the first
+        # 2.0s timer tick before ever heartbeating left a real window where
+        # the gate had no evidence at all yet, and the gate's own bounded
+        # wait (safety_stop_gate_node.py's _release_blockers) depends on
+        # this heartbeat being immediate. Fire one right away.
+        self._heartbeat()
 
     def _heartbeat(self) -> None:
+        # panthera-momagdii's #90 sixth review, P1: a heartbeat claiming
+        # "zero outstanding" is only boot evidence if the real server this
+        # proxy relays to actually exists - if navigate_to_pose_real is not
+        # ready (bt_navigator absent/not yet up), silence here is correct:
+        # D-13 requires an absent server to read UNKNOWN and block, not a
+        # false "idle" from a proxy that has nothing real to report on.
+        # Skipping lets the gate's own stale_after timeout age this
+        # producer back to UNKNOWN on its own.
+        if not self._real_client.server_is_ready():
+            return
         self._goal_authority_pub.publish(String(
             data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
 

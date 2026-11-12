@@ -7,16 +7,36 @@ exclusion).
 Scope correction (panthera-momagdii's #90 review, P2): row 1's test below
 covers the undock_robot LEDGER path only, not real clean-boot evidence for
 either profile. _serve_legacy_actions_clear() publishes an empty
-GoalStatusArray() for navigate_to_pose/navigate_through_poses/dock_robot to
-give them a believable baseline so undock_robot's real ledger is what
-release actually hinges on here - but a real Nav2/opennav_docking server
-never publishes that before its first goal (rclcpp_action only publishes
-status on a transition; Nikolai measured 0 status messages over 12s on an
-idle stack, twice). On the real graph, both profiles still cannot Resume
-from a genuinely fresh boot: nav-only blocks on
-"navigate_to_pose: status stale or never received" until those three
-producers are also on the ledger (D-13 row 1 remains NOT MET for them -
-see STATE.md and the PR body).
+GoalStatusArray() for navigate_through_poses/dock_robot (navigate_to_pose
+is no longer legacy - see below) to give them a believable baseline so
+undock_robot's real ledger is what release actually hinges on here - but a
+real Nav2/opennav_docking server never publishes that before its first
+goal (rclcpp_action only publishes status on a transition; Nikolai measured
+0 status messages over 12s on an idle stack, twice).
+
+navigate_to_pose IS now on the ledger (navigate_to_pose_goal_proxy_node.py,
+D-13) and D-13 test 1 (clean-boot Resume within the ~2s heartbeat bound,
+real action servers, no goal ever sent) now passes for it - see
+D13TestOneCleanBootResumeTestCase in
+test_navigate_to_pose_goal_proxy_node.py, which proves this end to end with
+real rclpy action servers. This required two things beyond the ledger
+membership alone (panthera-momagdii's #90 sixth review): the gate's own
+discovery-grace barrier must trust the ledger once its bounded wait
+elapses, not block indefinitely on a publisher that is matched but has
+never published anything (a real idle action server does not publish
+until its first goal - "matched but no sample" is the PERMANENT state on a
+clean boot, not a transient race); and the proxy's own heartbeat must
+reflect navigate_to_pose_real's actual readiness (fires immediately at
+construction, suppressed while the real server is not ready) rather than
+blindly reporting "idle" on a fixed timer regardless of whether there is a
+real server behind it.
+
+navigate_through_poses and dock_robot are still NOT on the ledger: on the
+real graph, both profiles still cannot Resume from a genuinely fresh boot
+purely via those two - nav-only blocks on
+"navigate_through_poses: status stale or never received" until they are
+also on the ledger (D-13 row 1 remains NOT MET for them - see STATE.md and
+the PR body).
 
 Unlike test_stop_contract_full_chain.py (which fakes the dock-trigger
 status/abort entirely - see its own docstring on why dock_trigger's phase

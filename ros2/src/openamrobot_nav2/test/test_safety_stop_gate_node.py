@@ -1098,38 +1098,37 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         self.assertIn('undock_robot', result.message)
         status_pub.destroy()
 
-    def test_release_stays_refused_past_the_grace_window_if_no_sample_ever_arrives(self):
-        # panthera-momagdii's #90 third review, P1: the previous version of
-        # this fix only re-anchored the WINDOW to publisher-match time, but
-        # once that window elapsed with statuses still None, it appended no
-        # blocker at all and fell through - trusting silence from a
-        # publisher KNOWN to exist, which is not the same as having
-        # actually received its retained sample. Reproduced by matching the
-        # publisher, waiting past the grace window, and never publishing
-        # anything on it at all - release must stay refused indefinitely,
-        # not just for one grace period.
-        #
-        # Deliberately no notify_sent/instance-mismatch dance here - same
-        # reasoning as test_a_late_publisher_match_gets_its_own_fresh_
-        # grace_window just above: that would mark the entry `orphaned`,
-        # which blocks unconditionally via the ledger branch and would
-        # never actually exercise the status-reconciliation code below.
+    def test_release_succeeds_once_the_grace_window_elapses_even_if_no_sample_ever_arrives(self):
+        # panthera-momagdii's #90 sixth review, P1: an earlier round of this
+        # fix (914a2dd) made this branch block INDEFINITELY once a publisher
+        # was matched but had sent no sample, reasoning that a known-to-
+        # exist publisher owes evidence before being trusted. That broke
+        # D-13 test 1: a real rclpy action server (bt_navigator) publishes
+        # NO status at all until its first goal state change (rclcpp_action
+        # Jazzy server.cpp:609,:687; Nikolai measured 0 status messages in
+        # 12s on an idle stack) - "matched but no sample" is the PERMANENT
+        # state on a genuine clean boot, not a transient race, so blocking
+        # forever there made clean-boot Resume impossible. Reverted: once
+        # the (publisher-match-anchored) grace window elapses, trust the
+        # ledger's own IDLE read, same as the bounded-wait shape this
+        # branch had at `f482cfe`. The actual remaining race (the ledger
+        # read itself being trustworthy) is closed at the proxy instead -
+        # see NavigateToPoseGoalProxy's own heartbeat-suppression fix and
+        # D13TestOneCleanBootResumeTestCase in
+        # test_navigate_to_pose_goal_proxy_node.py, which is D-13's own
+        # "test 1" with real action servers end to end.
         self._publish_to_gate(
             String, 'goal_authority_events', String(data='undock_robot|heartbeat|b|0'))
         self._spin_both(timeout_s=0.2)
         self.assertFalse(self.node._goal_authority.is_orphaned('undock_robot'))
-        # navigate_to_pose is ledger-backed too (not legacy) - heartbeat it
-        # cleanly so its own discovery-grace/reconciliation never surfaces
-        # as a blocker here and masks whether undock_robot specifically
-        # blocked, which is all this test cares about.
         self._publish_goal_authority_heartbeat(producer='navigate_to_pose')
         for legacy_action in ('navigate_through_poses', 'dock_robot'):
             self._publish_goal_status(legacy_action, [])
         self._publish_dock_status('idle')
 
         # Real server exists (its status publisher is up) but - standing in
-        # for delivery lagging further than discovery, or the server simply
-        # never having published anything at all yet - never sends a sample.
+        # for a genuinely idle real action server, which never publishes
+        # anything at all until its first goal - never sends a sample.
         status_pub = self.probe.create_publisher(
             GoalStatusArray, 'undock_robot/_action/status',
             qos_profile_action_status_default)
@@ -1140,17 +1139,15 @@ class TestLedgerReconciliationAcrossProducerAndGateRestart(NodeTestCase):
         # Force the match to be recorded now, then wait past the grace
         # window - deterministic, not real elapsed wall time.
         self._spin_both(timeout_s=0.1)
+        now_s = self.node.get_clock().now().nanoseconds / 1e9
         self.node._status_publisher_matched_at['undock_robot'] = (
-            self.node.get_clock().now().nanoseconds / 1e9 - (_LEDGER_STATUS_DISCOVERY_GRACE_S + 1.0))
+            now_s - (_LEDGER_STATUS_DISCOVERY_GRACE_S + 1.0))
 
         result = self._call_trigger('/safety/stop_lock_release')
-        self.assertFalse(
+        self.assertTrue(
             result.success,
-            'release succeeded after the grace window elapsed with undock_robot\'s status '
-            'publisher matched but no sample ever received - a known-to-exist publisher '
-            'that has not delivered a sample must block indefinitely, not just during '
-            'the grace window')
-        self.assertIn('undock_robot', result.message)
+            'release stayed refused after the grace window elapsed even though no active '
+            f'goal was ever reported - D-13 test 1 requires Resume here: {result.message}')
         status_pub.destroy()
 
 
