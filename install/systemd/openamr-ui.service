@@ -1,0 +1,31 @@
+[Unit]
+Description=OpenAMRobot operator UI backend (Flask, rosbridge)
+Documentation=https://github.com/openAMRobot/openamr-platform-sw
+PartOf=openamr.target
+After=network-online.target time-sync.target openamr-bringup.service
+# The UI is useful only with the stack up, but it must never block or restart it, so
+# bringup is only Wanted, not Required.
+Wants=time-sync.target openamr-bringup.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=openamr
+Group=dialout
+EnvironmentFile=/etc/openamr/openamr.env
+# The UI starts without sending any command. Bag replay and the legacy move_base launch are
+# not started by this unit (H-day profile: replay off).
+ExecStart=/opt/openamr/bin/openamr-run.sh ui
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=15
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/data/maps
+
+[Install]
+WantedBy=openamr.target

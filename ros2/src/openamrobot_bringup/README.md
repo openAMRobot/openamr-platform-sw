@@ -151,3 +151,25 @@ centre on the 7.1 mm spacer (P-03 rev19.0 items 13 and 19).
 > `real_bringup.launch.py` is the **data source only**. For the full stack (data source +
 > Nav2), use `bringup.launch.py` above — it adds localization + navigation with the shared
 > `openamrobot_nav2/config/nav2_params.yaml` and the right `use_sim_time`.
+
+## H-day legacy profile (`hday_legacy.launch.py`)
+
+One command for the 16 Nov 2026 release 001 rig (Teensy, RPLIDAR A1, no camera, nav-only):
+
+```bash
+ros2 launch openamrobot_bringup hday_legacy.launch.py map:=/data/maps/real_map.yaml
+```
+
+`map` is required; there is no default map on the real robot. The profile starts `real_bringup`
+(`lidar_model:=a1`, `use_camera:=false`), the plain goal relay, and Nav2 localization and
+navigation with `use_sim_time:=false`. It does not start docking, bag replay, the UI package's
+legacy `move_base` launch, or any 2.0 sensor, and it publishes no `/cmd_vel` itself.
+
+Commissioning limits, 0.20 m/s linear and 1.0 rad/s angular, are in
+`config/hday_commissioning_limits.yaml` and are merged over `nav2_params.yaml` into a temporary file at
+launch. They apply to this rig only. The product speed ceiling stays 0.5 m/s and
+`nav2_params.yaml` is unchanged.
+
+The profile keeps the Gate A static transforms from `real_bringup`, so it must not be combined with
+the URDF `robot_state_publisher` (`lidar_link` would get two parents). `test/test_hday_tf_tree.py`
+checks that every frame has one parent and the tree reaches `odom`.

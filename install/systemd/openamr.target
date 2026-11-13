@@ -1,0 +1,8 @@
+[Unit]
+Description=OpenAMRobot software stack (agent, bringup, UI)
+Documentation=https://github.com/openAMRobot/openamr-platform-sw
+After=network-online.target
+Wants=network-online.target openamr-agent.service openamr-bringup.service openamr-ui.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,34 @@
+[Unit]
+Description=OpenAMRobot micro-ROS agent (base controller link)
+Documentation=https://github.com/openAMRobot/openamr-platform-sw
+PartOf=openamr.target
+After=network-online.target time-sync.target
+Wants=time-sync.target
+# The device name comes from install/udev/99-openamrobot.rules; the run script checks it.
+# STANDALONE agent only. The release 001 / H-day legacy profile starts its own agent inside
+# openamrobot_drivers (drivers.launch.py), and two agents on one device collide. This unit
+# therefore does nothing unless the marker file exists: use it for a profile whose drivers
+# launch no agent (the 2.0 base controller link once its micro-ROS application exists).
+ConditionPathExists=/etc/openamr/enable-standalone-agent
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=openamr
+Group=dialout
+EnvironmentFile=/etc/openamr/openamr.env
+ExecStart=/opt/openamr/bin/openamr-run.sh agent
+# A dead agent means no commands reach the base: the base stops by its own 200 ms /cmd_vel
+# watchdog. Restarting the agent only restores the link; it commands nothing.
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=openamr.target
