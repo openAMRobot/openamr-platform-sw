@@ -19,7 +19,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PythonExpression
 from launch_ros.actions import LoadComposableNodes, SetParameter
 from launch_ros.actions import Node
 from launch_ros.descriptions import ComposableNode, ParameterFile
@@ -40,6 +40,9 @@ def generate_launch_description():
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
 
+    use_waypoint_follower = LaunchConfiguration('use_waypoint_follower')
+    status_profile_path = LaunchConfiguration('status_profile_path')
+
     lifecycle_nodes = [
         'controller_server',
         'planner_server',
@@ -50,6 +53,13 @@ def generate_launch_description():
         'velocity_smoother',
         'collision_monitor',
     ]
+    # use_waypoint_follower:=false (legacy_v001 profile, Build 1) drops waypoint_follower from
+    # both the started nodes and the lifecycle manager's list, so the manager does not wait for
+    # a node that never starts. The default (true) keeps the list above unchanged.
+    lifecycle_nodes_selected = IfElseSubstitution(
+        use_waypoint_follower,
+        str(lifecycle_nodes),
+        str([n for n in lifecycle_nodes if n != 'waypoint_follower']))
 
     # Map fully qualified names to relative ones so the node's namespace can be prepended.
     # In case of the transforms (tf), currently, there doesn't seem to be a better alternative
@@ -118,6 +128,20 @@ def generate_launch_description():
 
     declare_log_level_cmd = DeclareLaunchArgument(
         'log_level', default_value='info', description='log level'
+    )
+
+    declare_use_waypoint_follower_cmd = DeclareLaunchArgument(
+        'use_waypoint_follower',
+        default_value='true',
+        description=('Start nav2 waypoint_follower. false = not started and not managed '
+                     '(Build 1 / legacy_v001: follow_waypoints is not cancelled by the stop '
+                     'path, so the follower is disabled).'),
+    )
+
+    declare_status_profile_path_cmd = DeclareLaunchArgument(
+        'status_profile_path',
+        default_value=os.path.join(bringup_dir, 'config', 'navigation_status_profile.yaml'),
+        description='Sensor and motion-source profile for navigation_status_node.',
     )
 
     load_nodes = GroupAction(
@@ -196,6 +220,7 @@ def generate_launch_description():
                 remappings=remappings + [('goal_pose', 'goal_pose_nav')],
             ),
             Node(
+                condition=IfCondition(use_waypoint_follower),
                 package='nav2_waypoint_follower',
                 executable='waypoint_follower',
                 name='waypoint_follower',
@@ -227,7 +252,8 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel
+                # (set in nav2_params.yaml).
                 remappings=remappings,
             ),
             Node(
@@ -236,7 +262,8 @@ def generate_launch_description():
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
+                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes_selected},
+                            {'bond_timeout': 60.0}],
             ),
         ],
     )
@@ -254,7 +281,7 @@ def generate_launch_description():
         output='screen',
         respawn=use_respawn,
         respawn_delay=2.0,
-        parameters=[{'use_sim_time': use_sim_time}],
+        parameters=[{'use_sim_time': use_sim_time, 'profile_path': status_profile_path}],
         arguments=['--ros-args', '--log-level', log_level],
     )
 
@@ -305,6 +332,7 @@ def generate_launch_description():
                         remappings=remappings + [('goal_pose', 'goal_pose_nav')],
                     ),
                     ComposableNode(
+                        condition=IfCondition(use_waypoint_follower),
                         package='nav2_waypoint_follower',
                         plugin='nav2_waypoint_follower::WaypointFollower',
                         name='waypoint_follower',
@@ -330,7 +358,8 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
+                            {'autostart': autostart, 'node_names': lifecycle_nodes_selected,
+                             'bond_timeout': 60.0}
                         ],
                     ),
                 ],
@@ -353,6 +382,8 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_use_waypoint_follower_cmd)
+    ld.add_action(declare_status_profile_path_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
