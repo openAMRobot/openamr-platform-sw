@@ -132,8 +132,18 @@ ros2 launch openamrobot_bringup real_bringup.launch.py
 
 ### EKF (`config/ekf.yaml`)
 
-Fuses `/odom/unfiltered` (wheel vx, vyaw) + `/imu/data` (**only** `angular_velocity.z`).
-The MPU-6500 has no valid orientation quaternion and a tilted accelerometer, so the EKF runs
+Fuses `/odom/unfiltered` (wheel vx, vyaw) + `/imu/data_raw` (**only** `angular_velocity.z`).
+The 2.0 base firmware publishes `/imu/data_raw` and the EKF reads it directly; there is no
+host IMU filter in 2.0 (P-03 rev20.0 item 24, decision D-10). The Gate A (legacy) Teensy
+publishes `/imu/data`; for a Gate A run, select it explicitly (the EKF input is set as a
+parameter, the micro-ROS agent is not remapped):
+
+```bash
+ros2 launch openamrobot_bringup bringup.launch.py imu_topic:=/imu/data
+```
+
+The default `imu_topic:=/imu/data_raw` is the 2.0 base firmware topic.
+The Gate A IMU, the MPU-6500, has no valid orientation quaternion and a tilted accelerometer, so the EKF runs
 `two_d_mode: true` with gyro-Z only. `transform_time_offset: 0.2` dates the published TF
 forward because the LiDAR scan arrives ~0.14 s ahead of the TF (micro-ROS latency),
 preventing "extrapolation into the future" on the SLAM side.
