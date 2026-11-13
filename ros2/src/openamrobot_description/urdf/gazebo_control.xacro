@@ -1,6 +1,30 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- ── Contact friction ───────────────────────────────────────────────────
+       The URDF to SDF conversion drops a raw <surface> written under <gazebo reference>
+       (gz sdf -p warns "surface, child of link, not defined in SDF" and copies it to the
+       link, where physics ignores it). Before this change every wheel contact therefore ran
+       at the default mu 1, and the four caster spheres, lumped into base_footprint by their
+       fixed joints, dragged at mu 1. <mu1>, <mu2> and <fdir1> are the tags the conversion
+       applies to every collision of the link, lumped ones included.
+       The values are the ones this file already carried: no new number.
+       The contact-stiffness values (kp, kd, min_depth, max_vel) of the old blocks were
+       dropped the same way and are not applied here; applying them is a separate decision.
+       slip1/slip2 0.001 of the drive wheels have no URDF tag and are not applied either.
+       Simulation estimates, not measured tyre or castor materials.
+       Test: test/test_gazebo_friction.py -->
+  <xacro:macro name="drive_wheel_friction">
+    <mu1>1.5</mu1>
+    <mu2>0.5</mu2>
+    <fdir1>1 0 0</fdir1>
+  </xacro:macro>
+  <!-- Frictionless: a caster sphere must roll under the base, not drag it. -->
+  <xacro:macro name="caster_friction">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </xacro:macro>
+
   <!-- ── World-level plugins (no reference attribute) ─────────────── -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
@@ -62,49 +86,13 @@
   <!-- ── Link-level: left_wheel_link ────────────────────────────────────── -->
   <gazebo reference="left_wheel_link">
     <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
+    <xacro:drive_wheel_friction/>
   </gazebo>
 
   <!-- ── Link-level: right_wheel_link ───────────────────────────────────── -->
   <gazebo reference="right_wheel_link">
     <material>Gazebo/DarkGrey</material>
-    <surface>
-      <friction>
-        <ode>
-          <mu>1.5</mu>
-          <mu2>0.5</mu2>
-          <fdir1>1 0 0</fdir1>
-          <slip1>0.001</slip1>
-          <slip2>0.001</slip2>
-        </ode>
-      </friction>
-      <contact>
-        <ode>
-          <kp>1e7</kp>
-          <kd>1</kd>
-          <min_depth>0.001</min_depth>
-          <max_vel>0.5</max_vel>
-        </ode>
-      </contact>
-    </surface>
+    <xacro:drive_wheel_friction/>
   </gazebo>
 
   <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
@@ -115,22 +103,7 @@
     </gazebo>
     <gazebo reference="${prefix}_wheel_link">
       <material>Gazebo/DarkGrey</material>
-      <surface>
-        <friction>
-          <ode>
-            <mu>0.0</mu>
-            <mu2>0.0</mu2>
-          </ode>
-        </friction>
-        <contact>
-          <ode>
-            <kp>1e7</kp>
-            <kd>1</kd>
-            <min_depth>0.001</min_depth>
-            <max_vel>0.5</max_vel>
-          </ode>
-        </contact>
-      </surface>
+      <xacro:caster_friction/>
     </gazebo>
   </xacro:macro>
 
