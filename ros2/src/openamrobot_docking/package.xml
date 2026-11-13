@@ -22,6 +22,11 @@
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
 
+  <!-- Docking action server (/dock_robot, /undock_robot) — started by this
+       package's launch since platform-sw#123; dock_trigger is its client. -->
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+
   <!-- Launch infrastructure -->
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
@@ -38,6 +43,9 @@
 
   <!-- Nav2 action interfaces used by the bundle sequencer -->
   <exec_depend>nav2_msgs</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -9,10 +9,9 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Type and lifecycle: software, active
 - Readiness: not yet assessed (17 Oct 2026, rollout step a)
 - Owner role: software-lead (maintainers.yaml)
-- Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
-  `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026) and `repository-quality`; no
-  `tools/verify.sh` yet. `repository-quality` PASS on main at
-  dfd44a5 (16 Oct 2026).
+- Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`, `description-tests`
+  (24 Oct 2026; 29 tests from 1 Nov 2026), `docking-tests` (9 Nov 2026, #125) and
+  `repository-quality`; no `tools/verify.sh` yet. `repository-quality` PASS on main at dfd44a5.
 
 ## Current work
 
@@ -32,6 +31,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
+| Start `opennav_docking` so `/dock_robot`/`/undock_robot` exist (#123); **D-19 implemented** (Alex, 11 Nov): `use_docking` resolves from `sim` (on in simulation, off on the real profile) and the standalone real launch defaults `launch_docking_server` false; `launch_camera_pipeline` separates the AprilTag stack from the server (12 Nov 2026) | #125 | in review; hosted `docking-tests` green at `8c28493` (run [43283984064](https://github.com/openAMRobot/openamr-platform-sw/actions/runs/43283984064)): **16 regressions** (8 launch/parser + 6 preflight + 1 launch-failure + 1 self-test), hung-query cases force the no-coreutils fallback and assert it fires, sim live check **ran** and observed one server per action, negative control exit 10; `quality/test` **SKIPPED** in [43234782120](https://github.com/openAMRobot/openamr-platform-sw/actions/runs/43234782120); source-build fallback exercised off-CI (evidence branch `e38660e`) but not in the CI container (#57); workspace build is fatal again, so a build break cannot pass as NOT RUN | safety owner: real-profile runtime, direct `/undock_robot` no-motion and hardware remain NOT RUN; two-human review |
 
 ## Decisions this repository implements
 
