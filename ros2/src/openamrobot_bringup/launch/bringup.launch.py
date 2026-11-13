@@ -213,7 +213,8 @@ def generate_launch_description():
             description='Sim only: open the Gazebo 3D window (false = headless).'),
         DeclareLaunchArgument(
             'use_camera', default_value='true',
-            description='Real only: launch the IMX708 camera (false = lighter load).'),
+            description='Real only: launch the IMX708 camera, legacy (existing robot) '
+                        '(false = lighter load).'),
         DeclareLaunchArgument(
             'use_docking', default_value='true',
             description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '

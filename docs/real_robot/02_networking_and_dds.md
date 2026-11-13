@@ -14,7 +14,7 @@ Consolidates memory `amr-wifi-guest-flaky`, `amr-pi-ros-commands`, `pi-ssh-acces
 
 The network + DDS topology is shown below.
 
-![Networking/DDS topology: operator PC + Raspberry Pi 5 (reached by mDNS <robot>.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
+![Networking/DDS topology: operator PC + Raspberry Pi 5, legacy (existing robot) (reached by mDNS <robot>.local) + Teensy over USB micro-ROS, all sharing RMW=CycloneDDS and ROS_DOMAIN_ID=0; three traps highlighted (PC on FastDDS/domain 42, Docker UI on FastDDS, Wi-Fi Guest isolation)](diagrams/networking-dds-topology.svg)
 
 
 | Setting | Value | Why |
@@ -109,7 +109,7 @@ This is the mechanism behind most link collapses. Two triggers, same root cause.
 
 ### 4a. The camera stream
 
-The IMX708 publishes **1280×720 RELIABLE** (~2.76 MB/frame, ~15 fps). On a healthy link
+The IMX708, legacy (existing robot) publishes **1280×720 RELIABLE** (~2.76 MB/frame, ~15 fps). On a healthy link
 (earlier sessions, ~0 % loss) it's fine. On a **degraded** guest link, any packet loss
 triggers a **DDS reliable-retransmit storm** on those big image frames → it eats the airtime
 → ping / SSH / DDS all collapse. **The camera didn't change — the network degraded.**

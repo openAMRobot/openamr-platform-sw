@@ -9,13 +9,17 @@ engineering + operations** series; for a first bring-up jump to
 
 ## What the real robot is
 
+This series records the existing robot (Gate A, release 001 / v0.0.1). OpenAMRobot 2.0:
+Jetson Orin NX 8 GB on the reComputer Robotics 104 (D-01; exact carrier SKU to confirm), STM32H723ZG, ZLAC8015D on CAN1 with 200 mm wheels, Gemini
+336L, RPLIDAR S3, 25.6 V LiFePO4, no 12 V rail.
+
 A differential-drive AMR with **two brains** (the split is deliberate — see
 [`../architecture/ARCHITECTURE_OVERVIEW.md`](../architecture/ARCHITECTURE_OVERVIEW.md)):
 
 | Brain | Hardware | Runs | Talks |
 |---|---|---|---|
 | **Real-time** | Teensy 4.0 firmware @ 50 Hz | encoder read, IMU read, motor PID | **micro-ROS** over USB serial |
-| **High-level** | Raspberry Pi 5 (4× Cortex-A76, 8 GB), ROS 2 Jazzy | perception, localization, Nav2, docking | **CycloneDDS** on the LAN |
+| **High-level** | Raspberry Pi 5, legacy (existing robot) (4× Cortex-A76, 8 GB), ROS 2 Jazzy | perception, localization, Nav2, docking | **CycloneDDS** on the LAN |
 
 Keeping motion control on the Teensy means the wheels are never scheduled against vision
 or planning — the thing that repeatedly bites us on the Pi (see
@@ -25,10 +29,10 @@ or planning — the thing that repeatedly bites us on the Pi (see
 
 | Part | Detail | Port |
 |---|---|---|
-| Compute | Raspberry Pi 5 Model B Rev 1.1, 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
+| Compute | Raspberry Pi 5 Model B Rev 1.1, legacy (existing robot), 8 GB, Ubuntu Server 24.04, ROS 2 Jazzy | — |
 | MCU | Teensy 4.0, OpenAMRobot motor-control firmware (see `openamr-platform-fw`) | `/dev/ttyACM0` (by-id: `usb-Teensyduino_USB_Serial_<serial>-if00`) |
 | LiDAR | RPLIDAR A1, legacy (existing robot) (2D, ~5.5–10 Hz), mounted **rotated 180°**. OpenAMRobot 2.0 uses the RPLIDAR S3 (`lidar_model:=s3`; the driver default stays `a1` until the S3 is mounted) | `/dev/ttyUSB0` (CP2102) |
-| Camera | Sony **IMX708** (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
+| Camera | Sony **IMX708**, legacy (existing robot) (Pi Camera Module 3 **NoIR**), CSI, `camera_ros` | CSI ribbon |
 | Drive | 2× BLDC Z4BLD60-24GN-30S (60 W, 30:1), 2× ZBLD.C20-120L2R drivers | — |
 | Power | 2× 12 V lead-acid in series (24 V bus), 5 V buck to the Pi | — |
 
@@ -67,7 +71,7 @@ TF: (map →) odom → base_link → {lidar_link, imu_link, base_footprint,
 
 | Node (real) | Package | Provides |
 |---|---|---|
-| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data`, `/debug/*` |
+| micro-ROS agent | `openamrobot_drivers` | `/cmd_vel`, `/odom/unfiltered`, `/imu/data` (Gate A Teensy); the 2.0 firmware publishes `/imu/data_raw`, the EKF input (D-10), `/debug/*` |
 | `sllidar_node` (`sllidar_ros2`) | `openamrobot_drivers` | `/scan` (frame `lidar_link`) |
 | `scan_body_filter` | `openamrobot_perception` | `/scan_filtered` (robot body masked) |
 | `ekf_node` (`robot_localization`) | `openamrobot_bringup` cfg | `/odom` + TF `odom→base_link` (wheels + IMU gyro-Z) |
@@ -93,7 +97,7 @@ Everything else — the Nav2 stack, the `nav2_params.yaml`, the docking sequence
 | Clock | `use_sim_time:=true` | `use_sim_time:=false` |
 | Initial pose | AMCL `set_initial_pose:=true` at (0,0) (robot spawns at origin) | **disabled** — operator sets it with RViz **2D Pose Estimate** |
 | Map | bundled `my_map.yaml` (walled world) | **required** explicit `map:=…` (no silent fallback) |
-| AprilTag input | Gazebo `/rgb_image` | IMX708 `/camera/image_raw`, detector composed intra-process |
+| AprilTag input | Gazebo `/rgb_image` | IMX708, legacy (existing robot) `/camera/image_raw`, detector composed intra-process |
 | The dock | modelled in the world | **printed 3-tag bundle** (no physical dock) |
 | Compute headroom | a desktop | a Pi 5 that saturates / throttles — the recurring wall |
 | Transport | loopback | **CycloneDDS over Wi-Fi** — a fragile link (see [`02_networking_and_dds.md`](02_networking_and_dds.md)) |
