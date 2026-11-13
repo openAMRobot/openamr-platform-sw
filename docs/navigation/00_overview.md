@@ -40,7 +40,7 @@ This is what makes the simulation a faithful rehearsal for the hardware.
   over). See [`../../ros2/src/openamrobot_docking/docs/`](../../ros2/src/openamrobot_docking/docs/README.md).
 - **Provide hard functional safety** — the collision_monitor + velocity limits + firmware
   watchdog are the current safety envelope; there is **no hardware E-stop / safety_io** yet.
-  See [`../safety/`](../safety/README.md).
+  See [`../safety/`](../safety/README.md). For 2.0, the hardware E-stop chain is defined in E-01 rev1.8 (team document, 8 Nov 2026; page proposed in openamr-platform-hw#27): two dual-channel E-stops, a Pilz PNOZ s3 safety relay and two Gigavac GX11CAC contactors. The chain is hardware only, with no software and no bus in the safety path. The base controller only observes it (relay output and E-stop spare contacts, as diagnostics) and adds a secondary software inhibit; how those observations reach ROS is proposed in openamrobot-interfaces#30, not decided. Not built or tested yet.
 
 ---
 
