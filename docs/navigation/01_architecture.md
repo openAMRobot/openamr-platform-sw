@@ -100,8 +100,8 @@ map                                        ← amcl (localization)
              ├─ imu_link                   ← (0.0544, 0, 0.1210), yaw −π/2, ICM-42688-P
              ├─ us_front_left / us_front_right  ← (0.3906, ±0.130, −0.0066), MB7060
              ├─ us_rear_left / us_rear_right    ← (−0.3886, ±0.130, −0.0066), yaw π
-             ├─ tof_front                  ← (0.399, 0, −0.0066), pitch 0.3491 (20° down), TF-Luna
-             ├─ tof_rear                   ← (−0.399, 0, −0.0066), pitch 0.3491, yaw π
+             ├─ tof_front                  ← (0.399, 0, −0.0066), pitch 0.174533 (10° down), TF-Luna
+             ├─ tof_rear                   ← (−0.399, 0, −0.0066), pitch 0.174533, yaw π
              └─ camera_link                ← legacy IMX708, Gate A (0.35, 0, 0.20)
                  └─ camera_optical_frame
 ```
@@ -109,8 +109,9 @@ map                                        ← amcl (localization)
 `base_tilt` selects the base camera pitch: `bt05` / `bt10` / `bt15` = −0.0873 / −0.1745 /
 −0.2618 rad (5 / 10 / 15° up), default `bt10`. Sensor poses are from the CAD Rev B full assembly
 (2026-10-15) and P-03 rev19.0 item 19, listed with their source and status in
-`openamrobot_description/config/sensor_frames.yaml`. The TF-Luna pitch is a 20° down screening
-value until the bench test.
+`openamrobot_description/config/sensor_frames.yaml`. The TF-Luna pitch is 10° down (register
+NEAR-FIELD-FRAMES, Alex decision 2026-10-20), pending the bench test on real floors; it was 20° down
+(screening value, superseded).
 
 ### Real robot today (Gate A unit)
 
