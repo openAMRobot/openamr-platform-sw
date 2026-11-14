@@ -1,5 +1,5 @@
 """
-Camera bring-up for the real OpenAMRobot (Sony IMX708 via camera_ros).
+Camera bring-up for the existing robot (Sony IMX708, legacy (existing robot), via camera_ros).
 
 Resolution / format / frame / calibration are all parameters (Raj review PR1): defaults match THIS
 unit (1280x720, calibrated), but everything is overridable for another camera. The node name is the

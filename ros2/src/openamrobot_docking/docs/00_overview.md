@@ -8,9 +8,9 @@ For installation and a first run, see [`01_quickstart.md`](01_quickstart.md).
 
 ## What this package does
 
-`openamrobot_docking` is a ROS 2 (Jazzy) package that makes a differential-drive robot autonomously dock onto a charging station marked with a **3-tag AprilTag bundle** (family 36h11, IDs **0, 1, 2** — outer tags at ±0.45 m from the centre on a horizontal line, all on 0.20 m × 0.20 m panels with a 0.16 m black-square edge).
+`openamrobot_docking` is a ROS 2 (Jazzy) package that makes a differential-drive robot autonomously dock at a docking station (positioning only; docking never establishes charging) marked with a **3-tag AprilTag bundle** (family 36h11, IDs **0, 1, 2** — outer tags at ±0.45 m from the centre on a horizontal line, all on 0.20 m × 0.20 m panels with a 0.16 m black-square edge).
 
-In one sentence: **publish a `Bool true` on `/dock_trigger`, the robot drives to a staging zone near the dock, estimates the dock's surface normal from the wide-baseline bundle, refines its position with a camera-centric approach, and engages perpendicular to the tag at a configurable distance — aligned and ready to charge.**
+In one sentence: **publish a `Bool true` on `/dock_trigger`, the robot drives to a staging zone near the dock, estimates the dock's surface normal from the wide-baseline bundle, refines its position with a camera-centric approach, and engages perpendicular to the tag at a configurable distance, aligned at the docking pose (positioning only; docking does not establish charging).**
 
 This package handles:
 

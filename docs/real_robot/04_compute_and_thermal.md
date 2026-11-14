@@ -11,7 +11,7 @@ detail) and the two audits in the `openamr` instance repo.
 
 ## The platform
 
-Raspberry Pi 5 Model B Rev 1.1 — **4× Cortex-A76 up to 2.4 GHz**, **8 GB** RAM, Ubuntu
+Raspberry Pi 5 Model B Rev 1.1, legacy (existing robot) — **4× Cortex-A76 up to 2.4 GHz**, **8 GB** RAM, Ubuntu
 Server 24.04, ROS 2 Jazzy. RAM is *not* a bottleneck (6.4 GB free under the full stack).
 Two things are: **cores** (when the pipeline churns) and **temperature** (no cooler fitted).
 Full hardware spec: `openamr-platform-hw` → `electrical/computing/raspberry-pi.md`.
@@ -25,7 +25,7 @@ Snapshot during a **real dock**, full (non-composed) stack, load ≈ 8 on 4 core
 | Process | %CPU | Needed by | Notes |
 |---|---|---|---|
 | `web_video_server` | 54 % | diagnostics only | **kill for real runs** |
-| `camera_node` | 37 % | vision | IMX708 @ 1280×720, software ISP |
+| `camera_node` | 37 % | vision | IMX708, legacy (existing robot) @ 1280×720, software ISP |
 | `apriltag_gate.py` | 35 % | vision (old path) | Python full-res republish — removed by composition |
 | `apriltag_node` | 20 % | docking only | the detector (~166 % when unthrottled) |
 | `dock_trigger.py` | 18–36 % | docking only | the sequencer (burns ~30 % even *idle*) |
@@ -111,7 +111,7 @@ watch -n1 "vcgencmd measure_temp; vcgencmd get_throttled"
 
 ### Mitigation
 
-- **Real fix (hardware):** fit the official **Raspberry Pi 5 Active Cooler** (~€5–10 clip-on
+- **Real fix (hardware):** fit the official **Raspberry Pi 5 Active Cooler**, legacy (existing robot) (clip-on
   heatsink+fan) → ~50–60 °C under load, throttling gone. *On order as of 2026-07-06; this is
   why on-robot work paused in favour of documentation.*
 - **Interim (software):** the **light bring-up** removes ~74 % of a core of unnecessary work,

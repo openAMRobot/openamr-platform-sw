@@ -1,15 +1,16 @@
 # openamrobot_drivers
 
-Host-side hardware driver layer for the **real** OpenAMRobot. Thin on purpose: the
-real control loop (per-wheel PID, encoder reading, odometry, IMU) runs in the **Teensy
-firmware** (`openamr-platform-fw`); this package only bridges it to ROS and starts the
-sensor drivers.
+Host-side hardware driver layer for the **real** OpenAMRobot. Thin on purpose: on the
+Gate A (legacy) robot the real control loop (per-wheel PID, encoder reading, odometry, IMU)
+runs in the **Teensy firmware** (`openamr-platform-fw`); this package only bridges it to ROS
+and starts the sensor drivers. The 2.0 base controller is the STM32H723ZG.
 
 ## `drivers.launch.py`
 
 Starts:
-- the **micro-ROS agent** over USB serial — bridges the Teensy topics `/cmd_vel`,
-  `/odom/unfiltered`, `/imu/data` (needs `micro_ros_agent` installed);
+- the **micro-ROS agent** over USB serial — bridges the Gate A (legacy) Teensy topics `/cmd_vel`,
+  `/odom/unfiltered`, `/imu/data` (needs `micro_ros_agent` installed); the 2.0 firmware
+  publishes `/imu/data_raw`;
 - the navigation **LiDAR** driver (Slamtec `sllidar_ros2`, node `sllidar_node`) → `/scan`
   in frame `lidar_link`. `lidar_model:=s3` is the RPLIDAR S3 (OpenAMRobot 2.0);
   `lidar_model:=a1` is the RPLIDAR A1, legacy (existing robot). Any other value is rejected.

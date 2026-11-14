@@ -44,7 +44,7 @@ The first snapshot during a real dock showed **load ≈ 8.0 on 4 cores** (2× ov
 | Process | %CPU | Note |
 |---|---|---|
 | `web_video_server` | 54 % | diagnostic streamer — **kill during real runs** |
-| `camera_node` | 37 % | IMX708 @ 1280×720 (software ISP) |
+| `camera_node` | 37 % | IMX708, legacy (existing robot) @ 1280×720 (software ISP) |
 | `apriltag_gate.py` | 35 % | **Python re-publish of every full-res frame** |
 | `apriltag_node` | 20 % | the detector itself |
 | `dock_trigger.py` | 18 % | the sequencer |

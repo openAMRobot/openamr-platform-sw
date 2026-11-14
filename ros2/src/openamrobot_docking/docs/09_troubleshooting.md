@@ -221,7 +221,7 @@ The previous "visual_servo" sub-phase (one-shot align + straight-line) has been 
 
 The bundle sequencer stops when the **camera → centre tag depth** ≤ `docking_distance` (default `0.13` m, set just above the depth where the tag leaves the FOV). With the dock at world `(4.899, 0)` and the panel facing `-x`, the robot stops with its front a few centimetres from the dock face. The obstacle guard (see [`05_parameters.md`](05_parameters.md) "Obstacle guard during drive phases") is intentionally **skipped during Phase 5** — the dock is the target.
 
-If you increase `docking_distance`, the robot stops further from the dock and won't reach the charge contacts; if you decrease it below ~0.10 m, the camera→tag distance is dominated by the camera mount offset and the controller becomes ill-conditioned. Double-check the robot's footprint length and the wall position before changing this value.
+If you increase `docking_distance`, the robot stops further from the dock and won't reach the docking pose; if you decrease it below ~0.10 m, the camera→tag distance is dominated by the camera mount offset and the controller becomes ill-conditioned. Double-check the robot's footprint length and the wall position before changing this value.
 
 #### **[sim]** Robot slides instead of driving cleanly
 

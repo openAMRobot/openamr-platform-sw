@@ -1,7 +1,7 @@
 launch:
 # AprilTag detection on the REAL robot.
 #
-# Does NOT start a camera — the real camera (camera_ros / IMX708) is already
+# Does NOT start a camera: the real camera (camera_ros / IMX708, legacy (existing robot)) is already
 # started by openamrobot_bringup/real_bringup.launch.py and publishes:
 #   /camera/image_raw      (raw image)
 #   /camera/camera_info    (this unit's calibrated intrinsics)
