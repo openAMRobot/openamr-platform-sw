@@ -13,6 +13,18 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
+
+- Owner decisions of 8 Nov 2026 (P-03 rev20.5 item 29, rev20.6 item 30 A6): every base link with mass reads its inertial from
+  `config/roadmap_mass_export.yaml`, a verbatim copy of the openamrobot-docs mass export, pinned by commit and SHA-256 in
+  `config/roadmap_mass_export.source.yaml`. Each BOM part is counted once, quantity x datasheet mass (custom parts from
+  dimensions and material), on the link where it sits: base_link 49.2 kg (chassis, battery cells, trays, power and compute
+  electronics, base camera, rigid parts), the ZLLG80 hub motors on `left_wheel_link` and `right_wheel_link` (3.45 kg each),
+  each LPA-VSTH 35K castor on its caster and castor-wheel link (0.3 kg), the RPLIDAR S3 on `lidar_link` (0.115 kg). Base total
+  57.4 kg. The legacy `camera_link` is massless (its 0.05 kg was no 2.0 part). The masses were the SolidWorks shell values
+  (base_link 4.175 kg, wheels 1.061 kg). `test/test_base_mass.py` checks every link and the expanded total and centre of mass
+  against the export (35 description tests). Design values, not weighed.
+
 ### Fixed — Robot model: legacy camera_link box no longer drawn on the 2.0 base (1 Nov 2026)
 
 - The legacy Gate A IMX708 `camera_link` placeholder box (0.04 x 0.08 x 0.04 m at xyz

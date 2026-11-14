@@ -58,14 +58,36 @@ BOM 7.14 row, provisional); `meshes/PROVENANCE.yaml` lists the nodes under `glb.
 
 ## Robot Model
 
-| Link | Collision Geometry |
-|---|---|
-| `base_link` (4.175 kg) | STL mesh |
-| `left_wheel_link` / `right_wheel_link` (1.061 kg) | Cylinder r=0.11 m |
-| `fl/fr/bl/br_caster_link` (0.022 kg) | STL mesh |
-| `fl/fr/bl/br_wheel_link` (0.024–0.027 kg) | Sphere r=0.026 m |
-| `lidar_link` (0.168 kg) | STL mesh |
-| `camera_link` (0.05 kg, legacy Gate A IMX708 frame) | none; no visual (box removed 1 Nov 2026, it stood above the 2.0 top cover) |
+Masses and inertias: every link below reads its inertial from `config/roadmap_mass_export.yaml` (the roadmap model export,
+each part counted once on the link where it sits; `test/test_base_mass.py` checks the expanded URDF against it). No mass is
+written into this table or the xacro by hand. `urdf/robot.sdf` is the legacy SolidWorks SDF, not used by any launch file and not
+a mass source.
+
+Three masses, three names (pinned export: openamrobot-docs ff8ca57, BOM Issue 7.15; design values, not weighed):
+
+| Name | Means | Value |
+|---|---|---|
+| base_link mass | the inertial of `base_link` only (chassis, battery, electronics, base camera, rigid parts) | 49.948 kg |
+| complete base mass | every base link with mass: base_link, both wheel links, four castor and castor-wheel links, lidar_link; what this URDF weighs | 58.163 kg |
+| whole-robot mass | complete base plus lift, lift carriage, arms, sensors and equipment (openamr-upperbody-sw links, not in this URDF) | 87.11 kg |
+
+The test checks that the expanded URDF has one inertial per link, that its total is the complete base mass, and that no
+part on a wheel, castor or LiDAR link is also counted on base_link.
+
+**Provisional hub motor inertial (owner decision 10 Nov 2026).** Each wheel link carries the whole ZLLG80 hub motor,
+3.45 kg, stator included, although only the rotor and tyre spin. This is valid for description, TF and integration work and
+for the complete base mass and centre of mass. It is not valid for dynamics acceptance (braking, motor effort, wheel
+contact). TODO(Alex): replace it with the ZLTECH rotor/stator split or a bounded estimate, in the docs mass ledger first,
+then re-pin. The note is recorded in `config/roadmap_mass_export.source.yaml` and checked by `test/test_base_mass.py`.
+
+| Link | Mass from the export | Collision Geometry |
+|---|---|---|
+| `base_link` | chassis, battery, electronics, base camera, rigid parts | box |
+| `left_wheel_link` / `right_wheel_link` | ZLLG80 hub motor each | Cylinder r=0.11 m |
+| `fl/fr/bl/br_caster_link` | LPA-VSTH 35K bracket and swivel head | STL mesh |
+| `fl/fr/bl/br_wheel_link` | castor wheel | Sphere r=0.026 m |
+| `lidar_link` | RPLIDAR S3 | cylinder |
+| `camera_link` | none (legacy Gate A IMX708 frame, massless) | none |
 | `camera_optical_frame` | — (optical convention frame) |
 
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.

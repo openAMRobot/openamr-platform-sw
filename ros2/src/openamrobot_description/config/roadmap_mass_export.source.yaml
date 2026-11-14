@@ -1,0 +1,23 @@
+# The pinned roadmap mass export (owner decision 8 Nov 2026: one source). config/roadmap_mass_export.yaml is a verbatim copy
+# of this file at this commit; the tests check the SHA-256. Update both together when the docs export changes.
+repository: openAMRobot/openamrobot-docs
+path: docs/assets/roadmap/model/mass_export.yaml
+commit: "ff8ca57f2687c7c0c9b65005da9d24baf5db8e7c"
+sha256: 51ae3fb64db3117d1fafe839ed4af4b7125dd9aa762f605492eef6b932cdd1da
+# Notes kept here because the export copy above must stay verbatim (its SHA-256 is checked).
+notes:
+  mass_names: >-
+    base_link mass = the inertial of base_link only; complete base mass = every base link with mass (what this URDF weighs);
+    whole-robot mass = complete base plus the lift, lift carriage, arms, sensors and equipment links of openamr-upperbody-sw.
+    At ff8ca57: base_link 49.948 kg, complete base 58.163 kg, whole robot 87.11 kg (design values, not weighed).
+  hub_motor_on_wheel_link:
+    status: provisional
+    decision: owner decision 10 Nov 2026 (platform lead)
+    approximation: >-
+      the whole ZLLG80 hub motor (3.45 kg, DRV-001, stator, shaft and rotor together) is the inertial of left_wheel_link and
+      right_wheel_link, which spin. In reality the stator and shaft are fixed to the chassis and only the rotor and tyre spin.
+    valid_for: description, visualisation, TF and integration work, complete base mass and centre of mass
+    not_valid_for: dynamics acceptance (braking distance, motor effort and torque, wheel contact and slip)
+    todo: >-
+      TODO(Alex): replace with the ZLTECH rotor/stator split (rotating share on the wheel link, the rest on base_link) or a
+      bounded estimate, in the docs mass ledger first, then re-pin this export.
