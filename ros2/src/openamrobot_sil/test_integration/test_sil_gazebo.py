@@ -135,7 +135,14 @@ def test_bms_values_arrive_over_can2(sil):
     battery = sil.get('battery')
     assert battery.voltage == pytest.approx(25.6, abs=0.05)
     assert battery.percentage == pytest.approx(0.80, abs=0.001)
-    assert sil.get('/sil/bms/status')['timeouts'] == 0
+    # The client may poll before the emulator has opened its socket at start-up. Once both
+    # run, every poll is answered: over 2 s (10 poll cycles at 5 Hz) no new timeout appears.
+    before = sil.get('/sil/bms/status')
+    time.sleep(2.0)
+    after = sil.get('/sil/bms/status')
+    assert after['timeouts'] == before['timeouts']
+    assert after['answers'] >= before['answers'] + 20
+    assert after['age_s'] < 0.5
 
 
 def test_0_2_m_per_s_command_moves_the_gazebo_base_and_odometry_returns(sil):
