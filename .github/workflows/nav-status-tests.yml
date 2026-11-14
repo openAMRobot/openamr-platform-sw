@@ -61,7 +61,27 @@ jobs:
             ros-jazzy-nav2-planner \
             ros-jazzy-nav2-collision-monitor \
             ros-jazzy-nav2-lifecycle-manager \
-            ros-jazzy-opennav-docking
+            ros-jazzy-opennav-docking \
+            ros-jazzy-nav2-smoother \
+            ros-jazzy-nav2-rotation-shim-controller \
+            ros-jazzy-nav2-dwb-controller \
+            ros-jazzy-nav2-smac-planner
+          # The last 4 (platform-sw#90, found the hard way AFTER the first push of this
+          # job's item-4 package list, via a clean ros:jazzy-ros-base container repro -
+          # not assumed): without ros-jazzy-nav2-smoother, `ros2 launch
+          # navigation_launch.py` throws "package 'nav2_smoother' not found" and aborts
+          # BEFORE spawning any node at all - every lifecycle-managed node, bt_navigator
+          # and behavior_server included, fails with "never came up", which reads
+          # exactly like a timing problem but is a missing-package problem instead.
+          # With that fixed, controller_server's FollowPath plugin
+          # (nav2_rotation_shim_controller::RotationShimController, wrapping primary
+          # controller dwb_core::DWBLocalPlanner) and planner_server's
+          # (nav2_smac_planner::SmacPlanner2D) are pluginlib-loaded at runtime, not a
+          # hard package dependency of nav2-controller/nav2-planner, so the FATAL
+          # "class ... does not exist" only surfaces once the node tries to configure -
+          # and lifecycle_manager aborts the WHOLE bringup on that first failure, which
+          # is why test_navigation_launch_bt_xml_resolves_to_no_backup.py's own
+          # "...reaches_active..." case needs all 4 of these, not just nav2-smoother.
 
       - name: Build openamr_nav_msgs and the producer
         shell: bash
