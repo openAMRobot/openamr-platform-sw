@@ -238,23 +238,18 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
 
     def test_heartbeat_reports_zero_outstanding_when_idle(self):
         # Clean-boot story (D-13/D-14): no goal ever sent, and this
-        # producer's own heartbeat alone must still establish IDLE close to
-        # the 2s bound Alex's approved #124 ruling sets (panthera-momagdii's
-        # #90 seventh review, P2 - same fix, and the same measured gap, as
-        # the navigate_to_pose sibling test's own comment explains in
-        # full) - measured from the real server actually becoming ready,
-        # the same readiness _heartbeat() itself checks before ever
-        # publishing. 0.5s margin added on top of the ruling's 2.0s is
-        # measured overhead (the heartbeat timer's phase is anchored to
-        # proxy construction, not to this readiness event), not an
-        # owner-approved tolerance - same open item as the sibling test.
+        # producer's own heartbeat alone must still establish IDLE within
+        # the literal 2s bound Alex's approved #124 ruling sets - same
+        # readiness-poll fix as the navigate_to_pose sibling test's own
+        # comment explains in full (panthera-momagdii's #90 ninth review,
+        # P1).
         self.fake_real.start()
         ready_deadline = time.monotonic() + 5.0
         while not self.proxy._real_client.server_is_ready() and time.monotonic() < ready_deadline:
             time.sleep(0.02)
         self.assertTrue(self.proxy._real_client.server_is_ready(), 'real server never ready')
 
-        deadline = time.monotonic() + 2.5
+        deadline = time.monotonic() + 2.0
         heartbeats = []
         while time.monotonic() < deadline:
             heartbeats = [
@@ -265,8 +260,8 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
             time.sleep(0.02)
         self.assertTrue(
             heartbeats,
-            'no heartbeat seen within 2.5s of the real server becoming ready (D-13 ruling, '
-            'platform-sw#124, requires 2s - see this test\'s own comment on the measured gap)')
+            'no heartbeat seen within 2s of the real server becoming ready (D-13 ruling, '
+            'platform-sw#124)')
         _, _, _, outstanding = heartbeats[0].split('|')
         self.assertEqual(outstanding, '0')
 
@@ -407,6 +402,46 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(cancel_done.is_set(), '_handle_cancel() never completed after the lock '
                          'was released')
 
+    def test_real_goal_handles_is_only_ever_written_while_the_lock_is_held(self):
+        # panthera-momagdii's #90 ninth review, P1 (same test as the
+        # navigate_to_pose sibling - see its own docstring for the full
+        # reasoning). Swap in a dict that records every write made while
+        # the lock is NOT held, then drive a real goal all the way through
+        # _execute against the fake real server.
+        violations = []
+        real_lock = self.proxy._lock
+
+        class _LockCheckingDict(dict):
+            def __setitem__(self, key, value):
+                if not real_lock.locked():
+                    violations.append(f'__setitem__({key!r}) without the lock held')
+                super().__setitem__(key, value)
+
+            def pop(self, key, *args):
+                if not real_lock.locked():
+                    violations.append(f'pop({key!r}) without the lock held')
+                return super().pop(key, *args)
+
+        self.proxy._real_goal_handles = _LockCheckingDict()
+        self.fake_real.start()
+        goal_handle = self._send_goal()
+        end = time.monotonic() + 2.0
+        while self.fake_real._goal_handle is None and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertIsNotNone(
+            self.fake_real._goal_handle,
+            'the real (fake) server never received the relayed goal - install never ran')
+
+        self.fake_real.finish_now()
+        result_future = goal_handle.get_result_async()
+        end = time.monotonic() + 5.0
+        while not result_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(result_future.done(), 'get_result_async never completed')
+        self.assertEqual(
+            violations, [],
+            '_real_goal_handles was written to without self._lock held: ' + '; '.join(violations))
+
 
 class D13TestOneCleanBootResumeNavigateThroughPosesTestCase(unittest.TestCase):
     """
@@ -460,13 +495,11 @@ class D13TestOneCleanBootResumeNavigateThroughPosesTestCase(unittest.TestCase):
         client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
         self.assertTrue(client.wait_for_service(timeout_sec=5.0), 'release service never came up')
 
-        # 3.0s (panthera-momagdii's #90 seventh review, P2) - measured
+        # Literal 2.0s (panthera-momagdii's #90 ninth review, P1), measured
         # from THIS defined ready event (the release service becoming
-        # available). Same measured gap as the navigate_to_pose sibling
-        # test's own comment explains in full: even the smaller 2.5s
-        # margin the heartbeat-only test needs is not enough once the
-        # gate's own processing and a release round trip are included.
-        deadline = time.monotonic() + 3.0
+        # available) - same readiness-poll fix as the navigate_to_pose
+        # sibling test's own comment explains in full.
+        deadline = time.monotonic() + 2.0
         last_message = ''
         while time.monotonic() < deadline:
             future = client.call_async(Trigger.Request())

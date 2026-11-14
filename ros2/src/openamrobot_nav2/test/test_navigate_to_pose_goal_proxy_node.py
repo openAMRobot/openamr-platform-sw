@@ -231,36 +231,26 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
 
     def test_heartbeat_reports_zero_outstanding_when_idle(self):
         # Clean-boot story (D-13/D-14): no goal ever sent, and this
-        # producer's own heartbeat alone must still establish IDLE close to
-        # the 2s bound Alex's approved #124 ruling sets (panthera-momagdii's
-        # #90 seventh review, P2: the deadline must be measured from a
-        # defined ready event, not an arbitrary padded window) - measured
-        # from the real server actually becoming ready, the same readiness
-        # _heartbeat() itself checks before ever publishing.
+        # producer's own heartbeat alone must still establish IDLE within
+        # the literal 2s bound Alex's approved #124 ruling sets, measured
+        # from the real server actually becoming ready - the same
+        # readiness _heartbeat() itself checks before ever publishing.
         #
-        # Measured empirically at a strict 2.0s here: it fails consistently
-        # (not flaky-occasionally), not just in isolated slow runs - the
-        # periodic timer's own phase is anchored to proxy construction, not
-        # to this readiness moment, so the worst case is up to one full
-        # _HEARTBEAT_PERIOD_S (2.0s) PLUS whatever of that period had
-        # already elapsed before this test could even observe readiness,
-        # plus publish/executor-scheduling latency. 0.5s margin added on
-        # top (2.5s) is that measured overhead, not an owner-approved
-        # tolerance - flagging this honestly rather than silently reverting
-        # to the previous, unexplained 3.0s: Alex's #124 ruling's literal
-        # "within 2s" is not met by this architecture's own heartbeat-phase
-        # design as currently built, and that gap needs an explicit
-        # owner decision (tighten the ruling's margin, or change the proxy
-        # to anchor its heartbeat phase to real-server-readiness instead of
-        # construction) rather than a test asserting a bound the code does
-        # not actually guarantee.
+        # panthera-momagdii's #90 ninth review, P1: a 0.1s readiness poll
+        # (self._server_ready_poll_timer) fires the first successful
+        # heartbeat the moment the real server becomes ready, instead of
+        # waiting for the periodic timer's own next tick (whose phase is
+        # fixed at construction and could otherwise land up to a full
+        # period later) - this closes the gap the previous 2.5s/3.0s
+        # margins were covering for, so the literal 2.0s bound is now
+        # actually met and asserted here, not padded past.
         self.fake_real.start()
         ready_deadline = time.monotonic() + 5.0
         while not self.proxy._real_client.server_is_ready() and time.monotonic() < ready_deadline:
             time.sleep(0.02)
         self.assertTrue(self.proxy._real_client.server_is_ready(), 'real server never ready')
 
-        deadline = time.monotonic() + 2.5
+        deadline = time.monotonic() + 2.0
         heartbeats = []
         while time.monotonic() < deadline:
             heartbeats = [
@@ -270,8 +260,8 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
             time.sleep(0.02)
         self.assertTrue(
             heartbeats,
-            'no heartbeat seen within 2.5s of the real server becoming ready (D-13 ruling, '
-            'platform-sw#124, requires 2s - see this test\'s own comment on the measured gap)')
+            'no heartbeat seen within 2s of the real server becoming ready (D-13 ruling, '
+            'platform-sw#124)')
         _, _, _, outstanding = heartbeats[0].split('|')
         self.assertEqual(outstanding, '0')
 
@@ -441,6 +431,51 @@ class NavigateToPoseGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(cancel_done.is_set(), '_handle_cancel() never completed after the lock '
                          'was released')
 
+    def test_real_goal_handles_is_only_ever_written_while_the_lock_is_held(self):
+        # panthera-momagdii's #90 ninth review, P1: the lock test above only
+        # proves _handle_cancel waits on the lock - it says nothing about
+        # whether _execute's own install-and-check (and its cleanup in the
+        # finally block) actually run INSIDE the lock. If that moved back
+        # outside, every existing test would still pass, including the one
+        # above. Swap in a dict that records (not raises - this runs inside
+        # _execute's own async callback, where a raised exception would
+        # just abort or hang the goal rather than surfacing cleanly here)
+        # every write made while the lock is NOT held, then drive a real
+        # goal all the way through _execute against the fake real server.
+        violations = []
+        real_lock = self.proxy._lock
+
+        class _LockCheckingDict(dict):
+            def __setitem__(self, key, value):
+                if not real_lock.locked():
+                    violations.append(f'__setitem__({key!r}) without the lock held')
+                super().__setitem__(key, value)
+
+            def pop(self, key, *args):
+                if not real_lock.locked():
+                    violations.append(f'pop({key!r}) without the lock held')
+                return super().pop(key, *args)
+
+        self.proxy._real_goal_handles = _LockCheckingDict()
+        self.fake_real.start()
+        goal_handle = self._send_goal()
+        end = time.monotonic() + 2.0
+        while self.fake_real._goal_handle is None and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertIsNotNone(
+            self.fake_real._goal_handle,
+            'the real (fake) server never received the relayed goal - install never ran')
+
+        self.fake_real.finish_now()
+        result_future = goal_handle.get_result_async()
+        end = time.monotonic() + 5.0
+        while not result_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(result_future.done(), 'get_result_async never completed')
+        self.assertEqual(
+            violations, [],
+            '_real_goal_handles was written to without self._lock held: ' + '; '.join(violations))
+
 
 class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
     """
@@ -498,22 +533,16 @@ class D13TestOneCleanBootResumeTestCase(unittest.TestCase):
         client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
         self.assertTrue(client.wait_for_service(timeout_sec=5.0), 'release service never came up')
 
-        # 3.0s (panthera-momagdii's #90 seventh review, P2) - measured
+        # Literal 2.0s (panthera-momagdii's #90 ninth review, P1), measured
         # from THIS defined ready event (the release service becoming
-        # available, meaning all 4 nodes already exist and are spinning),
-        # not an earlier point. Still not the ruling's literal 2.0s:
-        # empirically, even the smaller 2.5s margin
-        # test_heartbeat_reports_zero_outstanding_when_idle needs for the
-        # heartbeat message alone to arrive is NOT enough here, since this
-        # test also needs the gate to process that heartbeat into the
-        # ledger and a subsequent release call to complete - measured to
-        # fail consistently at 2.5s, not just occasionally. Same
-        # owner-decision flag as that test: Alex's #124 ruling's literal
-        # "within 2s" is not met by this architecture's own heartbeat-phase
-        # design plus this full round trip, and needs an explicit owner
-        # decision rather than a test asserting a bound the code does not
-        # actually guarantee.
-        deadline = time.monotonic() + 3.0
+        # available, meaning all 4 nodes already exist and are spinning) -
+        # the readiness-poll fix in __init__ (see
+        # test_heartbeat_reports_zero_outstanding_when_idle's own comment)
+        # means the first heartbeat no longer waits on the periodic timer's
+        # own construction-anchored phase, so the full round trip (gate
+        # processing that heartbeat into the ledger, then a release call
+        # completing) now actually fits inside the ruling's own bound.
+        deadline = time.monotonic() + 2.0
         last_message = ''
         while time.monotonic() < deadline:
             future = client.call_async(Trigger.Request())

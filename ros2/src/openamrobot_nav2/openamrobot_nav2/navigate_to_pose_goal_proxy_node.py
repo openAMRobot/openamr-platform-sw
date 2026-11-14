@@ -120,6 +120,24 @@ class NavigateToPoseGoalProxy(Node):
         # wait (safety_stop_gate_node.py's _release_blockers) depends on
         # this heartbeat being immediate. Fire one right away.
         self._heartbeat()
+        # panthera-momagdii's #90 ninth review, P1: the timer above has its
+        # own phase set here, at construction, and the attempt just above
+        # is a no-op whenever navigate_to_pose_real is not ready yet (the
+        # usual case) - without this poll, the first SUCCESSFUL heartbeat
+        # then has to wait for that timer's own next 2.0s tick, which can
+        # land up to a full period after the real server actually becomes
+        # ready, missing D-13's literal "within 2s" clean-boot bound. Poll
+        # readiness on a short period instead and fire the moment it turns
+        # true; self-cancels once it has, since the regular periodic timer
+        # above is sufficient from then on.
+        self._server_ready_poll_timer = self.create_timer(
+            0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
+
+    def _poll_for_first_heartbeat(self) -> None:
+        if not self._real_client.server_is_ready():
+            return
+        self._heartbeat()
+        self._server_ready_poll_timer.cancel()
 
     def _heartbeat(self) -> None:
         # panthera-momagdii's #90 sixth review, P1: a heartbeat claiming

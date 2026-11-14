@@ -117,6 +117,23 @@ class NavigateThroughPosesGoalProxy(Node):
         # evidence for navigate_through_poses - fire one heartbeat right
         # away instead of waiting for the first 2.0s timer tick.
         self._heartbeat()
+        # panthera-momagdii's #90 ninth review, P1 (same fix as
+        # navigate_to_pose_goal_proxy_node.py): the attempt just above is a
+        # no-op whenever navigate_through_poses_real is not ready yet, and
+        # the periodic timer's own phase is fixed at construction - without
+        # this poll, the first SUCCESSFUL heartbeat could wait up to a full
+        # 2.0s period after the real server actually becomes ready, missing
+        # D-13's literal "within 2s" clean-boot bound. Poll readiness on a
+        # short period instead and fire the moment it turns true;
+        # self-cancels once it has.
+        self._server_ready_poll_timer = self.create_timer(
+            0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
+
+    def _poll_for_first_heartbeat(self) -> None:
+        if not self._real_client.server_is_ready():
+            return
+        self._heartbeat()
+        self._server_ready_poll_timer.cancel()
 
     def _heartbeat(self) -> None:
         # Same reasoning as navigate_to_pose_goal_proxy_node.py: a heartbeat
