@@ -134,12 +134,24 @@ class NavigateToPoseGoalProxy(Node):
             0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
 
     def _poll_for_first_heartbeat(self) -> None:
-        if not self._real_client.server_is_ready():
+        # panthera-momagdii's #90 review on d29dfc0: this used to check
+        # server_is_ready() itself, then call _heartbeat(), which checks
+        # server_is_ready() AGAIN - if the real server flickered not-ready
+        # strictly between those two separate checks, _heartbeat() would
+        # return having published nothing, but the poll cancelled itself
+        # regardless, leaving this producer with no fast-path heartbeat at
+        # all until the regular 2.0s periodic timer's next tick - exactly
+        # the D-13 "within 2s" bound this poll exists to protect. Fixed by
+        # removing the redundant duplicate check entirely: _heartbeat() is
+        # now the single source of truth on whether it actually published,
+        # and the poll only cancels on that same answer - there is no
+        # longer a second, separate check for the real server to flicker
+        # between.
+        if not self._heartbeat():
             return
-        self._heartbeat()
         self._server_ready_poll_timer.cancel()
 
-    def _heartbeat(self) -> None:
+    def _heartbeat(self) -> bool:
         # panthera-momagdii's #90 sixth review, P1: a heartbeat claiming
         # "zero outstanding" is only boot evidence if the real server this
         # proxy relays to actually exists - if navigate_to_pose_real is not
@@ -147,12 +159,15 @@ class NavigateToPoseGoalProxy(Node):
         # D-13 requires an absent server to read UNKNOWN and block, not a
         # false "idle" from a proxy that has nothing real to report on.
         # Skipping lets the gate's own stale_after timeout age this
-        # producer back to UNKNOWN on its own.
+        # producer back to UNKNOWN on its own. Returns whether a heartbeat
+        # was actually published, so _poll_for_first_heartbeat can tell a
+        # real send apart from this early return.
         if not self._real_client.server_is_ready():
-            return
+            return False
         with self._lock:
             self._goal_authority_pub.publish(String(
                 data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
+        return True
 
     def _handle_accepted(self, goal_handle) -> None:
         # panthera-momagdii's #90 review, P1: the public ActionServer

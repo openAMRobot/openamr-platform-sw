@@ -130,23 +130,34 @@ class NavigateThroughPosesGoalProxy(Node):
             0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
 
     def _poll_for_first_heartbeat(self) -> None:
-        if not self._real_client.server_is_ready():
+        # panthera-momagdii's #90 review on d29dfc0 - see
+        # navigate_to_pose_goal_proxy_node.py's own comment on this same
+        # method for the full history: this used to check
+        # server_is_ready() a second time itself, separate from
+        # _heartbeat()'s own check, leaving a window for the real server to
+        # flicker not-ready in between and cancel the poll on a heartbeat
+        # that sent nothing. Fixed the same way: removed the duplicate
+        # check - _heartbeat()'s return value is the single source of
+        # truth.
+        if not self._heartbeat():
             return
-        self._heartbeat()
         self._server_ready_poll_timer.cancel()
 
-    def _heartbeat(self) -> None:
+    def _heartbeat(self) -> bool:
         # Same reasoning as navigate_to_pose_goal_proxy_node.py: a heartbeat
         # claiming "zero outstanding" is only boot evidence if the real
         # server this proxy relays to actually exists - if
         # navigate_through_poses_real is not ready, silence here is
         # correct and lets the gate's own stale_after timeout age this
-        # producer back to UNKNOWN on its own.
+        # producer back to UNKNOWN on its own. Returns whether a heartbeat
+        # was actually published, so _poll_for_first_heartbeat can tell a
+        # real send apart from this early return.
         if not self._real_client.server_is_ready():
-            return
+            return False
         with self._lock:
             self._goal_authority_pub.publish(String(
                 data=f'{_PRODUCER_NAME}|heartbeat|{self._instance_id}|{self._outstanding}'))
+        return True
 
     def _handle_accepted(self, goal_handle) -> None:
         # Same P1 race as navigate_to_pose_goal_proxy_node.py: the public

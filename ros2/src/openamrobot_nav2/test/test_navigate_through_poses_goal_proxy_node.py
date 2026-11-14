@@ -265,6 +265,29 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
         _, _, _, outstanding = heartbeats[0].split('|')
         self.assertEqual(outstanding, '0')
 
+    def test_poll_for_first_heartbeat_does_not_cancel_on_a_heartbeat_that_sent_nothing(self):
+        # panthera-momagdii's #90 review on d29dfc0 (same test as the
+        # navigate_to_pose sibling - see its own docstring for the full
+        # reasoning). A dedicated, UNSPUN proxy instance - self.proxy is
+        # actively spinning in self.executor's own thread (setUp), and its
+        # own real 0.1s poll timer firing concurrently would race this
+        # test's manual call; this instance is never added to an executor,
+        # so its timers never fire on their own.
+        isolated_proxy = NavigateThroughPosesGoalProxy()
+        try:
+            isolated_proxy._real_client.server_is_ready = unittest.mock.Mock(
+                return_value=False)
+            self.assertFalse(isolated_proxy._heartbeat())
+            isolated_proxy._poll_for_first_heartbeat()
+            self.assertFalse(
+                isolated_proxy._server_ready_poll_timer.is_canceled(),
+                'the poll timer cancelled itself even though _heartbeat() published '
+                'nothing - a real occurrence of this leaves the proxy with no '
+                "fast-path heartbeat until the periodic timer's own next tick, "
+                "missing D-13's 2s bound")
+        finally:
+            isolated_proxy.destroy_node()
+
     def test_heartbeat_never_reports_zero_between_acceptance_and_execute_starting(self):
         # panthera-momagdii's #90 review, P1 (same race as
         # navigate_to_pose_goal_proxy_node.py): the public ActionServer
@@ -441,6 +464,51 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
         self.assertEqual(
             violations, [],
             '_real_goal_handles was written to without self._lock held: ' + '; '.join(violations))
+
+    def test_pending_cancels_is_only_ever_written_while_the_lock_is_held(self):
+        # panthera-momagdii's #90 review on d29dfc0 (same test as the
+        # navigate_to_pose sibling - see its own docstring for the full
+        # reasoning). Swap in a set that records every add()/discard() made
+        # while the lock is NOT held, then drive the exact race window
+        # test_a_cancel_before_the_real_handle_exists_is_replayed_once_it_
+        # appears already proves functionally correct.
+        violations = []
+        real_lock = self.proxy._lock
+
+        class _LockCheckingSet(set):
+            def add(self, item):
+                if not real_lock.locked():
+                    violations.append(f'add({item!r}) without the lock held')
+                super().add(item)
+
+            def discard(self, item):
+                if not real_lock.locked():
+                    violations.append(f'discard({item!r}) without the lock held')
+                super().discard(item)
+
+        self.proxy._pending_cancels = _LockCheckingSet()
+
+        goal_handle = self._send_goal()  # accepted - real server still not started
+        cancel_future = goal_handle.cancel_goal_async()
+        end = time.monotonic() + 2.0
+        while not cancel_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(cancel_future.done(), 'cancel_goal_async never completed')
+
+        self.fake_real.start()
+        self.assertTrue(
+            self.fake_real.cancel_requested.wait(timeout=5.0),
+            'the real (fake) server never received a cancel request - the replay path '
+            'under test never ran')
+
+        result_future = goal_handle.get_result_async()
+        end = time.monotonic() + 5.0
+        while not result_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(result_future.done(), 'get_result_async never completed')
+        self.assertEqual(
+            violations, [],
+            '_pending_cancels was written to without self._lock held: ' + '; '.join(violations))
 
 
 class D13TestOneCleanBootResumeNavigateThroughPosesTestCase(unittest.TestCase):

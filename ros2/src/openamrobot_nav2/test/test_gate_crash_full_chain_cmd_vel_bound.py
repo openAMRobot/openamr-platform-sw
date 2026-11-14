@@ -44,6 +44,7 @@ New, unreviewed test infrastructure (subprocess-managed, five real nodes) -
 if it is flaky in your environment, that is useful information on its own,
 not just noise to retry past.
 """
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -96,6 +97,19 @@ _NAV2_PARAMS = _PKG_ROOT / 'config' / 'nav2_params.yaml'
 
 # The bound Alex's review states, verbatim.
 _KILL_TO_LAST_NONZERO_BOUND_S = 0.5
+
+# tools/issue35_arbitration/stop_lock_invariants.py is scratch review
+# tooling, not a repository package (no __init__.py anywhere above it, not
+# on any install path) - loaded directly from its file path, same reason
+# this file cannot just `import stop_lock_invariants`.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_STOP_LOCK_INVARIANTS_PATH = (
+    _REPO_ROOT / 'tools' / 'issue35_arbitration' / 'stop_lock_invariants.py')
+_spec = importlib.util.spec_from_file_location(
+    'stop_lock_invariants', _STOP_LOCK_INVARIANTS_PATH)
+stop_lock_invariants = importlib.util.module_from_spec(_spec)
+if _STOP_LOCK_INVARIANTS_PATH.exists():
+    _spec.loader.exec_module(stop_lock_invariants)
 
 
 def _start_new_session(args):
@@ -203,10 +217,11 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
         self._scan_pub = self.probe.create_publisher(LaserScan, '/scan_filtered', 10)
         self._fp_pub = self.probe.create_publisher(
             PolygonStamped, '/local_costmap/published_footprint', 10)
-        self._final_cmd_vel = []  # (monotonic_receipt_time, linear_x)
+        self._final_cmd_vel = []  # (monotonic_receipt_time, linear_x, angular_z)
         self.probe.create_subscription(
             Twist, 'cmd_vel',
-            lambda m: self._final_cmd_vel.append((time.monotonic(), m.linear.x)), 10)
+            lambda m: self._final_cmd_vel.append((time.monotonic(), m.linear.x, m.angular.z)),
+            10)
 
         # --- fake action/dock/ledger servers (same shapes as
         # test_stop_contract_full_chain.py), only to get the gate released once.
@@ -280,16 +295,14 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
             Point32(x=-0.3, y=-0.2, z=0.0), Point32(x=-0.3, y=0.2, z=0.0)]
         self._fp_pub.publish(fp)
 
-    def _spin_keeping_fakes_fresh(self, seconds, publish_nav=False):
-        nav_cmd = Twist()
-        nav_cmd.linear.x = 0.2
+    def _spin_keeping_fakes_fresh(self, seconds, nav_cmd=None):
         end = time.monotonic() + seconds
         last_fake = 0.0
         while time.monotonic() < end:
             if time.monotonic() - last_fake > 0.05:
                 self._publish_fakes_once()
                 last_fake = time.monotonic()
-            if publish_nav:
+            if nav_cmd is not None:
                 self._nav_pub.publish(nav_cmd)
             rclpy.spin_once(self.probe, timeout_sec=0.02)
 
@@ -307,7 +320,7 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
         client.destroy()
         return future.result()
 
-    def test_last_nonzero_cmd_vel_after_a_gate_crash_is_within_half_a_second(self):
+    def _bring_up_and_release(self):
         # T_READY: the gate refuses release until it has been up this long.
         elapsed = time.monotonic() - self._gate_started_at
         if elapsed < T_READY + 0.2:
@@ -325,21 +338,30 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
         response = self._release()
         self.assertTrue(response.success, f'release was refused: {response.message}')
 
+    def _assert_kill_to_last_nonzero_within_bound(self, nav_cmd, field_index, field_name):
+        """Drive nav_cmd through the full chain, kill the gate, measure the bound.
+
+        field_index is 1 for linear.x, 2 for angular.z (the tuple shape
+        stashed by the 'cmd_vel' subscription in setUp) - shared by both
+        the linear and rotation cases below, which differ only in which
+        command/field they drive and check.
+        """
         # Drive a steady nonzero command through the full chain and confirm
         # it actually reaches the final /cmd_vel before crashing anything -
         # proves the chain is really wired end to end, not just "it didn't
         # error", before the kill measurement means anything.
         self._final_cmd_vel.clear()
-        self._spin_keeping_fakes_fresh(2.0, publish_nav=True)
+        self._spin_keeping_fakes_fresh(2.0, nav_cmd=nav_cmd)
         self.assertTrue(
             self._final_cmd_vel,
             'no /cmd_vel at all reached the probe before the crash - the '
             'chain is not wired end to end (check TF/scan/footprint fakes '
             'and lifecycle activation above)')
         self.assertGreater(
-            abs(self._final_cmd_vel[-1][1]), 0.01,
-            f'/cmd_vel was not nonzero before the crash (last={self._final_cmd_vel[-1][1]}) - '
-            'cannot measure a kill-to-last-nonzero bound from an already-zero chain')
+            abs(self._final_cmd_vel[-1][field_index]), 0.01,
+            f'/cmd_vel.{field_name} was not nonzero before the crash '
+            f'(last={self._final_cmd_vel[-1][field_index]}) - cannot measure a '
+            'kill-to-last-nonzero bound from an already-zero chain')
 
         # The actual event under test: kill -9 the gate process while the
         # nonzero command keeps flowing from upstream (cmd_vel_nav keeps
@@ -351,8 +373,8 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
 
         # Generous settle window: velocity_smoother's own velocity_timeout
         # (<=0.3s, test_velocity_smoother_publisher_loss_distance.py) plus a
-        # decel ramp from the test's own low 0.2 m/s command, with slack.
-        self._spin_keeping_fakes_fresh(2.0, publish_nav=True)
+        # decel ramp from the test's own commanded value, with slack.
+        self._spin_keeping_fakes_fresh(2.0, nav_cmd=nav_cmd)
 
         self.assertTrue(
             self._final_cmd_vel,
@@ -362,22 +384,87 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
             'should not read as passing this bound)')
 
         last_nonzero_t = None
-        for t, v in self._final_cmd_vel:
-            if abs(v) > 1e-6:
-                last_nonzero_t = t
+        for sample in self._final_cmd_vel:
+            if abs(sample[field_index]) > 1e-6:
+                last_nonzero_t = sample[0]
         self.assertIsNotNone(
             last_nonzero_t,
-            'every /cmd_vel sample after the gate was killed was already zero - '
-            'cannot measure a kill-to-last-nonzero bound (the chain may have '
+            f'every /cmd_vel.{field_name} sample after the gate was killed was already '
+            'zero - cannot measure a kill-to-last-nonzero bound (the chain may have '
             'already been at zero, which is a different condition than '
             '"stopped within the bound")')
 
         bound_s = last_nonzero_t - kill_time
         self.assertLessEqual(
             bound_s, _KILL_TO_LAST_NONZERO_BOUND_S,
-            f'the last nonzero /cmd_vel message arrived {bound_s:.3f}s after the '
-            f'gate process was killed - exceeds the {_KILL_TO_LAST_NONZERO_BOUND_S}s '
+            f'the last nonzero /cmd_vel.{field_name} message arrived {bound_s:.3f}s after '
+            f'the gate process was killed - exceeds the {_KILL_TO_LAST_NONZERO_BOUND_S}s '
             "bound (platform-sw#90, Alex's 13 Nov review, item 6)")
+
+    def test_last_nonzero_cmd_vel_after_a_gate_crash_is_within_half_a_second(self):
+        self._bring_up_and_release()
+        nav_cmd = Twist()
+        nav_cmd.linear.x = 0.2
+        self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 1, 'linear.x')
+
+    def test_last_nonzero_angular_z_after_a_gate_crash_is_within_half_a_second(self):
+        # panthera-momagdii's #90 review on d29dfc0: the linear case above
+        # only records linear.x, and 0.20 m/s is the shipped MAXIMUM linear
+        # velocity (velocity_smoother.max_velocity[0], nav2_params.yaml) -
+        # not "low" relative to what the chain can actually command, so
+        # that case is already the tightest linear one available. Rotation
+        # is the genuinely tighter case: from the shipped values
+        # (max_velocity[2]=0.5 rad/s, max_decel[2]=-3.0 rad/s², 0.3s
+        # velocity_timeout), the decel-ramp time alone
+        # (0.5 / 3.0 ≈ 0.167s) stacks on top of the timeout for a
+        # calculated ~0.467s, closer to the 0.5s bound than the linear
+        # case's ~0.3s. Pure rotation (linear.x left at 0.0) isolates it.
+        self._bring_up_and_release()
+        nav_cmd = Twist()
+        nav_cmd.angular.z = 0.5
+        self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 2, 'angular.z')
+
+    def test_stop_lock_invariants_cmd_vel_check_passes_against_the_real_chain(self):
+        # panthera-momagdii's #90 review on d29dfc0: the /cmd_vel/
+        # collision_monitor singleton check added to stop_lock_invariants.py
+        # (items 3/4 push) was never actually RUN with the check turned on -
+        # the hosted invariants step always passes --no-check-cmd-vel (it
+        # only starts the gate standalone, no collision_monitor), and no
+        # test called check(check_cmd_vel=True) either. This file is the
+        # only place in the suite that brings up the real collision_monitor
+        # at all, so it is where that gap gets closed.
+        self._bring_up_and_release()
+        self._spin_for(1.0)  # let discovery catch up with collision_monitor's publisher
+        problems = stop_lock_invariants.check(
+            self.probe, 'safety_stop_gate_node', check_cmd_vel=True)
+        self.assertEqual(
+            problems, [],
+            'stop_lock_invariants.check() with check_cmd_vel=True reported a problem '
+            f'against the real, correctly-wired chain: {problems}')
+
+    def test_stop_lock_invariants_cmd_vel_check_fails_on_a_second_publisher(self):
+        # Same setup as above, but with a second, rogue /cmd_vel publisher -
+        # the exact graph violation this check exists to catch (panthera's
+        # review: "add a case with a second /cmd_vel publisher that must
+        # fail").
+        self._bring_up_and_release()
+        rogue_node = rclpy.create_node('gate_crash_rogue_cmd_vel_publisher')
+        rogue_pub = rogue_node.create_publisher(Twist, 'cmd_vel', 10)
+        try:
+            end = time.monotonic() + 1.0
+            while time.monotonic() < end:
+                rogue_pub.publish(Twist())
+                rclpy.spin_once(self.probe, timeout_sec=0.02)
+                rclpy.spin_once(rogue_node, timeout_sec=0.02)
+            problems = stop_lock_invariants.check(
+                self.probe, 'safety_stop_gate_node', check_cmd_vel=True)
+            cmd_vel_problems = [p for p in problems if p.startswith('/cmd_vel:')]
+            self.assertTrue(
+                cmd_vel_problems,
+                'stop_lock_invariants.check() did not report the rogue second /cmd_vel '
+                f'publisher - all problems reported: {problems}')
+        finally:
+            rogue_node.destroy_node()
 
 
 if __name__ == '__main__':
