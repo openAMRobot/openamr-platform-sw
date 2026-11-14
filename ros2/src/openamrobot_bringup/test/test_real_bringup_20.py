@@ -68,42 +68,107 @@ def test_smoother_feedback_and_timeout_stop_quickly_when_the_mux_goes_silent():
     assert params['velocity_timeout'] <= 0.3
 
 
-# --- collision monitor (item 30 A2) ----------------------------------------------
-def test_collision_monitor_stop_zone_rules():
-    cm = _chain()['collision_monitor']['ros__parameters']
-    assert cm['source_timeout'] == 0.5
-    zone = cm['StopZone']
-    assert zone['action_type'] == 'stop' and zone['enabled'] is True
-    assert zone['min_points'] == 2
-    assert set(zone['velocity_polygons']) == {'forward', 'rotation', 'stopped'}
-    assert cm['scan']['min_range'] == 0.05
+# --- collision monitor: one definition only (P-03 item 30 A2, decision D-16) -------------
+# The stop zone is defined once, in openamrobot_nav2/config/nav2_params.yaml, which the
+# stop-zone check of platform-sw #113 reads. The review of platform-sw #132 found the
+# draft's second definition here in the wrong frame (base_footprint, D-16 says base_link)
+# and in the wrong order (stopped, rotation, forward). It is removed, not repaired twice.
+NAV2_PARAMS = os.path.join(SRC, 'openamrobot_nav2', 'config', 'nav2_params.yaml')
 
 
-def test_stop_zone_covers_the_full_footprint_width_in_every_sub_polygon():
-    zone = _chain()['collision_monitor']['ros__parameters']['StopZone']
-    for name in ('forward', 'rotation', 'stopped'):
-        points = yaml.safe_load(zone[name]['points'])
-        half_width = max(abs(y) for _, y in points)
-        assert half_width >= 0.29, name
+def test_cmd_chain_20_carries_no_second_collision_monitor_definition():
+    chain = _chain()
+    assert 'collision_monitor' not in chain
+    text = open(os.path.join(PKG, 'config', 'cmd_chain_20.yaml')).read()
+    for key in ('polygons:', 'velocity_polygons', 'observation_sources', 'StopZone'):
+        assert key not in text, key
 
 
-def test_forward_zone_reaches_beyond_the_nose():
-    zone = _chain()['collision_monitor']['ros__parameters']['StopZone']
-    points = yaml.safe_load(zone['forward']['points'])
-    assert max(x for x, _ in points) > 0.415
+def test_collision_monitor_in_the_2_0_launch_reads_the_single_nav2_definition():
+    nodes = _nodes(LAUNCH_20, 'real_bringup_20_cm')
+    collision = _by_exec(nodes, 'collision_monitor')
+    params = []
+    for param in collision._Node__parameters:
+        param = getattr(param, 'param_file', param)
+        params.append(param if isinstance(param, str) else _text(param))
+    expected = os.path.join('/fake-share', 'openamrobot_nav2', 'config', 'nav2_params.yaml')
+    assert params == [expected]
+    assert not _remaps(collision)
 
 
-def test_forward_zone_applies_at_the_ceiling_speed():
-    forward = _chain()['collision_monitor']['ros__parameters']['StopZone']['forward']
-    assert forward['linear_max'] >= 0.5
+def test_the_single_definition_exists_and_writes_the_final_cmd_vel():
+    with open(NAV2_PARAMS) as handle:
+        cm = yaml.safe_load(handle)['collision_monitor']['ros__parameters']
+    assert cm['cmd_vel_in_topic'] == 'cmd_vel_smoothed'
+    assert cm['cmd_vel_out_topic'] == 'cmd_vel'
+    assert cm['base_frame_id'] == 'base_link'      # D-16
 
 
-def test_range_sources_exist_and_stay_disabled_until_topics_exist():
-    cm = _chain()['collision_monitor']['ros__parameters']
-    for name in ('tof', 'ultrasonic'):
-        assert name in cm['observation_sources']
-        assert cm[name]['type'] == 'range'
-        assert cm[name]['enabled'] is False
+# Test oracle for the D-16 sub-polygon rules (forward, rotation, stopped in that order;
+# first match wins, as in nav2_collision_monitor VelocityPolygon). It is applied below to
+# fixtures; the owner of platform-sw #113 can apply it to the real zone when it lands.
+D16_ORDER = ['forward', 'rotation', 'stopped']
+
+
+def select_sub_polygon(zone, linear_x, angular_z):
+    """Return the first sub-polygon whose velocity window holds the command, else None."""
+    for name in zone['velocity_polygons']:
+        sub = zone[name]
+        if (sub['linear_min'] <= linear_x <= sub['linear_max'] and
+                sub['theta_min'] <= angular_z <= sub['theta_max']):
+            return name
+    return None
+
+
+def d16_violations(zone):
+    """
+    List the D-16 ordering and selection problems of a velocity_polygon stop zone.
+
+    Order: forward first, stopped (catch-all) last, rotation in between. nav2 gives each
+    sub-polygon one velocity window, so rotation in both directions without containing the
+    zero command needs two windows; names starting with 'rotation' count as rotation.
+    """
+    problems = []
+    order = list(zone.get('velocity_polygons', []))
+    middle = order[1:-1]
+    if (len(order) < 3 or order[0] != 'forward' or order[-1] != 'stopped' or
+            not all(n.startswith('rotation') for n in middle)):
+        problems.append('order %r, D-16 wants forward, rotation, stopped' % (order,))
+    cases = [((0.0, 0.0), 'stopped'), ((0.2, 0.0), 'forward'), ((0.5, 0.0), 'forward'),
+             ((0.0, 0.3), 'rotation'), ((0.0, -0.3), 'rotation')]
+    for (v, w), want in cases:
+        got = select_sub_polygon(zone, v, w) or 'none'
+        if not got.startswith(want):
+            problems.append('command (%.2f, %.2f) selects %s, want %s' % (v, w, got, want))
+    return problems
+
+
+def _window(lmin, lmax, tmin, tmax):
+    return {'linear_min': lmin, 'linear_max': lmax, 'theta_min': tmin, 'theta_max': tmax}
+
+
+def test_oracle_rejects_the_draft_zone_order_and_overlap():
+    draft = {'velocity_polygons': ['stopped', 'rotation', 'forward'],
+             'forward': _window(0.01, 0.5, -0.5, 0.5),
+             'rotation': _window(-0.01, 0.01, -0.5, 0.5),
+             'stopped': _window(-0.01, 0.01, -0.01, 0.01)}
+    assert d16_violations(draft)
+    # the reviewer's point: in the D-16 order the zero command lands in rotation
+    reordered = dict(draft, velocity_polygons=D16_ORDER)
+    assert select_sub_polygon(reordered, 0.0, 0.0) == 'rotation'
+    assert d16_violations(reordered)
+
+
+def test_oracle_accepts_disjoint_windows_in_the_d16_order():
+    split = {'velocity_polygons': ['forward', 'rotation_ccw', 'rotation_cw', 'stopped'],
+             'forward': _window(0.02, 0.5, -0.5, 0.5),
+             'rotation_ccw': _window(-0.01, 0.01, 0.02, 0.5),
+             'rotation_cw': _window(-0.01, 0.01, -0.5, -0.02),
+             'stopped': _window(-0.5, 0.5, -0.5, 0.5)}
+    assert d16_violations(split) == []
+    assert select_sub_polygon(split, 0.0, 0.0) == 'stopped'
+    assert select_sub_polygon(split, 0.0, 0.3) == 'rotation_ccw'
+    assert select_sub_polygon(split, 0.0, -0.3) == 'rotation_cw'
 
 
 def test_chain_lifecycle_manager_bond_off_and_only_the_two_nodes():
@@ -145,8 +210,10 @@ def test_chain_nodes_are_wired_mux_to_smoother_to_monitor_to_cmd_vel():
     collision = _by_exec(nodes, 'collision_monitor')
     assert ('cmd_vel_out', 'cmd_vel_mux') in _remaps(mux)
     assert ('cmd_vel', 'cmd_vel_mux') in _remaps(smoother)
-    # collision_monitor reads cmd_vel_smoothed and writes cmd_vel by its own parameters
-    cm = _chain()['collision_monitor']['ros__parameters']
+    # collision_monitor reads cmd_vel_smoothed and writes cmd_vel by its own parameters,
+    # from the single definition in nav2_params.yaml
+    with open(NAV2_PARAMS) as handle:
+        cm = yaml.safe_load(handle)['collision_monitor']['ros__parameters']
     assert cm['cmd_vel_in_topic'] == 'cmd_vel_smoothed' and cm['cmd_vel_out_topic'] == 'cmd_vel'
     assert not _remaps(collision)
 

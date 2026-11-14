@@ -9,7 +9,9 @@ OpenAMRobot 2.0 real-robot bring-up (base controller NUCLEO-H723ZG), next to the
 * robot_localization EKF on /odom/unfiltered and /imu/data_raw (decision D-10);
 * the command chain  twist_mux -> velocity_smoother -> collision_monitor -> /cmd_vel,
   with the speed ceiling 0.5 m/s and travel deceleration 1.5 m/s2 (P-03 item 30 A5, A6).
-  collision_monitor and velocity_smoother have their own lifecycle manager with the bond off
+  collision_monitor reads the single stop-zone definition in openamrobot_nav2
+  nav2_params.yaml (D-16; platform-sw #113 checks it). collision_monitor and
+  velocity_smoother have their own lifecycle manager with the bond off
   (item 30 A2). The twist_mux lock /base/command_lock comes from the base status monitor and
   stays engaged until the base is RUN and fresh and an operator calls /base/resume.
 
@@ -37,6 +39,9 @@ def generate_launch_description():
     perception = get_package_share_directory('openamrobot_perception')
     description = get_package_share_directory('openamrobot_description')
     bringup = get_package_share_directory('openamrobot_bringup')
+    nav2 = get_package_share_directory('openamrobot_nav2')
+    # Single collision_monitor definition (P-03 item 30 A2, D-16): nav2_params.yaml.
+    nav2_params = os.path.join(nav2, 'config', 'nav2_params.yaml')
     chain_params = os.path.join(bringup, 'config', 'cmd_chain_20.yaml')
     ekf_params = os.path.join(bringup, 'config', 'ekf_20.yaml')
     xacro_file = os.path.join(description, 'urdf', 'robo_urdf.urdf.xacro')
@@ -81,7 +86,7 @@ def generate_launch_description():
             remappings=[('cmd_vel', 'cmd_vel_mux')], output='screen'),
         Node(
             package='nav2_collision_monitor', executable='collision_monitor',
-            name='collision_monitor', parameters=[chain_params], output='screen'),
+            name='collision_monitor', parameters=[nav2_params], output='screen'),
         Node(
             package='nav2_lifecycle_manager', executable='lifecycle_manager',
             name='lifecycle_manager_cmd_chain', parameters=[chain_params], output='screen'),
