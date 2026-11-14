@@ -19,7 +19,9 @@
     <mu2>0.5</mu2>
     <fdir1>1 0 0</fdir1>
   </xacro:macro>
-  <!-- Frictionless: a caster sphere must roll under the base, not drag it. -->
+  <!-- Frictionless support/slider approximation. The caster joints are fixed, so the
+       spheres cannot roll; mu 0 lets them slide under the base instead of dragging it.
+       Caster rolling and contact dynamics are not modelled and not verified. -->
   <xacro:macro name="caster_friction">
     <mu1>0.0</mu1>
     <mu2>0.0</mu2>

@@ -10,8 +10,13 @@ gazebo_control.xacro used to write the friction as a raw <surface> under
 collisions, so every wheel contact ran at the default mu 1 and the four caster
 spheres, lumped into base_footprint by their fixed joints, dragged at mu 1.
 <mu1>, <mu2> and <fdir1> are applied to every collision of the link.
+
+The SDF tests need `gz sdf` (Gazebo Harmonic). Without gz they skip, unless
+OPENAMR_REQUIRE_GZ=1 is set, as in the description-gazebo-tests CI job: then a
+missing gz fails. A non-zero or empty `gz sdf -p` result always fails.
 """
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,15 +43,18 @@ def urdf_xml():
 
 @pytest.fixture(scope='module')
 def sdf_root(urdf_xml, tmp_path_factory):
-    """Return the SDF from gz sdf -p; skip if gz is missing."""
+    """Return the SDF from gz sdf -p; fail on a broken conversion."""
     if shutil.which('gz') is None:
-        pytest.skip('gz (Gazebo) is not installed')
+        if os.environ.get('OPENAMR_REQUIRE_GZ') == '1':
+            pytest.fail('gz (Gazebo) is not installed and OPENAMR_REQUIRE_GZ=1')
+        pytest.skip('gz (Gazebo) is not installed; set OPENAMR_REQUIRE_GZ=1 to fail instead')
     path = tmp_path_factory.mktemp('friction') / 'robot.urdf'
     path.write_text(urdf_xml)
     result = subprocess.run(['gz', 'sdf', '-p', str(path)], capture_output=True,
                             text=True, timeout=120)
     if result.returncode != 0 or not result.stdout.strip():
-        pytest.skip(f'gz sdf -p is not usable here: {result.stderr[-200:]}')
+        pytest.fail(f'gz sdf -p failed (exit {result.returncode}) or printed nothing: '
+                    f'{result.stderr[-500:]}')
     return ET.fromstring(result.stdout)
 
 
@@ -70,6 +78,13 @@ def _collision_ode(sdf_root, link):
     return ode
 
 
+def _ode_value(ode, tag, link):
+    """Return a friction value; an empty <ode/> means Gazebo uses its default mu 1."""
+    text = ode.findtext(tag)
+    assert text is not None, f'{link}: <{tag}> missing in the SDF, Gazebo uses its default'
+    return text
+
+
 def test_no_raw_surface_under_a_wheel_reference(urdf_xml):
     """A <surface> directly under <gazebo reference> is dropped by the conversion."""
     root = ET.fromstring(urdf_xml)
@@ -89,7 +104,7 @@ def test_drive_wheel_friction_tags_in_urdf(urdf_xml, link):
 
 @pytest.mark.parametrize('link', CASTER_LINKS)
 def test_caster_friction_tags_in_urdf(urdf_xml, link):
-    """The casters carry mu1 0 and mu2 0."""
+    """The casters carry mu1 0 and mu2 0 (frictionless slider, not a rolling caster)."""
     tags = _gazebo_tags(urdf_xml, link)
     assert float(tags['mu1']) == CASTER['mu']
     assert float(tags['mu2']) == CASTER['mu2']
@@ -109,14 +124,14 @@ def test_caster_geometry_is_unchanged(urdf_xml):
 def test_drive_wheel_friction_reaches_sdf_collision(sdf_root, link):
     """The drive wheel collisions carry the friction in the SDF."""
     ode = _collision_ode(sdf_root, link)
-    assert float(ode.findtext('mu')) == DRIVE['mu']
-    assert float(ode.findtext('mu2')) == DRIVE['mu2']
-    assert [float(v) for v in ode.findtext('fdir1').split()] == DRIVE['fdir1']
+    assert float(_ode_value(ode, 'mu', link)) == DRIVE['mu']
+    assert float(_ode_value(ode, 'mu2', link)) == DRIVE['mu2']
+    assert [float(v) for v in _ode_value(ode, 'fdir1', link).split()] == DRIVE['fdir1']
 
 
 @pytest.mark.parametrize('link', CASTER_LINKS)
 def test_caster_friction_reaches_sdf_collision(sdf_root, link):
     """Every lumped caster collision carries mu 0 in the SDF."""
     ode = _collision_ode(sdf_root, link)
-    assert float(ode.findtext('mu')) == CASTER['mu']
-    assert float(ode.findtext('mu2')) == CASTER['mu2']
+    assert float(_ode_value(ode, 'mu', link)) == CASTER['mu']
+    assert float(_ode_value(ode, 'mu2', link)) == CASTER['mu2']
