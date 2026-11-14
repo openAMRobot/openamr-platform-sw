@@ -242,6 +242,17 @@ class NavigationStatusNode(Node):
         self.create_subscription(
             BehaviorTreeLog, '/behavior_tree_log', self._on_bt_log, 10)
 
+        # navigate_through_poses shares the same bt_navigator/recovery nodes as
+        # navigate_to_pose but has no status callback of its own here, so a
+        # goal run through it never reset self._recovery - a limit reached on
+        # one goal could leak into a later, unrelated goal (#92). This only
+        # tracks the goal id to detect a new goal; NavTaskStatus reporting for
+        # navigate_through_poses is out of scope here.
+        self._through_poses_goal_id = None
+        self.create_subscription(
+            GoalStatusArray, '/navigate_through_poses/_action/status',
+            self._on_through_poses_status, 10)
+
         # protection
         self._collision_monitor_state = None  # never seen publishing in the sim
         self.create_subscription(
@@ -448,15 +459,42 @@ class NavigationStatusNode(Node):
         new_goal, to_fetch = self._task.on_status(msg.status_list)
         if new_goal:
             self._recovery.on_new_goal()
+        elif to_fetch is not None and self._task.state in (
+                NavTaskStatus.STATE_SUCCEEDED, NavTaskStatus.STATE_CANCELED):
+            # Mohamed Sayed's platform-sw#91 review: RecoveryTracker only
+            # reset on a brand-new goal id, so a successful (or cancelled)
+            # completion of the SAME goal left RECOVERY_LIMIT_REACHED set
+            # until the next goal started - blocking readiness after
+            # navigation had already recovered. to_fetch is not None is
+            # TaskTracker's own "this status just became terminal, and
+            # hasn't been handled yet" signal (it already deduplicates
+            # repeat terminal messages via _result_requested_for), so this
+            # only fires once per goal. ABORTED is deliberately excluded:
+            # that is the one terminal outcome recovery escalation is meant
+            # to hold on, until a new goal or an operator addresses it.
+            self._recovery.on_new_goal()
         if to_fetch is not None:
             self._result_fetcher.request(to_fetch)
+
+    def _on_through_poses_status(self, msg: GoalStatusArray):
+        if not msg.status_list:
+            return
+        latest = max(
+            reversed(msg.status_list),
+            key=lambda e: (e.goal_info.stamp.sec, e.goal_info.stamp.nanosec))
+        goal_id = bytes(latest.goal_info.goal_id.uuid)
+        if goal_id != self._through_poses_goal_id:
+            self._through_poses_goal_id = goal_id
+            self._recovery.on_new_goal()
 
     def _on_nav_feedback(self, msg):
         self._task.on_feedback(bytes(msg.goal_id.uuid), msg.feedback.distance_remaining)
 
     def _on_bt_log(self, msg: BehaviorTreeLog):
         for event in msg.event_log:
-            self._recovery.on_bt_event(event.node_name, event.current_status)
+            self._recovery.on_bt_event(
+                event.node_name, event.current_status,
+                previous_status=event.previous_status)
 
     def _on_collision_monitor_state(self, msg: CollisionMonitorState):
         self._collision_monitor_state = msg
@@ -610,7 +648,8 @@ class NavigationStatusNode(Node):
                 [task.reason, recovery.reason, msg.protection.collision_monitor_reason]
                 + [m.reason for m in msg.protection.motion_sources]
                 + [msg.protection.rear_coverage_reason]),
-            base_reasons=self._base_reasons())
+            base_reasons=self._base_reasons(),
+            recovery_reason=recovery.reason)
         msg.health = result.health
         msg.navigation_readiness = result.readiness
         msg.not_ready_reasons = result.not_ready_reasons

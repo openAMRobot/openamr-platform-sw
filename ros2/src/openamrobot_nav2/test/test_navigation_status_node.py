@@ -31,6 +31,8 @@ from rclpy.parameter import Parameter  # noqa: E402
 
 ABORTED = 6
 ACTIVE = 3
+SUCCEEDED = 4
+CANCELED = 5
 
 
 class FakeFuture:
@@ -354,6 +356,146 @@ class TestDiagnosticsMirror(NodeTestCase):
         self.assertEqual(len(sensor_entries), len(self.node._sensors))
         self.assertEqual(
             {s.hardware_id for s in sensor_entries}, set(self.node._sensors.keys()))
+
+
+class TestRecoveryResetOnTerminalStatus(NodeTestCase):
+    """
+    Mohamed Sayed's platform-sw#91 review: RecoveryTracker reset only on
+    on_new_goal - a goal id becoming new. A goal that reaches
+    RECOVERY_LIMIT_REACHED and then succeeds (or is cancelled) without a new
+    goal ever being sent left that block set, so a consumer that refuses new
+    work while readiness is false would stay blocked after navigation had
+    already recovered.
+
+    Against the real RecoveryTracker instance the node already owns:
+    confirms the limit is actually reached first (so this is not a vacuous
+    pass), then feeds a terminal status for the SAME goal id and checks the
+    block clears without a new goal ever starting.
+
+    Exhaustion is driven via primary-failure counting
+    (NavigateWithReplanning/NavigateRecovery FAILURE), not Mohamed's
+    original leaf-event repro table - platform-sw#90's correction
+    (status_trackers.py's RecoveryTracker) replaced the leaf-count-based
+    RECOVERY_LIMIT_REACHED this class originally reproduced; see
+    TestRecoveryTrackerExhaustion in test_status_trackers.py for why.
+    """
+
+    def _drive_to_limit(self):
+        for _ in range(self.node._recovery.attempt_limit + 1):
+            self.node._recovery.on_bt_event('NavigateWithReplanning', 'FAILURE')
+        self.node._recovery.on_bt_event('NavigateRecovery', 'FAILURE')
+
+    def test_driving_to_the_limit_actually_reaches_it_first(self):
+        # sanity check: if this stops reaching the limit, the regression
+        # below would pass vacuously for the wrong reason
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_succeeding_on_the_same_goal_clears_the_recovery_block(self):
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+        # same goal id (1), now SUCCEEDED - no new goal was ever sent
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, SUCCEEDED)]))
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+        self.assertEqual(self.node._recovery.attempt, 0)
+
+    def test_cancelling_the_same_goal_also_clears_the_recovery_block(self):
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, CANCELED)]))
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+
+    def test_an_aborted_goal_does_not_clear_the_recovery_block(self):
+        # the one terminal outcome this must NOT reset on: ABORTED is the
+        # actual escalation outcome recovery is meant to hold readiness on,
+        # until a new goal or an operator addresses it.
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ABORTED)]))
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_deduplicated_repeat_terminal_status_does_not_error(self):
+        # TaskTracker deduplicates repeat terminal messages for the same
+        # goal via _result_requested_for, which is only set once the result
+        # client actually sends the request (ResultFetcher._try_send) - so
+        # this needs a ready FakeClient, same pattern as
+        # TestResultRetryDrivenByTick, for to_fetch to actually become None
+        # on the second message. The fix must not depend on to_fetch firing
+        # every time: on_new_goal() is idempotent, so this just confirms
+        # nothing errors or un-resets when the dedup path is the one that
+        # actually engages.
+        client = FakeClient(ready=True)
+        self.node._nav_result_client = client
+        self.node._result_fetcher._client = client
+
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, SUCCEEDED)]))
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+        self.assertEqual(len(client.calls), 1)  # the result request was actually sent
+
+        # same goal, same terminal status again - deduplicated (to_fetch is
+        # None this time), must not error or disturb the already-clear state
+        self.node._on_nav_status(SimpleNamespace(status_list=[status_entry(1, SUCCEEDED)]))
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+        self.assertEqual(len(client.calls), 1)  # not sent again
+
+
+class TestRecoveryResetOnThroughPosesGoal(NodeTestCase):
+    """
+    Covers a lifecycle gap (#92).
+
+    Recovery only reset on navigate_to_pose's own status callback, so a goal
+    run through navigate_through_poses never reset it - a
+    RECOVERY_LIMIT_REACHED left over from an earlier, unrelated goal could
+    leak into a goal that has not actually recovered at all.
+    """
+
+    def _drive_to_limit(self):
+        # platform-sw#91, Mohamed's review: exhaustion no longer comes from
+        # the displayed attempt count reaching a limit - it comes from
+        # counting primary (NavigateWithReplanning) failures, which must
+        # reach attempt_limit + 1 before NavigateRecovery's own FAILURE
+        # counts as exhaustion (see status_trackers.py's RecoveryTracker).
+        for _ in range(self.node._recovery.attempt_limit + 1):
+            self.node._recovery.on_bt_event('NavigateWithReplanning', 'FAILURE')
+        self.node._recovery.on_bt_event('NavigateRecovery', 'FAILURE')
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
+    def test_a_new_through_poses_goal_resets_a_limit_left_from_navigate_to_pose(self):
+        self._drive_to_limit()
+
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+
+        self.assertEqual(self.node._recovery.attempt, 0)
+        self.assertEqual(self.node._recovery.reason, NavigationStatus.NONE)
+
+    def test_a_repeated_status_for_the_same_through_poses_goal_does_not_reset(self):
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE)]))
+        self._drive_to_limit()
+
+        # same goal id, just a later status update - must not look like a new
+        # goal and wipe out the attempt count it is actually accumulating
+        self.node._on_through_poses_status(
+            SimpleNamespace(status_list=[status_entry(1, ACTIVE, sec=11)]))
+
+        self.assertEqual(
+            self.node._recovery.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
 
 
 if __name__ == '__main__':

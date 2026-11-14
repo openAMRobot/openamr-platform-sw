@@ -135,7 +135,8 @@ def evaluate_localization(*, pose_received, pose_age_s, covariance_xy, covarianc
 
 
 def roll_up(*, config_fault, stack_state, stack_reason, sensors,
-            localization_state, localization_reason, other_reasons, base_reasons):
+            localization_state, localization_reason, other_reasons, base_reasons,
+            recovery_reason=NavigationStatus.NONE):
     """
     Combine the group results into health, readiness and the two reason lists.
 
@@ -143,6 +144,12 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
     from the task, recovery and protection groups, and base_reasons are the ones
     from the I8 dependency. Readiness does not depend on the reason lists: a
     blocked component blocks it even if its reason were missing.
+
+    recovery_reason is the recovery group's own reason, checked on its own rather
+    than folded into other_reasons: only NavigationStatus.RECOVERY_LIMIT_REACHED
+    blocks readiness (#35/N4's operator-escalation-after-retry-budget requirement,
+    plan section 27). A plain RECOVERY_IN_PROGRESS is normal mid-recovery activity,
+    not a failure, so it stays telemetry-only via other_reasons as before.
     """
     blocked = bool(
         config_fault
@@ -150,7 +157,8 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
         or stack_state != NavStackStatus.STATE_ACTIVE
         or any(required and state != SensorStatus.STATE_OK
                for required, state, _ in sensors)
-        or localization_state != LocalizationStatus.STATE_OK)
+        or localization_state != LocalizationStatus.STATE_OK
+        or recovery_reason == NavigationStatus.RECOVERY_LIMIT_REACHED)
 
     blocking_reasons = []
     if config_fault:
@@ -163,6 +171,8 @@ def roll_up(*, config_fault, stack_state, stack_reason, sensors,
             blocking_reasons.append(reason)
     if localization_state != LocalizationStatus.STATE_OK:
         blocking_reasons.append(localization_reason)
+    if recovery_reason == NavigationStatus.RECOVERY_LIMIT_REACHED:
+        blocking_reasons.append(recovery_reason)
     not_ready_reasons = _unique(blocking_reasons)
 
     active_reasons = _unique(
