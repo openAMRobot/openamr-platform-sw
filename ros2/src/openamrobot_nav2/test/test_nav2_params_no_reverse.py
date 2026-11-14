@@ -58,21 +58,26 @@ def test_behavior_plugins_excludes_every_reverse_capable_interface():
 def test_dwb_followpath_min_vel_x_is_not_negative():
     params = _params()['controller_server']['ros__parameters']['FollowPath']
     min_vel_x = params['min_vel_x']
-    assert min_vel_x >= 0.0, (
-        f"FollowPath's min_vel_x is {min_vel_x} - D-19 (platform-sw#124): "
-        'any negative value lets DWB itself command a blind reverse during '
-        "ordinary path following, and collision_monitor's rear sectors are "
-        "masked (panthera-momagdii's #90 review), so it cannot see behind "
-        'the robot to guard it.')
+    # Exactly 0.0, not merely >= 0.0 (panthera-momagdii's 11 Nov review): Alex
+    # explicitly asked to pin this to exactly 0.0, and a loosened ">="
+    # assertion would pass a small positive value too, which is not what was
+    # asked for.
+    assert min_vel_x == 0.0, (
+        f"FollowPath's min_vel_x is {min_vel_x}, not exactly 0.0 - D-19 "
+        '(platform-sw#124): any negative value lets DWB itself command a '
+        'blind reverse during ordinary path following, and '
+        "collision_monitor's rear sectors are masked (panthera-momagdii's "
+        '#90 review), so it cannot see behind the robot to guard it.')
 
 
 def test_velocity_smoother_min_velocity_linear_x_is_not_negative():
     min_velocity = _params()['velocity_smoother']['ros__parameters']['min_velocity']
-    assert min_velocity[0] >= 0.0, (
-        f'velocity_smoother min_velocity linear.x is {min_velocity[0]} - D-19 '
-        '(platform-sw#124): this is the final backstop before the real '
-        '/cmd_vel, and it must not let a reverse command through from any '
-        'upstream source either.')
+    # Exactly 0.0, same reasoning as test_dwb_followpath_min_vel_x_is_not_negative.
+    assert min_velocity[0] == 0.0, (
+        f'velocity_smoother min_velocity linear.x is {min_velocity[0]}, not '
+        'exactly 0.0 - D-19 (platform-sw#124): this is the final backstop '
+        'before the real /cmd_vel, and it must not let a reverse command '
+        'through from any upstream source either.')
 
 
 if __name__ == '__main__':
