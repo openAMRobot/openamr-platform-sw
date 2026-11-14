@@ -24,6 +24,8 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
+| Recovery BT + retry escalation (#35/N4) | #91 | changes requested (BotshareAI's #90 review, 11 Nov) - see its own STATE.md row history; D-19 reintroduction fixed, 145 passed/1 skipped | owner/Mohamed review |
+| navigate_through_poses BT fast-follow (#35/N4) | #92 | changes requested (BotshareAI's #90 review, 11 Nov): same D-19 reintroduction as #91, in both navigate_to_pose.xml (merged from #91) and its own navigate_through_poses.xml - both BackUp nodes removed, both pinned tests inverted, nav2_params.yaml velocity limits clamped, test_nav2_params_no_reverse.py added; RED/GREEN confirmed via git stash; 136 passed/1 skipped | owner review; squash #91's nav2_params stock-tree comment once #91 merges |
 | Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
 | Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
 | ToF cliff pitch 10 deg down in URDF, SDF and docs (NEAR-FIELD-FRAMES, 20 Oct 2026) | #93 | ready | Cuma: floor-return check at the 23 to 27 Nov bench |

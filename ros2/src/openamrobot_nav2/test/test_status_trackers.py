@@ -215,6 +215,35 @@ class TestRecoveryTracker(unittest.TestCase):
         self.assertEqual(RecoveryTracker(0).attempt_limit, 1)
         self.assertEqual(RecoveryTracker(1000).attempt_limit, 255)
 
+    def test_the_named_inline_waits_are_not_counted(self):
+        # platform-sw#91/#92 review (Mohamed): navigate_to_pose.xml's two inline
+        # 2.0 s Waits (before each bounded per-action clear) are now explicitly
+        # named WaitBeforeClear-GlobalContext / WaitBeforeClear-LocalContext,
+        # specifically so they do not match the bare 'Wait' key in
+        # _RECOVERY_NODES the way an unnamed <Wait> would.
+        tracker = RecoveryTracker(6)
+        tracker.on_bt_event('WaitBeforeClear-GlobalContext', 'RUNNING')
+        tracker.on_bt_event('WaitBeforeClear-LocalContext', 'RUNNING')
+        self.assertEqual(tracker.attempt, 0)
+        self.assertEqual(tracker.action, RecoveryStatus.ACTION_NONE)
+
+    def test_inline_recovery_does_not_exhaust_the_real_retry_budget(self):
+        # Before the naming fix, each inline recovery (Wait then Clear) counted
+        # as 2 attempts instead of 1, so navigate_to_pose's two inline
+        # RecoveryNodes (ComputePathToPose, FollowPath - number_of_retries="1"
+        # each) could, on their own, push the shared attempt_limit (6) more
+        # than halfway to RECOVERY_LIMIT_REACHED before the outer NavigateRecovery
+        # round-robin (Spin/Wait(5.0)/BackUp/Clear-Subtree) ever ran once -
+        # exactly the false escalation Mohamed's review flagged. With the Wait
+        # nodes named, only the two real Clear-Context actions count.
+        tracker = RecoveryTracker(6)
+        for name in ('WaitBeforeClear-GlobalContext', 'ClearGlobalCostmap-Context',
+                     'WaitBeforeClear-LocalContext', 'ClearLocalCostmap-Context'):
+            tracker.on_bt_event(name, 'RUNNING')
+            tracker.on_bt_event(name, 'SUCCESS')
+        self.assertEqual(tracker.attempt, 2)
+        self.assertNotEqual(tracker.reason, NavigationStatus.RECOVERY_LIMIT_REACHED)
+
 
 class FakeResultClient:
     """Stands in for the get_result action-client service."""

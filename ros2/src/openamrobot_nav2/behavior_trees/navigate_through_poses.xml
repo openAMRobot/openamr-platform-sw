@@ -1,0 +1,105 @@
+<!--
+  OpenAMRobot #35/N4 recovery policy, navigate_through_poses variant. Starting point:
+  the exact stock tree shipped as nav2_bt_navigator/behavior_trees/
+  navigate_through_poses_w_replanning_and_recovery.xml in ROS 2 Jazzy (every port,
+  attribute and node left byte-identical except the same two changes already applied
+  to navigate_to_pose.xml in PR #91 - this is that PR's fast-follow, not a new design).
+
+  Changes from stock, both driven by the plan's own rule (P-02 execution plan, section
+  27, "Navigation state and recovery policy"): "Costmap clearing, backup or spin are
+  never universal first responses."
+
+  1. ClearEntireCostmap -> ClearCostmapAroundRobot (bounded) in all four places, same
+     reset_distance values as navigate_to_pose.xml for consistency (3.0 m global /
+     1.5 m local) - not re-derived here, see that file's own comment for the full
+     rationale. These values, and the 2.0 s Wait below, are a starting point for
+     real-robot tuning, not measured constants: a planner failure caused by a
+     stale obstacle more than 1.5 m from the robot is not cleared by this bounded
+     radius and ends in escalation instead (BotshareAI's platform-sw#92 review).
+  2. An explicit Wait inserted immediately before each inline (per-action) bounded
+     clear, same 2.0 s duration as navigate_to_pose.xml, for the same reason: long
+     enough for a transient obstacle to clear, short enough not to blow the outer
+     RecoveryNode's retry budget. That budget (number_of_retries="6" on
+     NavigateRecovery, above) is Nav2's own outer-retry count and is a separate
+     thing from RecoveryTracker's attempt_limit (navigation_status_profile.yaml's
+     recovery_attempt_limit, status_trackers.py) - Nav2 counts outer retries of
+     the whole NavigateRecovery node, RecoveryTracker counts BT node RUNNING
+     events one level down. They happen to both read "6" today, but nothing
+     keeps them in sync, and BotshareAI's platform-sw#92 review is exactly why
+     that distinction matters: each inline Wait is explicitly named below so it
+     is never mistaken for a RecoveryTracker-counted recovery action in the
+     first place (see point 3).
+  3. Both inline Waits above are named (WaitBeforeClear-GlobalContext,
+     WaitBeforeClear-LocalContext), not left as bare <Wait>. RecoveryTracker
+     matches the bare node name "Wait" to count a recovery attempt (same name
+     the outer round-robin's genuine recovery Wait(5.0) uses, unchanged below);
+     an unnamed inline Wait would be indistinguishable from that and would
+     count every ordinary inline clear toward the shared attempt_limit, not
+     just a real escalated recovery - reaching RECOVERY_LIMIT_REACHED around
+     Nav2's 2nd outer retry while Nav2 itself is still legitimately recovering
+     (BotshareAI's platform-sw#92 review). navigate_to_pose.xml needs the same
+     naming (#91).
+
+  Left unchanged from stock, and out of scope here for the same reasons as
+  navigate_to_pose.xml: the RateController hz="0.333" (through-poses' own lower
+  replanning rate - unrelated to recovery policy, not touched), ComputePathThroughPoses/
+  RemovePassedGoals/ReactiveSequence (multi-goal path handling, unrelated), the outer
+  round-robin's Spin/Wait(5.0) (zone-gating needs N2/#73's zone data, not yet merged),
+  and retry-exhaustion escalation itself (already wired in #91 via
+  status_rules.py/navigation_status_node.py - this file needs no changes for that,
+  since RecoveryTracker counts by BT node name, not by which tree is running).
+
+  BackUp REMOVED from the outer round-robin (platform-sw#90, D-19, Alex's 8 Nov
+  ruling on platform-sw#124: reverse is not offered in Build 1, the rear sectors are
+  masked so collision_monitor cannot guard a blind 0.30m reverse) - this file predates
+  #90's own navigate_through_poses_no_backup.xml; BotshareAI's #90 review (11 Nov)
+  flagged it as a reintroduction and asked for the same removal here.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+        <RateController hz="0.333">
+          <RecoveryNode number_of_retries="1" name="ComputePathThroughPoses">
+            <ReactiveSequence>
+              <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.7"/>
+              <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+            </ReactiveSequence>
+            <Sequence>
+              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+              <Wait name="WaitBeforeClear-GlobalContext" wait_duration="2.0"/>
+              <ClearCostmapAroundRobot name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
+            </Sequence>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <Sequence>
+            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+            <Wait name="WaitBeforeClear-LocalContext" wait_duration="2.0"/>
+            <ClearCostmapAroundRobot name="ClearLocalCostmap-Context" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
+          </Sequence>
+        </RecoveryNode>
+      </PipelineSequence>
+      <Sequence>
+        <Fallback>
+          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+        </Fallback>
+        <ReactiveFallback name="RecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <Sequence name="ClearingActions">
+              <ClearCostmapAroundRobot name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_around_local_costmap" reset_distance="1.5"/>
+              <ClearCostmapAroundRobot name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_around_global_costmap" reset_distance="3.0"/>
+            </Sequence>
+            <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
+            <Wait wait_duration="5.0"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
