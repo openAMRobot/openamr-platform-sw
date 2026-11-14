@@ -32,16 +32,22 @@ ros2 launch openamrobot_bringup bringup.launch.py map:=/path/to/real_map.yaml
 `/goal_pose` only reaches Nav2 if something forwards it to `/goal_pose_nav`. On the **real robot**
 this is controlled by `use_docking`:
 
-- **`use_docking:=true`** (default) — launches `openamrobot_docking/docking_real.launch.py` (AprilTag
+- **`use_docking`'s own default is empty**, which resolves to **OFF on the real robot, ON in
+  simulation** (D-19, Alex's 11 Nov owner decision - opennav_docking exposes a direct
+  `/undock_robot` the `#90` stop-gate constant cannot gate, so the real profile must not start it
+  until D-19's three conditions are met). Pass it explicitly to override either profile's default.
+- **`use_docking:=true`** — launches `openamrobot_docking/docking_real.launch.py` (AprilTag
   on the real camera → `/detected_dock_pose`, + `dock_trigger`). `dock_trigger` **owns** `/goal_pose`:
   it forwards a goal to `/goal_pose_nav` immediately when not docked, or undocks first when docked, and
   also performs AprilTag docking on `/dock_trigger`. This is the real port of the docking pipeline.
-- **`use_docking:=false`** — nav-only debug: a plain `topic_tools relay /goal_pose → /goal_pose_nav`
-  (no docking). Use when you don't have the physical dock or just want to test navigation.
-- **sim** — same `use_docking` switch: `use_docking:=true` (default) folds the Gazebo docking layer
-  (`openamrobot_docking.launch.py` — apriltag_sim + `dock_trigger`) into `sim:=true`, so one command
-  runs Gazebo + Nav2 + docking. This replaces the legacy `openamrobot_docking/bringup_sim.launch.py`
-  (kept working for backwards compatibility). `use_docking:=false` falls back to the plain relay.
+- **`use_docking:=false`** — nav-only debug (also the real robot's own default): a plain
+  `topic_tools relay /goal_pose → /goal_pose_nav` (no docking). Use when you don't have the
+  physical dock or just want to test navigation.
+- **sim** — same `use_docking` switch, but defaults ON there: `use_docking:=true`
+  (`openamrobot_docking.launch.py` — apriltag_sim + `dock_trigger`) folds the Gazebo docking layer
+  into `sim:=true`, so one command runs Gazebo + Nav2 + docking. This replaces the legacy
+  `openamrobot_docking/bringup_sim.launch.py` (kept working for backwards compatibility).
+  `use_docking:=false` falls back to the plain relay.
 
 The standard RViz "2D Goal Pose" tool (publishes `/goal_pose`) works in all cases.
 

@@ -36,12 +36,14 @@ silently dropped.
 
 There must be **exactly one** publisher on `/goal_pose_nav`. Two forwarders = double goals
 (Nav2 receives each goal twice and the second preempts the first). Which one runs is chosen by
-the `use_docking` argument of `bringup.launch.py`, symmetrically for sim and real:
+the `use_docking` argument of `bringup.launch.py` - its own default is empty, which resolves to
+ON in simulation but OFF on the real robot (D-19, Alex's 11 Nov owner decision, until docking's
+three readiness conditions are met):
 
 | Mode | Forwarder | Launched by |
 |---|---|---|
-| **Docking on** (`use_docking:=true`, default) | `dock_trigger` **owns** `/goal_pose` and republishes to `/goal_pose_nav` (after undocking if docked) — it *is* the forwarder | `openamrobot_docking` launch (`openamrobot_docking.launch.py` sim / `docking_real.launch.py` real) |
-| **Nav-only** (`use_docking:=false`) | a plain `topic_tools relay /goal_pose → /goal_pose_nav` | `goal_relay.launch.py` |
+| **Docking on** (`use_docking:=true`; default in sim, pass explicitly on real) | `dock_trigger` **owns** `/goal_pose` and republishes to `/goal_pose_nav` (after undocking if docked) — it *is* the forwarder | `openamrobot_docking` launch (`openamrobot_docking.launch.py` sim / `docking_real.launch.py` real) |
+| **Nav-only** (`use_docking:=false`; default on the real robot) | a plain `topic_tools relay /goal_pose → /goal_pose_nav` | `goal_relay.launch.py` |
 
 Both branches are gated in `bringup.launch.py` so **exactly one** runs. If you compose layers by
 hand (per-terminal workflow), you must pick one yourself:

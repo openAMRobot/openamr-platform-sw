@@ -18,6 +18,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.actions import OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LoadComposableNodes, SetParameter
@@ -39,14 +40,27 @@ def generate_launch_description():
     container_name_full = (namespace, '/', container_name)
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
+    enabled_producers = LaunchConfiguration('enabled_producers')
 
+    # waypoint_follower is deliberately NOT started (Alex's finding on #90 at
+    # 2e0b8f3): follow_waypoints treats a stop-gate-cancelled child
+    # NavigateToPose as a failed waypoint, and with stop_on_failure: false
+    # (nav2_params.yaml) it just continues to the NEXT waypoint on its own -
+    # a new child goal with no fresh operator request, breaking D-14
+    # ("Resume clears the inhibit only, never restarts motion"). Disabled
+    # for Build 1 rather than gated: _CANCEL_ACTIONS/the goal-authority
+    # ledger only track single-goal actions, not a multi-goal sequencer's
+    # own internal continuation logic, so gating this properly needs its
+    # own design, not a quick addition here. Not starting it at all means
+    # no /follow_waypoints server ever exists, so an external client
+    # cannot submit that goal in the first place - see
+    # test_navigation_launch_no_waypoint_follower.py.
     lifecycle_nodes = [
         'controller_server',
         'planner_server',
         'smoother_server',
         'behavior_server',
         'bt_navigator',
-        'waypoint_follower',
         'velocity_smoother',
         'collision_monitor',
     ]
@@ -60,7 +74,19 @@ def generate_launch_description():
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
     # Create our own temporary YAML files that include substitutions
-    param_substitutions = {'autostart': autostart}
+    #
+    # default_nav_to_pose_bt_xml/default_nav_through_poses_bt_xml (D-19 audit,
+    # platform-sw#124): the YAML can only hold a relative placeholder string -
+    # nav2_bt_navigator needs an absolute path, so it's resolved here, same
+    # pattern as autostart above. See the BT files' own comments for why
+    # BackUp is removed from both.
+    param_substitutions = {
+        'autostart': autostart,
+        'default_nav_to_pose_bt_xml': os.path.join(
+            bringup_dir, 'behavior_trees', 'navigate_to_pose_no_backup.xml'),
+        'default_nav_through_poses_bt_xml': os.path.join(
+            bringup_dir, 'behavior_trees', 'navigate_through_poses_no_backup.xml'),
+    }
 
     configured_params = ParameterFile(
         RewrittenYaml(
@@ -118,6 +144,17 @@ def generate_launch_description():
 
     declare_log_level_cmd = DeclareLaunchArgument(
         'log_level', default_value='info', description='log level'
+    )
+
+    declare_enabled_producers_cmd = DeclareLaunchArgument(
+        'enabled_producers',
+        default_value='navigate_to_pose,navigate_through_poses,dock_robot,undock_robot',
+        description=(
+            'Comma-separated subset of navigate_to_pose, navigate_through_poses, '
+            'dock_robot, undock_robot: the producers safety_stop_gate_node treats as '
+            'enabled for release condition (a) (platform-sw#124, D-13). A producer '
+            'left out is excluded by name, never inferred from an absence of traffic.'
+        ),
     )
 
     load_nodes = GroupAction(
@@ -192,19 +229,20 @@ def generate_launch_description():
                 # goal_pose is remapped to goal_pose_nav so the docking node can
                 # gate it: it owns /goal_pose, undocks first if the robot is
                 # docked, then republishes here for Nav2. See openamrobot_docking
-                # dock_trigger.py (undock-before-navigate).
-                remappings=remappings + [('goal_pose', 'goal_pose_nav')],
-            ),
-            Node(
-                package='nav2_waypoint_follower',
-                executable='waypoint_follower',
-                name='waypoint_follower',
-                output='screen',
-                respawn=use_respawn,
-                respawn_delay=2.0,
-                parameters=[configured_params],
-                arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                # dock_trigger.py (undock-before-navigate). navigate_to_pose and
+                # navigate_through_poses are each remapped to their own _real
+                # name so navigate_to_pose_goal_proxy_node.py/
+                # navigate_through_poses_goal_proxy_node.py can claim the public
+                # names instead (platform-sw#124, D-13: "one platform node that
+                # owns the goal handles") - every existing sender (dock_trigger.py's
+                # own ActionClient, openamrobot-ui's direct one) keeps calling the
+                # same name and is transparently redirected through the proxy, no
+                # change needed in either.
+                remappings=remappings + [
+                    ('goal_pose', 'goal_pose_nav'),
+                    ('navigate_to_pose', 'navigate_to_pose_real'),
+                    ('navigate_through_poses', 'navigate_through_poses_real'),
+                ],
             ),
             Node(
                 package='nav2_velocity_smoother',
@@ -215,8 +253,14 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # input remapped to the controller's cmd_vel_nav; output stays cmd_vel_smoothed.
-                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                # #35/#90: input is cmd_vel_gated, not twist_mux's raw cmd_vel_mux
+                # output directly - every cmd_vel source (nav/dock/manual/stop) has
+                # to clear the mux AND safety_stop_gate_node's post-mux lock check
+                # first (platform-sw#90, Alex's review: a nonzero Twist from some
+                # OTHER publisher on cmd_vel_stop would otherwise clear the mux at
+                # equal priority and reach here unmodified - see that node's own
+                # docstring). Output stays cmd_vel_smoothed.
+                remappings=remappings + [('cmd_vel', 'cmd_vel_gated')],
             ),
             Node(
                 package='nav2_collision_monitor',
@@ -227,7 +271,8 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel (set in nav2_params.yaml).
+                # cmd_vel_in_topic=cmd_vel_smoothed, cmd_vel_out_topic=cmd_vel
+                # (set in nav2_params.yaml).
                 remappings=remappings,
             ),
             Node(
@@ -236,7 +281,11 @@ def generate_launch_description():
                 name='lifecycle_manager_navigation',
                 output='screen',
                 arguments=['--ros-args', '--log-level', log_level],
-                parameters=[{'autostart': autostart}, {'node_names': lifecycle_nodes}, {'bond_timeout': 60.0}],
+                parameters=[
+                    {'autostart': autostart},
+                    {'node_names': lifecycle_nodes},
+                    {'bond_timeout': 60.0},
+                ],
             ),
         ],
     )
@@ -256,6 +305,122 @@ def generate_launch_description():
         respawn_delay=2.0,
         parameters=[{'use_sim_time': use_sim_time}],
         arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # Plain Python nodes, not composable, so they run unconditionally here
+    # too, regardless of use_composition - same reasoning as status_node
+    # above. Each owns every goal handle for its own action (platform-sw#124,
+    # D-13): bt_navigator's own navigate_to_pose/navigate_through_poses are
+    # each remapped to their own _real name in both GroupActions above, and
+    # these nodes claim the public names instead, relaying every goal end to
+    # end and reporting sent/done to the goal-authority ledger via
+    # goal_authority_events - see each node's own module docstring.
+    navigate_to_pose_goal_proxy_node = Node(
+        package='openamrobot_nav2',
+        executable='navigate_to_pose_goal_proxy_node',
+        name='navigate_to_pose_goal_proxy',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # Same reasoning as navigate_to_pose_goal_proxy_node above - bt_navigator's
+    # own navigate_through_poses is remapped to navigate_through_poses_real in
+    # both GroupActions above, and this node claims the public name instead.
+    navigate_through_poses_goal_proxy_node = Node(
+        package='openamrobot_nav2',
+        executable='navigate_through_poses_goal_proxy_node',
+        name='navigate_through_poses_goal_proxy',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # #35/#90 command arbitration chain: every cmd_vel source -> twist_mux ->
+    # cmd_vel_mux -> safety_stop_gate_node (post-mux lock check) -> cmd_vel_gated
+    # -> velocity_smoother -> cmd_vel_smoothed -> collision_monitor -> cmd_vel
+    # (final). twist_mux is not a composable component, so - like status_node
+    # above - these three run as plain nodes unconditionally, outside either
+    # GroupAction, regardless of use_composition. None are nav2-lifecycle-managed,
+    # so none are in lifecycle_nodes. Config: config/twist_mux.yaml (posted on
+    # issue #35).
+    twist_mux_node = Node(
+        package='twist_mux',
+        executable='twist_mux',
+        name='twist_mux',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[os.path.join(bringup_dir, 'config', 'twist_mux.yaml'),
+                    {'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=remappings + [('cmd_vel_out', 'cmd_vel_mux')],
+    )
+
+    # Owns /safety/stop_lock + /safety/stop_lock_release + /safety/stop_lock_engage,
+    # and publishes the zero Twist on cmd_vel_stop while locked - twist_mux never
+    # does this itself (see safety_stop_gate_node.py). Starts locked by default.
+    #
+    # enabled_producers is declared as a comma-separated string (launch arguments
+    # are string substitutions) and resolved to a real list here via
+    # OpaqueFunction, at launch time, into the enabled_producers parameter
+    # safety_stop_gate_node actually declares (platform-sw#124, D-13).
+    def _make_safety_stop_gate_node(context, *args, **kwargs):
+        producers = [
+            p.strip() for p in context.perform_substitution(enabled_producers).split(',')
+            if p.strip()
+        ]
+        return [Node(
+            package='openamrobot_nav2',
+            executable='safety_stop_gate_node',
+            name='safety_stop_gate_node',
+            output='screen',
+            respawn=use_respawn,
+            respawn_delay=2.0,
+            parameters=[{'use_sim_time': use_sim_time, 'enabled_producers': producers}],
+            arguments=['--ros-args', '--log-level', log_level],
+        )]
+
+    safety_stop_gate_node = OpaqueFunction(function=_make_safety_stop_gate_node)
+
+    # Relays /ui/cmd_vel (TwistStamped) down to plain Twist on cmd_vel_joy, dropping
+    # anything older than 0.25s off header.stamp - twist_mux's use_stamped is false
+    # globally (see twist_mux.yaml), so this is the only place stamping is handled.
+    ui_cmd_vel_relay_node = Node(
+        package='openamrobot_nav2',
+        executable='ui_cmd_vel_relay_node',
+        name='ui_cmd_vel_relay_node',
+        output='screen',
+        respawn=use_respawn,
+        respawn_delay=2.0,
+        parameters=[{'use_sim_time': use_sim_time}],
+        arguments=['--ros-args', '--log-level', log_level],
+    )
+
+    # #90 (Mohamed's review): twist_mux's lock defaults fail-closed on its own
+    # now (twist_mux.yaml timeout: 0.3), but that default only trips once
+    # now() has advanced past 0.3s of whatever clock the mux uses - with
+    # use_sim_time true and a sim clock that starts near zero, a cold-boot
+    # mux could briefly read unlocked before either that threshold or a real
+    # lock sample from safety_stop_gate_node arrives. ui_cmd_vel_relay_node
+    # is the only unmanaged, non-lifecycle Twist producer in this file (the
+    # nav/docking producers are lifecycle-managed and don't publish until
+    # explicitly activated, well after this window) - delaying it on the
+    # launch orchestrator's own wall clock, independent of use_sim_time,
+    # guarantees twist_mux and safety_stop_gate_node have been running long
+    # enough (comfortably more than one 0.1s tick and, in practice, any sim
+    # clock already advancing from a real wall-clock delay) before this raw
+    # producer can emit anything. This is a complement to the timeout fix,
+    # not a replacement for it - it only covers the one unmanaged producer
+    # that can run this early; it does not by itself make twist_mux
+    # fail-closed.
+    delayed_ui_cmd_vel_relay_node = TimerAction(
+        period=1.0,
+        actions=[ui_cmd_vel_relay_node],
     )
 
     load_composable_nodes = GroupAction(
@@ -301,22 +466,24 @@ def generate_launch_description():
                         name='bt_navigator',
                         parameters=[configured_params],
                         # See the non-composed bt_navigator above: goal_pose is
-                        # gated through the docking node for undock-before-navigate.
-                        remappings=remappings + [('goal_pose', 'goal_pose_nav')],
-                    ),
-                    ComposableNode(
-                        package='nav2_waypoint_follower',
-                        plugin='nav2_waypoint_follower::WaypointFollower',
-                        name='waypoint_follower',
-                        parameters=[configured_params],
-                        remappings=remappings,
+                        # gated through the docking node for undock-before-navigate,
+                        # navigate_to_pose/navigate_through_poses through their
+                        # own goal_proxy_node.
+                        remappings=remappings + [
+                            ('goal_pose', 'goal_pose_nav'),
+                            ('navigate_to_pose', 'navigate_to_pose_real'),
+                            ('navigate_through_poses', 'navigate_through_poses_real'),
+                        ],
                     ),
                     ComposableNode(
                         package='nav2_velocity_smoother',
                         plugin='nav2_velocity_smoother::VelocitySmoother',
                         name='velocity_smoother',
                         parameters=[configured_params],
-                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                        # #35/#90: see the non-composed velocity_smoother above -
+                        # input is cmd_vel_gated (post-mux, post-lock-check), not
+                        # cmd_vel_mux or the raw controller topic.
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_gated')],
                     ),
                     ComposableNode(
                         package='nav2_collision_monitor',
@@ -330,7 +497,11 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes, 'bond_timeout': 60.0}
+                            {
+                                'autostart': autostart,
+                                'node_names': lifecycle_nodes,
+                                'bond_timeout': 60.0,
+                            }
                         ],
                     ),
                 ],
@@ -353,9 +524,15 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_enabled_producers_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)
     ld.add_action(status_node)
+    ld.add_action(navigate_to_pose_goal_proxy_node)
+    ld.add_action(navigate_through_poses_goal_proxy_node)
+    ld.add_action(twist_mux_node)
+    ld.add_action(safety_stop_gate_node)
+    ld.add_action(delayed_ui_cmd_vel_relay_node)
 
     return ld

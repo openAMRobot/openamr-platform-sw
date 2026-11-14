@@ -11,13 +11,18 @@ cases; only the data source and the clock differ.
   window; RViz only if ``use_rviz:=true``. Needs the real hardware and a real map.
 * ``sim:=true`` — simulation: openamrobot_gazebo (Gazebo + gz_bridge + robot_state_publisher)
   publishes the same topics, then localization + Nav2 with ``use_sim_time:=true``, plus the docking
-  layer (``use_docking:=true`` by default). Opens the Gazebo window; no hardware needed. This makes
+  layer (ON by default in sim; see D-19 below for why the real profile differs). Opens the Gazebo
+  window; no hardware needed. This makes
   ``sim:=true`` the single command for the whole simulation (it replaces the legacy
   ``openamrobot_docking/bringup_sim.launch.py``, which still works for backwards compatibility).
 
-Docking is ON by default in BOTH profiles. ``dock_trigger`` owns ``/goal_pose`` and forwards it to
-``/goal_pose_nav`` (it IS the goal forwarder). With ``use_docking:=false`` a plain relay takes over
-that forwarding for nav-only debugging. Exactly one forwarder runs — never both.
+Docking is ON by default in simulation, OFF by default on the real robot (D-19, Alex's 11 Nov
+owner decision - the real profile must not start opennav_docking's direct ``/undock_robot`` until
+D-19's three conditions are met, see the ``use_docking`` DeclareLaunchArgument below). When on,
+``dock_trigger`` owns ``/goal_pose`` and forwards it to ``/goal_pose_nav`` (it IS the goal
+forwarder); when off, a plain relay takes over that forwarding. Exactly one forwarder runs — never
+both. Pass ``use_docking:=true`` explicitly to override the real profile's default once those
+conditions hold.
 
   # real, everything
   ros2 launch openamrobot_bringup bringup.launch.py
@@ -91,6 +96,19 @@ def launch_setup(context, *args, **kwargs):
     use_docking = LaunchConfiguration('use_docking').perform(context)
     map_file = LaunchConfiguration('map').perform(context)
     is_sim = _truthy(sim)
+
+    # D-19 (Alex, 11 Nov owner decision; carried over from #125's
+    # fix/123-start-docking-server at 3713a428, panthera-momagdii's #90
+    # review, P1): the real launch keeps docking OFF by default; simulation
+    # keeps it ON. Resolved here rather than in the declaration so that an
+    # explicit use_docking:=true still works on real hardware once the
+    # three conditions in the DeclareLaunchArgument description below are
+    # met.
+    if use_docking == '':
+        use_docking = 'true' if is_sim else 'false'
+        if not is_sim:
+            print('[bringup] D-19: docking is off on the real profile by default '
+                  '(pass use_docking:=true only once #124 conditions are met)')
 
     # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled
     # sim map.
@@ -180,11 +198,20 @@ def launch_setup(context, *args, **kwargs):
         launch_arguments={
             'map': '', 'params_file': params_with_map, 'use_sim_time': sim,
         }.items()))
+    # enabled_producers (platform-sw#124, D-13; panthera-momagdii's #90 review, P1): derived
+    # from THIS profile's own use_docking, not left at navigation_launch.py's own default
+    # (which enables all four unconditionally). With use_docking:=false no docking server/
+    # heartbeat exists at all, so dock_robot/undock_robot must be excluded by name here, or
+    # _release_blockers() reads them as never-received/UNKNOWN forever and Resume never
+    # succeeds in nav-only mode.
+    enabled_producers = (
+        'navigate_to_pose,navigate_through_poses,dock_robot,undock_robot' if _truthy(use_docking)
+        else 'navigate_to_pose,navigate_through_poses')
     actions.append(IncludeLaunchDescription(
         src(nav2, 'navigation_launch.py'),
         # navigation_launch no longer runs a scan filter (it's owned by the data source above) —
         # it only consumes /scan_filtered. Exactly one /scan_filtered publisher per profile.
-        launch_arguments={'use_sim_time': sim}.items()))
+        launch_arguments={'use_sim_time': sim, 'enabled_producers': enabled_producers}.items()))
     actions.append(IncludeLaunchDescription(
         src(nav2, 'map_saver_launch.py'),
         launch_arguments={'use_sim_time': sim}.items()))
@@ -215,11 +242,16 @@ def generate_launch_description():
             'use_camera', default_value='true',
             description='Real only: launch the IMX708 camera (false = lighter load).'),
         DeclareLaunchArgument(
-            'use_docking', default_value='true',
-            description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '
-                        'and IS the goal forwarder). Set false only for nav-only debug -> a plain '
-                        'topic_tools relay /goal_pose->/goal_pose_nav takes over as the '
-                        'forwarder. Exactly one forwarder runs in either case.'),
+            'use_docking', default_value='',
+            description='Empty (default) means: ON in simulation, OFF on the real robot. D-19 '
+                        '(Alex, 11 Nov) keeps reverse and automatic undock disabled in Build 1, '
+                        'and the opennav_docking server exposes a direct /undock_robot that the '
+                        '#90 constant cannot gate, so the real profile must not start it until '
+                        '(1) release no longer needs a dock_robot server, (2) a direct '
+                        '/undock_robot produces no motion, and (3) the real-profile runtime test '
+                        'runs. Dock_trigger owns /goal_pose and IS the goal forwarder when on; '
+                        'when off a plain topic_tools relay /goal_pose->/goal_pose_nav takes '
+                        'over. Exactly one forwarder runs in either case.'),
         DeclareLaunchArgument(
             'map', default_value='',
             description='Map YAML for AMCL/localization. Empty -> sim uses the bundled '

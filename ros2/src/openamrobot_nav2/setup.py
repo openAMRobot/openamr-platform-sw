@@ -30,7 +30,13 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'navigate_to_pose_goal_proxy_node = '
+            'openamrobot_nav2.navigate_to_pose_goal_proxy_node:main',
+            'navigate_through_poses_goal_proxy_node = '
+            'openamrobot_nav2.navigate_through_poses_goal_proxy_node:main',
             'navigation_status_node = openamrobot_nav2.navigation_status_node:main',
+            'safety_stop_gate_node = openamrobot_nav2.safety_stop_gate_node:main',
+            'ui_cmd_vel_relay_node = openamrobot_nav2.ui_cmd_vel_relay_node:main',
         ],
     },
 )
