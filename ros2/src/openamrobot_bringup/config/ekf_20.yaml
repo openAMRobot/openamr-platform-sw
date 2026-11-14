@@ -1,0 +1,38 @@
+# EKF for the 2.0 base: wheel odometry /odom/unfiltered + IMU yaw rate /imu/data_raw.
+# The ICM-42688-P publishes /imu/data_raw in imu_link and the EKF reads it directly, with no
+# host IMU filter (decision D-10). Only angular_velocity.z is fused. The base firmware odom
+# child frame is base_footprint (REP 105), which is the root of the 2.0 description.
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    transform_time_offset: 0.2
+    sensor_timeout: 0.2
+    two_d_mode: true
+    publish_tf: true
+    print_diagnostics: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+
+    odom0: /odom/unfiltered
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_differential: false
+    odom0_relative: false
+    odom0_queue_size: 10
+
+    imu0: /imu/data_raw
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: false
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: true
