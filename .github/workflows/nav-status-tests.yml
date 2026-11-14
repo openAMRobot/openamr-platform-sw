@@ -102,6 +102,7 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_docking_full_chain_through_real_mux.py \
             ros2/src/openamrobot_nav2/test/test_sim_clock_readiness_full_chain.py \
             ros2/src/openamrobot_nav2/test/test_stop_contract_full_chain.py \
+            ros2/src/openamrobot_nav2/test/test_gate_crash_full_chain_cmd_vel_bound.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_no_waypoint_follower.py \
             ros2/src/openamrobot_nav2/test/test_behavior_trees_no_backup.py \
             ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py \
