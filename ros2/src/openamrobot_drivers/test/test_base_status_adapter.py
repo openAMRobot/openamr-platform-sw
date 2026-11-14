@@ -7,7 +7,7 @@ from openamrobot_drivers.base_status_core import AuxSnapshot, BaseSnapshot, Malf
 
 def msg(**over):
     fields = {
-        'contract_version': 1, 'boot_id': [1, 2, 3, 4], 'sequence': 7,
+        'contract_version': 1, 'boot_id': 0x01020304, 'sequence': 7,
         'controller_state': 'READY', 'safety_state': 'RUN', 'recovery_required': False,
         'faults': []}
     fields.update(over)
@@ -18,7 +18,7 @@ def test_string_enums_map_without_a_table():
     snap = base_snapshot(msg())
     assert isinstance(snap, BaseSnapshot)
     assert snap.controller_state == 'READY' and snap.safety_state == 'RUN'
-    assert snap.boot_id == (1, 2, 3, 4)
+    assert snap.boot_id == 0x01020304
 
 
 def test_integer_enum_without_table_is_malformed_not_a_guess():

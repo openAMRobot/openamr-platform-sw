@@ -1,4 +1,5 @@
-# base_status_monitor parameters (I8 rev 3, frozen 6 Nov 2026).
+# base_status_monitor parameters. Topics, stale limits and identity fields are the frozen I8
+# values (6 Nov 2026, kept in proposal rev 4); everything else is proposed.
 base_status_monitor:
   ros__parameters:
     status_topic: /base/status
@@ -9,15 +10,20 @@ base_status_monitor:
     resume_service: /base/resume
     status_stale_s: 0.5      # 5 missed 10 Hz heartbeats
     aux_stale_s: 0.6         # 3 missed 5 Hz heartbeats
+    # /base/aux_status is required on the real profile. Setting this false without
+    # allow_aux_optional makes the monitor refuse to release the lock (CONFIG_INVALID).
     require_aux: true
+    allow_aux_optional: false
     supported_contract_versions: [1]
     lock_rate_hz: 20.0
     # TODO(Evans): registry file path and format (I8 decision 5). Empty: faults are reported
     # by code with a generic line.
     fault_registry_file: ""
-    # TODO(Evans): field names and enum numbers from the openamr_base_msgs draft (interfaces
-    # #30). Entries are "name=value". While the enum tables are empty an integer state is
-    # Malformed and the lock stays engaged.
+    # Field table of the adapter. i8_rev4_proposed follows openamrobot-interfaces #38 (I8
+    # proposal rev 4). Its field names and enum numbers are PROPOSED, not approved.
+    # TODO(Evans): confirm when I8 decisions 1, 2 and 4 close. The lists below override
+    # single entries ("name=value"); leave them as "__none__" to use the profile.
+    field_profile: i8_rev4_proposed
     field_names: ["__none__"]
     controller_state_enum: ["__none__"]
     safety_state_enum: ["__none__"]
