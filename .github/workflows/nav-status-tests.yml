@@ -54,7 +54,14 @@ jobs:
             ros-jazzy-nav2-msgs \
             ros-jazzy-tf2-ros-py \
             ros-jazzy-twist-mux \
-            ros-jazzy-nav2-velocity-smoother
+            ros-jazzy-nav2-velocity-smoother \
+            ros-jazzy-nav2-bt-navigator \
+            ros-jazzy-nav2-behaviors \
+            ros-jazzy-nav2-controller \
+            ros-jazzy-nav2-planner \
+            ros-jazzy-nav2-collision-monitor \
+            ros-jazzy-nav2-lifecycle-manager \
+            ros-jazzy-opennav-docking
 
       - name: Build openamr_nav_msgs and the producer
         shell: bash
@@ -99,43 +106,32 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_behavior_trees_no_backup.py \
             ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py \
             ros2/src/openamrobot_nav2/test/test_navigate_to_pose_goal_proxy_node.py \
-            ros2/src/openamrobot_nav2/test/test_navigate_through_poses_goal_proxy_node.py
-          # test_d13_real_dock_trigger_clean_boot_and_exclusion.py (platform-sw#124/#90)
-          # is deliberately NOT run here: openamrobot_docking (apriltag_msgs,
-          # apriltag_ros, openamrobot_gazebo) is not built in this job, and
-          # adding that dependency footprint to this workflow is an owner
-          # decision, not yet made - see STATE.md.
-          #
-          # test_navigation_launch_navigate_to_pose_proxy_remap.py and
-          # test_navigation_launch_navigate_through_poses_proxy_remap.py
-          # (platform-sw#124/#90) are ALSO deliberately NOT run here, same
-          # reasoning as the other 3 live navigation_launch.py tests already
-          # excluded above: they need the real bt_navigator
-          # (navigate_to_pose_real/navigate_through_poses_real), and this
-          # job's "Install dependencies" step never installs
-          # nav2-bt-navigator. Run and pass locally - see STATE.md. The two
-          # test_navigate_*_goal_proxy_node.py files above do NOT need this:
-          # each stands up its own fake "real" action server directly
+            ros2/src/openamrobot_nav2/test/test_navigate_through_poses_goal_proxy_node.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_navigate_to_pose_proxy_remap.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_navigate_through_poses_proxy_remap.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_waypoint_follower_server_absent.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_bt_xml_resolves_to_no_backup.py \
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_behavior_server_direct_actions_absent.py
+          # (platform-sw#90, Alex's 13 Nov review, item 4): the five tests
+          # above that need a real bt_navigator - the two proxy-remap tests
+          # plus the three "absence" tests - now run hosted, now that
+          # "Install dependencies" installs nav2-bt-navigator/nav2-behaviors/
+          # nav2-controller/nav2-planner/nav2-collision-monitor/nav2-
+          # lifecycle-manager/opennav-docking. This was previously an owner
+          # decision not yet made (see STATE.md history); Alex made it. The
+          # two test_navigate_*_goal_proxy_node.py tests above never needed
+          # this - each stands up its own fake "real" action server directly
           # in-process, no navigation_launch.py or bt_navigator involved.
           #
-          # test_navigation_launch_waypoint_follower_server_absent.py,
-          # test_navigation_launch_bt_xml_resolves_to_no_backup.py and
-          # test_navigation_launch_behavior_server_direct_actions_absent.py
-          # (platform-sw#90) are ALSO deliberately NOT run here, found the
-          # hard way after they were added and failed/vacuously-passed:
-          # "Install dependencies" above installs only nav2-msgs and
-          # nav2-velocity-smoother, never nav2-bt-navigator/nav2-behaviors/
-          # nav2-controller/nav2-planner/nav2-collision-monitor/nav2-
-          # lifecycle-manager, so navigation_launch.py's actual Nav2 nodes
-          # never start in this container at all - bt_navigator's own test
-          # correctly failed on that ("/bt_navigator never came up", not a
-          # timing issue, no timeout fixes it), while the two "absence"
-          # tests would have kept vacuously passing (everything is equally
-          # absent when nothing starts, not specifically the right thing)
-          # had a launch-succeeded sanity check not been added to them.
-          # Adding the missing nav2-* apt packages is a bigger dependency
-          # footprint change to this workflow - owner decision, not made
-          # unilaterally here. All three run and pass locally (see STATE.md).
+          # test_d13_real_dock_trigger_clean_boot_and_exclusion.py
+          # (platform-sw#124/#90) is STILL deliberately NOT run here: it
+          # needs openamrobot_docking (apriltag_msgs, apriltag_ros,
+          # openamrobot_gazebo), a different dependency footprint than the
+          # ros-jazzy-opennav-docking apt package added above (that is the
+          # Nav2-stack docking server navigation_launch.py depends on per
+          # package.xml, not the AprilTag-based openamrobot_docking package
+          # this test exercises) - not covered by item 4, still an owner
+          # decision. Runs and passes locally - see STATE.md.
 
       # tools/issue35_arbitration/stop_lock_invariants.py (platform-sw#90, Alex's
       # review): the graph-shape invariant the Python tests above cannot check
@@ -168,9 +164,15 @@ jobs:
             exit 1
           fi
 
+          # --no-check-cmd-vel: this step starts safety_stop_gate_node
+          # standalone, not the full navigation_launch stack, so
+          # collision_monitor never runs here and /cmd_vel would never get
+          # a publisher - that is this step's own reduced scope, not a
+          # graph violation (platform-sw#90, Alex's 13 Nov review added the
+          # /cmd_vel/collision_monitor check to the tool itself).
           status=0
           python3 tools/issue35_arbitration/stop_lock_invariants.py \
-            --await-ready-s 30 || status=$?
+            --await-ready-s 30 --no-check-cmd-vel || status=$?
 
           echo "----- gate.log -----"; cat gate.log || true
           if ! kill -0 "$gate_pid" 2>/dev/null; then
