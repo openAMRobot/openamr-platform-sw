@@ -57,75 +57,10 @@ velocity_smoother:
     # When the mux goes silent (lock engaged, sources timed out) the smoother ramps to zero.
     velocity_timeout: 0.3
 
-collision_monitor:
-  ros__parameters:
-    base_frame_id: "base_footprint"
-    odom_frame_id: "odom"
-    cmd_vel_in_topic: "cmd_vel_smoothed"
-    cmd_vel_out_topic: "cmd_vel"
-    state_topic: "collision_monitor_state"
-    transform_tolerance: 0.2
-    # Item 30 A2.
-    source_timeout: 0.5
-    base_shift_correction: true
-    stop_pub_timeout: 2.0
-    # The first sub-polygon whose velocity window contains the command is used, so the
-    # order is stopped, rotation, forward.
-    polygons: ["StopZone"]
-    StopZone:
-      type: "velocity_polygon"
-      action_type: "stop"
-      min_points: 2
-      visualize: true
-      enabled: true
-      velocity_polygons: ["stopped", "rotation", "forward"]
-      # Frame is base_footprint, x forward. Footprint: x -0.390 to 0.415, y +-0.29 (same as
-      # nav2_params.yaml). Full footprint width in every zone (item 30 A2).
-      # TODO(Mohamed): the lengths below are a first estimate. Forward zone ends 0.205 m past
-      # the nose: stopping distance at 0.5 m/s and 1.5 m/s2 is 0.083 m, plus 0.2 s command
-      # latency at 0.5 m/s (0.100 m), plus 0.022 m margin. Replace with the measured stop
-      # distances from the stepped tests at 0.2, 0.3 and 0.5 m/s (item 30 A5).
-      forward:
-        points: "[[0.620, 0.290], [0.620, -0.290], [0.0, -0.290], [0.0, 0.290]]"
-        linear_min: 0.01
-        linear_max: 0.5
-        theta_min: -0.5
-        theta_max: 0.5
-      rotation:
-        points: "[[0.470, 0.340], [0.470, -0.340], [-0.440, -0.340], [-0.440, 0.340]]"
-        linear_min: -0.01
-        linear_max: 0.01
-        theta_min: -0.5
-        theta_max: 0.5
-      # Catch-all while the command is zero: anything inside the footprint plus a small margin.
-      stopped:
-        points: "[[0.450, 0.300], [0.450, -0.300], [-0.420, -0.300], [-0.420, 0.300]]"
-        linear_min: -0.01
-        linear_max: 0.01
-        theta_min: -0.01
-        theta_max: 0.01
-    observation_sources: ["scan", "tof", "ultrasonic"]
-    scan:
-      type: "scan"
-      topic: "scan_filtered"
-      # Item 30 A2: LiDAR minimum range 0.05 m.
-      min_height: 0.0
-      max_height: 2.0
-      min_range: 0.05
-      enabled: true
-    # ToF (TF-Luna) and ultrasonic (MB7060) are range sources (item 30 A2). Topic names, rate
-    # and publisher are open (I8 decision 12), so both stay disabled until they exist.
-    # TODO(Evans): range topic names.
-    tof:
-      type: "range"
-      topic: "range/tof"
-      obstacles_angle: 0.2
-      enabled: false
-    ultrasonic:
-      type: "range"
-      topic: "range/ultrasonic"
-      obstacles_angle: 0.3
-      enabled: false
+# collision_monitor is NOT defined here. It reads the single stop-zone definition in
+# openamrobot_nav2/config/nav2_params.yaml (P-03 item 30 A2, decision D-16), which the
+# stop-zone check of platform-sw #113 covers. A second definition in this file was removed
+# after the review of platform-sw #132 (wrong frame and wrong sub-polygon order).
 
 lifecycle_manager_cmd_chain:
   ros__parameters:

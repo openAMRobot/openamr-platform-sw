@@ -4,7 +4,7 @@ from openamrobot_drivers.base_status_core import (
     validate_base)
 import pytest
 
-BOOT = (1, 2, 3, 4)
+BOOT = 0x01020304  # I8 frozen: boot_id is a uint32 (was a 4-byte tuple in the draft)
 
 
 def base(seq=0, boot=BOOT, ctl='READY', safety='RUN', recovery=False, faults=(), version=1):
@@ -203,7 +203,7 @@ def test_publisher_restart_new_boot_id_needs_a_new_resume():
     rig.run_ok()
     assert rig.gate.resume(rig.t)[0]
     rig.t += 0.1
-    state = rig.gate.on_status(base(seq=5, boot=(9, 9, 9, 9)), rig.t)
+    state = rig.gate.on_status(base(seq=5, boot=0x09090909), rig.t)
     assert rig.gate.restarts == 1
     assert Blocker.STATUS_NOT_LIVE in state.blockers
     assert state.locked

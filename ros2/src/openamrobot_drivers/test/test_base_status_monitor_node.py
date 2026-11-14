@@ -29,13 +29,13 @@ class FakeClock:
         return self.t
 
 
-def status(seq, ctl='READY', safety='RUN', faults=(), recovery=False, boot=(1, 2, 3, 4)):
-    return NS(contract_version=1, boot_id=list(boot), sequence=seq, controller_state=ctl,
+def status(seq, ctl='READY', safety='RUN', faults=(), recovery=False, boot=0x01020304):
+    return NS(contract_version=1, boot_id=boot, sequence=seq, controller_state=ctl,
               safety_state=safety, recovery_required=recovery, faults=list(faults))
 
 
-def aux(seq, boot=(1, 2, 3, 4)):
-    return NS(contract_version=1, boot_id=list(boot), sequence=seq)
+def aux(seq, boot=0x01020304):
+    return NS(contract_version=1, boot_id=boot, sequence=seq)
 
 
 @pytest.fixture
@@ -49,6 +49,8 @@ def rig(tmp_path):
         clock_fn=clock,
         parameter_overrides=[
             Parameter('fault_registry_file', value=str(registry)),
+            # the fixtures below carry symbolic state names (first draft layout)
+            Parameter('field_profile', value='draft'),
             Parameter('status_type', value='no_such_pkg/msg/Nothing')])
     probe = rclpy.create_node('base_gate_probe')
     locks, diags, texts = [], [], []
@@ -183,3 +185,66 @@ def test_node_publishes_no_velocity():
     import openamrobot_drivers.base_status_monitor as module
     source = inspect.getsource(module)
     assert 'Twist' not in source.replace('twist_mux', '')
+
+
+# --- review of platform-sw #132: monotonic receipt clock, profile, aux required --------
+def test_default_receipt_clock_is_monotonic_not_ros_time():
+    rclpy.init()
+    try:
+        node = BaseStatusMonitor(parameter_overrides=[
+            Parameter('status_type', value='no_such_pkg/msg/Nothing')])
+        assert node._now is time.monotonic
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()
+
+
+def test_unknown_field_profile_fails_closed():
+    rclpy.init()
+    try:
+        node = BaseStatusMonitor(parameter_overrides=[
+            Parameter('field_profile', value='no_such_profile')])
+        state = node.gate.evaluate(time.monotonic())
+        assert state.locked
+        assert any(b.value == 'CONFIG_INVALID' for b in state.blockers)
+        assert node.gate.resume(time.monotonic())[0] is False
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()
+
+
+def test_rev4_profile_maps_integer_fields(rig):
+    from openamrobot_drivers.base_status_adapter import FieldMap, I8_REV4_PROPOSED
+    rig.node._fmap = FieldMap(profile=I8_REV4_PROPOSED)
+    rig.node.gate.set_type_unavailable(False)
+    for i in range(1, 11):
+        rig.clock.t += 0.1
+        rig.node._on_status_msg(NS(contract_version=1, boot_id=7, sequence=i, state=2,
+                                   operating_state=2, recovery=1, faults=[]))
+        rig.node._on_aux_msg(NS(contract_version=1, boot_id=7, sequence=i))
+    assert rig.resume().success
+    assert last_lock(rig) is False
+
+
+def test_bool_aux_sequence_through_the_node_keeps_the_lock(rig):
+    rig.node.gate.set_type_unavailable(False)
+    for i in range(1, 6):
+        rig.clock.t += 0.1
+        rig.node._on_status_msg(status(i))
+    rig.node._on_aux_msg(NS(contract_version=1, boot_id=0x01020304, sequence=True))
+    rig.clock.t += 0.05
+    rig.node._on_aux_msg(aux(2))
+    assert not rig.resume().success
+    assert last_lock(rig) is True
+
+
+def test_require_aux_false_is_refused_on_the_real_profile():
+    rclpy.init()
+    try:
+        node = BaseStatusMonitor(parameter_overrides=[
+            Parameter('require_aux', value=False)])
+        assert node.gate.require_aux is True
+        assert node.gate.config_error and 'require_aux' in node.gate.config_error
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()

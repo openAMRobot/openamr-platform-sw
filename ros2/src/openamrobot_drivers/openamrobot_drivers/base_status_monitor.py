@@ -1,7 +1,7 @@
 """
 Base status monitor: holds the command mux lock until the base is RUN and fresh.
 
-Subscribes /base/status and /base/aux_status (I8 rev 3), publishes
+Subscribes /base/status and /base/aux_status (I8 frozen fields, proposal rev 4), publishes
 
 * ``/base/command_lock`` (std_msgs/Bool, true = locked) at 20 Hz, for the twist_mux
   ``locks`` entry. The twist_mux lock timeout makes a dead monitor fail closed.
@@ -11,12 +11,17 @@ Subscribes /base/status and /base/aux_status (I8 rev 3), publishes
 Serves ``/base/resume`` (std_srvs/Trigger). Resume clears the inhibit only when every
 blocker is gone; nothing resumes by itself and no velocity is ever published here.
 This is a functional inhibit. The hardwired E-stop chain is the safety function.
+
+Freshness uses the local receipt time on ``time.monotonic()``, never ROS time and never the
+header stamp, so an NTP or manual wall-clock step cannot make a dead stream look fresh.
+ROS time is used only to stamp the diagnostics.
 """
 import os
+import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from openamrobot_drivers.base_status_adapter import (
-    aux_snapshot, base_snapshot, FieldMap)
+    aux_snapshot, base_snapshot, FieldMap, PROFILES)
 from openamrobot_drivers.base_status_core import (
     AUX_STALE_S, BaseGate, Blocker, FaultRegistry, STATUS_STALE_S)
 import rclpy
@@ -60,25 +65,45 @@ class BaseStatusMonitor(Node):
         self.declare_parameter('resume_service', '/base/resume')
         self.declare_parameter('status_stale_s', STATUS_STALE_S)
         self.declare_parameter('aux_stale_s', AUX_STALE_S)
+        # /base/aux_status is required on the real profile. False exists only for unit tests
+        # of the status stream alone; the node refuses it unless allow_aux_optional is set.
         self.declare_parameter('require_aux', True)
+        self.declare_parameter('allow_aux_optional', False)
         self.declare_parameter('supported_contract_versions', [1])
         self.declare_parameter('lock_rate_hz', 20.0)
         self.declare_parameter('fault_registry_file', '')
-        # TODO(Evans): field names and enum tables from the #30 draft PR.
+        # Which field table the adapter uses. 'i8_rev4_proposed' follows openamrobot-interfaces
+        # #38; 'draft' is the first draft (string states). Both are PROPOSED. TODO(Evans).
+        self.declare_parameter('field_profile', 'i8_rev4_proposed')
         self.declare_parameter('field_names', ['__none__'])
         self.declare_parameter('controller_state_enum', ['__none__'])
         self.declare_parameter('safety_state_enum', ['__none__'])
 
-        self._now = clock_fn or (lambda: self.get_clock().now().nanoseconds * 1e-9)
-        self._fmap = FieldMap(self._pairs('field_names'), {
-            'controller_state': self._pairs('controller_state_enum'),
-            'safety_state': self._pairs('safety_state_enum')})
+        # Receipt clock: monotonic. A test may inject a fake monotonic clock.
+        self._now = clock_fn or time.monotonic
+        config_errors = []
+        profile_name = self.get_parameter('field_profile').value
+        if profile_name not in PROFILES:
+            config_errors.append('unknown field_profile %r' % profile_name)
+            profile_name = 'draft'
+        overrides = {k: v for k, v in (
+            ('controller_state', self._pairs('controller_state_enum')),
+            ('safety_state', self._pairs('safety_state_enum'))) if v}
+        self._fmap = FieldMap(self._pairs('field_names'), overrides,
+                              profile=PROFILES[profile_name])
+        require_aux = bool(self.get_parameter('require_aux').value)
+        if not require_aux and not self.get_parameter('allow_aux_optional').value:
+            config_errors.append('require_aux is false without allow_aux_optional')
+            require_aux = True
         self.gate = BaseGate(
             registry=load_registry(self.get_parameter('fault_registry_file').value),
-            require_aux=self.get_parameter('require_aux').value,
+            require_aux=require_aux,
             supported_versions=tuple(self.get_parameter('supported_contract_versions').value),
             status_stale_s=self.get_parameter('status_stale_s').value,
             aux_stale_s=self.get_parameter('aux_stale_s').value)
+        for reason in config_errors:
+            self.get_logger().error('%s; the lock stays engaged.' % reason)
+            self.gate.set_config_error(reason)
 
         self._lock_pub = self.create_publisher(
             Bool, self.get_parameter('lock_topic').value, LOCK_QOS)
