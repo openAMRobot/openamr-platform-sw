@@ -13,12 +13,28 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation: passive swivel castors (15 Nov 2026, proposal)
+
+- The four castors (Blickle LPA-VSTH 35K, BOM MEC-002) swivel and roll: `<c>_caster_joint` is a continuous
+  vertical swivel at the unchanged mount, `<c>_wheel_joint` a continuous roll joint 15 mm (trail) behind it, with
+  a 17.5 mm contact sphere on the floor plane. Was: fixed joints and a frictionless 26 mm sphere that slid.
+  Link names and masses unchanged.
+- New `config/castor_model.yaml`: trail, wheel radius, swivel and roll friction and damping, castor contact mu1, mu2
+  and fdir1, each with its source or its estimation method, owner and measurement.
+- Castor wheel Gazebo friction mu1 = mu2 = 0.5 (estimate), fdir1 along the axle; was mu 0.
+- New tests `test_castor_swivel.py` (axes, trail, contact on the floor at every swivel angle, values sourced) and
+  `test_castor_gazebo_motion.py` (in gz sim the castors trail, flip on reversal and roll; needs gz).
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
   to Gazebo Harmonic, a host test client that plays the STM32 CAN role, and `sil.launch.py` (`stm32:=host` or `stm32:=renode`).
   The ZLAC8015D and CTL-017 emulators are the openamr-platform-fw `tools/can_sil` files, vendored unmodified at ad4b023.
   Topology and sources: `docs/architecture/sil-topology.md`. CI: workflow `sil-tests`. Development evidence only.
+### Changed (15 Nov 2026; loaded wheel radius)
+
+- Drive wheel collision radius and DiffDrive `wheel_radius` are now the loaded radius 0.098 m (was 0.100). Owner decision 15 Nov 2026: the 200 mm tyre is mounted 2 mm below the castor plane on purpose and compresses about 2 mm under the robot weight, so at rest wheels and castors share one plane and the base is level. With the unloaded 0.100 radius the wheels sat 2 mm inside the floor and a MuJoCo drop test pitched the base 0.59 degrees onto the castors (upperbody-sw #69). The loaded radius is an estimate until the bench measures it.
+- New `test_ground_contact.py`: both drive wheels touch the floor plane, the four castor contact spheres are within 0.5 mm of it (0.42 mm today), and the DiffDrive radius equals the collision radius.
 
 ### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
 

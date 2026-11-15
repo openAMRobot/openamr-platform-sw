@@ -109,258 +109,101 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
     </collision>
   </link>
-  <link
-    name="fl_caster_link">
-    <xacro:roadmap_inertial link="fl_caster_link"/>
-    <!-- LPA-VSTH 35K castor envelope (BOM 7.14 MEC-002), wheel included; was the
-         SolidWorks fl_caster_link.STL and fl_wheel_link.STL, superseded -->
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/caster.stl"/>
-      </geometry>
-      <material name="caster_grey"/>
-    </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="fl_caster_joint"
-    type="fixed">
-    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
-         was xyz="0.27505 0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
-    <origin
-      xyz="0.27505 0.215 -0.043833"
-      rpy="0 0 0" />
-    <parent
-      link="base_link" />
-    <child
-      link="fl_caster_link" />
-    <axis
-      xyz="0 0 1" />
-    <dynamics damping="0.001" friction="0.001" />
-
-  </joint>
-  <link
-    name="fl_wheel_link">
-    <xacro:roadmap_inertial link="fl_wheel_link"/>
-    <!-- no visual: the castor wheel is part of caster.stl on fl_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="fl_wheel_joint"
-    type="fixed">
-    <origin
-      xyz="-0.015 0 -0.027746"
-      rpy="0 0 0" />
-    <parent
-      link="fl_caster_link" />
-    <child
-      link="fl_wheel_link" />
-    <axis
-      xyz="0 1 0" />
-    <dynamics damping="0.001" friction="0.001" />
-  </joint>
-  <link
-    name="fr_caster_link">
-    <xacro:roadmap_inertial link="fr_caster_link"/>
-    <!-- LPA-VSTH 35K castor envelope (BOM 7.14 MEC-002), wheel included; was the
-         SolidWorks fr_caster_link.STL and fr_wheel_link.STL, superseded -->
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/caster.stl"/>
-      </geometry>
-      <material name="caster_grey"/>
-    </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="fr_caster_joint"
-    type="fixed">
-    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
-         was xyz="0.27505 -0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
-    <origin
-      xyz="0.27505 -0.215 -0.043833"
-      rpy="0 0 0" />
-    <parent
-      link="base_link" />
-    <child
-      link="fr_caster_link" />
-    <axis
-      xyz="0 0 1" />
-    <dynamics damping="0.001" friction="0.001" />
-
-  </joint>
-  <link
-    name="fr_wheel_link">
-    <xacro:roadmap_inertial link="fr_wheel_link"/>
-    <!-- no visual: the castor wheel is part of caster.stl on fr_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="fr_wheel_joint"
-    type="fixed">
-    <origin
-      xyz="-0.015 0 -0.027746"
-      rpy="0 0 0" />
-    <parent
-      link="fr_caster_link" />
-    <child
-      link="fr_wheel_link" />
-    <axis
-      xyz="0 1 0" />
-    <dynamics damping="0.001" friction="0.001" />
-  </joint>
-  <link
-    name="br_caster_link">
-    <xacro:roadmap_inertial link="br_caster_link"/>
-    <!-- LPA-VSTH 35K castor envelope (BOM 7.14 MEC-002), wheel included; was the
-         SolidWorks br_caster_link.STL and br_wheel_link.STL, superseded -->
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/caster.stl"/>
-      </geometry>
-      <material name="caster_grey"/>
-    </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="br_caster_joint"
-    type="fixed">
-    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
-         was xyz="-0.27495 -0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
-    <origin
-      xyz="-0.27495 -0.215 -0.043833"
-      rpy="0 0 0" />
-    <parent
-      link="base_link" />
-    <child
-      link="br_caster_link" />
-    <axis
-      xyz="0 0 1" />
-    <dynamics damping="0.001" friction="0.001" />
-
-  </joint>
-  <link
-    name="br_wheel_link">
-    <xacro:roadmap_inertial link="br_wheel_link"/>
-    <!-- no visual: the castor wheel is part of caster.stl on br_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="br_wheel_joint"
-    type="fixed">
-    <origin
-      xyz="-0.015 0 -0.027746"
-      rpy="0 0 0" />
-    <parent
-      link="br_caster_link" />
-    <child
-      link="br_wheel_link" />
-    <axis
-      xyz="0 1 0" />
-    <dynamics damping="0.001" friction="0.001" />
-  </joint>
-  <link
-    name="bl_caster_link">
-    <xacro:roadmap_inertial link="bl_caster_link"/>
-    <!-- LPA-VSTH 35K castor envelope (BOM 7.14 MEC-002), wheel included; was the
-         SolidWorks bl_caster_link.STL and bl_wheel_link.STL, superseded -->
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://openamrobot_description/meshes/visual/caster.stl"/>
-      </geometry>
-      <material name="caster_grey"/>
-    </visual>
-    <collision>
-      <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
-           floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
-      <origin xyz="0 0 -0.022" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.060 0.060 0.040"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="bl_caster_joint"
-    type="fixed">
-    <!-- caster mount kept at its floor height, z -0.0093 - 0.034533 (Alex decision 2026-10-12);
-         was xyz="-0.27495 0.215 -0.0093", superseded by Alex decision 2026-10-12 -->
-    <origin
-      xyz="-0.27495 0.215 -0.043833"
-      rpy="0 0 0" />
-    <parent
-      link="base_link" />
-    <child
-      link="bl_caster_link" />
-    <axis
-      xyz="0 0 1" />
-    <dynamics damping="0.001" friction="0.001" />
-
-  </joint>
-  <link
-    name="bl_wheel_link">
-    <xacro:roadmap_inertial link="bl_wheel_link"/>
-    <!-- no visual: the castor wheel is part of caster.stl on bl_caster_link -->
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.026"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint
-    name="bl_wheel_joint"
-    type="fixed">
-    <origin
-      xyz="-0.015 0 -0.027746"
-      rpy="0 0 0" />
-    <parent
-      link="bl_caster_link" />
-    <child
-      link="bl_wheel_link" />
-    <axis
-      xyz="0 1 0" />
-    <dynamics damping="0.001" friction="0.001" />
-  </joint>
+  <!-- Passive swivel castors, four Blickle LPA-VSTH 35K (BOM MEC-002). Every number below comes
+       from config/castor_model.yaml, where each one has its source, or its estimation method and
+       owner; test/test_castor_swivel.py checks the expanded URDF against that file.
+       Was: <c>_caster_joint and <c>_wheel_joint fixed, a 26 mm frictionless contact sphere at
+       0.0264 m, so the castors slid under the base instead of swivelling and rolling (reality
+       gaps RG-MEC-013 and RG-MEC-014); superseded by this proposal (castor-swivel, 15 Nov 2026).
+       <c>_caster_link: fork, swivel head and plate (0.22 kg), turns about the vertical swivel
+         axis at the mount, <c>_caster_joint (continuous, axis z of base_link).
+       <c>_wheel_link: the D35 wheel (0.08 kg), rolls about its axle, <c>_wheel_joint
+         (continuous, axis y of the fork), the trail (15 mm) behind the swivel axis, its centre
+         one wheel radius (17.5 mm) above the floor plane.
+       Link names, mount positions and masses are unchanged. -->
+  <xacro:property name="castor" lazy_eval="false"
+                  value="${xacro.load_yaml('../config/castor_model.yaml')['castor']}"/>
+  <!-- the castor mount (top of the swivel), base_link frame -->
+  <xacro:property name="castor_mount_z" value="-0.043833"/>
+  <!-- base_link above the floor plane, as in base_footprint_joint (Alex decision 2026-10-12) -->
+  <xacro:property name="castor_base_link_height" value="0.098"/>
+  <xacro:macro name="swivel_castor" params="prefix x y was_xyz">
+    <link
+      name="${prefix}_caster_link">
+      <xacro:roadmap_inertial link="${prefix}_caster_link"/>
+      <!-- LPA-VSTH 35K castor envelope (BOM 7.14 MEC-002), wheel included, so the drawn wheel
+           swivels with the fork but does not spin; was the SolidWorks ${prefix}_caster_link.STL
+           and ${prefix}_wheel_link.STL, superseded -->
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://openamrobot_description/meshes/visual/caster.stl"/>
+        </geometry>
+        <material name="caster_grey"/>
+      </visual>
+      <collision>
+        <!-- Castor housing GH-LPA035 0.060 x 0.060 m, 0.0125 to 0.052 m above the
+             floor (CAD Rev B). Was the caster STL mesh, superseded (#49). -->
+        <origin xyz="0 0 -0.022" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.060 0.060 0.040"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint
+      name="${prefix}_caster_joint"
+      type="continuous">
+      <!-- swivel axis through the castor mount, kept at its floor height,
+           z -0.0093 - 0.034533 (Alex decision 2026-10-12); was xyz="${was_xyz}",
+           superseded by Alex decision 2026-10-12. Was type fixed, superseded by this proposal. -->
+      <origin
+        xyz="${x} ${y} ${castor_mount_z}"
+        rpy="0 0 0" />
+      <parent
+        link="base_link" />
+      <child
+        link="${prefix}_caster_link" />
+      <axis
+        xyz="0 0 1" />
+      <dynamics damping="${castor['swivel_damping']['value']}"
+                friction="${castor['swivel_friction']['value']}" />
+    </joint>
+    <link
+      name="${prefix}_wheel_link">
+      <xacro:roadmap_inertial link="${prefix}_wheel_link"/>
+      <!-- no visual: the castor wheel is part of caster.stl on ${prefix}_caster_link.
+           Contact: a sphere of the wheel radius at the wheel centre, touching the floor where
+           the wheel does (castor_model.yaml contact_shape). -->
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <sphere radius="${castor['wheel_radius']['value']}"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint
+      name="${prefix}_wheel_joint"
+      type="continuous">
+      <!-- wheel axle: trail behind the swivel axis, one wheel radius above the floor
+           (base_link is 0.098 above it). Was xyz="-0.015 0 -0.027746" with type fixed,
+           superseded by this proposal. -->
+      <origin
+        xyz="${-castor['trail']['value']} 0 ${castor['wheel_radius']['value'] - castor_base_link_height - castor_mount_z}"
+        rpy="0 0 0" />
+      <parent
+        link="${prefix}_caster_link" />
+      <child
+        link="${prefix}_wheel_link" />
+      <axis
+        xyz="0 1 0" />
+      <dynamics damping="${castor['roll_damping']['value']}"
+                friction="${castor['roll_friction']['value']}" />
+    </joint>
+  </xacro:macro>
+  <xacro:swivel_castor prefix="fl" x="0.27505" y="0.215" was_xyz="0.27505 0.215 -0.0093"/>
+  <xacro:swivel_castor prefix="fr" x="0.27505" y="-0.215" was_xyz="0.27505 -0.215 -0.0093"/>
+  <xacro:swivel_castor prefix="br" x="-0.27495" y="-0.215" was_xyz="-0.27495 -0.215 -0.0093"/>
+  <xacro:swivel_castor prefix="bl" x="-0.27495" y="0.215" was_xyz="-0.27495 0.215 -0.0093"/>
   <link
     name="left_wheel_link">
     <xacro:roadmap_inertial link="left_wheel_link"/>
@@ -376,9 +219,14 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-             was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
+             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
+             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
+             rest wheels and castors share one plane and the base is level. The collision radius
+             models that loaded state and equals the axle height above base_footprint (0.098).
+             Estimate until the bench measures the loaded radius (measurement plan, audits
+             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
+        <cylinder radius="0.098" length="0.046"/>
       </geometry>
     </collision>
   </link>
@@ -414,9 +262,14 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-             was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
+             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
+             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
+             rest wheels and castors share one plane and the base is level. The collision radius
+             models that loaded state and equals the axle height above base_footprint (0.098).
+             Estimate until the bench measures the loaded radius (measurement plan, audits
+             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
+        <cylinder radius="0.098" length="0.046"/>
       </geometry>
     </collision>
   </link>

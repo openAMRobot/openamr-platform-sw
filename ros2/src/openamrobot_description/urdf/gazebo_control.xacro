@@ -19,12 +19,19 @@
     <mu2>0.5</mu2>
     <fdir1>1 0 0</fdir1>
   </xacro:macro>
-  <!-- Frictionless support/slider approximation. The caster joints are fixed, so the
-       spheres cannot roll; mu 0 lets them slide under the base instead of dragging it.
-       Caster rolling and contact dynamics are not modelled and not verified. -->
+  <!-- Castor wheel contact (castor-swivel proposal, 15 Nov 2026): the castor and castor-wheel
+       joints are now passive continuous joints, so the wheel swivels and rolls and its contact
+       must grip. mu1 = mu2 = contact_mu and fdir1 = contact_fdir1 of config/castor_model.yaml,
+       an estimate with its method written there (no tribology data filed).
+       Was mu 0 / mu2 0, a frictionless slider on fixed joints, superseded by this proposal.
+       Rolling resistance and swivel friction are joint friction in robo_urdf.urdf.xacro,
+       from the same file. Test: test/test_gazebo_friction.py, test/test_castor_swivel.py -->
   <xacro:macro name="caster_friction">
-    <mu1>0.0</mu1>
-    <mu2>0.0</mu2>
+    <xacro:property name="castor_cfg" lazy_eval="false"
+                    value="${xacro.load_yaml('../config/castor_model.yaml')['castor']}"/>
+    <mu1>${castor_cfg['contact_mu']['value']}</mu1>
+    <mu2>${castor_cfg['contact_mu']['value']}</mu2>
+    <fdir1>${' '.join(str(v) for v in castor_cfg['contact_fdir1']['value'])}</fdir1>
   </xacro:macro>
 
   <!-- ── World-level plugins (no reference attribute) ─────────────── -->
@@ -35,9 +42,9 @@
       <!-- wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
            Was 0.4075, superseded by Alex decision 2026-10-12 -->
       <wheel_separation>0.400</wheel_separation>
-      <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-           was 0.11, superseded by Alex decision 2026-10-12 -->
-      <wheel_radius>0.100</wheel_radius>
+      <!-- loaded wheel radius 0.098, equals the wheel collision radius (Alex decision 2026-11-15);
+           was 0.100 (Alex decision 2026-10-12), superseded by Alex decision 2026-11-15 -->
+      <wheel_radius>0.098</wheel_radius>
       <max_linear_acceleration>0.5</max_linear_acceleration>
       <min_linear_acceleration>-0.5</min_linear_acceleration>
       <max_angular_acceleration>1.0</max_angular_acceleration>
@@ -98,7 +105,7 @@
   </gazebo>
 
   <!-- ── Link-level: caster wheels ───────────────────────────────────── -->
-  <!-- We apply low friction to caster wheels to prevent them from catching and dragging in Gazebo -->
+  <!-- Castor wheels grip the floor and roll on their joint (see caster_friction above) -->
   <xacro:macro name="caster_gazebo" params="prefix">
     <gazebo reference="${prefix}_caster_link">
       <material>Gazebo/Grey</material>
