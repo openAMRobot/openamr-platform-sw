@@ -20,6 +20,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 |---|---|---|---|
 | Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
 | Base and lift SIL on virtual CAN: package `openamrobot_sil` (ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux`, `vcan_bms`, bridged to Gazebo; host test client; `sil.launch.py`), `docs/architecture/sil-topology.md`, workflow `sil-tests` (14 Nov 2026) | claude/optimistic-planck-frfht7 | draft | owner: adopt, adapt or reject; then Renode attach (platform-fw #51) and the combined model |
+| Firmware in the loop for telemetry: platform-fw telemetry image (fcf81f8, RenodeTest) in Renode 1.16.1 on `vcan_drive` via the SocketCAN bridge; `stm32:=renode`, `stm32:=renode_readonly`; drive bus audit (15 Nov 2026) | sil/renode-telemetry (draft, base claude/optimistic-planck-frfht7) | draft | owner: adopt, adapt or reject; CI evidence in the PR |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
@@ -60,5 +61,6 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Not verified
 
-- SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
+- SIL layer (14 Nov 2026): emulators and Gazebo only. No real CAN bus, drive, lift or BMS. From 15 Nov 2026 the read-only
+  telemetry image runs in Renode on CAN1 (no clock tree, bit timing, bus-off, UART inversion or pin levels modelled).
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.

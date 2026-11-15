@@ -1,6 +1,8 @@
 """ROS 2 node: host test client that plays the STM32 CAN role on the three vcan buses.
 
-Test stand-in only, see openamrobot_sil/stm32_host.py. Not started with stm32:=renode.
+Test stand-in only, see openamrobot_sil/stm32_host.py. Not started with stm32:=renode. With
+stm32:=renode_readonly (parameter drive_mode:=command_only) it sends drive commands as SIL
+receive PDOs and no SDO frame, and starts CAN1 only after the drive bus audit runs.
 """
 import math
 
@@ -26,12 +28,20 @@ class HostClientNode(Node):
     def __init__(self):
         super().__init__('sil_stm32_host_client')
         cfg = config.load(self.declare_parameter('config_file', '').value)
+        drive_mode = self.declare_parameter('drive_mode', 'sdo').value
+        wait_for_audit = self.declare_parameter('wait_for_audit', False).value
         buses, d = cfg['buses'], cfg['drive']
         self.buses = [open_bus(buses[k]['interface']) for k in ('drive', 'aux', 'bms')]
         permit = config.permit_config(cfg)
         self.drive = DriveHost(self.buses[0], buses['drive']['zlac_node_id'], d['link_loss_ms'],
                                d['wheel_radius'], d['wheel_separation'], d['left_sign'],
-                               d['right_sign']).start()
+                               d['right_sign'], mode=drive_mode)
+        self._audit_sub = None
+        if wait_for_audit:
+            self._audit_sub = self.create_subscription(String, '/sil/drive_bus/audit',
+                                                       self.on_audit, 10)
+        else:
+            self.drive.start()
         self.lift = LiftHost(
             self.buses[1], buses['aux']['ctl017_node_id'], buses['aux']['core_node_id'], permit,
             cfg['lift']['permit']['period_ms'] / 1000.0 if permit else 0.05).start()
@@ -54,6 +64,14 @@ class HostClientNode(Node):
         steady_timer(self, 0.05, self.on_status)
         self.get_logger().warning(
             'host test client active: test stand-in for the STM32 on vcan, no safety function')
+
+    def on_audit(self, _msg):
+        if self._audit_sub is not None:
+            self.destroy_subscription(self._audit_sub)
+            self._audit_sub = None
+            self.drive.start()
+            self.get_logger().info('drive bus audit is running: CAN1 drive commands start (%s)'
+                                   % self.drive.mode)
 
     def on_cmd_vel(self, msg):
         self.drive.set_twist(msg.linear.x, msg.angular.z)

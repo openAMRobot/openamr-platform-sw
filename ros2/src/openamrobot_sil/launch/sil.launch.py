@@ -1,9 +1,18 @@
 """Base and lift software-in-the-loop on Linux virtual CAN.
 
 Creates the vcan interfaces, starts Gazebo with the SIL model, the device emulators and the
-ROS-Gazebo bridge, and either the host test client that plays the STM32 CAN role
-(stm32:=host, default) or nothing in its place (stm32:=renode) so a Renode machine can
-attach to the same interfaces. Development evidence only.
+ROS-Gazebo bridge, and in the STM32 slot one of:
+
+  stm32:=host             the host test client plays the STM32 CAN role (default)
+  stm32:=renode           the platform-fw telemetry image runs in Renode, FDCAN1 on vcan_drive
+                          through Renode's SocketCAN bridge. Nobody commands the drive.
+  stm32:=renode_readonly  as renode, plus the host test client, which sends the drive commands
+                          as SIL receive PDOs and no SDO frame: the SDO uploads of 606Ch, 6041h,
+                          603Fh and 2026h belong to the firmware alone.
+
+In both Renode modes the drive bus audit captures vcan_drive for the whole run. The firmware
+is a binary built elsewhere (scripts/sil_renode_firmware.sh); this file records which one.
+Firmware-in-the-loop milestone for telemetry, development evidence only.
 """
 import os
 from pathlib import Path
@@ -16,24 +25,57 @@ from launch.actions import (DeclareLaunchArgument, EmitEvent, ExecuteProcess,
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 import yaml
 
-STM32_CHOICES = ('host', 'renode')
+STM32_CHOICES = ('host', 'renode', 'renode_readonly')
+RENODE_MODES = ('renode', 'renode_readonly')
+
+# The firmware image that stm32:=renode and stm32:=renode_readonly run: openamr-platform-fw at
+# this commit, CMake preset RenodeTest of boards/stm32/telemetry_image (same values as
+# openamrobot_sil/renode_fw.py, checked by test/test_sil_launch.py). The node
+# renode_firmware refuses an image whose banner does not print this commit and "params":"test".
+FW_COMMIT = 'fcf81f8e2fe2fa9000685ab233907adbfadeec2a'
+FW_PRESET = 'RenodeTest'
 
 
 def _true(text):
     return str(text).lower() in ('true', '1', 'yes')
 
 
-def can_nodes(config_file, stm32, gazebo):
+def renode_nodes(config_file, renode):
+    """Drive bus audit and Renode firmware node. renode: dict of the renode_* arguments."""
+    sil_dir = get_package_share_directory('openamrobot_sil')
+    audit = Node(package='openamrobot_sil', executable='drive_bus_audit', output='screen',
+                 parameters=[{'config_file': config_file,
+                              'capture_file': renode['capture_file']}])
+    firmware = Node(
+        package='openamrobot_sil', executable='renode_firmware', output='screen',
+        parameters=[{'config_file': config_file, 'renode': renode['renode'],
+                     'elf': renode['fw_elf'], 'fw_dir': renode['fw_dir'],
+                     'helpers': os.path.join(sil_dir, 'renode', 'sil_renode_helpers.py'),
+                     'work_dir': renode['renode_work_dir'], 'can_link': 'socketcan',
+                     'wait_for_audit': True}])
+    # The firmware node exits on a wrong banner or a Renode failure: the whole run stops.
+    stop = RegisterEventHandler(OnProcessExit(
+        target_action=firmware,
+        on_exit=[LogInfo(msg='renode_firmware ended: shutting the SIL launch down'),
+                 EmitEvent(event=Shutdown(reason='renode_firmware ended'))]))
+    return [audit, firmware, stop]
+
+
+def can_nodes(config_file, stm32, gazebo, renode=None):
     """The nodes that open vcan sockets."""
     params = [{'config_file': config_file}]
-    nodes = [
+    readonly = stm32 == 'renode_readonly'
+    nodes = []
+    if stm32 in RENODE_MODES:
+        nodes += renode_nodes(config_file, renode or default_renode_args())
+    nodes += [
         Node(package='openamrobot_sil', executable='zlac8015d_emulator', output='screen',
-             parameters=params),
+             parameters=params + [{'rpdo': readonly, 'stored_link_loss': readonly}]),
         Node(package='openamrobot_sil', executable='ctl017_emulator', output='screen',
              parameters=params + [{'gazebo': gazebo}]),
         Node(package='openamrobot_sil', executable='daly_bms_emulator', output='screen',
@@ -42,11 +84,25 @@ def can_nodes(config_file, stm32, gazebo):
     if stm32 == 'host':
         nodes.append(Node(package='openamrobot_sil', executable='stm32_host_client',
                           output='screen', parameters=params + [{'use_sim_time': gazebo}]))
+    elif readonly:
+        nodes.append(Node(package='openamrobot_sil', executable='stm32_host_client',
+                          output='screen',
+                          parameters=params + [{'use_sim_time': gazebo,
+                                                'drive_mode': 'command_only',
+                                                'wait_for_audit': True}]))
     else:
         nodes.append(LogInfo(msg=(
-            'stm32:=renode: no host test client. Attach the Renode machine to the vcan '
-            'interfaces (docs/architecture/sil-topology.md, section 4).')))
+            'stm32:=renode: firmware %s (%s) in Renode on the drive bus, no host test client. '
+            'The image is read-only: nobody commands the drive.' % (FW_COMMIT, FW_PRESET))))
     return nodes
+
+
+def default_renode_args():
+    return {'renode': os.environ.get('SIL_RENODE', 'renode'),
+            'fw_elf': os.environ.get('SIL_FW_ELF', ''),
+            'fw_dir': os.environ.get('SIL_FW_DIR', ''),
+            'renode_work_dir': '/tmp/openamrobot_sil_renode',
+            'capture_file': '/tmp/openamrobot_sil_vcan_drive.log'}
 
 
 def gazebo_actions(sil_dir, model, world, gui):
@@ -74,7 +130,7 @@ def gazebo_actions(sil_dir, model, world, gui):
     ]
 
 
-def build_actions(stm32, create_vcan, gazebo, gui, config_file, model, world):
+def build_actions(stm32, create_vcan, gazebo, gui, config_file, model, world, renode=None):
     """All actions of the launch file for the given argument values."""
     if stm32 not in STM32_CHOICES:
         raise RuntimeError('stm32 must be one of %s, got %r' % (STM32_CHOICES, stm32))
@@ -83,7 +139,7 @@ def build_actions(stm32, create_vcan, gazebo, gui, config_file, model, world):
         buses = yaml.safe_load(f)['buses']
     interfaces = [buses[k]['interface'] for k in ('drive', 'bms', 'aux')]
     actions = []
-    nodes = can_nodes(config_file, stm32, gazebo)
+    nodes = can_nodes(config_file, stm32, gazebo, renode)
     if create_vcan:
         vcan_up = ExecuteProcess(
             cmd=['sh', os.path.join(sil_dir, 'scripts', 'sil_vcan.sh'), 'up'] + interfaces,
@@ -105,13 +161,21 @@ def build_actions(stm32, create_vcan, gazebo, gui, config_file, model, world):
     return actions
 
 
+RENODE_ARGS = ('renode', 'fw_elf', 'fw_dir', 'renode_work_dir', 'capture_file')
+
+
 def _setup(context):
     value = {name: LaunchConfiguration(name).perform(context)
              for name in ('stm32', 'create_vcan', 'gazebo', 'gui', 'config_file', 'model',
-                          'world')}
-    return build_actions(value['stm32'], _true(value['create_vcan']), _true(value['gazebo']),
-                         _true(value['gui']), value['config_file'], value['model'],
-                         value['world'])
+                          'world') + RENODE_ARGS}
+    actions = []
+    if value['stm32'] in RENODE_MODES:
+        actions.append(LogInfo(msg='firmware %s, preset %s, ELF %s' % (
+            FW_COMMIT, FW_PRESET, value['fw_elf'])))
+    return actions + build_actions(
+        value['stm32'], _true(value['create_vcan']), _true(value['gazebo']),
+        _true(value['gui']), value['config_file'], value['model'], value['world'],
+        {k: value[k] for k in RENODE_ARGS})
 
 
 def generate_launch_description():
@@ -119,8 +183,11 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'stm32', default_value='host', choices=list(STM32_CHOICES),
-            description='host: start the host test client that plays the STM32 CAN role. '
-                        'renode: start nothing in its place, a Renode machine attaches.'),
+            description='host: the host test client plays the STM32 CAN role. renode: the '
+                        'platform-fw telemetry image (%s, %s) in Renode on vcan_drive, nobody '
+                        'commands the drive. renode_readonly: as renode, plus the host test '
+                        'client sending drive commands without any SDO.' % (FW_COMMIT[:12],
+                                                                            FW_PRESET)),
         DeclareLaunchArgument(
             'create_vcan', default_value='true',
             description='Create the vcan interfaces (needs root or passwordless sudo).'),
@@ -140,5 +207,22 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'world', default_value=os.path.join(sil_dir, 'worlds', 'sil_flat.sdf'),
             description='Gazebo world file.'),
+        DeclareLaunchArgument(
+            'renode', default_value=EnvironmentVariable('SIL_RENODE', default_value='renode'),
+            description='Renode %s binary (renode mode). Default: $SIL_RENODE.' % '1.16.1'),
+        DeclareLaunchArgument(
+            'fw_elf', default_value=EnvironmentVariable('SIL_FW_ELF', default_value=''),
+            description='telemetry_image.elf of preset %s at %s. Default: $SIL_FW_ELF.' % (
+                FW_PRESET, FW_COMMIT)),
+        DeclareLaunchArgument(
+            'fw_dir', default_value=EnvironmentVariable('SIL_FW_DIR', default_value=''),
+            description='openamr-platform-fw checkout at %s, for the Renode additions file. '
+                        'Default: $SIL_FW_DIR.' % FW_COMMIT),
+        DeclareLaunchArgument(
+            'renode_work_dir', default_value='/tmp/openamrobot_sil_renode',
+            description='Renode script, Renode log and USART3 console files.'),
+        DeclareLaunchArgument(
+            'capture_file', default_value='/tmp/openamrobot_sil_vcan_drive.log',
+            description='candump -L capture of vcan_drive (renode modes).'),
         OpaqueFunction(function=_setup),
     ])
