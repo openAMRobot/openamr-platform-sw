@@ -38,9 +38,9 @@ def test_arguments_are_declared(sil_launch):
     from launch.actions import DeclareLaunchArgument
     declared = {a.name: a for a in sil_launch.generate_launch_description().entities
                 if isinstance(a, DeclareLaunchArgument)}
-    assert sorted(declared) == ['config_file', 'create_vcan', 'gazebo', 'gui', 'model', 'stm32',
-                                'world']
-    assert declared['stm32'].choices == ['host', 'renode']
+    assert sorted(declared) == ['config_file', 'create_vcan', 'gazebo', 'gui', 'model', 'nav2',
+                                'simref_bin', 'stm32', 'world']
+    assert declared['stm32'].choices == ['host', 'renode', 'simref']
 
 
 def test_vcan_creation_names_the_three_buses(sil_launch):

@@ -46,6 +46,20 @@ ros2 topic pub -1 /sil/drive/inject std_msgs/msg/String "{data: oc-lo}"
 With `stm32:=renode` the host test client is not started and a Renode machine can attach to
 the three interfaces. `gazebo:=false` starts the emulators alone with their internal plant models.
 
+With `stm32:=simref` the SIMULATION ONLY reference process of openamr-platform-fw
+`tests/sim_reference` (commit pinned as `SIMREF_FW_SHA` in `launch/sil.launch.py`) takes the
+STM32 role, fed by the `simref_bridge` node; `nav2:=true` adds Nav2 in front of it. It is an
+unapproved interpretation, not firmware and not safety evidence
+(`docs/architecture/sil-topology.md` section 4a):
+
+```bash
+sh ros2/src/openamrobot_sil/scripts/build_simref.sh      # fetch and build at the pinned SHA
+ros2 launch openamrobot_sil sil.launch.py stm32:=simref nav2:=true
+ros2 topic pub -1 /sil/simref/supervisory std_msgs/msg/String "{data: jetson_stop_release}"
+ros2 topic pub -1 /sil/simref/pin std_msgs/msg/String "{data: reset 1}"   # then "reset 0"
+ros2 topic echo /sil/simref/reasons
+```
+
 ## Tests
 
 ```bash
@@ -56,6 +70,8 @@ cd ros2/src/openamrobot_sil/openamrobot_sil/vendor/can_sil/tests
 CAN_SIL_IFACE=vcan_siltest python3 -m pytest test_zlac8015d.py test_ctl017.py
 # end to end with Gazebo
 python3 -m pytest ros2/src/openamrobot_sil/test_integration
+# end to end with Gazebo, Nav2 and the simulation reference (stm32:=simref)
+SIMREF_CAPTURE_DIR=/tmp/captures python3 -m pytest ros2/src/openamrobot_sil/test_integration_simref
 ```
 
 A machine without vcan fails these with `BLOCKED:`. `SIL_TEST_BUS=virtual` runs the protocol
