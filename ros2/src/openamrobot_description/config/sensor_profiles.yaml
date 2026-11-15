@@ -24,11 +24,16 @@
 
 documents:
   rplidar_s3: &doc_rplidar_s3 >-
-    Slamtec RPLIDAR S3 Introduction and Datasheet, model S3M1-R2, rev 1.2 (2026-03-12),
-    SHA-256 da14de2925665f4757b53627d8b8174e9aa3e9eddbb21518872142019c7e4c63 (computed 14 Nov
-    2026 from the vendor download at
-    https://download-en.slamtec.com/api/download/rplidar-s3-datasheet/2.1?lang=en; not yet filed
-    in the datasheet index)
+    Slamtec RPLIDAR S3 Introduction and Datasheet, model S3M1-R2, rev 1.0 (2023-07-26),
+    Measurement Performance table and footnote 4, read 15 Nov 2026 from
+    https://openzeka.com/wp-content/uploads/2023/10/SLAMTEC_rplidar_datasheet_S3_v1.0_en.pdf;
+    figures agree with the vendor spec page https://www.slamtec.com/en/S3/Spec (read 15 Nov
+    2026). Not yet filed in the datasheet index
+  icm_42688_p_ds: &doc_icm_ds >-
+    TDK InvenSense ICM-42688-P datasheet DS-000347 rev 1.9, sections 3.1 (gyroscope) and 3.2
+    (accelerometer) specifications, as filed in openamr-platform-hw
+    datasheets/TDK/ICM-42688-P/DS-000347-ICM-42688-P-v1.9.pdf SHA-256
+    9c6b57b0a2e45cf0251dd2423878573bd4da46e0cc2faa93dc558c28af51300a
   gemini_336l: &doc_gemini_336l >-
     https://www.orbbec.com/products/stereo-vision-camera/gemini-336l/ (vendor product page,
     model G40155-180, read 14 Nov 2026; the PDF datasheet is not filed in the datasheet index)
@@ -71,12 +76,14 @@ frames:
         range_resolution:
           {value: 10.0, unit: mm, source: *doc_rplidar_s3, status: datasheet}
         accuracy_0_8m:
-          {value: 25.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
-           note: "plus or minus, 0 to 8 m, target reflectivity 10 to 90 percent, 25 C; an
-                  accuracy limit, not a noise standard deviation"}
+          {value: 30.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
+           note: "plus or minus, 25 C, target reflectivity 10 to 90 percent; the datasheet gives
+                  one figure with no breakdown by distance; an accuracy limit, not a noise
+                  standard deviation"}
         accuracy_over_8m:
-          {value: 50.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
-           note: "plus or minus, 8 m and beyond; an accuracy limit, not a standard deviation"}
+          {value: 30.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
+           note: "same single datasheet figure as accuracy_0_8m, which also covers 8 m and
+                  beyond; the earlier 25 and 50 mm split had no confirmable source"}
         range_noise_stddev:
           {value: null, unit: m, source: null, status: unknown,
            needed: "static-target repeatability test, or a vendor figure for the standard
@@ -150,8 +157,8 @@ frames:
     channels:
       gyro:
         noise_density:
-          {value: 2.8, unit: mdps/sqrt(Hz), source: *doc_icm_page, status: datasheet,
-           note: "low-noise mode; the noise bandwidth follows the digital filter that the
+          {value: 2.8, unit: mdps/sqrt(Hz), source: *doc_icm_ds, status: datasheet,
+           note: "at 10 Hz, low-noise mode; the noise bandwidth follows the digital filter that the
                   firmware configures"}
         bias_stability:
           {value: null, unit: dps, source: null, status: unknown,
@@ -164,8 +171,8 @@ frames:
            owner: Evans}
       accel:
         noise_density:
-          {value: 70.0, unit: ug/sqrt(Hz), source: *doc_icm_page, status: datasheet,
-           note: "low-noise mode"}
+          {value: 70.0, unit: ug/sqrt(Hz), source: *doc_icm_ds, status: datasheet,
+           note: "low-noise mode; Z axis 70, X and Y axes 65; the worst axis is used"}
         bias_stability:
           {value: null, unit: mg, source: null, status: unknown,
            needed: "zero-g offset figures from DS-000347 rev 1.9 (filed, not read here), then a
