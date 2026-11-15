@@ -13,6 +13,12 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
+
+- New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
+  to Gazebo Harmonic, a host test client that plays the STM32 CAN role, and `sil.launch.py` (`stm32:=host` or `stm32:=renode`).
+  The ZLAC8015D and CTL-017 emulators are the openamr-platform-fw `tools/can_sil` files, vendored unmodified at ad4b023.
+  Topology and sources: `docs/architecture/sil-topology.md`. CI: workflow `sil-tests`. Development evidence only.
 ### Changed (15 Nov 2026; loaded wheel radius)
 
 - Drive wheel collision radius and DiffDrive `wheel_radius` are now the loaded radius 0.098 m (was 0.100). Owner decision 15 Nov 2026: the 200 mm tyre is mounted 2 mm below the castor plane on purpose and compresses about 2 mm under the robot weight, so at rest wheels and castors share one plane and the base is level. With the unloaded 0.100 radius the wheels sat 2 mm inside the floor and a MuJoCo drop test pitched the base 0.59 degrees onto the castors (upperbody-sw #69). The loaded radius is an estimate until the bench measures it.

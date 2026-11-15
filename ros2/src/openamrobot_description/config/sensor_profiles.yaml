@@ -1,0 +1,264 @@
+# OpenAMRobot 2.0 sensor behaviour profiles, one entry per sensor frame.
+#
+# Companion of sensor_frames.yaml: that file says where each sensor is, this one says how it
+# behaves (range, rate, resolution, noise) and where every number comes from. The keys under
+# `frames` are exactly the frame ids of sensor_frames.yaml. Nothing in the URDF, the SDF or a
+# launch file reads this file yet; test/test_sensor_profiles.py is its only consumer.
+#
+# Every value is a mapping:
+#   value:   the number, or null when it is not known
+#   unit:    the unit of the number
+#   source:  document, revision and SHA-256, or the vendor URL; null only when value is null
+#   status:  datasheet  = printed in the manufacturer's datasheet or product page
+#            measured   = measured on the robot or on the bench (none yet)
+#            estimated  = a project estimate, not from a datasheet or a measurement
+#            unknown    = no source yet; value is null and `needed` names the document or test
+#   note:    optional, how the number must be read
+#   needed:  required for unknown, what is missing
+#   owner:   required for unknown, who closes it
+# A missing datasheet number is never replaced by a guess. A datasheet accuracy figure is not a
+# noise standard deviation and is kept apart from it.
+#
+# SHA-256 values are those of the PDF bytes as filed in the project datasheet index, except
+# where the source says it was computed on 14 Nov 2026 from the vendor download.
+
+documents:
+  rplidar_s3: &doc_rplidar_s3 >-
+    Slamtec RPLIDAR S3 Introduction and Datasheet, model S3M1-R2, rev 1.0 (2023-07-26),
+    Measurement Performance table and footnote 4, read 15 Nov 2026 from
+    https://openzeka.com/wp-content/uploads/2023/10/SLAMTEC_rplidar_datasheet_S3_v1.0_en.pdf;
+    figures agree with the vendor spec page https://www.slamtec.com/en/S3/Spec (read 15 Nov
+    2026). Not yet filed in the datasheet index
+  icm_42688_p_ds: &doc_icm_ds >-
+    TDK InvenSense ICM-42688-P datasheet DS-000347 rev 1.9, sections 3.1 (gyroscope) and 3.2
+    (accelerometer) specifications, as filed in openamr-platform-hw
+    datasheets/TDK/ICM-42688-P/DS-000347-ICM-42688-P-v1.9.pdf SHA-256
+    9c6b57b0a2e45cf0251dd2423878573bd4da46e0cc2faa93dc558c28af51300a
+  gemini_336l: &doc_gemini_336l >-
+    https://www.orbbec.com/products/stereo-vision-camera/gemini-336l/ (vendor product page,
+    model G40155-180, read 14 Nov 2026; the PDF datasheet is not filed in the datasheet index)
+  icm_42688_p_page: &doc_icm_page >-
+    https://invensense.tdk.com/products/motion-tracking/6-axis/icm-42688-p/ (vendor product
+    page, read 14 Nov 2026; the datasheet DS-000347 rev 1.9, SHA-256
+    9c6b57b0a2e45cf0251dd2423878573bd4da46e0cc2faa93dc558c28af51300a in the datasheet index, was
+    not re-read)
+  tf_luna: &doc_tf_luna >-
+    Benewake PD-TF-Luna-Datasheet-A05, SHA-256
+    d080033ececa32866ed9361ae04f6d25d8dbdcd478cd2961be0360b241249718
+  mb7060: &doc_mb7060 >-
+    MaxBotix XL-MaxSonar-WR/WRC series datasheet, document 11838ab (no revision date printed),
+    SHA-256 76e77577b493ca8f38780b589430e26ceeb2489c2171f4a8f66f71f92d86395d
+
+frames:
+  lidar_link:
+    sensor: RPLIDAR S3 (S3M1-R2)
+    part: RPLIDAR S3
+    channels:
+      scan:
+        range_min:
+          {value: 0.05, unit: m, source: *doc_rplidar_s3, status: datasheet,
+           note: "below 0.05 m the sensor still outputs points but accuracy is not guaranteed"}
+        range_max_white:
+          {value: 40.0, unit: m, source: *doc_rplidar_s3, status: datasheet,
+           note: "white object, 70 percent reflectivity"}
+        range_max_black:
+          {value: 15.0, unit: m, source: *doc_rplidar_s3, status: datasheet,
+           note: "black object, 10 percent reflectivity; 5 m at 2 percent reflectivity"}
+        scan_rate:
+          {value: 10.0, unit: Hz, source: *doc_rplidar_s3, status: datasheet,
+           note: "typical; the sensor adapts between 10 and 20 Hz"}
+        sample_rate:
+          {value: 32000, unit: Hz, source: *doc_rplidar_s3, status: datasheet,
+           note: "fluctuation under 1 percent"}
+        angular_resolution:
+          {value: 0.1125, unit: deg, source: *doc_rplidar_s3, status: datasheet,
+           note: "typical at 10 Hz; 0.1125 to 0.225 deg over the scan-rate range"}
+        range_resolution:
+          {value: 10.0, unit: mm, source: *doc_rplidar_s3, status: datasheet}
+        accuracy_0_8m:
+          {value: 30.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
+           note: "plus or minus, 25 C, target reflectivity 10 to 90 percent; the datasheet gives
+                  one figure with no breakdown by distance; an accuracy limit, not a noise
+                  standard deviation"}
+        accuracy_over_8m:
+          {value: 30.0, unit: mm, source: *doc_rplidar_s3, status: datasheet,
+           note: "same single datasheet figure as accuracy_0_8m, which also covers 8 m and
+                  beyond; the earlier 25 and 50 mm split had no confirmable source"}
+        range_noise_stddev:
+          {value: null, unit: m, source: null, status: unknown,
+           needed: "static-target repeatability test, or a vendor figure for the standard
+                    deviation of one range sample",
+           owner: Vineeth}
+        output_latency:
+          {value: null, unit: s, source: null, status: unknown,
+           needed: "scan stamp to /scan publication delay on the Jetson with sllidar_ros2",
+           owner: Vineeth}
+
+  base_camera_link:
+    sensor: Orbbec Gemini 336L
+    part: Gemini 336L
+    channels:
+      depth:
+        range_min:
+          {value: 0.17, unit: m, source: *doc_gemini_336l, status: datasheet}
+        range_max:
+          {value: 20.0, unit: m, source: *doc_gemini_336l, status: datasheet,
+           note: "vendor depth range 0.17 to 20 m and beyond; optimal range 0.25 to 6 m"}
+        range_optimal_min:
+          {value: 0.25, unit: m, source: *doc_gemini_336l, status: datasheet}
+        range_optimal_max:
+          {value: 6.0, unit: m, source: *doc_gemini_336l, status: datasheet}
+        fov_horizontal:
+          {value: 90.0, unit: deg, source: *doc_gemini_336l, status: datasheet}
+        fov_vertical:
+          {value: 65.0, unit: deg, source: *doc_gemini_336l, status: datasheet}
+        width_max:
+          {value: 1280, unit: px, source: *doc_gemini_336l, status: datasheet,
+           note: "up to 1280 x 800 at 30 fps"}
+        height_max:
+          {value: 800, unit: px, source: *doc_gemini_336l, status: datasheet}
+        frame_rate_max:
+          {value: 30.0, unit: Hz, source: *doc_gemini_336l, status: datasheet,
+           note: "at 1280 x 800; the rate used on the robot is set in the driver launch"}
+        spatial_precision_2m:
+          {value: 0.8, unit: percent of distance, source: *doc_gemini_336l, status: datasheet,
+           note: "at most, 1280 x 800, 2 m, 81 percent ROI; the vendor's definition of
+                  spatial precision must be read in the datasheet before it is used as a
+                  standard deviation"}
+        spatial_precision_4m:
+          {value: 1.6, unit: percent of distance, source: *doc_gemini_336l, status: datasheet,
+           note: "at most, 1280 x 800, 4 m, 64 percent ROI"}
+        latency:
+          {value: null, unit: s, source: null, status: unknown,
+           needed: "Orbbec datasheet PDF (not filed) and a measured stamp-to-publish delay
+                    on the Jetson with the Orbbec ROS 2 driver",
+           owner: Vineeth}
+      color:
+        fov_horizontal:
+          {value: 94.0, unit: deg, source: *doc_gemini_336l, status: datasheet}
+        fov_vertical:
+          {value: 68.0, unit: deg, source: *doc_gemini_336l, status: datasheet}
+        width_max:
+          {value: 1280, unit: px, source: *doc_gemini_336l, status: datasheet,
+           note: "up to 1280 x 800 at 60 fps"}
+        height_max:
+          {value: 800, unit: px, source: *doc_gemini_336l, status: datasheet}
+        frame_rate_max:
+          {value: 60.0, unit: Hz, source: *doc_gemini_336l, status: datasheet,
+           note: "at 1280 x 800"}
+        image_noise_stddev:
+          {value: null, unit: 8-bit counts, source: null, status: unknown,
+           needed: "Orbbec datasheet PDF (not filed) or a dark-frame measurement",
+           owner: Vineeth}
+
+  imu_link:
+    sensor: ICM-42688-P (TDK EV_ICM-42688-P board)
+    part: ICM-42688-P
+    channels:
+      gyro:
+        noise_density:
+          {value: 2.8, unit: mdps/sqrt(Hz), source: *doc_icm_ds, status: datasheet,
+           note: "at 10 Hz, low-noise mode; the noise bandwidth follows the digital filter that the
+                  firmware configures"}
+        bias_stability:
+          {value: null, unit: dps, source: null, status: unknown,
+           needed: "zero-rate output and bias figures from DS-000347 rev 1.9 (filed, not read
+                    here), then a static bias-drift measurement on the delivered board",
+           owner: Vineeth}
+        odr:
+          {value: null, unit: Hz, source: null, status: unknown,
+           needed: "output data rate the firmware sets (TODO(Evans)); /imu/data_raw rate",
+           owner: Evans}
+      accel:
+        noise_density:
+          {value: 70.0, unit: ug/sqrt(Hz), source: *doc_icm_ds, status: datasheet,
+           note: "low-noise mode; Z axis 70, X and Y axes 65; the worst axis is used"}
+        bias_stability:
+          {value: null, unit: mg, source: null, status: unknown,
+           needed: "zero-g offset figures from DS-000347 rev 1.9 (filed, not read here), then a
+                    static measurement on the delivered board",
+           owner: Vineeth}
+        odr:
+          {value: null, unit: Hz, source: null, status: unknown,
+           needed: "output data rate the firmware sets (TODO(Evans))",
+           owner: Evans}
+      timestamp_skew:
+        {value: null, unit: s, source: null, status: unknown,
+         needed: "measured IMU timestamp latency and skew bound (INT1 stamp to host time)",
+         owner: Vineeth}
+
+  us_front_left: &us_mb7060
+    sensor: MaxBotix MB7060 (-2XX, 3/4 in NPS)
+    part: MB7060
+    channels:
+      range:
+        range_min:
+          {value: 0.20, unit: m, source: *doc_mb7060, status: datasheet,
+           note: "targets closer than 20 cm are reported as 20 cm or closer; operation below
+                  20 cm is not guaranteed"}
+        range_max:
+          {value: 7.65, unit: m, source: *doc_mb7060, status: datasheet,
+           note: "maximum reported range; detection of a large flat target to 765 cm"}
+        range_resolution:
+          {value: 1.0, unit: cm, source: *doc_mb7060, status: datasheet}
+        refresh_rate:
+          {value: 10.0, unit: Hz, source: *doc_mb7060, status: datasheet,
+           note: "free-run rate of one sensor; the shared trigger sequence of the four sensors
+                  sets the rate seen on each topic"}
+        power_up_ready_time:
+          {value: 0.175, unit: s, source: *doc_mb7060, status: datasheet,
+           note: "ready to range 175 ms after power-up"}
+        beam_half_angle:
+          {value: null, unit: rad, source: null, status: unknown,
+           needed: "beam pattern of the MB7060 from the datasheet figures (target shape and
+                    range dependent), then a bench check with the delivered sensor",
+           owner: Vineeth}
+        range_noise_stddev:
+          {value: null, unit: m, source: null, status: unknown,
+           needed: "static-target repeatability test; the datasheet gives no accuracy or
+                    standard deviation",
+           owner: Vineeth}
+  us_front_right: *us_mb7060
+  us_rear_left: *us_mb7060
+  us_rear_right: *us_mb7060
+
+  tof_front: &tof_tf_luna
+    sensor: Benewake TF-Luna (cliff)
+    part: TF-Luna
+    channels:
+      range:
+        range_min:
+          {value: 0.20, unit: m, source: *doc_tf_luna, status: datasheet}
+        range_max_90pct:
+          {value: 8.0, unit: m, source: *doc_tf_luna, status: datasheet,
+           note: "90 percent reflectivity, indoor, 0 klux"}
+        range_max_10pct:
+          {value: 2.5, unit: m, source: *doc_tf_luna, status: datasheet,
+           note: "10 percent reflectivity, indoor, 0 klux"}
+        accuracy_0_2_3m:
+          {value: 6.0, unit: cm, source: *doc_tf_luna, status: datasheet,
+           note: "plus or minus, 0.2 to 3 m, 90 percent reflectivity, 25 C; an accuracy limit,
+                  not a standard deviation"}
+        accuracy_3_8m:
+          {value: 2.0, unit: percent of distance, source: *doc_tf_luna, status: datasheet,
+           note: "plus or minus, 3 to 8 m; an accuracy limit, not a standard deviation"}
+        range_resolution:
+          {value: 1.0, unit: cm, source: *doc_tf_luna, status: datasheet}
+        fov:
+          {value: 2.0, unit: deg, source: *doc_tf_luna, status: datasheet,
+           note: "the datasheet calls this a theoretical reference value"}
+        frame_rate_max:
+          {value: 250.0, unit: Hz, source: *doc_tf_luna, status: datasheet,
+           note: "range 1 to 250 Hz"}
+        frame_rate_default:
+          {value: 100.0, unit: Hz, source: *doc_tf_luna, status: datasheet}
+        frame_rate_configured:
+          {value: null, unit: Hz, source: null, status: unknown,
+           needed: "output rate the base controller firmware sets at boot (TODO(Evans))",
+           owner: Evans}
+        range_noise_stddev:
+          {value: null, unit: m, source: null, status: unknown,
+           needed: "floor-return repeatability test at the dock and cliff heights; the
+                    datasheet gives accuracy only",
+           owner: Cuma}
+  tof_rear: *tof_tf_luna

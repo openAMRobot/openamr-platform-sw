@@ -54,10 +54,11 @@ jobs:
           python3 -m pytest -v -p no:cacheprovider --junitxml=description-tests.xml \
             ros2/src/openamrobot_description/test/test_description_meshes.py \
             ros2/src/openamrobot_description/test/test_base_mass.py \
+            ros2/src/openamrobot_description/test/test_sensor_profiles.py \
             ros2/src/openamrobot_description/test/test_ground_contact.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all thirty-eight description tests ran
+      - name: Check that all 221 description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -65,7 +66,7 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 38 and skipped == 0, 'expected 38 description tests, none skipped'
+          assert tests == 221 and skipped == 0, 'expected 221 description tests (35 + 183 sensor profile + 3 ground contact), none skipped'
           EOF
 
   # Gazebo Harmonic job for test_gazebo_friction.py: the friction must survive the

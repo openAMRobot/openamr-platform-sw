@@ -1,0 +1,35 @@
+# ros_gz_bridge topics of the SIL layer. /cmd_vel is NOT bridged to Gazebo here: the only
+# path to the Gazebo wheels is CAN1 and the ZLAC8015D emulator.
+- ros_topic_name: "clock"
+  gz_topic_name: "clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# Speed demand of the drive emulator, as a body twist for the DiffDrive plugin.
+- ros_topic_name: "/sil/drive/gz_cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+
+# Lift motor speed demand of the CTL-017 emulator.
+- ros_topic_name: "/sil/lift/gz_cmd_vel"
+  gz_topic_name: "/sil/gz/lift_cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+# Wheel and lift joint states back to the emulators.
+- ros_topic_name: "/sil/gz/joint_states"
+  gz_topic_name: "/sil/gz/joint_states"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+# Odometry of the Gazebo DiffDrive plugin, as a reference next to /sil/base/odom.
+- ros_topic_name: "/sil/gz/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
