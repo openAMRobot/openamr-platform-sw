@@ -13,6 +13,13 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
+
+- New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
+  to Gazebo Harmonic, a host test client that plays the STM32 CAN role, and `sil.launch.py` (`stm32:=host` or `stm32:=renode`).
+  The ZLAC8015D and CTL-017 emulators are the openamr-platform-fw `tools/can_sil` files, vendored unmodified at ad4b023.
+  Topology and sources: `docs/architecture/sil-topology.md`. CI: workflow `sil-tests`. Development evidence only.
+
 ### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
 
 - Owner decisions of 8 Nov 2026 (P-03 rev20.5 item 29, rev20.6 item 30 A6): every base link with mass reads its inertial from

@@ -11,7 +11,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Owner role: software-lead (maintainers.yaml)
 - Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
   `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026; job `description-gazebo-tests`
-  with pinned gz-sim 8.15.0 runs the friction test, #135, 14 Nov 2026) and `repository-quality`; no
+  with pinned gz-sim 8.15.0 runs the friction test, #135, 14 Nov 2026), `sil-tests` (14 Nov 2026) and `repository-quality`; no
   `tools/verify.sh` yet. `repository-quality` PASS on main at
   dfd44a5 (16 Oct 2026).
 
@@ -20,6 +20,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
 | Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
+| Base and lift SIL on virtual CAN: package `openamrobot_sil` (ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux`, `vcan_bms`, bridged to Gazebo; host test client; `sil.launch.py`), `docs/architecture/sil-topology.md`, workflow `sil-tests` (14 Nov 2026) | claude/optimistic-planck-frfht7 | draft | owner: adopt, adapt or reject; then Renode attach (platform-fw #51) and the combined model |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
@@ -63,4 +64,5 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Not verified
 
+- SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.

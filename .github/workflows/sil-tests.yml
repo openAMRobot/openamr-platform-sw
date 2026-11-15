@@ -1,0 +1,108 @@
+name: sil-tests
+
+# Base and lift software-in-the-loop on Linux virtual CAN (openamrobot_sil).
+# Development evidence only: emulators and Gazebo, no firmware, no hardware.
+#
+# The vcan kernel module is loaded on the runner. ROS 2 Jazzy and Gazebo Harmonic run in the
+# ros:jazzy-ros-base image with the host network, so the container sees the vcan interfaces.
+# If vcan cannot be loaded the job FAILS with a BLOCKED line. Blocked is not a pass.
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_sil/**'
+      - 'ros2/src/openamrobot_description/urdf/**'
+      - '.github/workflows/sil-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_sil/**'
+      - 'ros2/src/openamrobot_description/urdf/**'
+      - '.github/workflows/sil-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SIL_IMAGE: ros:jazzy-ros-base
+  SIL: docker exec sil bash -eo pipefail -c
+
+jobs:
+  sil-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Load the vcan module (BLOCKED if unavailable)
+        run: |
+          if ! sudo modprobe vcan 2>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
+          fi
+          if ! sudo modprobe vcan || ! sudo modprobe can_raw; then
+            echo "BLOCKED: the vcan or can_raw kernel module is not available on this runner ($(uname -r))"
+            echo "::error::BLOCKED: vcan unavailable. No SIL test ran. This is not a pass."
+            exit 1
+          fi
+          sudo ip link add dev vcan_siltest type vcan
+          sudo ip link set up vcan_siltest
+          ip -br link show type vcan
+
+      - name: Start the ROS 2 Jazzy container on the host network
+        run: |
+          docker run -d --name sil --network host --cap-add NET_ADMIN \
+            -v "$PWD":/repo -w /repo "$SIL_IMAGE" sleep infinity
+          $SIL 'apt-get update && apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions python3-pytest python3-yaml python3-can iproute2 procps \
+            ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-nav-msgs \
+            ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge'
+          $SIL 'ip -br link show type vcan && python3 -c "import can; print(\"python-can\", can.__version__)"'
+
+      - name: Build openamrobot_description and openamrobot_sil
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && cd ros2 && \
+            colcon build --symlink-install --packages-up-to openamrobot_sil'
+
+      # The two vendored openamr-platform-fw test files, unmodified, on vcan.
+      - name: Vendored platform-fw emulator tests on vcan
+        run: |
+          $SIL 'cd ros2/src/openamrobot_sil/openamrobot_sil/vendor/can_sil/tests && \
+            CAN_SIL_IFACE=vcan_siltest python3 -m pytest -v -p no:cacheprovider \
+              --junitxml=/repo/sil-vendored.xml test_zlac8015d.py test_ctl017.py'
+
+      - name: SIL protocol tests on vcan
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            SIL_TEST_BUS=vcan SIL_TEST_IFACE=vcan_siltest python3 -m pytest -v -p no:cacheprovider \
+              --junitxml=/repo/sil-protocol.xml ros2/src/openamrobot_sil/test'
+
+      # sil.launch.py creates vcan_drive, vcan_bms and vcan_aux itself (NET_ADMIN).
+      - name: End-to-end tests with Gazebo and the host test client
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            SIL_LAUNCH_LOG=/repo/sil-launch.log python3 -m pytest -v -p no:cacheprovider \
+              --junitxml=/repo/sil-gazebo.xml ros2/src/openamrobot_sil/test_integration'
+
+      - name: Show the launch log
+        if: always()
+        run: |
+          ip -br link show type vcan || true
+          tail -n 300 sil-launch.log || true
+
+      # A missing, renamed or skipped test must not pass as a smaller suite.
+      - name: Check test counts
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 57, 'sil-gazebo.xml': 4}
+          for name, want in expected.items():
+              root = ET.parse(name).getroot()
+              suite = root if root.tag == 'testsuite' else root.find('testsuite')
+              tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+              failed = int(suite.get('failures')) + int(suite.get('errors'))
+              print(f'{name}: {tests} tests, {skipped} skipped, {failed} failed')
+              assert tests == want and skipped == 0 and failed == 0, f'{name}: expected {want}, none skipped'
+          EOF
