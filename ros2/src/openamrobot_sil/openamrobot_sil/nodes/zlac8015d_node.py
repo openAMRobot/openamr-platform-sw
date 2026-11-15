@@ -17,9 +17,13 @@ class ZlacNode(Node):
         cfg = config.load(self.declare_parameter('config_file', '').value)
         self.drive = cfg['drive']
         self.bus = open_bus(cfg['buses']['drive']['interface'])
+        # stm32:=renode_readonly: SIL receive PDOs on, 2000h stored before the run.
+        rpdo = self.declare_parameter('rpdo', False).value
+        stored = self.declare_parameter('stored_link_loss', False).value
         self.emu = GazeboZlac8015d(
             self.bus, cfg['buses']['drive']['zlac_node_id'], self.drive['heartbeat_ms'],
-            self.drive['left_sign'], self.drive['right_sign']).start()
+            self.drive['left_sign'], self.drive['right_sign'], rpdo=rpdo,
+            stored_link_loss_ms=self.drive['link_loss_ms'] if stored else None).start()
         self.cmd_pub = self.create_publisher(Twist, '/sil/drive/gz_cmd_vel', 10)
         self.state_pub = self.create_publisher(String, '/sil/drive/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)

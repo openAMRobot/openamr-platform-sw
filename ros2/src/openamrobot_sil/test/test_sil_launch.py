@@ -4,6 +4,7 @@ import os
 
 from launch_ros.actions import Node
 import pytest
+import yaml
 
 from conftest import PACKAGE_DIR
 
@@ -29,18 +30,60 @@ def test_host_mode_starts_the_three_emulators_and_the_host_client(sil_launch):
                                   'zlac8015d_emulator']
 
 
-def test_renode_mode_starts_no_host_client(sil_launch):
+def test_renode_mode_starts_renode_and_the_audit_but_no_host_client(sil_launch):
     nodes = sil_launch.can_nodes(CONFIG, 'renode', True)
-    assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'zlac8015d_emulator']
+    assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'drive_bus_audit',
+                                  'renode_firmware', 'zlac8015d_emulator']
+
+
+def _text(value):
+    if isinstance(value, tuple) and all(hasattr(v, 'text') for v in value):
+        return yaml.safe_load(''.join(v.text for v in value))  # launch stores YAML text
+    return value
+
+
+def node_params(nodes, executable):
+    """Parameters given to a Node action, as plain values (launch normalises them)."""
+    node = [a for a in nodes if isinstance(a, Node) and a.node_executable == executable][0]
+    out = {}
+    for group in node._Node__parameters:
+        for key, value in group.items():
+            out[_text(key)] = _text(value)
+    return out
+
+
+def test_renode_readonly_mode_adds_the_command_only_host_client(sil_launch):
+    nodes = sil_launch.can_nodes(CONFIG, 'renode_readonly', True)
+    assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'drive_bus_audit',
+                                  'renode_firmware', 'stm32_host_client', 'zlac8015d_emulator']
+    host = node_params(nodes, 'stm32_host_client')
+    assert host['drive_mode'] == 'command_only' and host['wait_for_audit'] is True
+    drive = node_params(nodes, 'zlac8015d_emulator')
+    assert drive['rpdo'] is True and drive['stored_link_loss'] is True
+    fw = node_params(nodes, 'renode_firmware')
+    assert fw['can_link'] == 'socketcan' and fw['wait_for_audit'] is True
+
+
+def test_host_mode_drive_emulator_has_no_rpdo(sil_launch):
+    drive = node_params(sil_launch.can_nodes(CONFIG, 'host', True), 'zlac8015d_emulator')
+    assert drive['rpdo'] is False and drive['stored_link_loss'] is False
+
+
+def test_launch_file_records_the_pinned_firmware(sil_launch):
+    from openamrobot_sil import renode_fw
+    assert sil_launch.FW_COMMIT == renode_fw.FW_COMMIT == (
+        'fcf81f8e2fe2fa9000685ab233907adbfadeec2a')
+    assert sil_launch.FW_PRESET == renode_fw.FW_PRESET == 'RenodeTest'
 
 
 def test_arguments_are_declared(sil_launch):
     from launch.actions import DeclareLaunchArgument
     declared = {a.name: a for a in sil_launch.generate_launch_description().entities
                 if isinstance(a, DeclareLaunchArgument)}
-    assert sorted(declared) == ['config_file', 'create_vcan', 'gazebo', 'gui', 'model', 'stm32',
+    assert sorted(declared) == ['capture_file', 'config_file', 'create_vcan', 'fw_dir', 'fw_elf',
+                                'gazebo', 'gui', 'model', 'renode', 'renode_work_dir', 'stm32',
                                 'world']
-    assert declared['stm32'].choices == ['host', 'renode']
+    assert declared['stm32'].choices == ['host', 'renode', 'renode_readonly']
 
 
 def test_vcan_creation_names_the_three_buses(sil_launch):
