@@ -13,7 +13,7 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
-### Simulation — Passive swivel castors (15 Nov 2026, proposal)
+### Simulation: passive swivel castors (15 Nov 2026, proposal)
 
 - The four castors (Blickle LPA-VSTH 35K, BOM MEC-002) swivel and roll: `<c>_caster_joint` is a continuous
   vertical swivel at the unchanged mount, `<c>_wheel_joint` a continuous roll joint 15 mm (trail) behind it, with
