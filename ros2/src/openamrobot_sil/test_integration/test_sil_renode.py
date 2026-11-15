@@ -61,6 +61,10 @@ class Probe(FwProbe):
         return (joints.velocity[names.index('left_wheel_joint')],
                 joints.velocity[names.index('right_wheel_joint')])
 
+    def wheels_since(self, t0):
+        with self.lock:
+            return [w for t, w in self.wheels if t >= t0]
+
     def fw_wheels(self):
         with self.lock:
             return self.wheels[-1][1] if self.wheels else None
@@ -154,7 +158,12 @@ def test_firmware_wheel_speeds_match_gazebo_at_0_2_m_per_s(sil):
 
 def test_stopped_drive_gives_heartbeat_lost_and_unknown_wheels_never_zero(sil):
     sil.cmd = (0.2, 0.0)
-    assert sil.wait(lambda: sil.fw_wheels()[0] > 1.5, 10.0)
+    # The base turns in Gazebo, and the image has read it turning since then: the last valid
+    # value before the stop is not 0 (the previous test left the base at rest).
+    assert sil.wait(lambda: min(sil.gz_wheels()) > 1.5, 10.0)
+    t_moving = time.monotonic()
+    assert sil.wait(
+        lambda: sil.wheels_since(t_moving) and min(sil.wheels_since(t_moving)[-1]) > 1.5, 20.0)
     t0 = time.monotonic()
     sil.inject_pub.publish(String(data='busoff'))   # the drive emulator falls silent
     try:
