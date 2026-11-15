@@ -125,7 +125,8 @@ jobs:
           $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
             set -a && . /repo/.sil-renode/sil_renode.env && set +a && \
             SIL_RENODE_LAUNCH_LOG=/repo/sil-renode-launch.log \
-            SIL_DRIVE_CAPTURE=/repo/sil-vcan_drive.log python3 -m pytest -v -s -p no:cacheprovider \
+            SIL_DRIVE_CAPTURE=/repo/sil-vcan_drive.log SIL_AUX_CAPTURE=/repo/sil-vcan_aux.log \
+            python3 -m pytest -v -s -p no:cacheprovider \
               --junitxml=/repo/sil-renode.xml ros2/src/openamrobot_sil/test_integration/test_sil_renode.py'
 
       - name: Show the launch logs
@@ -145,6 +146,7 @@ jobs:
           name: sil-renode-evidence
           path: |
             sil-vcan_drive.log
+            sil-vcan_aux.log
             sil-renode-launch.log
             sil-*.xml
             .sil-renode/sil_renode.env

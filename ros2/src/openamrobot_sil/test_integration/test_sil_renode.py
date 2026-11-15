@@ -1,4 +1,4 @@
-"""End-to-end: the micro-ROS firmware image in Renode on the three SIL buses, the emulators, Gazebo.
+"""End-to-end: the micro-ROS firmware image in Renode on the three SIL buses, emulators, Gazebo.
 
 sil.launch.py stm32:=renode_readonly. Real: the openamr-platform-fw telemetry image at the pinned
 commit, preset TelemetryUrosSerialSimBench (micro-ROS over USART3, serial transport: simulation
@@ -16,6 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import can
@@ -34,6 +35,7 @@ from openamrobot_sil.ctl017_gazebo import JOINT_ZERO_MM  # noqa: E402
 
 LOG = os.environ.get('SIL_RENODE_LAUNCH_LOG', '/tmp/sil_renode_launch.log')
 CAPTURE = os.environ.get('SIL_DRIVE_CAPTURE', '/tmp/openamrobot_sil_vcan_drive.log')
+AUX_CAPTURE = os.environ.get('SIL_AUX_CAPTURE', '/tmp/openamrobot_sil_vcan_aux.log')
 WORK = '/tmp/openamrobot_sil_renode'
 DRIVE_STATE = '/sil/drive/emulator_state'
 HOST_STATE = '/sil/drive/status'
@@ -99,6 +101,35 @@ class Probe(FwProbe):
             return self.wheels[-1][1] if self.wheels else None
 
 
+class AuxCapture:
+    """candump -L capture of vcan_aux (CAN3: CTL-017 and host test client) for the whole run.
+    Receive only: it opens the bus and never sends."""
+
+    def __init__(self, path, interface='vcan_aux'):
+        self.path = path
+        self.interface = interface
+        self.frames = 0
+        self._stop = threading.Event()
+        self.bus = can.Bus(interface='socketcan', channel=interface, receive_own_messages=False)
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        with open(self.path, 'w', encoding='utf-8') as f:
+            while not self._stop.is_set():
+                msg = self.bus.recv(timeout=0.2)
+                if msg is None:
+                    continue
+                f.write(renode_fw.candump_line(msg.timestamp, self.interface, msg.arbitration_id,
+                                               msg.data, msg.is_extended_id) + '\n')
+                self.frames += 1
+
+    def stop(self):
+        self._stop.set()
+        self.thread.join(timeout=2)
+        self.bus.shutdown()
+
+
 def tail_log(lines=80):
     try:
         with open(LOG, encoding='utf-8', errors='replace') as f:
@@ -123,7 +154,13 @@ def sil():
     rclpy.init()
     probe = Probe()
     spinner = Spinner(probe)
+    aux = None
     try:
+        # vcan_aux exists once the launch has created the vcan interfaces.
+        if not probe.wait(lambda: os.path.exists('/sys/class/net/vcan_aux'), 60.0, 0.2):
+            pytest.fail('FAILED: vcan_aux was not created\n%s' % tail_log(), pytrace=False)
+        aux = AuxCapture(AUX_CAPTURE)
+        probe.aux_capture = aux
         ready = probe.wait(lambda: (
             len(probe.uros_after(0)) >= 5
             and probe.audit is not None
@@ -142,6 +179,9 @@ def sil():
         yield probe
     finally:
         probe.cmd = None
+        if aux is not None:
+            aux.stop()
+            print('vcan_aux capture %s: %d frames' % (AUX_CAPTURE, aux.frames))
         os.killpg(launch.pid, signal.SIGINT)
         try:
             launch.wait(timeout=30)
@@ -221,7 +261,23 @@ def test_stopped_drive_gives_heartbeat_lost_and_nan_wheels_never_zero(sil):
 
 def test_lift_position_reported_by_the_firmware_follows_the_gazebo_lift_joint(sil):
     """The CTL-017 emulator reports the Gazebo joint in TPDO1; the image decodes it on CAN3."""
+    # 1. CTL-017 frames reach FDCAN3 of the image through the vcan_aux bridge.
+    c3_before = sil.last_uros()['c3_rx']
+    assert sil.wait(lambda: sil.last_uros()['c3_rx'] > c3_before + 10, 5.0), (
+        'no CAN3 frames reach the image', sil.last_uros()['c3_rx'], sil.aux_capture.frames)
+    # 2. Readiness, not a first read: the emulated lift is homed and flags its position valid,
+    #    and the image reports that position (TPDO1 with position_valid), before the test reads.
+    assert sil.wait(lambda: sil.last[LIFT_STATE]['position_mm'] is not None, 30.0), (
+        'lift not homed', sil.last[LIFT_STATE])
+    assert sil.wait(lambda: renode_fw.lift_mm(sil.last_uros()) is not None
+                    and sil.last_uros()['lift']['st'] == 'IDLE', 30.0), sil.last_uros()['lift']
+    # 3. Unit and scale: the emulator's position object (0.1 mm in TPDO1, mm in its state), the
+    #    firmware's decoded position and the Gazebo joint (m, 0 at L1000 = 5 mm) agree at rest.
     s = sil.last_uros()
+    emu_mm = sil.last[LIFT_STATE]['position_mm']
+    print('lift at rest: firmware %.1f mm, emulator %.2f mm, Gazebo %.2f mm' % (
+        renode_fw.lift_mm(s), emu_mm, sil.gz_lift_mm()))
+    assert renode_fw.lift_mm(s) == pytest.approx(emu_mm, abs=2.0), (s['lift'], emu_mm)
     assert renode_fw.lift_mm(s) == pytest.approx(sil.gz_lift_mm(), abs=2.0), s['lift']
     start = renode_fw.lift_mm(s)
     t0 = time.monotonic()
