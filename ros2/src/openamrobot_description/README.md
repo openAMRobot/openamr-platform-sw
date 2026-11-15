@@ -84,11 +84,16 @@ then re-pin. The note is recorded in `config/roadmap_mass_export.source.yaml` an
 |---|---|---|
 | `base_link` | chassis, battery, electronics, base camera, rigid parts | box |
 | `left_wheel_link` / `right_wheel_link` | ZLLG80 hub motor each | Cylinder r=0.11 m |
-| `fl/fr/bl/br_caster_link` | LPA-VSTH 35K bracket and swivel head | STL mesh |
-| `fl/fr/bl/br_wheel_link` | castor wheel | Sphere r=0.026 m |
+| `fl/fr/bl/br_caster_link` | LPA-VSTH 35K bracket and swivel head; swivels on `<c>_caster_joint` (continuous, vertical) | box |
+| `fl/fr/bl/br_wheel_link` | castor wheel; rolls on `<c>_wheel_joint` (continuous, horizontal), 15 mm trail | Sphere r=0.0175 m (D35 wheel) |
 | `lidar_link` | RPLIDAR S3 | cylinder |
 | `camera_link` | none (legacy Gate A IMX708 frame, massless) | none |
 | `camera_optical_frame` | — (optical convention frame) |
+
+**Castors:** four passive swivel castors (Blickle LPA-VSTH 35K, BOM MEC-002). Trail, wheel radius,
+swivel and roll joint friction and damping, and the Gazebo contact friction are in
+`config/castor_model.yaml`, each value with its source or, for estimates, the method, the owner
+and the measurement that replaces it. `test/test_castor_swivel.py` checks the URDF against it.
 
 **Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.
 

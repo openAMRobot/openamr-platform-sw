@@ -1,0 +1,156 @@
+# Passive swivel castor model of the 2.0 base: four Blickle LPA-VSTH 35K (BOM MEC-002).
+#
+# Read by urdf/robo_urdf.urdf.xacro (joints, contact geometry) and urdf/gazebo_control.xacro
+# (contact friction); checked by test/test_castor_swivel.py and test/test_ground_contact.py.
+# One value, one place: no castor number is written into the xacro by hand.
+#
+# Each castor is two links, the existing ones, with their existing names and masses
+# (config/roadmap_mass_export.yaml, unchanged):
+#   <c>_caster_link  fork, swivel head and top plate, 0.22 kg; joint <c>_caster_joint is the
+#                    passive vertical swivel at the mount (continuous, axis z of base_link)
+#   <c>_wheel_link   the D35 wheel, 0.08 kg; joint <c>_wheel_joint is the passive roll joint
+#                    (continuous, axis y of the fork), placed `trail` behind the swivel axis
+# No new link: the 0.22 kg / 0.08 kg split of the mass export is kept as it is. The top plate
+# does not swivel on the real castor but swivels with the fork here; its share of the 0.22 kg
+# is not separated in any source (TODO(Cuma), see the report).
+#
+# Every value is a mapping:
+#   value:   the number
+#   unit:    its unit
+#   status:  datasheet = manufacturer dimension or rating (via the BOM line that records it)
+#            cad       = read from the 2.0 CAD (STEP) as recorded in meshes/PROVENANCE.yaml
+#            decision  = fixed by an owner decision
+#            estimated = a project estimate; `method` gives the calculation and its inputs
+#   source:  where the number comes from (datasheet, CAD, decision)
+#   method:  for estimated values, how the number was obtained
+#   owner:   for estimated values, who replaces it with a measurement, and how (`measure`)
+
+castor:
+  part: Blickle LPA-VSTH 35K swivel plate castor, unbraked (BOM MEC-002), four identical
+  prefixes: [fl, fr, bl, br]
+
+  trail:
+    value: 0.015
+    unit: m
+    status: datasheet
+    source: >-
+      Blickle LPA-VSTH 35K manufacturer dimensions as recorded in BOM Issue 7.15 MEC-002 and the
+      castor options sheet (swivel offset 15 mm); agrees with the 2.0 CAD STEP instances
+      GH-LPA035_G15 and VSTH_35_6K_G15 (wheel axle 15 mm from the swivel axis, meshes/PROVENANCE.yaml
+      components.castor) and with the 0.015 m the previous fixed model already used
+    note: >-
+      Horizontal distance from the swivel axis to the wheel axle. At zero swivel angle the wheel
+      trails towards -x, the stable direction for forward travel.
+
+  wheel_radius:
+    value: 0.0175
+    unit: m
+    status: datasheet
+    source: >-
+      wheel diameter 35 mm (BOM Issue 7.15 MEC-002: 35 x 27 mm polyurethane wheel); 2.0 CAD STEP
+      instance VSTH_35_6K_G15 (wheel 35 x 30 mm, meshes/PROVENANCE.yaml components.castor)
+    note: >-
+      Used as the loaded radius: the castors are rigid (P-03 item 1, M-01: no suspension) and
+      the owner decision of 15 Nov 2026 puts every contact on one floor plane at rest. A thin
+      polyurethane tread deflects under load; that deflection is not modelled.
+
+  wheel_width:
+    value: 0.027
+    unit: m
+    status: datasheet
+    source: BOM Issue 7.15 MEC-002 (35 x 27 mm wheel)
+    note: >-
+      Documentation only: the contact is a sphere of wheel_radius (see contact_shape). The CAD
+      envelope VSTH_35_6K_G15 is 30 mm wide; the BOM line says 27 mm. TODO(Cuma): which one.
+
+  contact_shape:
+    value: sphere
+    unit: none
+    status: decision
+    source: this proposal (castor-swivel), for review by Cuma and Mohamed
+    note: >-
+      A sphere of the wheel radius at the wheel centre touches the floor at the same point as the
+      35 mm wheel and gives a single, smooth contact point in Gazebo (DART) and MuJoCo. A cylinder
+      lying on a plane gives edge contacts that chatter at this size and mass. The wheel still
+      rolls only about its axle joint; lateral motion is resisted by contact friction and turns
+      the fork about the swivel axis through the trail.
+
+  swivel_friction:
+    value: 0.014
+    unit: N m
+    status: estimated
+    method: >-
+      Coulomb torque of a loaded ball swivel race, T = mu_b * N * r_race.
+      N = 46.1 N per castor at rest: robot mass 86.3 kg (P-03 item 30 A6) minus the 67.5 kg mid
+      point of the 60 to 75 kg drive-pair load target (BOM MEC-002), shared by four castors,
+      times 9.81 m/s2. mu_b = 0.02, the upper end of the usual 0.001 to 0.02 range for a
+      ball bearing, taken high for a pressed-steel race with no preload data. r_race = 0.015 m:
+      no filed source gives the race diameter; the race sits inside the 38 x 38 mm hole pattern
+      of the top plate (BOM MEC-002), so its radius is below 0.019 m, and 0.015 m is taken.
+      0.02 x 46.1 x 0.015 = 0.0138, rounded to 0.014.
+    owner: Arka until 27 Nov, Hamed from 30 Nov (bench and integration)
+    measure: >-
+      Torque to start swivelling one castor under a 4.7 kg (46 N) load, spring balance on a
+      lever, five readings, on the delivered castor.
+
+  swivel_damping:
+    value: 4.0e-05
+    unit: N m s/rad
+    status: estimated
+    method: >-
+      Chosen so that viscous torque is about one tenth of swivel_friction at the fastest swivel
+      rate in normal travel: a castor flipping on reversal at 0.5 m/s (P-03 speed ceiling) turns
+      at about v / trail = 0.5 / 0.015 = 33 rad/s; 0.1 x 0.014 / 33 = 4.2e-5, rounded to 4.0e-5.
+      It damps numerical swivel oscillation (shimmy) without adding a resistance no source gives.
+    owner: Arka until 27 Nov, Hamed from 30 Nov (bench and integration)
+    measure: Swivel spin-down from a hand flick, unloaded, video at 240 fps; fit the decay.
+
+  roll_friction:
+    value: 0.012
+    unit: N m
+    status: estimated
+    method: >-
+      Rolling resistance as a Coulomb torque on the axle, T = c_rr * N * r.
+      N = 46.1 N per castor (as swivel_friction). c_rr = 0.015, mid range of 0.01 to 0.02 used for
+      polyurethane tread wheels on smooth hard floors (no Blickle value is filed).
+      r = wheel_radius 0.0175 m. 0.015 x 46.1 x 0.0175 = 0.0121, rounded to 0.012.
+      Bearing friction of the wheel is inside c_rr.
+    owner: Arka until 27 Nov, Hamed from 30 Nov (bench and integration)
+    measure: >-
+      Coast-down from 0.5 m/s with the drives free (reality gap RG-MEC-014), or a push-force
+      reading on the delivered castor under 46 N, on the Use Case 1 floor.
+
+  roll_damping:
+    value: 4.0e-05
+    unit: N m s/rad
+    status: estimated
+    method: >-
+      One tenth of roll_friction at the wheel speed of 0.5 m/s travel:
+      0.5 / 0.0175 = 28.6 rad/s; 0.1 x 0.012 / 28.6 = 4.2e-5, rounded to 4.0e-5.
+    owner: Arka until 27 Nov, Hamed from 30 Nov (bench and integration)
+    measure: Same coast-down as roll_friction; separate the speed-proportional part.
+
+  contact_mu:
+    value: 0.5
+    unit: none
+    status: estimated
+    method: >-
+      Polyurethane tread on the floor, no tribology data filed. The value is the lateral tyre
+      coefficient gazebo_control.xacro already uses for the drive wheels (mu2 0.5) on the same
+      floor: no new floor number. Applied as mu1 = mu2 (isotropic), because rolling is carried by
+      the roll joint and only the contact has to grip. Check: lateral grip 0.5 x 46.1 N = 23 N
+      on a 0.015 m trail gives 0.35 N m aligning torque, 25 times swivel_friction, so the castor
+      aligns; rolling needs roll_friction / r = 0.69 N, far below the 23 N grip, so it rolls.
+    owner: Arka until 27 Nov, Hamed from 30 Nov (bench and integration)
+    measure: Inclined-plane slip angle of a locked castor wheel on the Use Case 1 floor.
+
+  contact_fdir1:
+    value: [0.0, 1.0, 0.0]
+    unit: unit vector, wheel link frame
+    status: decision
+    source: this proposal (castor-swivel)
+    note: >-
+      The axle direction. The wheel link turns about its own y axis, so y is the one wheel-link
+      axis that stays put when the wheel rolls; the drive wheels' fdir1 1 0 0 would rotate with
+      the wheel. With mu1 = mu2 the direction has no effect today; it is set so that a later
+      anisotropic value has a defined meaning (mu1 lateral, mu2 rolling).
