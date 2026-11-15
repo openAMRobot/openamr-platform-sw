@@ -173,7 +173,6 @@ class Probe(Node):
         released (the enable sequence runs while it is held)."""
         if self.s().get('state') == 'RUN':
             return True
-        self.teleop = None
         self.pins(y32=1, estop_contact=0, reset=0, charger_fault=0, contactor_fb=1)
         time.sleep(0.3)
         self.sup('jetson_stop_release')
@@ -401,8 +400,9 @@ def test_04_estop_stops_motion_and_needs_the_reset_sequence(sref):
     assert sref.wait(lambda: sref.s()['state'] == 'LOCKED', 1.0, 0.005)
     zeros = [t for t, v in sdo_writes(sref.taps['vcan_drive'].since(t0), 0x60FF) if v == 0]
     assert zeros and zeros[0] - t0 < 0.1
-    got = [r['reason'] for r in sref.reasons_after(n0)]
-    assert 'HW_SAFETY_NOT_ENABLED' in got and 'ESTOP_DIAG' in got, got
+    # Y32 low acts at once; the E-stop contact passes the 20 ms debounce after it
+    assert sref.wait(lambda: {'HW_SAFETY_NOT_ENABLED', 'ESTOP_DIAG'} <= {
+        r['reason'] for r in sref.reasons_after(n0)}, 1.0), sref.reasons_after(n0)
     assert sref.wait(lambda: abs(sref.gz_v()) < 0.01, 3.0)
     time.sleep(1.0)
     assert abs(sref.gz_v()) < 0.01               # /cmd_vel still asks for motion

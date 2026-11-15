@@ -38,7 +38,8 @@ class SimrefLink:
             pass
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.sock.bind(self.client_path)
-        self.sock.settimeout(0.05)
+        # never block: poll() runs in the bridge's executor, next to the /cmd_vel callback
+        self.sock.setblocking(False)
 
     def close(self):
         self.sock.close()
@@ -111,7 +112,7 @@ class SimrefLink:
         while True:
             try:
                 data = self.sock.recv(16384)
-            except (socket.timeout, BlockingIOError):
+            except (BlockingIOError, InterruptedError):
                 break
             except OSError:
                 break
@@ -119,8 +120,6 @@ class SimrefLink:
                 latest = json.loads(data.decode())
             except ValueError:
                 continue
-            self.sock.settimeout(0.0)
-        self.sock.settimeout(0.05)
         if latest is not None:
             with self.lock:
                 self.status = latest

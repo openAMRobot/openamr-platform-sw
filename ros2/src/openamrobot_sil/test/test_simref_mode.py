@@ -254,3 +254,17 @@ def test_simref_config_differs_from_sil_yaml_only_where_marked():
     sref['lift']['permit']['timeout_ms'] = host['lift']['permit']['timeout_ms']
     assert sref['lift'] == host['lift']
     assert sref['bms'] == host['bms']
+
+
+def test_link_poll_never_blocks(fake_reference):
+    """poll() runs in the bridge's executor next to the /cmd_vel callback: with no status
+    pending it must return at once (a blocking poll delayed /cmd_vel by up to 50 ms a call)."""
+    _, path = fake_reference
+    link = SimrefLink(path, epoch=1)
+    try:
+        t0 = time.monotonic()
+        for _ in range(20):
+            assert link.poll() is None
+        assert time.monotonic() - t0 < 0.02
+    finally:
+        link.close()
