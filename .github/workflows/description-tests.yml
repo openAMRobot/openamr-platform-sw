@@ -5,7 +5,8 @@ name: description-tests
 # envelope, wheels and castors touch the floor, sensor joints equal config/sensor_frames.yaml,
 # the 2.0 component inventory, the mesh provenance hashes, the GLB node extras and the battery
 # cell-group envelope record, and nothing but the lift interface above the 2.0 top cover
-# (z 0.296 m). No robot or simulator is used.
+# (z 0.296 m). No robot or simulator is used. The description-gazebo-tests job runs only
+# the `gz sdf` URDF to SDF converter from a pinned Gazebo Harmonic; no simulation runs.
 
 on:
   pull_request:
@@ -52,10 +53,11 @@ jobs:
           source ros2/install/setup.bash
           python3 -m pytest -v -p no:cacheprovider --junitxml=description-tests.xml \
             ros2/src/openamrobot_description/test/test_description_meshes.py \
-            ros2/src/openamrobot_description/test/test_base_mass.py
+            ros2/src/openamrobot_description/test/test_base_mass.py \
+            ros2/src/openamrobot_description/test/test_sensor_profiles.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all thirty-five description tests ran
+      - name: Check that all 218 description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -63,5 +65,99 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 35 and skipped == 0, 'expected 35 description tests, none skipped'
+          assert tests == 218 and skipped == 0, 'expected 218 description tests (35 + 183 sensor profile), none skipped'
           EOF
+
+  # Gazebo Harmonic job for test_gazebo_friction.py: the friction must survive the
+  # URDF to SDF conversion (`gz sdf -p`). Gazebo is pinned to the exact vendor packages below
+  # (recorded 14 Nov 2026: gz-sim 8.15.0, sdformat 14.9.0). With OPENAMR_REQUIRE_GZ=1 a
+  # missing gz fails, and a non-zero or empty `gz sdf -p` result always fails; none skips.
+  description-gazebo-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    env:
+      GZ_SIM_VENDOR: 0.0.13-1noble.20260905.073557
+      GZ_TOOLS_VENDOR: 0.0.8-1noble.20260820.143431
+      SDFORMAT_VENDOR: 0.0.14-1noble.20260905.033543
+      GZ_SIM_VERSION: 8.15.0
+      SDFORMAT_VERSION: 14.9.0
+      OPENAMR_REQUIRE_GZ: '1'
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install test tools and pinned Gazebo Harmonic
+        run: |
+          apt-get update
+          apt-get install -y python3-colcon-common-extensions python3-pytest ros-jazzy-xacro \
+            ros-jazzy-gz-sim-vendor=${GZ_SIM_VENDOR} \
+            ros-jazzy-gz-tools-vendor=${GZ_TOOLS_VENDOR} \
+            ros-jazzy-sdformat-vendor=${SDFORMAT_VENDOR}
+
+      - name: Print and check the Gazebo version
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          command -v gz || { echo 'gz is not installed'; exit 1; }
+          sim=$(gz sim --versions); sdf=$(gz sdf --versions)
+          echo "gz sim ${sim}, gz sdf ${sdf}"
+          test "${sim}" = "${GZ_SIM_VERSION}" || { echo "expected gz-sim ${GZ_SIM_VERSION}"; exit 1; }
+          test "${sdf}" = "${SDFORMAT_VERSION}" || { echo "expected sdformat ${SDFORMAT_VERSION}"; exit 1; }
+
+      - name: Build openamrobot_description
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --packages-select openamrobot_description
+
+      - name: Run the Gazebo friction tests
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ros2/install/setup.bash
+          python3 -m pytest -v -p no:cacheprovider --junitxml=gazebo-friction.xml \
+            ros2/src/openamrobot_description/test/test_gazebo_friction.py
+
+      - name: Check that all fourteen friction tests ran
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('gazebo-friction.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          print(f'{tests} tests, {skipped} skipped')
+          assert tests == 14 and skipped == 0, 'expected 14 friction tests, none skipped'
+          PY
+
+      # The fix is reverted to its parent (f71f9f1, raw <surface> under <gazebo reference>):
+      # every friction test except the geometry one must then fail.
+      - name: Check that the tests fail with the fix reverted
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          xacro_file=ros2/src/openamrobot_description/urdf/gazebo_control.xacro
+          git show f71f9f1:${xacro_file} > ${xacro_file}
+          git diff --stat
+          source /opt/ros/jazzy/setup.bash
+          source ros2/install/setup.bash
+          set +e
+          python3 -m pytest -q -p no:cacheprovider --junitxml=reverted.xml \
+            ros2/src/openamrobot_description/test/test_gazebo_friction.py
+          code=$?
+          set -e
+          git checkout -- ${xacro_file}
+          python3 - "$code" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse('reverted.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, failed = int(suite.get('tests')), int(suite.get('failures'))
+          errors, skipped = int(suite.get('errors')), int(suite.get('skipped'))
+          print(f'reverted: exit {sys.argv[1]}, {tests} tests, {failed} failed, '
+                f'{errors} errors, {skipped} skipped')
+          assert sys.argv[1] == '1' and tests == 14 and failed == 13
+          assert errors == 0 and skipped == 0
+          PY
