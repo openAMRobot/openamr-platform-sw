@@ -12,8 +12,11 @@ from conftest import PACKAGE_DIR
 from openamrobot_sil import renode_fw
 
 BANNER = {'t': 'boot', 'project': 'openamr-platform-fw telemetry_image',
-          'commit': 'fcf81f8e2fe2', 'build': 'Debug', 'params': 'test', 'boot': 1,
+          'commit': renode_fw.FW_COMMIT[:12], 'build': 'Debug', 'params': 'test', 'boot': 1,
           'boot_record': 'cold'}
+UROS_STATUS = {'boot': 1, 'seq': 3, 'rec': 'cold', 'up_us': 400000,
+               'commit': renode_fw.FW_COMMIT[:12], 'params': 'test', 'uros': 'run',
+               'lift': {'hb': 'alive', 'st': 'IDLE', 'pos': 50, 'age_us': 1000}, 'bms': 'locked'}
 
 
 def status(ch1, ch2):
@@ -21,8 +24,13 @@ def status(ch1, ch2):
 
 
 def test_pinned_values():
-    assert renode_fw.FW_COMMIT == 'fcf81f8e2fe2fa9000685ab233907adbfadeec2a'
+    assert renode_fw.FW_COMMIT == '763bdd3ffe4a5a582445f72d4845d8a0eedeba3c'
     assert renode_fw.FW_PRESET == 'RenodeTest'
+    assert renode_fw.FW_PRESET_UROS == 'TelemetryUrosSerialSimBench'
+    assert renode_fw.FW_ELF_UROS.endswith('/build/TelemetryUrosSerialSimBench/telemetry_image.elf')
+    assert sorted(renode_fw.UROS_TOPICS) == ['/base_fw/drive_heartbeat', '/base_fw/status',
+                                             '/base_fw/tof/front', '/base_fw/tof/rear',
+                                             '/base_fw/wheel_speeds']
     assert renode_fw.RENODE_VERSION == '1.16.1'
     assert renode_fw.RENODE_URL.endswith('/v1.16.1/renode-1.16.1.linux-portable-dotnet.tar.gz')
     assert renode_fw.RENODE_SHA256 == (
@@ -45,6 +53,72 @@ def test_resc_is_the_platform_fw_machine_with_the_bridge_on_vcan_drive():
     assert 'cpu PerformanceInMips 5' in lines
     assert lines[-5:] == ['include @/s/h.py', 'sil_follow_systick', 'sil_throttle_start 5',
                           'logLevel 3', 'start']
+
+
+def test_resc_bridges_fdcan2_and_fdcan3_to_vcan_bms_and_vcan_aux():
+    text = renode_fw.resc('/fw/t.elf', '/fw/add.repl', '/w/con.log', '/s/h.py', 'vcan_drive',
+                          aux_interfaces=('vcan_bms', 'vcan_aux'))
+    lines = text.splitlines()
+    for n, iface in ((2, 'vcan_bms'), (3, 'vcan_aux')):
+        hub = lines.index('emulation CreateCANHub "can%d"' % n)
+        assert lines[hub + 1:hub + 4] == [
+            'connector Connect sysbus.fdcan%d can%d' % (n, n),
+            'machine CreateSocketCANBridge "can%d_bridge" "%s"' % (n, iface),
+            'connector Connect can%d_bridge can%d' % (n, n)]
+
+
+def test_resc_of_the_uros_image_puts_usart3_on_a_pty_without_throttle():
+    text = renode_fw.resc('/fw/u.elf', '/fw/add.repl', '/w/con.log', '/s/h.py', 'vcan_drive',
+                          aux_interfaces=('vcan_bms', 'vcan_aux'), uros_pty='/w/usart3-1.pty')
+    lines = text.splitlines()
+    assert 'emulation CreateUartPtyTerminal "uros_pty" "/w/usart3-1.pty" true' in lines
+    assert 'connector Connect sysbus.usart3 uros_pty' in lines
+    assert 'CreateFileBackend' not in text
+    # WFI image: Renode idles at host speed; neither the MIPS cap nor the throttle is used.
+    assert 'PerformanceInMips' not in text and 'sil_throttle_start' not in text
+    assert lines[-4:] == ['include @/s/h.py', 'sil_follow_systick', 'logLevel 3', 'start']
+
+
+def test_reset_of_the_uros_image_sets_the_clock_hook_without_throttle():
+    assert renode_fw.reset_commands(throttle=False) == ['pause', 'machine Reset',
+                                                        'sil_follow_systick', 'start']
+
+
+def test_status_of_the_pinned_uros_build_passes():
+    assert renode_fw.check_uros_status(UROS_STATUS)
+
+
+@pytest.mark.parametrize('change, message', [
+    ({'params': 'default'}, 'params'),
+    ({'commit': renode_fw.FW_COMMIT[:12] + '-dirty'}, 'commit'),
+    ({'commit': '28303cb01b82'}, 'commit'),
+    ({'commit': None}, 'commit'),
+])
+def test_status_that_is_not_the_pinned_uros_build_fails(change, message):
+    with pytest.raises(renode_fw.BannerError, match=message):
+        renode_fw.check_uros_status(dict(UROS_STATUS, **change))
+
+
+def test_uros_wheel_speeds_become_rad_s_and_nan_stays_nan():
+    ch1, ch2 = renode_fw.uros_wheel_rad_s([191.0, float('nan')])
+    assert ch1 == pytest.approx(19.1 * 2 * math.pi / 60)
+    assert math.isnan(ch2)
+
+
+def test_lift_position_is_mm_or_none_when_unknown():
+    assert renode_fw.lift_mm(UROS_STATUS) == pytest.approx(5.0)
+    assert renode_fw.lift_mm(dict(UROS_STATUS, lift={'pos': 'unknown'})) is None
+    assert renode_fw.lift_mm({}) is None
+
+
+def test_time_ratio_follows_the_uptime_and_restarts_with_a_boot():
+    t = renode_fw.TimeRatio(window_s=10.0)
+    assert t.ratio() is None
+    for i in range(11):
+        t.add(100.0 + i, i * 900000, 1)      # 0.9 s of virtual time per wall second
+    assert t.ratio() == pytest.approx(0.9)
+    t.add(112.0, 100000, 2)                  # new boot: the window starts again
+    assert t.ratio() is None
 
 
 def test_resc_without_interface_has_no_bridge():

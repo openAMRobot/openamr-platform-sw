@@ -80,6 +80,54 @@ class _Worker:
         raise NotImplementedError
 
 
+class MatchingSdoClient(canopen_common.SdoClient):
+    """The vendored SDO client, taking only the answer to its own request.
+
+    Test fixture, vcan only. The vendored canopen_common.SdoClient (checksum-checked, not
+    modified) returns the first frame on 580h + node as the answer. A confirmation that arrives
+    after its request timed out, or a duplicate, is then taken as the answer to the next
+    request: hosted sil-tests run 43736333260 read the late download confirm 60h of a 60FFh
+    write as the answer to a 606Ch upload, and the drive worker thread died on the unknown
+    command byte (KeyError: 96), so nothing commanded the drive for the rest of the run.
+
+    Only _txrx changes. read() and write() are the vendored ones, so every frame this client
+    sends is the frame the vendored client sends: no new command, no new object. An answer is
+    taken only when its command class fits the outstanding request (upload 40h: 4Fh, 4Bh, 43h or
+    abort 80h; download 2Fh, 2Bh, 23h: 60h or abort 80h) and its index and sub-index are the
+    request's. Every other frame on 580h + node is counted in `discarded` and skipped; the
+    request still times out after the same timeout if no matching answer comes.
+    """
+
+    UPLOAD_ANSWERS = (0x4F, 0x4B, 0x43, 0x80)
+    DOWNLOAD_ANSWERS = (0x60, 0x80)
+
+    def __init__(self, bus, node_id, timeout=0.5):
+        super().__init__(bus, node_id, timeout)
+        self.discarded = 0
+
+    def _txrx(self, payload):
+        if payload[0] == 0x40:
+            answers = self.UPLOAD_ANSWERS
+        elif payload[0] in canopen_common.SIZE_CS.values():
+            answers = self.DOWNLOAD_ANSWERS
+        else:
+            raise ValueError('not an expedited SDO request: %s' % bytes(payload).hex())
+        key = bytes(payload[1:4])   # index (2 bytes, little-endian) and sub-index
+        self.bus.send(can.Message(arbitration_id=canopen_common.SDO_RX_BASE + self.node_id,
+                                  data=payload, is_extended_id=False))
+        end = time.monotonic() + self.timeout
+        while time.monotonic() < end:
+            msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
+            if msg is None or msg.arbitration_id != canopen_common.SDO_TX_BASE + self.node_id:
+                continue
+            data = bytes(msg.data)
+            if len(data) == 8 and data[0] in answers and data[1:4] == key:
+                return data
+            self.discarded += 1
+        raise TimeoutError('no SDO answer for %s from node %d' % (
+            key.hex(), self.node_id))
+
+
 class DriveHost(_Worker):
     """CAN1 role: configure and enable the ZLAC8015D, write 60FFh, read 606Ch, integrate
     odometry from the speeds the drive reports.
@@ -105,7 +153,7 @@ class DriveHost(_Worker):
             self.cmd_bus = _CommandOnlyBus(bus, node_id)
             self.sdo = None
         else:
-            self.sdo = canopen_common.SdoClient(bus, node_id, timeout=sdo_timeout_s)
+            self.sdo = MatchingSdoClient(bus, node_id, timeout=sdo_timeout_s)
         self.link_loss_ms = int(link_loss_ms)
         self.wheel_radius = wheel_radius
         self.wheel_separation = wheel_separation
@@ -212,6 +260,7 @@ class DriveHost(_Worker):
                     'pdo_frames_sent': self.cmd_bus.sent if self.cmd_bus else 0,
                     'sdo_frames_refused': self.cmd_bus.refused if self.cmd_bus else 0,
                     'sdo_errors': self.sdo_errors, 'statusword': self.statusword,
+                    'sdo_discarded': self.sdo.discarded if self.sdo else 0,
                     'fault_code': self.fault_code, 'target_rpm': list(self.target_rpm()),
                     'wheel_rad_s': list(self.wheel_rad_s), 'samples': self.samples,
                     'x': self.x, 'y': self.y, 'yaw': self.yaw, 'v': self.v, 'w': self.w}

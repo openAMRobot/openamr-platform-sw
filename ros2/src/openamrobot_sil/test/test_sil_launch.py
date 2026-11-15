@@ -53,7 +53,7 @@ def node_params(nodes, executable):
 
 
 def test_renode_readonly_mode_adds_the_command_only_host_client(sil_launch):
-    nodes = sil_launch.can_nodes(CONFIG, 'renode_readonly', True)
+    nodes = sil_launch.can_nodes(CONFIG, 'renode_readonly', True, fw_args())
     assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'drive_bus_audit',
                                   'renode_firmware', 'stm32_host_client', 'zlac8015d_emulator']
     host = node_params(nodes, 'stm32_host_client')
@@ -62,6 +62,20 @@ def test_renode_readonly_mode_adds_the_command_only_host_client(sil_launch):
     assert drive['rpdo'] is True and drive['stored_link_loss'] is True
     fw = node_params(nodes, 'renode_firmware')
     assert fw['can_link'] == 'socketcan' and fw['wait_for_audit'] is True
+    # renode_readonly runs the micro-ROS image; the node starts the agent on its USART3.
+    assert fw['transport'] == 'uros' and fw['elf'] == fw_args()['fw_elf_uros']
+    assert fw['uros_agent'] == fw_args()['uros_agent']
+
+
+def fw_args():
+    return {'renode': 'r', 'fw_elf': '/e/console.elf', 'fw_elf_uros': '/e/uros.elf',
+            'uros_agent': '/a/micro_ros_agent', 'fw_dir': '/fw', 'renode_work_dir': '/w',
+            'capture_file': '/c'}
+
+
+def test_renode_mode_runs_the_console_image(sil_launch):
+    fw = node_params(sil_launch.can_nodes(CONFIG, 'renode', True, fw_args()), 'renode_firmware')
+    assert fw['transport'] == 'console' and fw['elf'] == '/e/console.elf'
 
 
 def test_host_mode_drive_emulator_has_no_rpdo(sil_launch):
@@ -71,9 +85,9 @@ def test_host_mode_drive_emulator_has_no_rpdo(sil_launch):
 
 def test_launch_file_records_the_pinned_firmware(sil_launch):
     from openamrobot_sil import renode_fw
-    assert sil_launch.FW_COMMIT == renode_fw.FW_COMMIT == (
-        'fcf81f8e2fe2fa9000685ab233907adbfadeec2a')
+    assert sil_launch.FW_COMMIT == renode_fw.FW_COMMIT == '763bdd3ffe4a5a582445f72d4845d8a0eedeba3c'
     assert sil_launch.FW_PRESET == renode_fw.FW_PRESET == 'RenodeTest'
+    assert sil_launch.FW_PRESET_UROS == renode_fw.FW_PRESET_UROS == 'TelemetryUrosSerialSimBench'
 
 
 def test_arguments_are_declared(sil_launch):
@@ -81,8 +95,8 @@ def test_arguments_are_declared(sil_launch):
     declared = {a.name: a for a in sil_launch.generate_launch_description().entities
                 if isinstance(a, DeclareLaunchArgument)}
     assert sorted(declared) == ['capture_file', 'config_file', 'create_vcan', 'fw_dir', 'fw_elf',
-                                'gazebo', 'gui', 'model', 'renode', 'renode_work_dir', 'stm32',
-                                'world']
+                                'fw_elf_uros', 'gazebo', 'gui', 'model', 'renode',
+                                'renode_work_dir', 'stm32', 'uros_agent', 'world']
     assert declared['stm32'].choices == ['host', 'renode', 'renode_readonly']
 
 
