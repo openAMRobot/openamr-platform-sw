@@ -187,7 +187,12 @@ default model is a stand-in with the joint name and limits of the combined model
 openamr-upperbody-sw [S5]: 0 to 0.350 m, 0.018 m/s, 800 N. The launch argument `model` takes
 another xacro.
 
-BMS. Static values with injection (pack defaults from [S10]). No link to Gazebo.
+BMS. A lumped 8S LiFePO4 pack model (open-circuit voltage against SOC, series resistance,
+coulomb counting) sets pack voltage, current and SOC in the existing frames. Its load is a
+constant electronics and arm load plus a drive estimate from the ZLAC8015D emulator wheel
+speeds; there is no direct link to Gazebo. Parameters, sources and limits:
+[sil-battery-model.md](sil-battery-model.md). `bms.model.enabled: false` restores the static
+values with injection (pack defaults from [S10]).
 
 | Topic | Type | Direction | Meaning |
 |---|---|---|---|
@@ -234,5 +239,5 @@ Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, r
 | S7 | openamr-platform-fw PR #51 at fcf81f8, `firmware/telemetry/include/oamr/daly_rx.h` |
 | S8 | openamr-platform-fw PR #51 at fcf81f8, `tools/ci/renode_telemetry.py`, `tests/renode/stm32h723-additions.repl` |
 | S9 | Digital twin phase 0 conflict register, audits branch `audit/2026-09-28`, `digital-twin/phase0/conflict_register.md` (items M10, M11) |
-| S10 | E-01 Safety and Power Distribution Baseline rev1.8: 8S LiFePO4 pack, 25.6 V nominal bus, 84 Ah |
+| S10 | E-01 Safety and Power Distribution Baseline rev1.8: 8S LiFePO4 pack, 25.6 V nominal bus, 84 Ah in the charging paragraph; BOM PWR-001 says 105 Ah, which the pack model uses |
 | S11 | Vendored emulators: openamr-platform-fw `tools/can_sil` at ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d (draft PR #53). PR #54 holds the same `tools/can_sil` files at that commit |

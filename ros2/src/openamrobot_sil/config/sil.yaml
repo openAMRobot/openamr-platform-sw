@@ -43,5 +43,46 @@ bms:
   pack_voltage_v: 25.6         # nominal bus voltage (E-01 rev1.8)
   current_a: 0.0               # SIL test value
   soc_percent: 80.0            # SIL test value
-  capacity_ah: 84.0            # E-01 rev1.8 charging paragraph
+  capacity_ah: 105.0           # BOM PWR-001 and M-01 rev19.10: 8S1P EVE LF105, 105 Ah rated. E-01 rev1.8 charging paragraph says 84 Ah (open conflict, owner Evans)
   poll_hz: 5                   # BOM CAN buses sheet (proposed)
+  # Lumped pack model (proposal). Sources and methods: docs/architecture/sil-battery-model.md.
+  # Tags: [M] manufacturer or project document, [E] estimate with the method next to it,
+  # [U] unknown: placeholder default, TODO(Evans), not for acceptance.
+  model:
+    enabled: true              # false: the emulator keeps the static values above
+    period_s: 0.1              # model step; SIL test value
+    current_sign_discharge: -1 # [U] TODO(Evans): Daly current direction is not named in the decoder (platform-fw PR #51). -1: discharge reported negative
+    ocv_cell_v:                # [U] TODO(Evans): cell OCV against SOC percent. Placeholder LiFePO4 shape, not EVE data. Anchors and method in the doc
+      - [0, 2.50]
+      - [5, 3.00]
+      - [10, 3.20]
+      - [20, 3.25]
+      - [40, 3.28]
+      - [60, 3.30]
+      - [80, 3.32]
+      - [90, 3.33]
+      - [95, 3.35]
+      - [100, 3.45]
+    resistance:
+      cell_dc_resistance_ohm: 0.0005   # [U] TODO(Evans): DC resistance of one LF105 at 25 C, 50 % SOC. Placeholder
+      copper_resistivity_ohm_m: 1.68e-8  # [E] annealed copper at 20 C, handbook value
+      busbar_count: 8                  # [E] mass ledger PWR-024 estimate: 8 Cu busbars
+      busbar_length_m: 0.056           # [E] same estimate, 56 x 20 x 2 mm, full length counted
+      busbar_section_m2: 4.0e-5        # [E] 20 mm x 2 mm
+      cable_length_m: 0.72             # [E] BOM cable estimate CBL-001: 0.36 m with allowance, doubled for the return
+      cable_section_m2: 2.5e-5         # [M] CBL-001 and Electrical sheet BAT row: 25 mm2
+      bms_path_ohm: 0.005              # [U] TODO(Evans): BMS MOSFETs, F0, disconnect, PWR-018, K1/K2 and lugs together. Placeholder
+    charger:                   # bench charger PWR-005 (E-01 rev1.8, E-01 BOM rev1.2)
+      voltage_v: 28.4          # [M] E-01 rev1.8: Daly 28.4 V / 20 A bench charger, 3.55 V per cell
+      current_a: 20.0          # [M] same
+      taper_a: 2.0             # [U] TODO(Evans): charger end-of-charge current. Placeholder
+    loads:                     # constant loads, on top of the drive estimate
+      electronics_w: 150.0     # [E] BOM Electrical CPU row: 150 W branch provision. A provision, not a measurement; other rails UNKNOWN (Rail loads sheet)
+      arms_a: 0.0              # [U] TODO(Evans): arm draw at rest. Envelope 15 A continuous, 25 A peak per arm (BOM Electrical ARM-L, ARM-R)
+    drive:                     # drive current estimate from the ZLAC8015D emulator wheel speeds
+      robot_mass_kg: 86.3      # [M] mass ledger D-26, P-03 item 30 A6
+      rolling_resistance: 0.02 # [U] TODO(Evans): rolling resistance coefficient, wheels and castors on the Use Case 1 floor. Placeholder
+      drive_efficiency: 0.70   # [U] TODO(Evans): battery to wheel efficiency of ZLAC8015D plus ZLLG80ASM250-L-B. Placeholder
+      regen_fraction: 0.0      # [U] TODO(Evans): share of braking power returned to the pack. 0 gives no credit
+      drive_enabled_standby_w: 10.0  # [U] TODO(Evans): ZLAC8015D input power enabled at standstill. Placeholder
+      state_timeout_s: 0.5     # SIL test value: drive state older than this counts as no drive load
