@@ -93,7 +93,9 @@ def test_castors_rest_on_the_same_plane():
     castors = {k: v for k, v in low.items() if k not in WHEELS}
     assert len(castors) == 4, 'expected four castor contact spheres, found %s' % sorted(castors)
     for name, z in castors.items():
-        assert abs(z) <= TOL, '%s contact at %.4f m above the floor (tolerance %.4f)' % (name, z, TOL)
+        # One-sided: a castor below the floor would lift the drive wheels off it.
+        assert z >= 0.0, '%s contact %.4f m below the floor; it would lift the drive wheels' % (name, -z)
+        assert z <= TOL, '%s contact at %.4f m above the floor (tolerance %.4f)' % (name, z, TOL)
 
 
 def test_diff_drive_radius_equals_loaded_collision_radius():
