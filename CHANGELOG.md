@@ -13,6 +13,11 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Changed (15 Nov 2026; loaded wheel radius)
+
+- Drive wheel collision radius and DiffDrive `wheel_radius` are now the loaded radius 0.098 m (was 0.100). Owner decision 15 Nov 2026: the 200 mm tyre is mounted 2 mm below the castor plane on purpose and compresses about 2 mm under the robot weight, so at rest wheels and castors share one plane and the base is level. With the unloaded 0.100 radius the wheels sat 2 mm inside the floor and a MuJoCo drop test pitched the base 0.59 degrees onto the castors (upperbody-sw #69). The loaded radius is an estimate until the bench measures it.
+- New `test_ground_contact.py`: both drive wheels touch the floor plane, the four castor contact spheres are within 0.5 mm of it (0.42 mm today), and the DiffDrive radius equals the collision radius.
+
 ### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
 
 - Owner decisions of 8 Nov 2026 (P-03 rev20.5 item 29, rev20.6 item 30 A6): every base link with mass reads its inertial from
