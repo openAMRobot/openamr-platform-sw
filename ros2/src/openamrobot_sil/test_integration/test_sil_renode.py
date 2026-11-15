@@ -236,8 +236,11 @@ def test_lift_position_reported_by_the_firmware_follows_the_gazebo_lift_joint(si
     pairs = []
     for t, st in sil.uros_after(t0):
         fw_mm = renode_fw.lift_mm(st)
-        if fw_mm is not None:
-            pairs.append((fw_mm, sil.gz_lift_mm(at=t - st['lift']['age_us'] / 1e6)))
+        age = st['lift']['age_us']
+        # A TPDO1 received between the snapshot's clock read and its decode has no age yet
+        # ("unknown": the image never invents one); such a sample cannot be placed in time.
+        if fw_mm is not None and isinstance(age, int):
+            pairs.append((fw_mm, sil.gz_lift_mm(at=t - age / 1e6)))
     moving = [p for p in pairs if abs(p[0] - start) > 5.0]
     print('lift: %d firmware samples, %d while moving; largest difference to Gazebo %.2f mm; '
           'end %.2f mm (Gazebo %.2f mm)' % (len(pairs), len(moving),
