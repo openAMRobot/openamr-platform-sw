@@ -272,7 +272,7 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
 
         self._publish_goal_pose(1.0)
         self._wait_until(
-            lambda: bool(self._latest_status_list()), 10.0,
+            lambda: bool(self._latest_status_list()), 20.0,
             'the goal never appeared on the public navigate_to_pose/_action/status - '
             'the forwarder did not relay goal_pose onto the public action')
 
@@ -296,7 +296,7 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
             lambda: any(
                 s.status == GoalStatus.STATUS_CANCELING or s.status == GoalStatus.STATUS_CANCELED
                 for s in self._latest_status_list()),
-            10.0,
+            20.0,
             'the public status never reflected the cancellation')
 
     def test_pose_rejected_while_stop_is_active_no_goal_ever_sent(self):
@@ -316,7 +316,7 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
 
         self._publish_goal_pose(1.0)
         self._wait_until(
-            lambda: bool(self._latest_status_list()), 10.0,
+            lambda: bool(self._latest_status_list()), 20.0,
             'the first goal never appeared on the public action')
         goal_id_before = bytes(self._latest_status_list()[0].goal_info.goal_id.uuid)
 
@@ -334,12 +334,18 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
             'on its own')
 
     def test_two_poses_in_a_row_exactly_one_active_goal_first_cancelled(self):
+        # Timeouts in this test widened from the original 10.0/15.0s (hosted CI, not
+        # local): this test runs last among the forwarder's own 5, after ~290 other
+        # tests already ran in the same job - it flaked once on hosted CI's own,
+        # presumably more loaded runner ("the first goal never appeared" at 10.0s)
+        # while every sibling test and every local run passed - not a logic bug, a
+        # margin one.
         self._wait_for_ready()
         self._release()
 
         self._publish_goal_pose(1.0)
         self._wait_until(
-            lambda: bool(self._latest_status_list()), 10.0, 'the first goal never appeared')
+            lambda: bool(self._latest_status_list()), 20.0, 'the first goal never appeared')
         goal_a_id = bytes(self._latest_status_list()[0].goal_info.goal_id.uuid)
 
         self._publish_goal_pose(2.0)
@@ -354,7 +360,7 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
             return False
 
         self._wait_until(
-            _goal_a_reached_terminal, 15.0,
+            _goal_a_reached_terminal, 25.0,
             'the first goal (A) never reached a terminal status after a second goal_pose - '
             'the forwarder must cancel the previous goal before sending the new one')
 
@@ -366,7 +372,7 @@ class TestGoalPoseForwarderFullChain(unittest.TestCase):
                 for s in latest)
 
         self._wait_until(
-            _a_different_goal_is_now_active, 10.0,
+            _a_different_goal_is_now_active, 20.0,
             'no distinct second goal (B) ever became active after the first was cancelled')
 
     def test_zero_publishers_on_bt_navigators_orphaned_goal_topic(self):
