@@ -50,11 +50,27 @@ class Ctl017Node(Node):
                 self.emu.node_id, 'gazebo' if self.emu.external else 'internal',
                 'on' if self.emu.permit_cfg else 'off'))
 
+    # The emulator powers up once, on the Gazebo lift joint, and takes its reference from that
+    # position: only a lift inside a stop sensor's +-1 mm window comes up homed. The model is
+    # spawned 0.2 m above the floor and drops, so the first joint samples can come from a
+    # model that is still settling; the emulator starts once the joint has been at rest for
+    # SETTLE_SAMPLES consecutive samples (within SETTLE_M), not on the first message.
+    SETTLE_SAMPLES = 10
+    SETTLE_M = 0.0001
+
     def on_joints(self, msg):
         position = joint_value(msg, self.joint, 'position')
         if position is None or not self.use_gazebo:
             return
         if not self.started:
+            recent = getattr(self, '_recent', [])
+            recent = (recent + [position])[-self.SETTLE_SAMPLES:]
+            self._recent = recent
+            if (len(recent) < self.SETTLE_SAMPLES
+                    or max(recent) - min(recent) > self.SETTLE_M):
+                return
+            self.get_logger().info('lift joint at rest at %.4f m: starting the emulator'
+                                   % position)
             self.emu.attach_external_plant(position)
             self.start_emulator()
         else:

@@ -109,8 +109,26 @@ def sil():
             and probe.get('odom') is not None), timeout=180.0, step=0.2)
         if not ready:
             blocked = 'BLOCKED' in tail_log(400)
-            pytest.fail('%s: SIL stack not ready after 180 s. Seen: %s\n%s' % (
-                'BLOCKED' if blocked else 'FAILED', sorted(probe.last), tail_log()),
+
+            def value(key, field):
+                try:
+                    return probe.get(key)[field]
+                except (KeyError, TypeError):
+                    return '(none)'
+            # Each readiness condition with its value, so a timeout names its cause.
+            conditions = {
+                'drive configured': value('/sil/drive/status', 'configured'),
+                'drive sdo_errors': value('/sil/drive/status', 'sdo_errors'),
+                'drive sdo_discarded': value('/sil/drive/status', 'sdo_discarded'),
+                'drive feedback': value('/sil/drive/emulator_state', 'feedback'),
+                'lift plant': value('/sil/lift/emulator_state', 'plant'),
+                'lift emulator state': value('/sil/lift/emulator_state', 'state'),
+                'lift position_mm': value('/sil/lift/emulator_state', 'position_mm'),
+                'lift host state (want %d)' % IDLE: value('/sil/lift/status', 'state'),
+                'gz_odom': probe.get('gz_odom') is not None,
+                'odom': probe.get('odom') is not None}
+            pytest.fail('%s: SIL stack not ready after 180 s. Conditions: %s\n%s' % (
+                'BLOCKED' if blocked else 'FAILED', conditions, tail_log()),
                 pytrace=False)
         time.sleep(2.0)  # let the robot settle on the floor
         yield probe
