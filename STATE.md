@@ -28,6 +28,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Gemini 336L base camera simulation | #53 | draft | owner review |
 | Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
 | Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
+| Passive swivel castors (proposal): each LPA-VSTH 35K castor is a continuous swivel joint at the mount and a continuous roll joint 15 mm behind it (BOM MEC-002), D35 contact sphere, friction and damping estimated with their method in config/castor_model.yaml; test_castor_swivel.py, test_castor_gazebo_motion.py (15 Nov 2026) | night-shift/castor-swivel-2026-11-15 | draft (15 Nov 2026), stacked on #146 | Cuma: adopt, adapt or reject; maintainer registers the two new tests in description-tests; Arka or Hamed measure swivel torque and coast-down |
 | Wheel and caster friction reach the SDF (mu1, mu2, fdir1 instead of a raw surface); caster mu 0 is a frictionless slider on fixed joints, not a rolling caster | #135 | draft, changes requested (panthera-momagdii, 10 Nov 2026); hosted Gazebo job added 14 Nov 2026 | re-review; owner writes adopt, adapt or reject |
 | ToF cliff pitch 10 deg down in URDF, SDF and docs (NEAR-FIELD-FRAMES, 20 Oct 2026) | #93 | ready | Cuma: floor-return check at the 23 to 27 Nov bench |
 | 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
@@ -61,6 +62,9 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
+- Castors (15 Nov 2026): swivel and roll friction, damping and contact mu are estimates
+  (config/castor_model.yaml), not measurements; the fork plate swivels with the fork; mount
+  positions are still the legacy SolidWorks ones, not the M-02 castor layout.
 
 ## Not verified
 
