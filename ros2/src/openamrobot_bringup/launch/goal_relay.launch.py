@@ -1,6 +1,7 @@
 """
-Goal forwarder for NAV-ONLY operation (no docking) - platform-sw#90/#124, Alex's 14 Nov
-owner-decision review on head 162a19a.
+Goal forwarder for NAV-ONLY operation (no docking).
+
+Platform-sw#90/#124, Alex's 14 Nov owner-decision review on head 162a19a.
 
 navigation_launch.py remaps bt_navigator's internal goal_pose topic to a name nothing
 publishes to (goal_pose_bt_navigator_unused - see that file's own comment), so the RViz
