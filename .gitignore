@@ -3,7 +3,12 @@
 
 # ROS 2 / colcon build outputs
 build/
-install/
+# Root colcon install space. The tracked install/ subfolders (udev, systemd, jetson) are
+# host installation files, not build output.
+/install/*
+!/install/udev/
+!/install/systemd/
+!/install/jetson/
 log/
 ros2/build/
 ros2/install/
@@ -90,3 +95,6 @@ temp/
 
 # UI — lives in its own separate repo (openamrobot-ui)
 ui/
+__pycache__/
+*.pyc
+.pytest_cache/

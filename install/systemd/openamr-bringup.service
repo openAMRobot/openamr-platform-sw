@@ -1,0 +1,35 @@
+[Unit]
+Description=OpenAMRobot bringup (drivers, perception, EKF, Nav2)
+Documentation=https://github.com/openAMRobot/openamr-platform-sw
+PartOf=openamr.target
+# Order: clock, then the standalone agent when it is enabled, then bringup. No Requires= on
+# the agent: the legacy profile runs its own agent inside the launch, and a bringup that
+# needs a standalone agent would be started by a profile that says so (see README).
+After=network-online.target time-sync.target openamr-agent.service
+Wants=time-sync.target
+ConditionPathExists=/etc/openamr/openamr.env
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=openamr
+Group=dialout
+SupplementaryGroups=video
+EnvironmentFile=/etc/openamr/openamr.env
+# No automatic motion: this unit starts the stack and nothing else. It publishes no
+# /cmd_vel, sets no initial pose and sends no goal. After a boot the robot is idle until an
+# operator sends a command; a Stop latched by the stop gate is never cleared from here.
+ExecStart=/opt/openamr/bin/openamr-run.sh bringup
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/data/maps
+
+[Install]
+WantedBy=openamr.target
