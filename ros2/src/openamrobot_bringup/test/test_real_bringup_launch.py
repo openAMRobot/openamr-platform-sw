@@ -73,3 +73,35 @@ def test_lidar_model_passed_to_drivers():
             perform_substitutions(context, normalize_to_list_of_substitutions(v))
             for k, v in include.launch_arguments}
         assert passed == {'lidar_model': value}
+
+
+def _ekf_node(description):
+    from launch_ros.actions import Node
+    nodes = [e for e in description.entities if isinstance(e, Node)
+             and e.node_executable == 'ekf_node']
+    assert len(nodes) == 1
+    return nodes[0]
+
+
+def test_imu_topic_declared_raw_default():
+    # D-10: the 2.0 base firmware topic is the default; Gate A is an explicit choice.
+    args = [e for e in _description().entities
+            if isinstance(e, DeclareLaunchArgument) and e.name == 'imu_topic']
+    assert len(args) == 1
+    assert args[0].default_value[0].text == '/imu/data_raw'
+    assert sorted(args[0].choices) == ['/imu/data', '/imu/data_raw']
+
+
+def test_ekf_imu_input_follows_imu_topic():
+    # Both producer/consumer pairs: 2.0 firmware /imu/data_raw and Gate A Teensy /imu/data.
+    node = _ekf_node(_description())
+    overrides = [p for p in node._Node__parameters if isinstance(p, dict)]
+    assert len(overrides) == 1
+    context = LaunchContext()
+    for value in ('/imu/data_raw', '/imu/data'):
+        context.launch_configurations['imu_topic'] = value
+        resolved = {
+            perform_substitutions(context, normalize_to_list_of_substitutions(k)):
+            perform_substitutions(context, normalize_to_list_of_substitutions(v))
+            for k, v in overrides[0].items()}
+        assert resolved == {'imu0': value}

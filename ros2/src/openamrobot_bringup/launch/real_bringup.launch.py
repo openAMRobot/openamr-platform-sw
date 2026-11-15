@@ -63,6 +63,14 @@ def generate_launch_description():
             'lidar_model', default_value='a1', choices=['a1', 's3'],
             description=('Navigation LiDAR model passed to openamrobot_drivers: s3 = RPLIDAR S3 '
                          '(OpenAMRobot 2.0), a1 = RPLIDAR A1, legacy (existing robot).')),
+        # D-10: the EKF reads the raw firmware IMU topic /imu/data_raw (2.0 base firmware).
+        # The Gate A Teensy publishes /imu/data; select it explicitly for a Gate A run:
+        #   ros2 launch openamrobot_bringup bringup.launch.py imu_topic:=/imu/data
+        # The EKF input is set as a parameter, not by remapping the micro-ROS agent.
+        DeclareLaunchArgument(
+            'imu_topic', default_value='/imu/data_raw', choices=['/imu/data_raw', '/imu/data'],
+            description=('IMU topic the EKF reads: /imu/data_raw = 2.0 base firmware (D-10), '
+                         '/imu/data = Gate A Teensy.')),
         # --- real data sources (same topics the sim publishes from Gazebo) ---
         _include(drivers, 'drivers.launch.py',
                  launch_arguments={'lidar_model': LaunchConfiguration('lidar_model')}.items()),
@@ -72,7 +80,7 @@ def generate_launch_description():
         # --- odometry fusion: wheels + IMU gyro-Z -> /odom + TF odom->base_link ---
         Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node',
-            parameters=[ekf_params],
+            parameters=[ekf_params, {'imu0': LaunchConfiguration('imu_topic')}],
             remappings=[('odometry/filtered', '/odom')],
             output='screen'),
         # --- measured static TFs for THIS unit ---
