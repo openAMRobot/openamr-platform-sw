@@ -12,7 +12,8 @@ import time
 import pytest
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, String
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Float32MultiArray, Float64MultiArray, String
 
 from openamrobot_sil import renode_fw
 
@@ -29,9 +30,23 @@ def renode_inputs():
     return renode, elf, fw_dir
 
 
-def pinned_line():
+def uros_inputs():
+    """(elf, agent) of the micro-ROS image (renode_readonly), or a BLOCKED failure."""
+    elf = os.environ.get('SIL_FW_ELF_UROS', '')
+    agent = os.environ.get('SIL_UROS_AGENT', '')
+    for name, path in (('SIL_FW_ELF_UROS', elf), ('SIL_UROS_AGENT', agent)):
+        if not path or not os.path.exists(path):
+            pytest.fail('BLOCKED: %s=%r does not exist (scripts/sil_renode_firmware.sh --uros '
+                        'sets it)' % (name, path), pytrace=False)
+    if os.environ.get('ROS_DOMAIN_ID', '0') not in ('', '0'):
+        pytest.fail('BLOCKED: the image publishes on DDS domain 0, ROS_DOMAIN_ID is %r'
+                    % os.environ['ROS_DOMAIN_ID'], pytrace=False)
+    return elf, agent
+
+
+def pinned_line(preset=None):
     return 'firmware %s@%s preset %s, Renode %s' % (
-        renode_fw.FW_REPOSITORY, renode_fw.FW_COMMIT, renode_fw.FW_PRESET,
+        renode_fw.FW_REPOSITORY, renode_fw.FW_COMMIT, preset or renode_fw.FW_PRESET,
         renode_fw.RENODE_VERSION)
 
 
@@ -48,6 +63,17 @@ class FwProbe(Node):
         self.create_subscription(String, '/sil/drive_bus/audit', self.on_audit, 10)
         self.create_subscription(Float64MultiArray, '/sil/fw/wheel_speeds', self.on_wheels, 50)
         self.cmd_pub = self.create_publisher(String, '/sil/fw/command', 10)
+        # The micro-ROS image's own topics (renode_readonly), best effort as published.
+        self.uros = []           # (monotonic time, /base_fw/status JSON)
+        self.uros_hb = []        # (monotonic time, /base_fw/drive_heartbeat)
+        self.uros_raw_wheels = []  # (monotonic time, [ch1, ch2] drive units)
+        qos = QoSProfile(depth=50, reliability=ReliabilityPolicy.BEST_EFFORT,
+                         history=HistoryPolicy.KEEP_LAST)
+        ns = renode_fw.UROS_NAMESPACE
+        self.create_subscription(String, ns + '/status', self.on_uros_status, qos)
+        self.create_subscription(String, ns + '/drive_heartbeat', self.on_uros_hb, qos)
+        self.create_subscription(Float32MultiArray, ns + '/wheel_speeds', self.on_uros_wheels,
+                                 qos)
 
     def on_console(self, msg):
         with self.lock:
@@ -62,6 +88,39 @@ class FwProbe(Node):
     def on_wheels(self, msg):
         with self.lock:
             self.wheels.append((time.monotonic(), tuple(msg.data)))
+
+    def on_uros_status(self, msg):
+        with self.lock:
+            self.uros.append((time.monotonic(), json.loads(msg.data)))
+
+    def on_uros_hb(self, msg):
+        with self.lock:
+            self.uros_hb.append((time.monotonic(), msg.data))
+
+    def on_uros_wheels(self, msg):
+        with self.lock:
+            self.uros_raw_wheels.append((time.monotonic(), list(msg.data)))
+
+    def uros_after(self, t0):
+        with self.lock:
+            return [(t, s) for t, s in self.uros if t >= t0]
+
+    def wheels_since_raw(self, t0):
+        with self.lock:
+            return [w for t, w in self.uros_raw_wheels if t >= t0]
+
+    def last_uros(self):
+        with self.lock:
+            return self.uros[-1][1] if self.uros else None
+
+    def last_hb(self):
+        with self.lock:
+            return self.uros_hb[-1][1] if self.uros_hb else None
+
+    def uros_boot(self, boot_id, t0):
+        """/base_fw/status messages of boot boot_id that arrived after t0, in order."""
+        with self.lock:
+            return [s for t, s in self.uros if t >= t0 and s.get('boot') == boot_id]
 
     def command(self, text):
         self.cmd_pub.publish(String(data=text))

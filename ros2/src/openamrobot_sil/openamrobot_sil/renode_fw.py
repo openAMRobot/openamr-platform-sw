@@ -1,8 +1,10 @@
 """Firmware in the loop: the openamr-platform-fw telemetry image in Renode on the drive bus.
 
 What is real: the firmware binary, built from openamr-platform-fw at FW_COMMIT with the CMake
-preset FW_PRESET. What is not: the MCU (Renode's STM32H743 description plus the platform-fw
-STM32H723 additions), the drive (the SIL ZLAC8015D emulator), the bus (Linux vcan).
+preset FW_PRESET (stm32:=renode, JSON console on USART3) or FW_PRESET_UROS (stm32:=renode_readonly,
+micro-ROS client on USART3, serial transport: simulation and bench only). What is not: the MCU
+(Renode's STM32H743 description plus the platform-fw STM32H723 additions), the drive, lift and BMS
+(the SIL emulators), the buses (Linux vcan).
 
 This module holds the pinned values and the logic that needs no ROS, no Renode and no vcan:
 the Renode script, the banner check, the console parser, the wheel speed conversion and the
@@ -18,10 +20,30 @@ import sys
 
 # ---- pinned values ----------------------------------------------------------------------
 FW_REPOSITORY = 'openAMRobot/openamr-platform-fw'
-FW_COMMIT = 'fcf81f8e2fe2fa9000685ab233907adbfadeec2a'
+# Head of openamr-platform-fw fw/telemetry-uros (platform-fw PR #55), pinned once its hosted
+# checks were green on that commit.
+FW_COMMIT = '763bdd3ffe4a5a582445f72d4845d8a0eedeba3c'
 FW_PRESET = 'RenodeTest'
+FW_PRESET_UROS = 'TelemetryUrosSerialSimBench'
 FW_PROJECT_DIR = 'boards/stm32/telemetry_image'
 FW_ELF = FW_PROJECT_DIR + '/build/' + FW_PRESET + '/telemetry_image.elf'
+FW_ELF_UROS = FW_PROJECT_DIR + '/build/' + FW_PRESET_UROS + '/telemetry_image.elf'
+# micro-ROS agent for the serial transport, built by platform-fw tools/ci/build_uros_agent.sh
+# at FW_COMMIT (micro-ROS-Agent jazzy at a pinned commit).
+FW_UROS_AGENT_SCRIPT = 'tools/ci/build_uros_agent.sh'
+UROS_NAMESPACE = '/base_fw'
+UROS_TOPICS = {
+    UROS_NAMESPACE + '/wheel_speeds': 'std_msgs/msg/Float32MultiArray',
+    UROS_NAMESPACE + '/drive_heartbeat': 'std_msgs/msg/String',
+    UROS_NAMESPACE + '/tof/front': 'sensor_msgs/msg/Range',
+    UROS_NAMESPACE + '/tof/rear': 'sensor_msgs/msg/Range',
+    UROS_NAMESPACE + '/status': 'std_msgs/msg/String',
+}
+# DDS domain of the image's participant (rclc default; the client has no domain parameter).
+UROS_DOMAIN_ID = 0
+# Lift position of the firmware (CTL-017 TPDO1) is 0.1 mm above the lower end of travel;
+# the Gazebo lift joint 0 m is the L1000 stop, 5 mm above it (ctl017_gazebo.JOINT_ZERO_MM).
+LIFT_POS_UNIT_MM = 0.1
 FW_ADDITIONS = 'tests/renode/stm32h723-additions.repl'
 FW_PROJECT_NAME = 'openamr-platform-fw telemetry_image'
 FW_PARAMS = 'test'      # banner "params" of an image built with TLM_TEST_PARAMS (RenodeTest)
@@ -65,7 +87,7 @@ class BannerError(RuntimeError):
 
 # ---- Renode script ----------------------------------------------------------------------
 def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
-         slice_ms=THROTTLE_SLICE_MS):
+         slice_ms=THROTTLE_SLICE_MS, aux_interfaces=None, uros_pty=None):
     """Renode monitor script: machine, image, console, CAN1 and the SocketCAN bridge.
 
     The machine set-up is the one of platform-fw tools/ci/renode_telemetry.py: the STM32H743
@@ -74,6 +96,13 @@ def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
     Renode's SocketCAN bridge joins the hub to the Linux interface can_interface, where the
     SIL drive emulator runs. can_interface None leaves the hub without a bridge (Renode-only
     tests on machines without vcan; the image then sees a silent drive).
+
+    aux_interfaces (bms, aux): FDCAN2 and FDCAN3 on hubs can2 and can3, joined to those Linux
+    interfaces by two more SocketCAN bridges (the image only receives there).
+    uros_pty: USART3 on a Renode pseudo-terminal at that path instead of the file backend (the
+    micro-ROS image; the agent opens the terminal). With it the CPU keeps Renode's default speed
+    and there is no throttle: the image idles in WFI, during which Renode advances virtual time
+    at host speed, so it does not run ahead of the agent.
     """
     lines = [
         'mach create "openamr"',
@@ -86,8 +115,14 @@ def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
         '    cpu VectorTableOffset 0x08000000',
         '"""',
         'runMacro $reset',
-        'cpu PerformanceInMips %d' % int(mips),
-        'sysbus.usart3 CreateFileBackend @%s true' % console,
+    ]
+    if uros_pty:
+        lines += ['emulation CreateUartPtyTerminal "uros_pty" "%s" true' % uros_pty,
+                  'connector Connect sysbus.usart3 uros_pty']
+    else:
+        lines += ['cpu PerformanceInMips %d' % int(mips),
+                  'sysbus.usart3 CreateFileBackend @%s true' % console]
+    lines += [
         'emulation CreateCANHub "can1"',
         'connector Connect sysbus.fdcan1 can1',
     ]
@@ -96,24 +131,35 @@ def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
             'machine CreateSocketCANBridge "can1_bridge" "%s"' % can_interface,
             'connector Connect can1_bridge can1',
         ]
+    if aux_interfaces:
+        for n, iface in zip((2, 3), aux_interfaces):
+            lines += [
+                'emulation CreateCANHub "can%d"' % n,
+                'connector Connect sysbus.fdcan%d can%d' % (n, n),
+                'machine CreateSocketCANBridge "can%d_bridge" "%s"' % (n, iface),
+                'connector Connect can%d_bridge can%d' % (n, n),
+            ]
     lines += [
         'include @%s' % helpers,
         'sil_follow_systick',
-        'sil_throttle_start %d' % int(slice_ms),
+    ]
+    if not uros_pty:
+        lines.append('sil_throttle_start %d' % int(slice_ms))
+    lines += [
         'logLevel 3',
         'start',
     ]
     return '\n'.join(lines) + '\n'
 
 
-def reset_commands(slice_ms=THROTTLE_SLICE_MS):
+def reset_commands(slice_ms=THROTTLE_SLICE_MS, throttle=True):
     """Monitor commands for a machine reset inside the same Renode instance.
 
     The machine is paused first, so the image does not run before the SystemCoreClock hook and
     the throttle are set again: Renode drops both on a reset.
     """
-    return ['pause', 'machine Reset', 'sil_follow_systick',
-            'sil_throttle_start %d' % int(slice_ms), 'start']
+    return (['pause', 'machine Reset', 'sil_follow_systick']
+            + (['sil_throttle_start %d' % int(slice_ms)] if throttle else []) + ['start'])
 
 
 # ---- banner -----------------------------------------------------------------------------
@@ -130,6 +176,59 @@ def check_banner(banner, commit=FW_COMMIT, params=FW_PARAMS):
             or not commit.startswith(printed)):
         raise BannerError('banner commit %r is not the pinned %s' % (printed, commit))
     return True
+
+
+def check_uros_status(status, commit=FW_COMMIT, params=FW_PARAMS):
+    """Raise BannerError unless a /base_fw/status message is from the pinned micro-ROS build.
+
+    The micro-ROS image prints no banner (USART3 carries XRCE): its status topic carries the
+    commit and the parameter set instead."""
+    if status.get('params') != params:
+        raise BannerError('status params %r, expected %r: the image is not the %s build' % (
+            status.get('params'), params, FW_PRESET_UROS))
+    printed = status.get('commit')
+    if (not isinstance(printed, str) or len(printed) < 7 or printed.endswith('-dirty')
+            or not commit.startswith(printed)):
+        raise BannerError('status commit %r is not the pinned %s' % (printed, commit))
+    return True
+
+
+def uros_wheel_rad_s(drive_units):
+    """(ch1, ch2) in rad/s from /base_fw/wheel_speeds (drive units of 606Ch). NaN stays NaN:
+    the image publishes NaN for every value it does not report valid."""
+    return tuple(float(x) * RPM_PER_UNIT * RAD_S_PER_RPM if not math.isnan(x) else float('nan')
+                 for x in drive_units)
+
+
+def lift_mm(status):
+    """Lift position in mm above the lower end of travel from a /base_fw/status message, or None
+    when the image reports it unknown."""
+    pos = status.get('lift', {}).get('pos')
+    if isinstance(pos, int) and not isinstance(pos, bool):
+        return pos * LIFT_POS_UNIT_MM
+    return None
+
+
+class TimeRatio:
+    """Ratio of Renode virtual time to wall time, from the uptime the image reports (up_us)
+    against the host's monotonic clock, over a sliding window of one boot."""
+
+    def __init__(self, window_s=10.0):
+        self.window_s = window_s
+        self.samples = []   # (wall_s, up_s, boot)
+
+    def add(self, wall_s, up_us, boot):
+        if self.samples and self.samples[-1][2] != boot:
+            self.samples = []
+        self.samples.append((wall_s, up_us / 1e6, boot))
+        while self.samples and wall_s - self.samples[0][0] > self.window_s:
+            self.samples.pop(0)
+
+    def ratio(self):
+        if len(self.samples) < 2:
+            return None
+        (w0, u0, _), (w1, u1, _) = self.samples[0], self.samples[-1]
+        return (u1 - u0) / (w1 - w0) if w1 > w0 else None
 
 
 # ---- console ----------------------------------------------------------------------------
@@ -253,8 +352,9 @@ def candump_line(t, interface, arbitration_id, data, extended=False):
 
 
 def _shell():
-    for name in ('FW_REPOSITORY', 'FW_COMMIT', 'FW_PRESET', 'FW_PROJECT_DIR', 'FW_ELF',
-                 'FW_ADDITIONS', 'RENODE_VERSION', 'RENODE_URL', 'RENODE_SHA256'):
+    for name in ('FW_REPOSITORY', 'FW_COMMIT', 'FW_PRESET', 'FW_PRESET_UROS', 'FW_PROJECT_DIR',
+                 'FW_ELF', 'FW_ELF_UROS', 'FW_UROS_AGENT_SCRIPT', 'FW_ADDITIONS',
+                 'RENODE_VERSION', 'RENODE_URL', 'RENODE_SHA256'):
         print("%s='%s'" % (name, globals()[name]))
 
 

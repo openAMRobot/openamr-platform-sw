@@ -13,6 +13,15 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — micro-ROS from the firmware, CAN2 and CAN3 bridged (15 Nov 2026)
+
+- Pinned openamr-platform-fw to `763bdd3` (head of `fw/telemetry-uros`, platform-fw PR #55, hosted checks green).
+- `stm32:=renode_readonly` runs preset TelemetryUrosSerialSimBench: the firmware node starts the micro-ROS agent on the
+  image's USART3 (Renode pseudo-terminal; serial transport for simulation and bench only, UDP over Ethernet is the robot
+  target) and follows `/base_fw/*`. Both Renode modes bridge FDCAN2 and FDCAN3 to `vcan_bms` and `vcan_aux`.
+- End-to-end tests: wheel speeds against Gazebo within 20 %, lift position from the firmware follows the Gazebo lift joint,
+  battery only "locked", measured Renode-to-wall-time ratio reported. Topology sections 4.1, 4.2, 5, 6.
+
 ### Simulation — Firmware in the loop for telemetry: platform-fw image in Renode on the drive bus (15 Nov 2026)
 
 - `sil.launch.py` `stm32:=renode` runs the openamr-platform-fw telemetry image (commit fcf81f8, preset RenodeTest) in

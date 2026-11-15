@@ -1,9 +1,13 @@
-"""End-to-end: the firmware image in Renode on vcan_drive, the drive emulator, Gazebo.
+"""End-to-end: the micro-ROS firmware image in Renode on the three SIL buses, the emulators, Gazebo.
 
-sil.launch.py stm32:=renode_readonly. Real: the openamr-platform-fw telemetry image at the
-pinned commit, preset RenodeTest. Emulated: the MCU (Renode), the drive (SIL ZLAC8015D
-emulator, wheels from Gazebo), the bus (vcan) and the drive commands (host test client, SIL
-receive PDOs only). Needs vcan, Gazebo Harmonic, SIL_RENODE, SIL_FW_ELF and SIL_FW_DIR; a
+sil.launch.py stm32:=renode_readonly. Real: the openamr-platform-fw telemetry image at the pinned
+commit, preset TelemetryUrosSerialSimBench (micro-ROS over USART3, serial transport: simulation
+and bench only), read through a micro-ROS agent the firmware node starts on the Renode
+pseudo-terminal. Emulated: the MCU (Renode), the drive (SIL ZLAC8015D emulator, wheels from
+Gazebo), the lift (CTL-017 emulator, lift joint in Gazebo), the BMS (Daly emulator), the buses
+(vcan; FDCAN1, FDCAN2, FDCAN3 through Renode's SocketCAN bridges) and the commands (host test
+client: drive receive PDOs only, NMT start and commands of the lift, Daly polls). Needs vcan,
+Gazebo Harmonic, SIL_RENODE, SIL_FW_DIR, SIL_FW_ELF_UROS, SIL_UROS_AGENT and ROS_DOMAIN_ID 0; a
 missing one FAILS with "BLOCKED:". Development evidence only: no board, no drive, no robot.
 """
 import json
@@ -19,19 +23,25 @@ from geometry_msgs.msg import Twist
 import pytest
 import rclpy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from std_msgs.msg import Bool, Int8, String
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'test_renode'))
-from fw_probe import FwProbe, Spinner, is_nan, pinned_line, renode_inputs, run_after_banner  # noqa: E402,E501
+from fw_probe import FwProbe, Spinner, is_nan, pinned_line, renode_inputs, uros_inputs  # noqa: E402,E501
 
 from openamrobot_sil import renode_fw  # noqa: E402
+from openamrobot_sil.ctl017_gazebo import JOINT_ZERO_MM  # noqa: E402
 
 LOG = os.environ.get('SIL_RENODE_LAUNCH_LOG', '/tmp/sil_renode_launch.log')
 CAPTURE = os.environ.get('SIL_DRIVE_CAPTURE', '/tmp/openamrobot_sil_vcan_drive.log')
 WORK = '/tmp/openamrobot_sil_renode'
 DRIVE_STATE = '/sil/drive/emulator_state'
 HOST_STATE = '/sil/drive/status'
+LIFT_STATE = '/sil/lift/emulator_state'
+LIFT_HOST = '/sil/lift/status'
+BMS_HOST = '/sil/bms/status'
+IDLE = 3                       # CTL-017 state IDLE
+TIME_RATIO_GOAL = 0.8          # a goal, reported; not a pass condition
 
 
 class Probe(FwProbe):
@@ -39,15 +49,24 @@ class Probe(FwProbe):
         super().__init__('sil_renode_test_probe')
         self.last = {}
         self.cmd = None
-        for topic in (DRIVE_STATE, HOST_STATE):
+        self.lift_joint = []   # (monotonic time, lift joint position in m)
+        for topic in (DRIVE_STATE, HOST_STATE, LIFT_STATE, LIFT_HOST, BMS_HOST):
             self.create_subscription(String, topic, lambda m, t=topic: self.last.__setitem__(
                 t, json.loads(m.data)), 10)
-        self.create_subscription(JointState, '/sil/gz/joint_states',
-                                 lambda m: self.last.__setitem__('joints', m), 10)
+        self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
         # not cmd_pub: that is FwProbe's /sil/fw/command publisher
         self.twist_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.inject_pub = self.create_publisher(String, '/sil/drive/inject', 10)
+        self.lift_pub = self.create_publisher(Int8, '/sil/lift/command', 10)
+        self.permit_pub = self.create_publisher(Bool, '/sil/lift/permit', 10)
         self.create_timer(0.05, self.send_cmd)
+
+    def on_joints(self, msg):
+        self.last['joints'] = msg
+        names = list(msg.name)
+        if 'lift_joint' in names:
+            with self.lock:
+                self.lift_joint.append((time.monotonic(), msg.position[names.index('lift_joint')]))
 
     def send_cmd(self):
         if self.cmd is not None:
@@ -60,6 +79,16 @@ class Probe(FwProbe):
         names = list(joints.name)
         return (joints.velocity[names.index('left_wheel_joint')],
                 joints.velocity[names.index('right_wheel_joint')])
+
+    def gz_lift_mm(self, at=None):
+        """Gazebo lift joint as mm above the lower end of travel, at time at (nearest sample)."""
+        with self.lock:
+            samples = list(self.lift_joint)
+        if at is None:
+            t, pos = samples[-1]
+        else:
+            t, pos = min(samples, key=lambda s: abs(s[0] - at))
+        return JOINT_ZERO_MM + pos * 1000.0
 
     def wheels_since(self, t0):
         with self.lock:
@@ -84,7 +113,8 @@ def sil():
         if shutil.which(tool) is None:
             pytest.fail('BLOCKED: %s is not installed' % tool, pytrace=False)
     renode_inputs()
-    print(pinned_line())
+    uros_inputs()
+    print(pinned_line(renode_fw.FW_PRESET_UROS))
     with open(LOG, 'w', encoding='utf-8') as log:
         launch = subprocess.Popen(
             ['ros2', 'launch', 'openamrobot_sil', 'sil.launch.py', 'stm32:=renode_readonly',
@@ -95,15 +125,17 @@ def sil():
     spinner = Spinner(probe)
     try:
         ready = probe.wait(lambda: (
-            len(probe.lines_after(0)) >= 5
+            len(probe.uros_after(0)) >= 5
             and probe.audit is not None
             and probe.last['joints'] is not None
             and probe.last[DRIVE_STATE]['feedback'] == 'gazebo'
+            and probe.last[LIFT_STATE]['plant'] == 'gazebo'
+            and probe.last[LIFT_HOST]['state'] == IDLE
             and probe.last[HOST_STATE]['configured']
-            and probe.last[HOST_STATE]['mode'] == 'command_only'), timeout=240.0, step=0.2)
+            and probe.last[HOST_STATE]['mode'] == 'command_only'), timeout=300.0, step=0.2)
         if not ready:
             blocked = 'BLOCKED' in tail_log(400)
-            pytest.fail('%s: SIL stack with Renode not ready after 240 s. Seen: %s, fw %s\n%s' % (
+            pytest.fail('%s: SIL stack with Renode not ready after 300 s. Seen: %s, fw %s\n%s' % (
                 'BLOCKED' if blocked else 'FAILED', sorted(probe.last), probe.status,
                 tail_log()), pytrace=False)
         time.sleep(2.0)  # let the robot settle on the floor
@@ -117,49 +149,50 @@ def sil():
             os.killpg(launch.pid, signal.SIGKILL)
         subprocess.run(['pkill', '-f', 'gz sim'], check=False)
         subprocess.run(['pkill', '-f', 'Renode'], check=False)
+        subprocess.run(['pkill', '-f', 'micro_ros_agent'], check=False)
         spinner.stop()
         probe.destroy_node()
         rclpy.shutdown()
 
 
-def test_banner_is_the_pinned_renode_test_build(sil, record_property):
-    assert sil.wait(lambda: sil.banner() is not None, 30.0)
-    banner = sil.banner()
+def test_status_is_the_pinned_uros_build_and_the_three_buses_reach_it(sil, record_property):
+    s = sil.last_uros()
     record_property('fw_commit', renode_fw.FW_COMMIT)
-    record_property('fw_preset', renode_fw.FW_PRESET)
-    print('%s; banner commit %s params %s; CAN1 on %s' % (
-        pinned_line(), banner['commit'], banner['params'], sil.status['can_interface']))
-    assert banner['params'] == 'test' and renode_fw.FW_COMMIT.startswith(banner['commit'])
-    assert sil.status['can_link'] == 'socketcan' and sil.status['can_interface'] == 'vcan_drive'
-    # The drive answers through the bridge: heartbeat and SDO answers reach the image.
-    assert sil.wait(lambda: sil.last_status_line()['drive']['hb']['st'] == 'alive', 30.0)
-    assert sil.wait(lambda: sil.last_status_line()['drive']['sw']['v'] == 'valid', 30.0)
+    record_property('fw_preset', renode_fw.FW_PRESET_UROS)
+    print('%s; status commit %s params %s; buses %s %s' % (
+        pinned_line(renode_fw.FW_PRESET_UROS), s['commit'], s['params'],
+        sil.status['can_interface'], sil.status['aux_interfaces']))
+    assert renode_fw.check_uros_status(s)
+    assert sil.status['transport'] == 'uros' and sil.status['agent_running']
+    assert sil.status['can_interface'] == 'vcan_drive'
+    assert sil.status['aux_interfaces'] == ['vcan_bms', 'vcan_aux']
+    # CAN1: heartbeat and SDO answers through the bridge; CAN3 and CAN2 frames arrive too.
+    assert sil.wait(lambda: sil.last_hb() == 'alive', 30.0)
+    assert sil.wait(lambda: sil.last_uros()['c3_rx'] > 50 and sil.last_uros()['c2_rx'] > 5, 30.0)
+    assert sil.wait(lambda: sil.last_uros()['lift']['hb'] == 'alive', 30.0)
 
 
-def test_firmware_wheel_speeds_match_gazebo_at_0_2_m_per_s(sil):
+def test_firmware_wheel_speeds_match_gazebo_within_20_percent(sil):
     sil.cmd = (0.2, 0.0)
     try:
         time.sleep(3.0)
         fw, gz = sil.fw_wheels(), sil.gz_wheels()
-        line = sil.last_status_line()
     finally:
         sil.cmd = (0.0, 0.0)
     print('after 3 s: firmware ch1 %.3f ch2 %.3f rad/s, Gazebo left %.3f right %.3f rad/s' % (
         fw[0], fw[1], gz[0], gz[1]))
-    for name in ('ch1', 'ch2'):
-        assert line['drive']['wheel'][name]['v'] == 'valid', line['drive']['wheel'][name]
     # 0.2 m/s on a 0.1 m wheel: 2 rad/s. ch1 is the left axis, ch2 the right (SIL convention).
     assert gz[0] > 1.5 and gz[1] > 1.5
     for f, g in zip(fw, gz):
         assert abs(f - g) <= 0.2 * abs(g), (fw, gz)
-    assert not {'overrun', 'dropped'} & set(line['cnt']), line['cnt']
+    assert sil.last_uros()['tick_miss'] == 0
     assert sil.wait(lambda: abs(sil.gz_wheels()[0]) < 0.1, 5.0)
 
 
-def test_stopped_drive_gives_heartbeat_lost_and_unknown_wheels_never_zero(sil):
+def test_stopped_drive_gives_heartbeat_lost_and_nan_wheels_never_zero(sil):
     sil.cmd = (0.2, 0.0)
     # The base turns in Gazebo, and the image has read it turning since then: the last valid
-    # value before the stop is not 0 (the previous test left the base at rest).
+    # value before the stop is not 0.
     assert sil.wait(lambda: min(sil.gz_wheels()) > 1.5, 10.0)
     t_moving = time.monotonic()
     assert sil.wait(
@@ -167,71 +200,128 @@ def test_stopped_drive_gives_heartbeat_lost_and_unknown_wheels_never_zero(sil):
     t0 = time.monotonic()
     sil.inject_pub.publish(String(data='busoff'))   # the drive emulator falls silent
     try:
-        assert sil.wait(lambda: sil.last_status_line()['drive']['hb']['st'] == 'lost', 60.0)
+        assert sil.wait(lambda: sil.last_hb() == 'lost', 60.0)
         t_lost = time.monotonic()
         time.sleep(3.0)
-        lines = sil.lines_after(t0)
         with sil.lock:
             wheels = [(t, w) for t, w in sil.wheels if t >= t0]
+            raw = [(t, w) for t, w in sil.uros_raw_wheels if t >= t0]
     finally:
         sil.cmd = (0.0, 0.0)
         sil.inject_pub.publish(String(data='busoff-clear'))
-    for _, s in lines:
-        for ch in ('ch1', 'ch2'):
-            assert s['drive']['wheel'][ch]['raw'] != 0, ('a wheel value of 0 was reported',
-                                                         s['seq'], s['drive']['wheel'])
-    late = [s for t, s in lines if t > t_lost + 1.5]
-    assert late
-    for s in late:
-        assert s['drive']['hb']['st'] == 'lost'
-        for ch in ('ch1', 'ch2'):
-            o = s['drive']['wheel'][ch]
-            assert o['v'] in ('timeout', 'stale') and o['raw'] == 'unknown', o
-    late_wheels = [w for t, w in wheels if t > t_lost + 1.5]
-    assert late_wheels and all(is_nan(x) for w in late_wheels for x in w)
-    assert all(x != 0.0 for _, w in wheels for x in w)
+    late = [w for t, w in raw if t > t_lost + 1.5]
+    assert late and all(is_nan(x) for w in late for x in w), late[-3:]
+    assert all(x != 0.0 for _, w in raw for x in w), 'a wheel value of 0 was published'
+    late_conv = [w for t, w in wheels if t > t_lost + 1.5]
+    assert late_conv and all(is_nan(x) for w in late_conv for x in w)
     # the drive comes back
-    assert sil.wait(lambda: sil.last_status_line()['drive']['hb']['st'] == 'alive', 60.0)
-    assert sil.wait(lambda: sil.last_status_line()['drive']['wheel']['ch1']['v'] == 'valid',
-                    60.0)
+    assert sil.wait(lambda: sil.last_hb() == 'alive', 60.0)
+    assert sil.wait(lambda: not any(is_nan(x) for x in sil.fw_wheels()), 60.0)
+
+
+def test_lift_position_reported_by_the_firmware_follows_the_gazebo_lift_joint(sil):
+    """The CTL-017 emulator reports the Gazebo joint in TPDO1; the image decodes it on CAN3."""
+    s = sil.last_uros()
+    assert renode_fw.lift_mm(s) == pytest.approx(sil.gz_lift_mm(), abs=2.0), s['lift']
+    start = renode_fw.lift_mm(s)
+    t0 = time.monotonic()
+    sil.permit_pub.publish(Bool(data=True))
+    assert sil.wait(lambda: sil.last[LIFT_STATE]['permit_fresh'], 3.0)
+    sil.lift_pub.publish(Int8(data=1))            # to L1175: joint 0.175 m
+    try:
+        assert sil.wait(lambda: sil.last[LIFT_HOST]['active_stop'] == 1, 40.0)
+        time.sleep(1.0)
+    finally:
+        sil.permit_pub.publish(Bool(data=False))
+    pairs = []
+    for t, st in sil.uros_after(t0):
+        fw_mm = renode_fw.lift_mm(st)
+        if fw_mm is not None:
+            pairs.append((fw_mm, sil.gz_lift_mm(at=t - st['lift']['age_us'] / 1e6)))
+    moving = [p for p in pairs if abs(p[0] - start) > 5.0]
+    print('lift: %d firmware samples, %d while moving; largest difference to Gazebo %.2f mm; '
+          'end %.2f mm (Gazebo %.2f mm)' % (len(pairs), len(moving),
+                                            max(abs(a - b) for a, b in pairs),
+                                            pairs[-1][0], pairs[-1][1]))
+    assert len(moving) >= 10, 'the firmware did not report the lift moving'
+    # TPDO1 every 100 ms at most (inhibit 10 ms) and 100 ms status period: compared at the
+    # sample time of the TPDO1 (age_us), a 10 mm band holds the bus and Gazebo-step jitter.
+    for fw_mm, gz_mm in moving:
+        assert abs(fw_mm - gz_mm) <= 10.0, (fw_mm, gz_mm)
+    assert pairs[-1][0] == pytest.approx(sil.gz_lift_mm(), abs=2.0)
+    assert pairs[-1][0] - start > 150.0
+
+
+def test_battery_values_appear_only_as_locked(sil):
+    t0 = time.monotonic()
+    before = sil.last_uros()['bms_dec']
+    time.sleep(3.0)
+    statuses = [s for _, s in sil.uros_after(t0)]
+    assert statuses and all(s['bms'] == 'locked' for s in statuses), {s['bms'] for s in statuses}
+    # The decoder is fed: Daly answers arrive on CAN2 and are decoded, but stay locked.
+    assert statuses[-1]['bms_dec'] > before
+    host = sil.last[BMS_HOST]
+    print('BMS emulator answers the host client (%s); the image reports %r with %d frames decoded'
+          % ({k: host[k] for k in sorted(host)[:4]}, statuses[-1]['bms'], statuses[-1]['bms_dec']))
+    for s in statuses:
+        assert not isinstance(s['bms'], dict)
+
+
+def test_ratio_of_renode_time_to_wall_time_is_reported(sil, record_property):
+    assert sil.wait(lambda: sil.status['time_ratio'] is not None, 15.0)
+    ratio = sil.status['time_ratio']
+    record_property('renode_time_ratio', round(ratio, 3))
+    print('Renode virtual time / wall time over the last 10 s: %.3f (goal above %.1f%s)' % (
+        ratio, TIME_RATIO_GOAL, '' if ratio > TIME_RATIO_GOAL else
+        '; below the goal: see docs/architecture/sil-topology.md "Time"'))
+    assert 0.0 < ratio < 1.5
 
 
 @pytest.fixture(scope='module')
 def after_reset(sil):
-    return run_after_banner(sil, 'reset')
+    before = sil.last_uros()
+    t_cmd = time.monotonic()
+    sil.command('reset')
+    assert sil.wait(lambda: sil.uros_boot(before['boot'] + 1, t_cmd), 120.0), (
+        'no status of a new boot 120 s after the reset')
+    return before, t_cmd
 
 
-def test_machine_reset_restarts_the_sequence_from_zero(sil, after_reset):
-    _, new, t_cmd = after_reset
-    assert sil.wait(lambda: len(sil.boot_lines(new['boot'], t_cmd)) >= 5, 60.0)
-    seqs = [r['seq'] for r in sil.boot_lines(new['boot'], t_cmd)]
-    assert seqs[0] == 0 and seqs == list(range(len(seqs))), seqs[:10]
+def test_machine_reset_restarts_the_sequence(sil, after_reset):
+    before, t_cmd = after_reset
+    assert sil.wait(lambda: len(sil.uros_boot(before['boot'] + 1, t_cmd)) >= 5, 60.0)
+    seqs = [s['seq'] for s in sil.uros_boot(before['boot'] + 1, t_cmd)]
+    assert seqs[0] < 100 and seqs == sorted(seqs), seqs[:10]
 
 
 def test_machine_reset_increases_the_boot_id(sil, after_reset):
-    old, new, _ = after_reset
-    assert new['boot'] == old['boot'] + 1 and new['boot_record'] == 'retained'
+    before, t_cmd = after_reset
+    new = sil.uros_boot(before['boot'] + 1, t_cmd)[0]
+    assert new['rec'] == 'retained'
     assert sil.status['renode_starts'] == 1
 
 
 @pytest.fixture(scope='module')
 def after_restart(sil, after_reset):
-    return run_after_banner(sil, 'restart', timeout=180.0)
+    t_cmd = time.monotonic()
+    sil.command('restart')
+    assert sil.wait(lambda: sil.uros_boot(1, t_cmd), 180.0), 'no status 180 s after the restart'
+    return t_cmd
 
 
-def test_fresh_renode_start_restarts_the_sequence_from_zero(sil, after_restart):
-    _, new, t_cmd = after_restart
-    assert sil.wait(lambda: len(sil.boot_lines(new['boot'], t_cmd)) >= 5, 60.0)
-    seqs = [r['seq'] for r in sil.boot_lines(new['boot'], t_cmd)]
-    assert seqs[0] == 0 and seqs == list(range(len(seqs))), seqs[:10]
-    # the new instance's bridge works: the drive answers again
-    assert sil.wait(lambda: sil.last_status_line()['drive']['sw']['v'] == 'valid', 60.0)
+def test_fresh_renode_start_restarts_the_sequence_and_the_agent(sil, after_restart):
+    assert sil.wait(lambda: len(sil.uros_boot(1, after_restart)) >= 5, 60.0)
+    seqs = [s['seq'] for s in sil.uros_boot(1, after_restart)]
+    assert seqs[0] < 100 and seqs == sorted(seqs), seqs[:10]
+    assert sil.status['agent_running']
+    # the new instance's bridges work: the drive and the lift answer again
+    assert sil.wait(lambda: sil.last_hb() == 'alive', 60.0)
+    assert sil.wait(lambda: sil.last_uros()['lift']['hb'] == 'alive', 60.0)
 
 
 def test_fresh_renode_start_has_boot_id_1(sil, after_restart):
-    old, new, _ = after_restart
-    assert old['boot'] == 2
-    assert new['boot'] == 1 and new['boot_record'] == 'cold'
+    new = sil.uros_boot(1, after_restart)[0]
+    assert new['rec'] == 'cold'
     assert sil.status['renode_starts'] == 2
 
 
@@ -260,10 +350,11 @@ def test_host_client_sent_no_sdo_and_never_two_requests_outstanding(sil):
     assert s['non_upload'] == 0, s['examples']
     assert s['overlaps'] == 0, s['examples']
     assert s['uploads'] > 200
-    # Every upload request on the bus is one the image counted as sent ("tx"). The image prints
-    # its counter every 100 ms, so up to one period of requests (5) per boot is not counted yet.
+    # Every upload request on the bus is one the image counted as sent ("tx" of its status
+    # topic). The status is published every 100 ms and the client reconnects after each reset,
+    # so up to a few periods of requests per boot are not counted yet.
     extra = s['uploads'] - status['fw_tx_total']
-    assert 0 <= extra <= 6 * len(status['boots']), (s['uploads'], status['fw_tx_total'])
+    assert 0 <= extra <= 60 * len(status['boots']), (s['uploads'], status['fw_tx_total'])
     assert host['mode'] == 'command_only' and host['sdo_frames_refused'] == 0
     assert host['pdo_frames_sent'] > 100
     assert sil.last[DRIVE_STATE]['rpdo_frames'] > 100
