@@ -19,7 +19,9 @@ class ZlacNode(Node):
         self.bus = open_bus(cfg['buses']['drive']['interface'])
         self.emu = GazeboZlac8015d(
             self.bus, cfg['buses']['drive']['zlac_node_id'], self.drive['heartbeat_ms'],
-            self.drive['left_sign'], self.drive['right_sign']).start()
+            self.drive['left_sign'], self.drive['right_sign'],
+            cia402_statusword=self.drive.get('cia402_statusword', False),
+            commissioned_link_loss_ms=self.drive.get('commissioned_link_loss_ms')).start()
         self.cmd_pub = self.create_publisher(Twist, '/sil/drive/gz_cmd_vel', 10)
         self.state_pub = self.create_publisher(String, '/sil/drive/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
@@ -35,6 +37,12 @@ class ZlacNode(Node):
             'busoff': lambda: self.emu.set_bus_off(True),
             'busoff-clear': lambda: self.emu.set_bus_off(False),
             'power-cycle': self.emu.power_cycle,
+            # failure injection for the stm32:=simref enable-sequence tests
+            'abort-enable': lambda: self.emu.inject_abort_controlword(0x0F),
+            'abort-clear': lambda: self.emu.inject_abort_controlword(None),
+            'delay-clear': lambda: self.emu.inject_transition_delay(0.0),
+            'heartbeat-off': lambda: setattr(self.emu, 'heartbeat_enabled', False),
+            'heartbeat-on': lambda: setattr(self.emu, 'heartbeat_enabled', True),
         }
         self.get_logger().info('ZLAC8015D emulator node %d on %s' % (
             self.emu.node_id, cfg['buses']['drive']['interface']))
@@ -53,7 +61,13 @@ class ZlacNode(Node):
         self.cmd_pub.publish(msg)
 
     def on_inject(self, msg):
-        fn = self.inject.get(msg.data.strip())
+        key = msg.data.strip()
+        if key.startswith('delay-transition-'):
+            # delay-transition-<ms>: the statusword follows a controlword only after <ms>
+            self.emu.inject_transition_delay(int(key.rsplit('-', 1)[1]) / 1000.0)
+            self.get_logger().info('injected %s' % key)
+            return
+        fn = self.inject.get(key)
         if fn is None:
             self.get_logger().warning('unknown injection %r, known: %s' % (
                 msg.data, ', '.join(sorted(self.inject))))

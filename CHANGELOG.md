@@ -13,6 +13,16 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — stm32:=simref: SIMULATION ONLY reference in the STM32 role (15 Nov 2026)
+
+- `sil.launch.py stm32:=simref [nav2:=true]`: the reference process of openamr-platform-fw `tests/sim_reference`, pinned by
+  commit (`SIMREF_FW_SHA`), takes the STM32 role on vcan; new `simref_bridge` node feeds it `/cmd_vel` after the Nav2 stop
+  gate and arbitration and publishes its state, reasons, `/odom`, `/joint_states` and the odom TF. Proposed.
+- New `config/sil_simref.yaml`, `launch/simref_nav2.launch.py`, `scripts/build_simref.sh`; drive emulator subclass: opt-in
+  CiA 402 statusword, commissioned 2000h, transition-delay, abort and heartbeat injections (host mode unchanged).
+- Tests: `test/test_simref_mode.py` (16), `test_integration_simref` (single writer and ten end-to-end cases with Gazebo and
+  Nav2); whole-run bus captures stored as a CI artefact. Simulation only, not safety evidence.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged

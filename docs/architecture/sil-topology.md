@@ -126,6 +126,73 @@ drive. So with `stm32:=renode` the base will not move until the owner's drive co
 The bridge command names above follow the Renode documentation and must be checked against the
 Renode version that the firmware CI pins.
 
+## 4a. Mode stm32:=simref (SIMULATION ONLY reference in the STM32 role)
+
+Status: Proposed. `ros2 launch openamrobot_sil sil.launch.py stm32:=simref [nav2:=true]`.
+
+The process `simref_process` of openamr-platform-fw `tests/sim_reference` takes the STM32
+role on `vcan_drive` (CAN1) and `vcan_aux` (CAN3) in place of the host test client. It is a
+simulation-only reference written by an agent under the platform lead's decision of
+15 Nov 2026: an unapproved interpretation, not production authority, not reviewed for
+safety, and never linked into a board image. The launch file pins the platform-fw commit
+(`SIMREF_FW_SHA` in `launch/sil.launch.py`); `scripts/build_simref.sh` fetches exactly that
+commit, builds the process for the host and writes `simref_process.sha` next to it. The
+launch file refuses a binary with another SHA (BLOCKED).
+
+| Part | What it does in this mode |
+|---|---|
+| `simref_process` | Operating state machine (spec version 2), command watchdog, node 1 heartbeat consumer, boot reads and CiA 402 enable sequence over SDO, wheel targets (60FFh), 606Ch reads, charge request logic, lift permit producer on CAN3 (COB-ID 0x410, SIL layout), CTL-017 NMT start, core heartbeat and command relay. Opens only `vcan*` interfaces. Respawned by the launch file when it exits. |
+| `simref_bridge` node | The only path to the drive: subscribes `/cmd_vel` (the output of the existing stop gate and arbitration, `collision_monitor`) and sends it to the reference. Publishes `/sil/simref/state` (JSON), `/sil/simref/reasons`, `/odom`, `/joint_states` (wheel joints) and the TF `odom` -> `base_footprint`, all computed by the reference from 606Ch. Sets the simulated pins (`/sil/simref/pin`, "name level" pairs: `y32`, `estop_contact`, `reset`, `charger_fault`, `contactor_fb`), supervisory commands (`/sil/simref/supervisory`) and lift commands (`/sil/lift/command`). Sends simulated arm evidence (STOWED). |
+| `simref_nav2.launch.py` (`nav2:=true`) | Nav2 with `openamrobot_nav2/config/nav2_params.yaml` and the remaps of `navigation_launch.py`: controller and behaviors -> `cmd_vel_nav` -> velocity_smoother -> `cmd_vel_smoothed` -> collision_monitor -> `/cmd_vel`. SIL changes only: global frame `odom` (no map, no AMCL), costmaps with the inflation layer only, the collision monitor's scan source has no publisher and no timeout. It sees no obstacle in this mode. |
+| `config/sil_simref.yaml` | `sil.yaml` with: the drive emulator starts commissioned (2000h = 250 ms saved; the reference only reads it) and reports CiA 402 statusword states; permit expiry on the lift node 150 ms, producer period 50 ms. |
+| Drive emulator injections | `delay-transition-<ms>`, `delay-clear`, `abort-enable`, `abort-clear`, `heartbeat-off`, `heartbeat-on` on `/sil/drive/inject`, besides the existing ones. |
+
+Single writer: in this mode exactly one node publishes each of `/cmd_vel` after arbitration
+(`collision_monitor`), `/odom`, `/joint_states` and the odom TF (`sil_simref_bridge`).
+`test_integration_simref` checks it and fails on a second writer. The host test client is not
+started, `/cmd_vel` is not bridged to Gazebo, and Gazebo's DiffDrive odometry stays on
+`/sil/gz/odom`.
+
+Documented reset sequence in this mode: SAFETY_OK high and E-stop released, Jetson Stop
+released (`jetson_stop_release`), RESET pressed (the enable sequence runs while it is held,
+about 0.1 s) and released within 2 s. Nothing enables the drive automatically: not after a
+power cut, a drive restart, a lost drive heartbeat or a restart of the reference process.
+
+Timing values of the reference (each a proposed test value, not approved, in
+`simref_timing.h`): command watchdog 200 ms, drive heartbeat consumer 300 ms, lift permit
+period 50 ms and expiry 150 ms, drive period 20 ms, SDO timeout 50 ms, CiA 402 transition
+limit 100 ms, host session timeout 500 ms.
+
+### 4a.1 Time contract
+
+| Part | Clock | Notes |
+|---|---|---|
+| Gazebo physics, joint states | Gazebo simulation time, published on `/clock` | real-time factor 1.0 |
+| ROS nodes with `use_sim_time` (Nav2, robot_state_publisher, `simref_bridge` stamps of `/odom`, `/joint_states`, TF) | ROS time = `/clock` | stamps only; the bridge forwards what the reference computed |
+| `simref_process` | host `CLOCK_MONOTONIC`, wall rate | every timer of the reference: watchdog, heartbeat consumer, permit period, SDO timeout, transition limit, debounce, RESET timers, odometry integration |
+| Emulators (ZLAC8015D, CTL-017, Daly) | host `time.monotonic()`, wall rate | 2000h link loss, heartbeats, permit expiry on the lift node |
+| `simref_bridge` timers, test probes | host steady clock (`steady_timer`) and `time.time()` for CAN and `/cmd_vel` receipt | |
+
+Allowed skew: the reference and the emulators share one host clock (no skew between them).
+Gazebo and ROS time may lag wall time by the real-time factor deficit; the tests require a
+real-time factor of at least 0.5 (as the host mode) and judge every protocol timing on host
+time, never on ROS time. Between the test's receipt of the last `/cmd_vel` and the bridge's
+receipt the tests allow 15 ms of measurement tolerance. Nothing is synchronised; no lock-step.
+
+### 4a.2 What this mode does not prove
+
+Nothing about the board: not the STM32H723ZG firmware, its timing, its interrupts or its CAN
+peripheral. Nothing about the real ZLAC8015D drive (the emulator's CiA 402 states, 2000h and
+statusword are SIL behaviour), the CTL-017 lift node or the BMS (the reference does not poll
+the BMS in this mode; BMS state is held OK). Nothing about the hardwired stop chain (PNOZ, K1,
+K2, E-stop wiring): Y32, the E-stop contact, RESET, the charger fault and the contactor
+feedback are simulated levels on a socket. Nothing about electrical CAN behaviour: vcan has
+no bit timing, arbitration, error frames or bus-off. Nothing about timing on the
+microcontroller: the reference runs as a Linux process at wall rate. Agreement of the
+reference with the Python model of the specification is not owner approval, and no open
+conflict (C1 to C8) is decided by this mode. It is development evidence only, never safety
+evidence.
+
 ## 5. Host link
 
 The host link carries `/cmd_vel` in and odometry and status out (I8 rev 4 [S2]: `/base/status`
@@ -148,7 +215,7 @@ Three clocks exist.
 |---|---|---|
 | Gazebo simulation time | Gazebo, 1 ms step, real-time factor 1.0 (`worlds/sil_flat.sdf`), on `/clock` | Physics, joint states, stamps of nodes with `use_sim_time` |
 | Renode virtual time | Renode | Everything inside the firmware: its timeouts, its heartbeat, its status stamps |
-| Host monotonic time | Linux | Every timer inside the emulators: heartbeat periods, the 2000h link-loss time, the CTL-017 command deadline and heartbeat consumer, the permit freshness time. The vendored emulators read `time.monotonic()` |
+| Host monotonic time | Linux | Every timer inside the emulators and, in stm32:=simref, inside the reference process (section 4a.1): heartbeat periods, the 2000h link-loss time, the CTL-017 command deadline and heartbeat consumer, the permit freshness time. The vendored emulators read `time.monotonic()` |
 
 A vcan frame carries no time. It is delivered at once.
 

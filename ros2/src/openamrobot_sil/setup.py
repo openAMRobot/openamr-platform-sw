@@ -37,6 +37,7 @@ setup(
             'ctl017_emulator = openamrobot_sil.nodes.ctl017_node:main',
             'daly_bms_emulator = openamrobot_sil.nodes.daly_bms_node:main',
             'stm32_host_client = openamrobot_sil.nodes.stm32_host_client_node:main',
+            'simref_bridge = openamrobot_sil.nodes.simref_bridge_node:main',
         ],
     },
 )

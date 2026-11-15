@@ -31,7 +31,7 @@ env:
 jobs:
   sil-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 80
     steps:
       - name: Check out this repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -58,13 +58,20 @@ jobs:
           $SIL 'apt-get update && apt-get install -y --no-install-recommends \
             python3-colcon-common-extensions python3-pytest python3-yaml python3-can iproute2 procps \
             ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-nav-msgs \
-            ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge'
+            ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge \
+            cmake g++ git ros-jazzy-tf2-ros-py ros-jazzy-navigation2'
           $SIL 'ip -br link show type vcan && python3 -c "import can; print(\"python-can\", can.__version__)"'
 
-      - name: Build openamrobot_description and openamrobot_sil
+      - name: Build openamrobot_sil and the packages it uses
         run: |
           $SIL 'source /opt/ros/jazzy/setup.bash && cd ros2 && \
             colcon build --symlink-install --packages-up-to openamrobot_sil'
+
+      # stm32:=simref: openamr-platform-fw tests/sim_reference at the commit pinned in
+      # launch/sil.launch.py (SIMREF_FW_SHA), built for this host. SIMULATION ONLY.
+      - name: Build the simulation reference process at the pinned platform-fw commit
+        run: |
+          $SIL 'sh ros2/src/openamrobot_sil/scripts/build_simref.sh'
 
       # The two vendored openamr-platform-fw test files, unmodified, on vcan.
       - name: Vendored platform-fw emulator tests on vcan
@@ -86,18 +93,39 @@ jobs:
             SIL_LAUNCH_LOG=/repo/sil-launch.log python3 -m pytest -v -p no:cacheprovider \
               --junitxml=/repo/sil-gazebo.xml ros2/src/openamrobot_sil/test_integration'
 
-      - name: Show the launch log
+      - name: End-to-end tests of stm32:=simref with Gazebo and Nav2 (SIMULATION ONLY reference)
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            SIL_LAUNCH_LOG=/repo/sil-simref-launch.log SIMREF_CAPTURE_DIR=/repo/sil-simref-captures \
+            python3 -m pytest -v -s -p no:cacheprovider \
+              --junitxml=/repo/sil-simref.xml ros2/src/openamrobot_sil/test_integration_simref'
+
+      - name: Show the launch logs
         if: always()
         run: |
           ip -br link show type vcan || true
           tail -n 300 sil-launch.log || true
+          tail -n 400 sil-simref-launch.log || true
+
+      # Whole-run capture of every virtual bus of the simref run (python-can logger format).
+      - name: Store the bus captures and the simref launch log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sil-simref-bus-captures
+          path: |
+            sil-simref-captures/
+            sil-simref-launch.log
+            sil-simref.xml
+          if-no-files-found: warn
 
       # A missing, renamed or skipped test must not pass as a smaller suite.
       - name: Check test counts
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 57, 'sil-gazebo.xml': 4}
+          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 74, 'sil-gazebo.xml': 4,
+                      'sil-simref.xml': 11}
           for name, want in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')
