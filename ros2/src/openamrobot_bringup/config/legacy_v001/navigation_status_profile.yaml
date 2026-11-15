@@ -1,0 +1,55 @@
+# legacy_v001 profile: sensors and motion sources navigation_status_node watches on the v0.0.1
+# (release 001, Gate A) platform. Passed to navigation_launch.py as status_profile_path.
+#
+# Rule: never report a protection state better than it is. The v0.0.1 platform has no base
+# controller status (/base/status), no ToF, no ultrasonic and no rear coverage, so those are
+# reported as missing or UNKNOWN, never as OK.
+profile_id: "legacy_v001"
+thresholds_id: "legacy_v001-v1"   # TODO(Hamed): confirm the stale multiples on the bench
+
+thresholds:
+  sensor_stale_multiple:
+    lidar_nav: 5.0
+    odom: 5.0
+    imu: 5.0
+  moving_speed_mps: 0.02
+  pose_age_moving_s: 5.0
+
+sensors:
+  - id: "lidar_nav"
+    kind: "LIDAR"
+    topic: "/scan_filtered"      # RPLIDAR A1 -> sllidar_ros2 /scan -> scan_body_filter
+    frame_id: "lidar_link"
+    required: true
+    nominal_period_s: 0.1        # TODO(Hamed): measure the A1 rate in Standard mode on the rig
+  - id: "odom"
+    kind: "ODOMETRY"
+    topic: "/odom"               # EKF output (odometry/filtered remapped to /odom)
+    frame_id: "odom"
+    required: true
+    nominal_period_s: 0.0333     # EKF frequency 30 Hz (bringup config/ekf.yaml)
+  - id: "imu"
+    kind: "IMU"
+    topic: "/imu/data"           # deployed Teensy build: no magnetometer -> publishes /imu/data
+    frame_id: "imu_link"
+    required: false              # only gyro z is fused; the EKF still runs on wheel odometry
+    nominal_period_s: 0.02       # Teensy control loop 50 Hz
+
+motion_sources:
+  - source: "NAV_CONTROLLER"
+    coverage: "PARTIAL"          # collision_monitor approach polygon only, no stop zone yet
+  - source: "RECOVERY"
+    coverage: "UNPROTECTED"
+  - source: "DOCKING"
+    coverage: "UNPROTECTED"      # docking is not started in this profile
+  - source: "UNDOCK_REVERSE"
+    coverage: "UNPROTECTED"      # not started in this profile
+  - source: "TELEOP"
+    coverage: "UNPROTECTED"
+  - source: "PARKING"
+    coverage: "UNKNOWN"
+
+rear_coverage: "UNAVAILABLE"     # the A1 rear sector is masked by scan_body_filter
+
+heartbeat_hz: 2.0
+recovery_attempt_limit: 6
