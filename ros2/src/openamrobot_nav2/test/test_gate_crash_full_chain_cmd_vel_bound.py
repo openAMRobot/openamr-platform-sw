@@ -344,7 +344,11 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
         field_index is 1 for linear.x, 2 for angular.z (the tuple shape
         stashed by the 'cmd_vel' subscription in setUp) - shared by both
         the linear and rotation cases below, which differ only in which
-        command/field they drive and check.
+        command/field they drive and check. Returns the measured bound_s
+        (platform-sw#90, Alex's review: "run it 20 times on hosted CI and
+        post min, median, max") in addition to asserting it, so a repeat
+        runner can collect samples across many setUp/tearDown cycles
+        without changing this test's own single-run pass/fail semantics.
         """
         # Drive a steady nonzero command through the full chain and confirm
         # it actually reaches the final /cmd_vel before crashing anything -
@@ -400,12 +404,14 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
             f'the last nonzero /cmd_vel.{field_name} message arrived {bound_s:.3f}s after '
             f'the gate process was killed - exceeds the {_KILL_TO_LAST_NONZERO_BOUND_S}s '
             "bound (platform-sw#90, Alex's 13 Nov review, item 6)")
+        return bound_s
 
     def test_last_nonzero_cmd_vel_after_a_gate_crash_is_within_half_a_second(self):
         self._bring_up_and_release()
         nav_cmd = Twist()
         nav_cmd.linear.x = 0.2
-        self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 1, 'linear.x')
+        bound_s = self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 1, 'linear.x')
+        print(f'\nlinear.x kill-to-last-nonzero bound_s={bound_s:.4f}')
 
     def test_last_nonzero_angular_z_after_a_gate_crash_is_within_half_a_second(self):
         # panthera-momagdii's #90 review on d29dfc0: the linear case above
@@ -422,7 +428,8 @@ class TestGateCrashCmdVelBound(unittest.TestCase):
         self._bring_up_and_release()
         nav_cmd = Twist()
         nav_cmd.angular.z = 0.5
-        self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 2, 'angular.z')
+        bound_s = self._assert_kill_to_last_nonzero_within_bound(nav_cmd, 2, 'angular.z')
+        print(f'\nangular.z kill-to-last-nonzero bound_s={bound_s:.4f}')
 
     def test_stop_lock_invariants_cmd_vel_check_passes_against_the_real_chain(self):
         # panthera-momagdii's #90 review on d29dfc0: the /cmd_vel/

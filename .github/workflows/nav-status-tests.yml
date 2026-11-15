@@ -132,7 +132,16 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_navigation_launch_navigate_through_poses_proxy_remap.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_waypoint_follower_server_absent.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_bt_xml_resolves_to_no_backup.py \
-            ros2/src/openamrobot_nav2/test/test_navigation_launch_behavior_server_direct_actions_absent.py
+            ros2/src/openamrobot_nav2/test/test_navigation_launch_behavior_server_direct_actions_absent.py \
+            ros2/src/openamrobot_nav2/test/test_goal_pose_forwarder_full_chain.py
+          # (platform-sw#90/#124, Alex's 14 Nov review): the five tests covering the
+          # goal_pose_forwarder_node contract (Nikolai's own repro, Stop-rejects, Stop-
+          # during-goal-then-Resume, two-poses-in-a-row, zero-publishers-on-bt_navigator's-
+          # own-goal-topic). Each confirmed to fail against the OLD topic_tools relay
+          # (RED-verified manually, not itself part of this hosted list - the relay never
+          # creates a node named goal_pose_forwarder this file's own readiness wait checks
+          # for, so a meaningful RED run needs its own standalone script, not this suite).
+          #
           # (platform-sw#90, Alex's 13 Nov review, item 4): the five tests
           # above that need a real bt_navigator - the two proxy-remap tests
           # plus the three "absence" tests - now run hosted, now that

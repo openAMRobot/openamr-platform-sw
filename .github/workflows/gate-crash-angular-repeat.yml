@@ -1,0 +1,105 @@
+name: gate-crash-angular-repeat
+
+# platform-sw#90, Alex's owner-decision review on head 162a19a, item 6:
+# "The gate-kill test calculates about 0.47 s against the 0.5 s bound.
+# @skunal3318, please run it 20 times on hosted CI and post min, median,
+# and max. The bound does not change. If the spread touches 0.5 s we talk
+# about the cause, not the number."
+#
+# A dedicated workflow, not folded into nav-status-tests.yml's own job:
+# this is one-off evidence collection for a specific review ask, not a
+# permanent per-PR gate - running the full chain-startup/teardown 20 times
+# on every push would add several minutes to every hosted run for no
+# ongoing benefit once this evidence is posted. manual-dispatch only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Same temporary pin as nav-status-tests.yml - see that file's own
+  # comment. Keep both in sync until interfaces#35 merges.
+  INTERFACES_REPO: skunal3318/openamrobot-interfaces
+  INTERFACES_REF: cb83b228b2e01dd795bde729d0097869ee18c9a6
+
+jobs:
+  angular-repeat:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-yaml \
+            ros-jazzy-nav2-msgs \
+            ros-jazzy-tf2-ros \
+            ros-jazzy-tf2-ros-py \
+            ros-jazzy-twist-mux \
+            ros-jazzy-nav2-velocity-smoother \
+            ros-jazzy-nav2-collision-monitor
+
+      - name: Build openamr_nav_msgs and the producer
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p ws/src
+          cp -r interfaces/ros2/openamr_nav_msgs ws/src/
+          cp -r ros2/src/openamrobot_nav2 ws/src/
+          cd ws
+          colcon build --packages-select openamr_nav_msgs openamrobot_nav2
+
+      # 20 separate pytest invocations, not one invocation repeating the
+      # same test method with a loop: each run needs its own fresh
+      # setUp/tearDown (5 new subprocesses, a fresh gate to kill) - running
+      # them inside one process/one setUp would not be the same scenario
+      # the review is asking about.
+      - name: Run the angular gate-crash case 20 times
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          : > bounds.txt
+          for i in $(seq 1 20); do
+            echo "=== run $i ==="
+            out=$(python3 -m pytest -s \
+              ros2/src/openamrobot_nav2/test/test_gate_crash_full_chain_cmd_vel_bound.py::TestGateCrashCmdVelBound::test_last_nonzero_angular_z_after_a_gate_crash_is_within_half_a_second \
+              2>&1)
+            echo "$out"
+            value=$(echo "$out" | grep -oP 'angular\.z kill-to-last-nonzero bound_s=\K[0-9.]+')
+            if [ -z "$value" ]; then
+              echo "FAIL: run $i produced no bound_s value - treating the whole evidence set as inconclusive"
+              exit 1
+            fi
+            echo "$value" >> bounds.txt
+          done
+          echo "=== all 20 runs' bound_s values ==="
+          cat bounds.txt
+
+      - name: Compute min / median / max
+        shell: bash
+        run: |
+          python3 - << 'PYEOF'
+          import statistics
+          values = [float(line) for line in open('bounds.txt') if line.strip()]
+          assert len(values) == 20, f'expected 20 values, got {len(values)}'
+          values.sort()
+          print(f'n={len(values)}')
+          print(f'min={min(values):.4f}')
+          print(f'median={statistics.median(values):.4f}')
+          print(f'max={max(values):.4f}')
+          print(f'all values (sorted): {values}')
+          PYEOF

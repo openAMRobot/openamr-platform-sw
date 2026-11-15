@@ -226,20 +226,33 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
-                # goal_pose is remapped to goal_pose_nav so the docking node can
-                # gate it: it owns /goal_pose, undocks first if the robot is
-                # docked, then republishes here for Nav2. See openamrobot_docking
-                # dock_trigger.py (undock-before-navigate). navigate_to_pose and
-                # navigate_through_poses are each remapped to their own _real
-                # name so navigate_to_pose_goal_proxy_node.py/
-                # navigate_through_poses_goal_proxy_node.py can claim the public
-                # names instead (platform-sw#124, D-13: "one platform node that
-                # owns the goal handles") - every existing sender (dock_trigger.py's
-                # own ActionClient, openamrobot-ui's direct one) keeps calling the
-                # same name and is transparently redirected through the proxy, no
-                # change needed in either.
+                # goal_pose is remapped to goal_pose_bt_navigator_unused - a name
+                # NOTHING publishes to, in either profile (platform-sw#90/#124,
+                # Alex's 14 Nov review, following Nikolai's 14 Nov Gazebo
+                # reproduction): bt_navigator's own internal self_client_ bypasses
+                # navigate_to_pose_goal_proxy_node.py entirely for any goal that
+                # reaches it this way, which is exactly the defect Nikolai's
+                # reproduction confirmed (the public navigate_to_pose action's own
+                # status/cancel saw nothing for a UI goal sent this path). The
+                # nav-only profile's forwarder (goal_pose_forwarder_node.py) now
+                # sends every /goal_pose as a real NavigateToPose goal on the
+                # PUBLIC navigate_to_pose name instead, through the proxy like any
+                # other client. This DOES orphan the docking node's own forward
+                # target (dock_trigger.py still publishes to goal_pose_nav, which
+                # now has no subscriber) - deliberately out of scope here per
+                # Alex's review ("the docking helper's /goal_pose path is not part
+                # of this PR"), harmless today since Build 1 ships use_docking:=
+                # false, and left for #124's own dock proxy to give docking the
+                # same proxy-based path. navigate_to_pose and navigate_through_
+                # poses are each remapped to their own _real name so navigate_to_
+                # pose_goal_proxy_node.py/navigate_through_poses_goal_proxy_node.py
+                # can claim the public names instead (platform-sw#124, D-13: "one
+                # platform node that owns the goal handles") - every sender that
+                # calls those two names directly (not through goal_pose) keeps
+                # calling the same name and is transparently redirected through
+                # the proxy, no change needed there.
                 remappings=remappings + [
-                    ('goal_pose', 'goal_pose_nav'),
+                    ('goal_pose', 'goal_pose_bt_navigator_unused'),
                     ('navigate_to_pose', 'navigate_to_pose_real'),
                     ('navigate_through_poses', 'navigate_through_poses_real'),
                 ],
@@ -465,12 +478,12 @@ def generate_launch_description():
                         plugin='nav2_bt_navigator::BtNavigator',
                         name='bt_navigator',
                         parameters=[configured_params],
-                        # See the non-composed bt_navigator above: goal_pose is
-                        # gated through the docking node for undock-before-navigate,
-                        # navigate_to_pose/navigate_through_poses through their
-                        # own goal_proxy_node.
+                        # See the non-composed bt_navigator above: goal_pose
+                        # remapped to a name nothing publishes to (platform-sw#90,
+                        # Alex's 14 Nov review), navigate_to_pose/
+                        # navigate_through_poses through their own goal_proxy_node.
                         remappings=remappings + [
-                            ('goal_pose', 'goal_pose_nav'),
+                            ('goal_pose', 'goal_pose_bt_navigator_unused'),
                             ('navigate_to_pose', 'navigate_to_pose_real'),
                             ('navigate_through_poses', 'navigate_through_poses_real'),
                         ],
