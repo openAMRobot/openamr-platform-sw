@@ -66,9 +66,19 @@ class FwProbe(Node):
     def command(self, text):
         self.cmd_pub.publish(String(data=text))
 
-    def banners(self):
+    def boots(self):
+        """Boots the node has seen, from /sil/fw/status (republished every 200 ms, so a probe
+        that subscribed after a banner still sees it; console messages are not replayed)."""
+        return list((self.status or {}).get('boots', []))
+
+    def banner(self):
+        return (self.status or {}).get('banner')
+
+    def boot_lines(self, boot_id, t0):
+        """Status lines of boot boot_id that arrived after t0, in order."""
         with self.lock:
-            return [(t, r) for t, r in self.records if r['t'] == 'boot']
+            return [r for t, r in self.records
+                    if t >= t0 and r['t'] == 'st' and r.get('boot') == boot_id]
 
     def lines_after(self, t0):
         with self.lock:
@@ -105,14 +115,16 @@ class Spinner:
 
 
 def run_after_banner(probe, command, timeout=120.0):
-    """Send command ('reset' or 'restart'); return (banner before, new banner, its time)."""
-    before = probe.banners()
-    assert before, 'no banner before %s' % command
+    """Send command ('reset' or 'restart'); return (boot before, new boot, time of the command).
+
+    A boot is the node's record {renode_start, boot, boot_record, ...} of one banner."""
+    assert probe.wait(lambda: probe.boots(), 30.0), 'no boot before %s' % command
+    before = probe.boots()
+    t_cmd = time.monotonic()
     probe.command(command)
-    assert probe.wait(lambda: len(probe.banners()) > len(before), timeout), (
+    assert probe.wait(lambda: len(probe.boots()) > len(before), timeout), (
         'no new banner %.0f s after %s' % (timeout, command))
-    t_new, new = probe.banners()[len(before)]
-    return before[-1][1], new, t_new
+    return before[-1], probe.boots()[len(before)], t_cmd
 
 
 def is_nan(x):

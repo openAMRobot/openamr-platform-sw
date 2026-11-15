@@ -66,7 +66,8 @@ def fw():
 
 
 def test_banner_is_the_pinned_renode_test_build(fw, record_property):
-    t, banner = fw.banners()[0]
+    assert fw.wait(lambda: fw.banner() is not None, 30.0)
+    banner = fw.banner()
     record_property('fw_commit', renode_fw.FW_COMMIT)
     record_property('fw_preset', renode_fw.FW_PRESET)
     record_property('banner_commit', banner['commit'])
@@ -108,9 +109,9 @@ def after_reset(fw):
 
 
 def test_machine_reset_restarts_the_sequence_from_zero(fw, after_reset):
-    _, new, t_new = after_reset
-    assert fw.wait(lambda: len(fw.lines_after(t_new)) >= 5, 60.0)
-    seqs = [r['seq'] for _, r in fw.lines_after(t_new)]
+    _, new, t_cmd = after_reset
+    assert fw.wait(lambda: len(fw.boot_lines(new['boot'], t_cmd)) >= 5, 60.0)
+    seqs = [r['seq'] for r in fw.boot_lines(new['boot'], t_cmd)]
     assert seqs[0] == 0 and seqs == list(range(len(seqs))), seqs[:10]
 
 
@@ -126,9 +127,9 @@ def after_restart(fw, after_reset):
 
 
 def test_fresh_renode_start_restarts_the_sequence_from_zero(fw, after_restart):
-    _, new, t_new = after_restart
-    assert fw.wait(lambda: len(fw.lines_after(t_new)) >= 5, 60.0)
-    seqs = [r['seq'] for _, r in fw.lines_after(t_new)]
+    _, new, t_cmd = after_restart
+    assert fw.wait(lambda: len(fw.boot_lines(new['boot'], t_cmd)) >= 5, 60.0)
+    seqs = [r['seq'] for r in fw.boot_lines(new['boot'], t_cmd)]
     assert seqs[0] == 0 and seqs == list(range(len(seqs))), seqs[:10]
 
 
