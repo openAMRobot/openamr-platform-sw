@@ -52,6 +52,12 @@ Notes:
 
 - The three base buses stay separate, as on the robot [S1]. Nothing in this package bridges
   two vcan interfaces.
+- Frame size. `scripts/sil_vcan.sh` sets MTU 16 (classic CAN frame) on the three base buses,
+  because all three are classic CAN [S1]. A CAN FD frame cannot be sent on them. A CAN FD bus
+  (the arm buses, not created here) takes `IFACE:fd` and MTU 72.
+- Guard. The emulators, the host test client and the script accept an interface only if its
+  name starts with `vcan`, its device is under `/sys/devices/virtual/net/` and its link type is
+  CAN. A hardware adapter renamed to a vcan name is refused.
 - A vcan interface has no bit timing, no arbitration delay, no error frames and no bus-off.
   The bitrates above are documentation of the real bus. They are not enforced or tested here.
 - I8 rev 4 [S2] defines the host interface of the base controller. It states no CAN node ID
