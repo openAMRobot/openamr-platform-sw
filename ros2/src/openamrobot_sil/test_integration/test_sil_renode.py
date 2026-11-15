@@ -44,7 +44,8 @@ class Probe(FwProbe):
                 t, json.loads(m.data)), 10)
         self.create_subscription(JointState, '/sil/gz/joint_states',
                                  lambda m: self.last.__setitem__('joints', m), 10)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        # not cmd_pub: that is FwProbe's /sil/fw/command publisher
+        self.twist_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.inject_pub = self.create_publisher(String, '/sil/drive/inject', 10)
         self.create_timer(0.05, self.send_cmd)
 
@@ -52,7 +53,7 @@ class Probe(FwProbe):
         if self.cmd is not None:
             msg = Twist()
             msg.linear.x, msg.angular.z = self.cmd
-            self.cmd_pub.publish(msg)
+            self.twist_pub.publish(msg)
 
     def gz_wheels(self):
         joints = self.last['joints']
