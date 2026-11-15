@@ -111,4 +111,6 @@ fi
   echo "SIL_FW_COMMIT=$FW_COMMIT"
   echo "SIL_FW_PRESET=$FW_PRESET"
   echo "SIL_FW_ELF_SHA256=$(sha256sum "$elf" | cut -d' ' -f1)"
+  [ "$uros" = 1 ] && echo "SIL_FW_ELF_UROS_SHA256=$(sha256sum "$fw/$FW_ELF_UROS" | cut -d' ' -f1)"
+  [ "$uros" = 1 ] && echo "SIL_UROS_AGENT_SHA256=$(sha256sum "$bin" | cut -d' ' -f1)"
 } | tee "$out/sil_renode.env"
