@@ -78,8 +78,18 @@ if [ "$uros" = 1 ]; then
   [ -f "$fw/$FW_ELF_UROS" ] || { echo "FAILED: no $fw/$FW_ELF_UROS" >&2; exit 1; }
   echo "building the micro-ROS agent ($FW_UROS_AGENT_SCRIPT at $FW_COMMIT)" >&2
   bash "$fw/$FW_UROS_AGENT_SCRIPT" "$out/agent_ws" >&2
-  agent="$out/agent_ws/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
-  [ -x "$agent" ] || { echo "FAILED: no $agent" >&2; exit 1; }
+  bin="$out/agent_ws/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+  [ -x "$bin" ] || { echo "FAILED: no $bin" >&2; exit 1; }
+  # The agent needs its workspace's libraries (micro_ros_msgs type support): a wrapper sources
+  # that workspace, so a caller with only ROS 2 sourced can start it.
+  agent="$out/micro_ros_agent.sh"
+  cat > "$agent" <<WRAP
+#!/usr/bin/env bash
+set +u
+. "$out/agent_ws/install/setup.bash"
+exec "$bin" "\$@"
+WRAP
+  chmod +x "$agent"
 fi
 
 renode_dir="$out/renode"
