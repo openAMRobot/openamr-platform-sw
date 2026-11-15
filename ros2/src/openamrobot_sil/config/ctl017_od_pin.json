@@ -1,0 +1,1154 @@
+{
+ "cob_ids": {
+  "EMCY": "0x090",
+  "Heartbeat CTL-017": "0x710",
+  "Heartbeat consumed": "0x701",
+  "NMT": "0x000",
+  "RPDO1 LiftCommand": "0x210",
+  "RPDO2 AuxCommand": "0x310",
+  "SDO server": "rx 0x610, tx 0x590",
+  "TPDO1 LiftStatus": "0x190",
+  "TPDO2 LiftStatus2": "0x290"
+ },
+ "commit": "1a68c50c71902d1d9d7903e7bb47b6b6efa4d9fc",
+ "objects": [
+  {
+   "access": "const",
+   "default": 0,
+   "index": 4096,
+   "name": "Device type",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4097,
+   "name": "Error register",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw",
+   "default": 0,
+   "index": 4099,
+   "name": "Pre-defined error field: number of errors",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 1",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 2",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 3",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 4",
+   "pdo": false,
+   "sub": 4,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 5",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 6",
+   "pdo": false,
+   "sub": 6,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 7",
+   "pdo": false,
+   "sub": 7,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4099,
+   "name": "Standard error field 8",
+   "pdo": false,
+   "sub": 8,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 144,
+   "index": 4116,
+   "name": "COB-ID EMCY",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 1,
+   "index": 4118,
+   "name": "Consumer heartbeat time: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw",
+   "default": 65836,
+   "index": 4118,
+   "name": "Consumer heartbeat time 1 (bits 16-23 node-ID, bits 0-15 ms)",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "rw",
+   "default": 100,
+   "index": 4119,
+   "name": "Producer heartbeat time (ms)",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 4,
+   "index": 4120,
+   "name": "Identity: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 0,
+   "index": 4120,
+   "name": "Vendor-ID",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 17,
+   "index": 4120,
+   "name": "Product code",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 65536,
+   "index": 4120,
+   "name": "Revision number",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 4120,
+   "name": "Serial number",
+   "pdo": false,
+   "sub": 4,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 5,
+   "index": 5120,
+   "name": "RPDO1 comm: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 528,
+   "index": 5120,
+   "name": "RPDO1 COB-ID",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 254,
+   "index": 5120,
+   "name": "RPDO1 transmission type",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 300,
+   "index": 5120,
+   "name": "RPDO1 event timer: command deadline (ms)",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 5,
+   "index": 5121,
+   "name": "RPDO2 comm: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 784,
+   "index": 5121,
+   "name": "RPDO2 COB-ID",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 254,
+   "index": 5121,
+   "name": "RPDO2 transmission type",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 0,
+   "index": 5121,
+   "name": "RPDO2 event timer (ms, 0 = no deadline)",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 5632,
+   "name": "RPDO1 mapping: number of entries",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 537919752,
+   "index": 5632,
+   "name": "RPDO1 mapping 1",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 537920008,
+   "index": 5632,
+   "name": "RPDO1 mapping 2",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 537920264,
+   "index": 5632,
+   "name": "RPDO1 mapping 3",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 5633,
+   "name": "RPDO2 mapping: number of entries",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 537985288,
+   "index": 5633,
+   "name": "RPDO2 mapping 1",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 537985544,
+   "index": 5633,
+   "name": "RPDO2 mapping 2",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 537985800,
+   "index": 5633,
+   "name": "RPDO2 mapping 3",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 5,
+   "index": 6144,
+   "name": "TPDO1 comm: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 1073742224,
+   "index": 6144,
+   "name": "TPDO1 COB-ID",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 254,
+   "index": 6144,
+   "name": "TPDO1 transmission type",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 100,
+   "index": 6144,
+   "name": "TPDO1 inhibit time (100 us)",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw",
+   "default": 100,
+   "index": 6144,
+   "name": "TPDO1 event timer (ms)",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 5,
+   "index": 6145,
+   "name": "TPDO2 comm: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 1073742480,
+   "index": 6145,
+   "name": "TPDO2 COB-ID",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 254,
+   "index": 6145,
+   "name": "TPDO2 transmission type",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 100,
+   "index": 6145,
+   "name": "TPDO2 inhibit time (100 us)",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw",
+   "default": 100,
+   "index": 6145,
+   "name": "TPDO2 event timer (ms)",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 7,
+   "index": 6656,
+   "name": "TPDO1 mapping: number of entries",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 536871176,
+   "index": 6656,
+   "name": "TPDO1 mapping 1",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536871432,
+   "index": 6656,
+   "name": "TPDO1 mapping 2",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536871696,
+   "index": 6656,
+   "name": "TPDO1 mapping 3",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536871944,
+   "index": 6656,
+   "name": "TPDO1 mapping 4",
+   "pdo": false,
+   "sub": 4,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536872200,
+   "index": 6656,
+   "name": "TPDO1 mapping 5",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536872456,
+   "index": 6656,
+   "name": "TPDO1 mapping 6",
+   "pdo": false,
+   "sub": 6,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536872712,
+   "index": 6656,
+   "name": "TPDO1 mapping 7",
+   "pdo": false,
+   "sub": 7,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 6,
+   "index": 6657,
+   "name": "TPDO2 mapping: number of entries",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 536936712,
+   "index": 6657,
+   "name": "TPDO2 mapping 1",
+   "pdo": false,
+   "sub": 1,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536936968,
+   "index": 6657,
+   "name": "TPDO2 mapping 2",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536937232,
+   "index": 6657,
+   "name": "TPDO2 mapping 3",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536937488,
+   "index": 6657,
+   "name": "TPDO2 mapping 4",
+   "pdo": false,
+   "sub": 4,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536937736,
+   "index": 6657,
+   "name": "TPDO2 mapping 5",
+   "pdo": false,
+   "sub": 5,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 536937992,
+   "index": 6657,
+   "name": "TPDO2 mapping 6",
+   "pdo": false,
+   "sub": 6,
+   "type": "UNSIGNED32"
+  },
+  {
+   "access": "const",
+   "default": 7,
+   "index": 8192,
+   "name": "LiftStatus: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "state",
+   "pdo": true,
+   "sub": 1,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "flags",
+   "pdo": true,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "position (0.1 mm above lower end, 0xFFFF unknown)",
+   "pdo": true,
+   "sub": 3,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "active_stop_id (0xFF none)",
+   "pdo": true,
+   "sub": 4,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "last_seq",
+   "pdo": true,
+   "sub": 5,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "cmd_result (0xFF none since start-up)",
+   "pdo": true,
+   "sub": 6,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8192,
+   "name": "status_counter",
+   "pdo": true,
+   "sub": 7,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 6,
+   "index": 8193,
+   "name": "LiftStatus2: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "inputs (stop sensors, second E-stop, Hall supply, spares)",
+   "pdo": true,
+   "sub": 1,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "target_stop_id (0xFF none)",
+   "pdo": true,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "motor current (mA)",
+   "pdo": true,
+   "sub": 3,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "velocity (0.1 mm/s, positive up)",
+   "pdo": true,
+   "sub": 4,
+   "type": "INTEGER16"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "faults F01..F08 (bit n-1 = Fn)",
+   "pdo": true,
+   "sub": 5,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8193,
+   "name": "aux flags (F09, head light on, Getac enable)",
+   "pdo": true,
+   "sub": 6,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8194,
+   "name": "Lift fault bitmask (bit n-1 = Fn)",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 8208,
+   "name": "LiftCommand: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rww (RPDO only)",
+   "default": 0,
+   "index": 8208,
+   "name": "seq",
+   "pdo": true,
+   "sub": 1,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rww (RPDO only)",
+   "default": 0,
+   "index": 8208,
+   "name": "op (0 STOP, 1 MOVE_TO_STOP, 2 CLEAR_FAULT, 3 START_HOMING)",
+   "pdo": true,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rww (RPDO only)",
+   "default": 0,
+   "index": 8208,
+   "name": "stop_id (0 L1000, 1 L1175, 2 L1350)",
+   "pdo": true,
+   "sub": 3,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 8209,
+   "name": "AuxCommand: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw",
+   "default": 0,
+   "index": 8209,
+   "name": "head light on (0/1)",
+   "pdo": true,
+   "sub": 1,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw",
+   "default": 100,
+   "index": 8209,
+   "name": "head light dim level (0..100 %)",
+   "pdo": true,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw",
+   "default": 0,
+   "index": 8209,
+   "name": "Getac power or charging enable (0/1)",
+   "pdo": true,
+   "sub": 3,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 8448,
+   "name": "Stop positions: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 5000,
+   "index": 8448,
+   "name": "stop 0 L1000 position (um above lower end)",
+   "pdo": false,
+   "sub": 1,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 180000,
+   "index": 8448,
+   "name": "stop 1 L1175 position (um above lower end)",
+   "pdo": false,
+   "sub": 2,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 355000,
+   "index": 8448,
+   "name": "stop 2 L1350 position (um above lower end)",
+   "pdo": false,
+   "sub": 3,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "const",
+   "default": 32,
+   "index": 8449,
+   "name": "Lift parameters: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 209200,
+   "index": 8449,
+   "name": "hall_nm_per_count",
+   "pdo": false,
+   "sub": 1,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 1,
+   "index": 8449,
+   "name": "hall_count_up_positive",
+   "pdo": false,
+   "sub": 2,
+   "type": "BOOLEAN"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 2000,
+   "index": 8449,
+   "name": "stop_tol_um",
+   "pdo": false,
+   "sub": 3,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 2000,
+   "index": 8449,
+   "name": "xcheck_tol_um",
+   "pdo": false,
+   "sub": 4,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 0,
+   "index": 8449,
+   "name": "sensor_edge_offset_up_um",
+   "pdo": false,
+   "sub": 5,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 0,
+   "index": 8449,
+   "name": "sensor_edge_offset_down_um",
+   "pdo": false,
+   "sub": 6,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 0,
+   "index": 8449,
+   "name": "stop_lead_um",
+   "pdo": false,
+   "sub": 7,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 3000,
+   "index": 8449,
+   "name": "sensor_overrun_um",
+   "pdo": false,
+   "sub": 8,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 1000,
+   "index": 8449,
+   "name": "duty_move_permille",
+   "pdo": false,
+   "sub": 9,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 500,
+   "index": 8449,
+   "name": "duty_homing_permille",
+   "pdo": false,
+   "sub": 10,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 18000,
+   "index": 8449,
+   "name": "move_speed_um_s",
+   "pdo": false,
+   "sub": 11,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 9000,
+   "index": 8449,
+   "name": "homing_speed_um_s",
+   "pdo": false,
+   "sub": 12,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 200,
+   "index": 8449,
+   "name": "hall_window_ms",
+   "pdo": false,
+   "sub": 13,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 300,
+   "index": 8449,
+   "name": "hall_start_grace_ms",
+   "pdo": false,
+   "sub": 14,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 43,
+   "index": 8449,
+   "name": "move_rate_min_cps",
+   "pdo": false,
+   "sub": 15,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 130,
+   "index": 8449,
+   "name": "move_rate_max_cps",
+   "pdo": false,
+   "sub": 16,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 15,
+   "index": 8449,
+   "name": "homing_rate_min_cps",
+   "pdo": false,
+   "sub": 17,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 86,
+   "index": 8449,
+   "name": "homing_rate_max_cps",
+   "pdo": false,
+   "sub": 18,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 300,
+   "index": 8449,
+   "name": "stall_ms",
+   "pdo": false,
+   "sub": 19,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 10,
+   "index": 8449,
+   "name": "wrong_dir_counts",
+   "pdo": false,
+   "sub": 20,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 150,
+   "index": 8449,
+   "name": "travel_timeout_factor_pct",
+   "pdo": false,
+   "sub": 21,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 2000,
+   "index": 8449,
+   "name": "travel_timeout_margin_ms",
+   "pdo": false,
+   "sub": 22,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 7000,
+   "index": 8449,
+   "name": "overcurrent_ma",
+   "pdo": false,
+   "sub": 23,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 100,
+   "index": 8449,
+   "name": "overcurrent_ms",
+   "pdo": false,
+   "sub": 24,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 200,
+   "index": 8449,
+   "name": "inrush_blank_ms",
+   "pdo": false,
+   "sub": 25,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 5,
+   "index": 8449,
+   "name": "sensor_debounce_ms",
+   "pdo": false,
+   "sub": 26,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 100,
+   "index": 8449,
+   "name": "standstill_quiet_ms",
+   "pdo": false,
+   "sub": 27,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 500,
+   "index": 8449,
+   "name": "standstill_timeout_ms",
+   "pdo": false,
+   "sub": 28,
+   "type": "UNSIGNED16"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 0,
+   "index": 8449,
+   "name": "end_switches_wired",
+   "pdo": false,
+   "sub": 29,
+   "type": "BOOLEAN"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 1,
+   "index": 8449,
+   "name": "homing_continue_to_stop0",
+   "pdo": false,
+   "sub": 30,
+   "type": "BOOLEAN"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 0,
+   "index": 8449,
+   "name": "stop_mode_brake",
+   "pdo": false,
+   "sub": 31,
+   "type": "BOOLEAN"
+  },
+  {
+   "access": "rw (PRE-OP only)",
+   "default": 1,
+   "index": 8449,
+   "name": "rereference_on_sensor",
+   "pdo": false,
+   "sub": 32,
+   "type": "BOOLEAN"
+  },
+  {
+   "access": "const",
+   "default": 3,
+   "index": 8960,
+   "name": "Diagnostics: highest sub-index",
+   "pdo": false,
+   "sub": 0,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8960,
+   "name": "Hall count (raw)",
+   "pdo": false,
+   "sub": 1,
+   "type": "INTEGER32"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8960,
+   "name": "Reset cause (board port, TODO(Evans) encoding)",
+   "pdo": false,
+   "sub": 2,
+   "type": "UNSIGNED8"
+  },
+  {
+   "access": "ro",
+   "default": 0,
+   "index": 8960,
+   "name": "RPDO length errors",
+   "pdo": false,
+   "sub": 3,
+   "type": "UNSIGNED32"
+  }
+ ],
+ "path": "docs/ctl017_object_dictionary.md",
+ "repository": "openAMRobot/openamr-upperbody-fw",
+ "sha256": "2a16367fa553f587f44bd5ebb0f9fa38fd9a3d1b79d8325c78a915a703e31b94",
+ "status": "proposal v1, not adopted by its owner, not hardware-tested"
+}

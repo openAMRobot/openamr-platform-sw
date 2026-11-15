@@ -23,6 +23,7 @@ import can
 from geometry_msgs.msg import Twist
 import pytest
 import rclpy
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Int8, String
 
@@ -56,6 +57,12 @@ class Probe(FwProbe):
             self.create_subscription(String, topic, lambda m, t=topic: self.last.__setitem__(
                 t, json.loads(m.data)), 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
+        for topic in ('/odom', '/sil/gz/odom', '/sil/fw/odom'):
+            self.create_subscription(Odometry, topic, lambda m, t=topic: self.last.__setitem__(
+                t, m), 10)
+        self.create_subscription(String, '/sil/fw/odom_state', lambda m: self.last.__setitem__(
+            'odom_state', json.loads(m.data)), 10)
+        self.clock = []        # (wall monotonic s, Gazebo time s), from the joint state stamps
         # not cmd_pub: that is FwProbe's /sil/fw/command publisher
         self.twist_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.inject_pub = self.create_publisher(String, '/sil/drive/inject', 10)
@@ -65,10 +72,25 @@ class Probe(FwProbe):
 
     def on_joints(self, msg):
         self.last['joints'] = msg
+        stamp = msg.header.stamp
+        with self.lock:
+            self.clock.append((time.monotonic(), stamp.sec + stamp.nanosec / 1e9))
+            del self.clock[:-3000]
         names = list(msg.name)
         if 'lift_joint' in names:
             with self.lock:
                 self.lift_joint.append((time.monotonic(), msg.position[names.index('lift_joint')]))
+
+    def gazebo_rtf(self, seconds):
+        """Gazebo real-time factor over the last `seconds` of wall time: Gazebo time of the
+        joint state stamps (100 Hz) against the wall time they arrived at."""
+        with self.lock:
+            window = [c for c in self.clock if c[0] >= self.clock[-1][0] - seconds]
+        (w0, g0), (w1, g1) = window[0], window[-1]
+        return (g1 - g0) / (w1 - w0), w1 - w0
+
+    def publishers(self, topic):
+        return sorted(info.node_name for info in self.get_publishers_info_by_topic(topic))
 
     def send_cmd(self):
         if self.cmd is not None:
@@ -149,7 +171,7 @@ def sil():
     with open(LOG, 'w', encoding='utf-8') as log:
         launch = subprocess.Popen(
             ['ros2', 'launch', 'openamrobot_sil', 'sil.launch.py', 'stm32:=renode_readonly',
-             'capture_file:=%s' % CAPTURE, 'renode_work_dir:=%s' % WORK],
+             'capture_file:=%s' % CAPTURE, 'renode_work_dir:=%s' % WORK, 'robot_state:=true'],
             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     rclpy.init()
     probe = Probe()
@@ -336,6 +358,91 @@ def test_ratio_of_renode_time_to_wall_time_is_reported(sil, record_property):
     assert 0.0 < ratio < 1.5
 
 
+def test_agent_talks_to_the_image_through_the_pty_relay(sil):
+    """USART3 of the image is not handed to the agent directly. The relay drains Renode's
+    pseudo-terminal and carries the XRCE bytes both ways; the agent sits on the relay's link."""
+    relay = sil.status['relay']
+    print('pty relay: %s' % relay)
+    assert sil.status['agent_running'] and relay['opened'] and relay['alive']
+    assert relay['link'].endswith('.link') and relay['renode_pty'].endswith('.pty')
+    assert relay['to_host_bytes'] > 1000 and relay['to_fw_bytes'] > 50
+    assert relay['errors'] == 0, relay
+    before = relay['to_host_bytes']
+    assert sil.wait(lambda: sil.status['relay']['to_host_bytes'] > before + 1000, 10.0)
+
+
+def test_bus_loss_on_fdcan1_gives_lost_heartbeat_and_nan_wheels_then_recovers(sil):
+    """FDCAN1 is detached from its hub inside Renode: the image is cut off from vcan_drive
+    while the drive emulator and the host client go on."""
+    assert sil.wait(lambda: sil.last_hb() == 'alive', 60.0)
+    assert sil.wait(lambda: not any(is_nan(x) for x in sil.fw_wheels()), 60.0)
+    t0 = time.monotonic()
+    sil.command('can1_off')
+    try:
+        assert sil.wait(lambda: sil.last_hb() == 'lost', 60.0)
+        t_lost = time.monotonic()
+        time.sleep(3.0)
+        with sil.lock:
+            raw = [(t, w) for t, w in sil.uros_raw_wheels if t >= t0]
+    finally:
+        sil.command('can1_on')
+    late = [w for t, w in raw if t > t_lost + 1.5]
+    assert late and all(is_nan(x) for w in late for x in w), late[-3:]
+    assert sil.wait(lambda: sil.last_hb() == 'alive', 60.0)
+    assert sil.wait(lambda: not any(is_nan(x) for x in sil.fw_wheels()), 60.0)
+
+
+def test_renode_time_ratio_and_gazebo_real_time_factor_are_reported_separately(
+        sil, record_property):
+    """Two clocks, two numbers (audit item SW-07). Renode: virtual against wall time, measured
+    inside Renode. Gazebo: the plant must keep real time against the emulators' wall-clock
+    timers. They are never combined."""
+    time.sleep(3.0)
+    t = sil.status['time']
+    rtf, window = sil.gazebo_rtf(3.0)
+    print('Renode virtual/wall ratio %.2f over %.1f s of wall time (recent %.2f, throttle %s; '
+          'from the image uptime %.2f); Gazebo real-time factor %.2f over %.1f s of wall time' % (
+              t['ratio'], t['wall_s'], t['ratio_recent'], t['throttle'],
+              sil.status['time_ratio'], rtf, window))
+    record_property('renode_virtual_wall_ratio', '%.3f' % t['ratio'])
+    record_property('gazebo_real_time_factor', '%.3f' % rtf)
+    # Renode's own time source holds the micro-ROS image at wall rate; 2 % for the sampling.
+    assert 0.0 < t['ratio'] <= 1.02, t
+    assert window >= 2.5 and rtf <= 1.05
+    if rtf < 0.8:
+        pytest.fail('BLOCKED: Gazebo real-time factor %.2f is below 0.8: the plant is slow '
+                    'against the wall-clock timers of the emulators, results do not count'
+                    % rtf, pytrace=False)
+
+
+def test_robot_state_topics_have_one_writer_each(sil):
+    """Audit item SW-08 with robot_state:=true: /odom, odom to base_footprint and
+    /joint_states exist and each has one writer. /odom comes from the wheel speeds the image
+    reports, so it is coarse; the Gazebo odometry is the reference."""
+    sil.cmd = (0.2, 0.0)
+    try:
+        assert sil.wait(lambda: sil.last.get('/odom') is not None
+                        and sil.last.get('/sil/gz/odom') is not None, 30.0)
+        x0 = sil.last['/odom'].pose.pose.position.x
+        g0 = sil.last['/sil/gz/odom'].pose.pose.position.x
+        time.sleep(4.0)
+    finally:
+        sil.cmd = (0.0, 0.0)
+    moved_fw = sil.last['/odom'].pose.pose.position.x - x0
+    moved_gz = sil.last['/sil/gz/odom'].pose.pose.position.x - g0
+    print('4 s at 0.2 m/s: /odom moved %.2f m, Gazebo odometry %.2f m; odom state %s' % (
+        moved_fw, moved_gz, sil.last['odom_state']))
+    assert sil.publishers('/odom') == ['sil_fw_odometry']
+    assert sil.publishers('/joint_states') == ['sil_fw_odometry']
+    assert sil.publishers('/tf') == ['robot_state_publisher', 'sil_fw_odometry']
+    assert sil.publishers('/cmd_vel') == ['sil_renode_test_probe']
+    assert sil.publishers('/sil/fw/wheel_speeds') == ['sil_renode_firmware']
+    assert moved_gz > 0.4
+    assert 0.4 * moved_gz <= moved_fw <= 1.6 * moved_gz, (moved_fw, moved_gz)
+    assert sil.last['/odom'].child_frame_id == 'base_footprint'
+    assert sil.wait(lambda: abs(sil.gz_wheels()[0]) < 0.1, 10.0)
+
+
 @pytest.fixture(scope='module')
 def after_reset(sil):
     before = sil.last_uros()
@@ -412,11 +519,50 @@ def test_host_client_sent_no_sdo_and_never_two_requests_outstanding(sil):
     # Every upload request on the bus is one the image counted as sent ("tx" of its status
     # topic). The status is published every 100 ms and the client reconnects after each reset,
     # so up to a few periods of requests per boot are not counted yet.
+    # While FDCAN1 was detached (bus loss test) the image went on counting requests that never
+    # reached the bus, so the lower bound allows for that time; the firmware tap gives the
+    # exact comparison in the next test.
     extra = s['uploads'] - status['fw_tx_total']
-    assert 0 <= extra <= 60 * len(status['boots']), (s['uploads'], status['fw_tx_total'])
+    assert -400 <= extra <= 60 * len(status['boots']), (s['uploads'], status['fw_tx_total'])
+    # Two clients on one bus (audit item SW-11): every write on vcan_drive is the host
+    # client's. No NMT frame at all, and the receive PDOs on the bus are the ones it counted.
+    assert s['nmt'] == 0, s['examples']
+    assert -30 <= sil.last[HOST_STATE]['pdo_frames_sent'] - s['pdo_writes'] <= 150, (
+        s['pdo_writes'], host['pdo_frames_sent'])
     assert host['mode'] == 'command_only' and host['sdo_frames_refused'] == 0
     assert host['pdo_frames_sent'] > 100
     assert sil.last[DRIVE_STATE]['rpdo_frames'] > 100
+
+
+def test_whole_run_the_firmware_transmitted_only_sdo_uploads_and_nothing_on_can2_can3(sil):
+    """Read-only proof from the firmware side, with the sender known: every frame FDCAN1,
+    FDCAN2 or FDCAN3 transmitted, over every boot and Renode start of this run. FDCAN2 and
+    FDCAN3 are active here (the image counted frames it received on them), and the audit
+    must show zero frames transmitted on those two buses. Any NMT, SDO download, receive PDO
+    (so any write to 6040h, 60FFh or 2000h) or other frame fails."""
+    tx_total = sil.status['fw_tx_total']     # the image's count first, then the tap
+    audit = renode_fw.FirmwareTxAudit()
+    starts = sil.status['renode_starts']
+    for start in range(1, starts + 1):
+        audit.feed_file(os.path.join(WORK, 'fwtx-%d.log' % start))
+    a, live, boots = audit.summary(), sil.tx_audit, len(sil.status['boots'])
+    _, bus = audit_capture_file(sil.audit['capture_file'])
+    u = sil.last_uros()
+    print('firmware tap: %d frames by peripheral %s, uploads %d, findings %s; image tx %d over '
+          '%d boots and %d Renode starts; uploads on vcan_drive %d; the image received %d '
+          'frames on CAN2 and %d on CAN3 in its current boot' % (
+              a['frames'], a['by_label'], a['uploads'], a['findings'], tx_total, boots, starts,
+              bus['uploads'], u['c2_rx'], u['c3_rx']))
+    assert starts == 2 and boots >= 3 and a['frames'] > 300
+    assert u['c2_rx'] > 5 and u['c3_rx'] > 50          # the two buses are active
+    assert a['by_label'].get('fdcan2', 0) == 0 and a['by_label'].get('fdcan3', 0) == 0
+    assert set(a['by_label']) == {'fdcan1'}
+    assert a['violations'] == 0 and live['violations'] == 0, a['examples']
+    assert all(count == 0 for count in a['findings'].values()), a['findings']
+    # The tap agrees with the image's own counter (status every 100 ms, reconnects after a
+    # reset) and with the bus, except while FDCAN1 was detached.
+    assert -5 <= a['uploads'] - tx_total <= 60 * boots, (a['uploads'], tx_total)
+    assert a['uploads'] >= bus['uploads'] > 0.5 * a['uploads']
 
 
 def test_audit_sees_a_foreign_sdo_request(sil):
@@ -429,3 +575,33 @@ def test_audit_sees_a_foreign_sdo_request(sil):
     finally:
         bus.shutdown()
     assert sil.wait(lambda: sil.audit['non_upload'] == before + 1, 5.0)
+
+
+def test_duplicate_sdo_owner_on_vcan_is_detected_and_the_image_keeps_its_values(sil):
+    """Last test: it breaks the one-owner rule on purpose. A second client reads 6041h of
+    the drive. The bus then carries more uploads than the image transmitted (the firmware tap
+    knows the sender), and the wheel values the image publishes stay the drive's."""
+    assert sil.wait(lambda: not any(is_nan(x) for x in sil.fw_wheels()), 60.0)
+    _, before = audit_capture_file(sil.audit['capture_file'])
+    tap_before = sil.tx_audit['uploads']
+    t0 = time.monotonic()
+    bus = can.Bus(interface='socketcan', channel='vcan_drive')
+    sent = 0
+    try:
+        for _ in range(40):
+            bus.send(can.Message(arbitration_id=0x601, is_extended_id=False,
+                                 data=bytes([0x40, 0x41, 0x60, 0, 0, 0, 0, 0])))
+            sent += 1
+            time.sleep(0.05)
+    finally:
+        bus.shutdown()
+    time.sleep(2.0)
+    _, after = audit_capture_file(sil.audit['capture_file'])
+    foreign = (after['uploads'] - before['uploads']) - (sil.tx_audit['uploads'] - tap_before)
+    wheels = sil.wheels_since(t0)
+    print('foreign uploads sent %d; uploads on the bus beyond the firmware tap %d; %d wheel '
+          'samples from the image meanwhile' % (sent, foreign, len(wheels)))
+    assert abs(foreign - sent) <= 15
+    # The base is at rest: no foreign 6041h answer (0237h and the like) became a wheel speed.
+    assert wheels and all(is_nan(x) or abs(x) < 0.2 for w in wheels for x in w), wheels[-3:]
+    assert sil.tx_audit['violations'] == 0

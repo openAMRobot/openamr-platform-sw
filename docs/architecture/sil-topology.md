@@ -1,12 +1,24 @@
 # Base and lift software-in-the-loop topology
 
-Status: Proposed (14 Nov 2026; section 4.1 added 15 Nov 2026). Implemented by the package `openamrobot_sil`. Topic names,
+Status: Proposed (14 Nov 2026; section 4.1 added 15 Nov 2026; sections 4.3 to 4.7, 5.1 and 6.1
+added 15 Nov 2026). Implemented by the package `openamrobot_sil`. Topic names,
 launch arguments and the configuration file in this document are new and stay Proposed until
 the software lead accepts them.
 
 This layer is development evidence only. Emulators, fixtures and Gazebo are not real-robot,
 mechanical, electrical or safety acceptance. No emulator holds a safety function. The hardwired
 E-stop chain is not modelled and nothing here is evidence about it.
+
+Drive behaviour is provisional in every result. The ZLAC8015D emulator follows the vendor
+manual 1.03 and the CANopen routine 1.08 as filed in the hardware repository [S16]. The V4.2
+document package is not available. No value of the emulated drive was compared with a drive.
+
+Run profiles. This layer is the base part of the `firmware_sil` profile of the audit
+baseline, and its injection topics and negative tests are the `faults` profile [S15]. A
+result of this layer may claim the frames on the bus, the order of exchanges, and how the
+real code reacts to what the emulator sends. It may not claim that the emulator behaves like
+the device. Blocked and skipped tests are not passes. No launch file sets a seed, so a
+repeated run is not guaranteed to be identical.
 
 ## 1. Purpose
 
@@ -246,6 +258,149 @@ End-to-end tests (`test_integration/test_sil_renode.py`, Gazebo-integrated):
 There is still no command path from ROS to the firmware: the client has no subscriber and no
 service.
 
+### 4.3 Transmit audit with the sender known (Proposed, 15 Nov 2026)
+
+A capture of a bus cannot say who sent a frame. So the read-only proof is taken at the
+firmware side. Renode's `FrameSent` event of each FDCAN model fires for the frames that
+peripheral transmits, and for no frame of any other bus member. The helpers write them to
+`<work>/fwtx-<start>.log` (candump -L lines stamped with Renode virtual time, label `fdcan1`,
+`fdcan2` or `fdcan3`). A second tap records every frame any member puts on a hub
+(`hub-<start>.log`). The node feeds the firmware tap to `renode_fw.FirmwareTxAudit` and
+publishes the result on `/sil/fw/tx_audit`, over every boot and every Renode start of a run.
+
+The only frame the audit allows is an SDO initiate-upload request (40h, 8 bytes, 4 zero data
+bytes) from FDCAN1 to node 1. Findings:
+
+| Finding | Frame |
+|---|---|
+| `nmt` | COB-ID 000h |
+| `sdo_download` | an SDO request that writes, to any node: initiate download, download segment, block download |
+| `restricted_write` | a write to 6040h, 60FFh or 2000h: an SDO download of that index, or a receive PDO that the SIL drive maps to it (200h + node, 300h + node) |
+| `pdo_write` | any other frame in a receive PDO range (200h to 57Fh) |
+| `sdo_other` | an SDO request that is neither a write nor a plain expedited upload request |
+| `not_allowed` | an upload request from another peripheral or to another node |
+| `other` | everything else: SYNC, TIME, EMCY, transmit PDO ranges, heartbeat, extended, remote and CAN FD frames |
+
+FDCAN2 and FDCAN3. The pinned image starts all three peripherals (CCCR.INIT reads 0 on each
+while it runs) and counts what it receives on CAN2 and CAN3 (`c2_rx`, `c3_rx`). The audit must
+show zero frames transmitted by FDCAN2 and by FDCAN3. Both Renode suites check it: with the
+console image, frames put on the CAN2 and CAN3 hubs raise the image's counters by exactly the
+number sent and the tap holds nothing from those peripherals; with the micro-ROS image on
+`vcan_bms` and `vcan_aux`, the image reports received frames and the tap of the whole run holds
+frames of FDCAN1 only.
+
+What makes a clean audit mean something:
+
+- The tap agrees with the image: its upload count equals the image's own `tx` counter, up to
+  the requests sent after the last status.
+- Controls. `test/test_readonly_audit.py` gives the audit 28 forbidden frames, one at a time,
+  and requires a finding for each. In Renode, an SDO download of 6040h, an NMT start and a
+  receive PDO sent by another member of the CAN1 hub are on the hub tap and not in the firmware
+  tap, so the tap attributes by sender. The control of #141 that injects a foreign SDO frame
+  into `vcan_drive` is kept.
+- Object 2000h is the link-loss time on the drive and the read-only LiftStatus record on the
+  CTL-017 [S3]. A write to it is a finding on every bus. `config/ctl017_od_pin.json` pins that
+  dictionary by commit and file hash (`scripts/sil_pin_ctl017_od.py check` in CI), and
+  `test/test_ctl017_od_pin.py` holds the emulator's dictionary equal to it.
+
+Two CAN clients on `vcan_drive` (audit item SW-11 [S15]). In `renode_readonly` the image and
+the host test client share the bus by design: the image reads by SDO, the client commands by SIL
+receive PDOs. The command writer in this mode is the stand-in, and the firmware under test
+owns no joint. The guards are: the firmware-side audit above; no NMT frame on `vcan_drive` at
+all; the receive PDOs on the bus are the ones the host client counted; the client's handle
+refuses SDO frames; and a second SDO owner is detected, because the bus then carries more
+uploads than the firmware tap (section 4.4).
+
+### 4.4 Negative tests (Proposed, 15 Nov 2026)
+
+These are the `faults` profile for the firmware image, run with the console image against the
+platform-fw drive stub inside Renode; bus loss and the duplicate owner also run with the
+micro-ROS image on vcan. Each one checks what the image reports.
+An unknown value is never reported as 0.
+
+| Case | How | What is required |
+|---|---|---|
+| Bus loss | FDCAN1 is detached from its hub inside Renode (`can1_off`), then attached again | heartbeat lost only after the image's 300 ms timeout by its own clock, wheel values unknown, NaN on the topic, recovery. The image keeps sending uploads: Renode models no acknowledge, so this is not what a real bus loss does to the controller (section 4.7) |
+| Stale telemetry | the drive stops answering while its heartbeat goes on | heartbeat alive, wheel values timeout or stale and unknown, recovery |
+| Stale console | the emulation is paused | the node sets `stale`, publishes NaN and does not repeat the last values. Freshness is judged by receipt time: `stale_after_s`, 2 s of wall time |
+| Reset mid-run | the node's `reset` | a second boot in the same Renode; the transmit audit goes on and stays clean |
+| UART corruption | TF-Luna port USART2: frames with a wrong checksum, cut frames, noise | no corrupted frame becomes a range (count of accepted frames unchanged), the image counts `tf_bad`, the value goes stale and unknown, good frames recover |
+| Duplicate SDO owner | a second client sends upload requests to node 1 | the bus carries more uploads than the firmware tap, the image counts the answers it did not ask for (`sdo_un`, `sdo_wo`), no foreign answer becomes a value |
+
+Harness hazards found on the way. They are properties of the harness, and the tests avoid them:
+
+- Bytes written into a UART model from the Renode monitor thread while the CPU runs made the
+  CPU abort (`Trying to execute code outside RAM or ROM`, the same address each time) in 3 of
+  9 runs. The same bytes scheduled from the machine's time domain never did: 4 runs of 400
+  rounds each. The helpers inject UART bytes and CAN frames only from the time domain. This
+  does not show that the image is free of a receive race on a board; see section 4.7.
+- A UART pty that nobody reads stops the whole emulation after about 20 kB (section 5.1).
+- A reset can cut a console line in half. The node counts it as a bad line. The test probe of
+  #141 stopped receiving on such a line; it now counts it too.
+
+### 4.5 Replay of a candump trace (Proposed, 15 Nov 2026)
+
+`openamrobot_sil/candump_replay.py` puts a recorded drive on `vcan_drive` in place of the
+emulator, so a bench capture (`candump -L`) can be dropped in later:
+`SIL_REPLAY_TRACE=<file>` for `test_integration/test_sil_replay.py`. A trace cannot be played
+back blindly, because the image asks for one object at a time on its own schedule:
+
+- Frames the drive sent unasked (heartbeat, EMCY, transmit PDOs) go out at their trace time.
+- SDO answers are queued per object, in trace order. A request gets the next recorded answer
+  for its object. An empty queue, or the end of the trace, gives no answer.
+- Frames of the master side in the trace (requests, NMT, receive PDOs) are never sent.
+
+The test takes its expected values from the trace: the image must print wheel values that are
+in the trace, in trace order, then report the heartbeat lost and the values unknown once the
+trace has ended. The only trace today is `traces/zlac_synthetic_v1.candump`, written by
+`scripts/sil_make_trace.py`. It has the shape of a capture and is not one.
+
+### 4.6 Run profile and single writers (audit baseline [S15])
+
+| Resource | Writer in `renode_readonly` | Writer in `renode` |
+|---|---|---|
+| Wheel joints (motion) | Gazebo DiffDrive, driven by the drive emulator | same, nobody commands |
+| Drive commands on `vcan_drive` | host test client, SIL receive PDOs | none |
+| SDO channel of node 1 | the firmware image | the firmware image |
+| NMT, commands and permit on `vcan_aux`, polls on `vcan_bms` | host test client; the image only receives | none; the emulators run alone |
+| `/base_fw/*` | the firmware image, through the agent | not published (console image) |
+| `/sil/fw/wheel_speeds`, `/sil/fw/status`, `/sil/fw/tx_audit` | `renode_firmware` | same |
+| `/sil/fw/odom` | `fw_odometry` | same |
+| `/odom`, `odom` to `base_footprint` on `/tf`, `/joint_states` | `fw_odometry`, only with `robot_state:=true` | same |
+| Other transforms on `/tf` | `robot_state_publisher` | same |
+
+SW-08. With `robot_state:=true` the node `fw_odometry` is the one writer of `/odom`, of the
+`odom` to `base_footprint` transform and of `/joint_states` (a copy of the Gazebo joint states),
+so `robot_state_publisher` has a joint source and the tree is complete. `/odom` is integrated
+from the wheel speeds the image reports, by receipt time, so it is coarse. While the image has
+no valid wheel value nothing is published on `/odom` and `/tf`, and `/sil/fw/odom_state` says
+`valid: false`: unknown is not standing still. The default is `false`, so existing runs are
+unchanged. The integration test checks one publisher per topic. Not done: Nav2 or MoveIt on
+top of this layer, and the frame chain of the real path (SW-10: `odom` to `base_link` from an
+EKF). The stand-in follows the simulated chain.
+
+### 4.7 What Renode does not model, and what covers it
+
+The machine is Renode's STM32H743 description with the platform-fw additions (FDCAN3 and one
+PWR register tag). It is not a model of the STM32H723. A pass here is not evidence about any of
+the following. The right column names the static check or the bench measurement that does
+cover the item. Bench measurements are open until someone records them.
+
+| Not modelled | Why a pass here says nothing | Static check today | Bench measurement that covers it |
+|---|---|---|---|
+| STM32H723 clock tree | Renode's RCC model keeps no PLL or divider registers. The HAL derives a SystemCoreClock that is not the board's, and a harness hook makes the SysTick model follow it. The tick is self-consistent, not verified | review of the generated `SystemClock_Config` against the clock plan; the target builds of platform-fw (`STM32H723 Debug`, `Release`) | MCO or a toggled pin on a scope or counter against the planned frequency; HSE start-up; uptime drift against a reference clock |
+| Pin multiplexing | No GPIO alternate function is modelled. A peripheral works in Renode whatever pin it is mapped to | review of the CubeMX `.ioc` and `HAL_*_MspInit` against the schematic, pin by pin; the platform-fw base controller I/O document | continuity and a scope on each bus and UART pin on the NUCLEO-H723ZG and on the controller board; loopback per interface |
+| FDCAN bit timing | Hub and vcan deliver whole frames with no bit time. 500 kbit/s and 250 kbit/s are not checked, nor sample point or oscillator tolerance | calculation of prescaler, segments and sample point from the kernel clock, reviewed against the bit rate of each bus | bit time and sample point on a scope or analyser; error counters at zero over a long run with the real drive, BMS and lift node; a second node with known timing |
+| FDCAN acknowledge, arbitration, error frames, bus-off | The hub acknowledges nothing and loses nothing. A detached FDCAN1 still "sends" | host tests of the platform-fw CANopen code for the state it reports | unplugged and shorted bus on the bench: transmit error counter, bus-off, recovery, what the image prints |
+| DMA | No DMA request, no descriptor placement, no cache or MPU effect is modelled. The telemetry image receives by interrupt on CAN and on the sensor UARTs | `tools/ci/check_dma_placement.py` of platform-fw (descriptors in RAM_D2) on the base controller target; post-link guard of the image | long transfers at full rate on the board with a pattern check; overrun and half-transfer counters |
+| Electrical behaviour | Levels, termination, isolation of CAN2, transceiver delay, EMC, supply dips, reset pin and brown-out do not exist here | schematic and layout review in the hardware repository | termination and common-mode on a scope; isolation test of CAN2; supply and reset tests; EMC is a laboratory test |
+| UART inversion, errors, baud rate, wire time | Bytes arrive whole and at once. RXINV, framing, noise and overrun errors are not produced; a console line takes no time | host tests of the UART receive code in platform-fw (`tests/host/telemetry_image`) | each sensor on its port at its baud rate; injected framing errors; console line time at 115200 baud |
+| Interrupt timing and races | Interrupts are taken at block boundaries of the emulated CPU and virtual time is not cycle accurate. The CPU abort of section 4.4 came from the harness thread; it neither shows nor excludes a race on a board | cppcheck and the sanitiser host tests of platform-fw | sustained traffic and UART bursts on the board with the stack marks and counters of the image |
+| Reset flags, MPU, watchdog | `RCC_RSR` reads 0 (reset cause always unknown). The MPU set-up has no effect. The image has no watchdog | none here | reset by each cause on the board and the banner it prints |
+| Timing in general | Virtual time lags wall time by a load-dependent factor (section 6) | none | any latency or period claim needs the board |
+
+Nothing in this table is a safety argument. The hardwired safety chain is outside this layer.
+
 ## 5. Host link
 
 The host link carries `/cmd_vel` in and odometry and status out (I8 rev 4 [S2]: `/base/status`
@@ -259,6 +414,23 @@ choose the transport. Two options for the emulated machine:
 
 Option A carries no `/cmd_vel`: the image publishes only. With `stm32:=host` there is no host
 link: the host test client subscribes to `/cmd_vel` directly and publishes `/sil/base/odom`.
+
+### 5.1 The pty relay (Proposed, 15 Nov 2026)
+
+A Renode UART pty that nobody reads fills its kernel buffer, and Renode then blocks in the
+write. Measured with Renode 1.16.1: the whole emulation stopped after about 20 kB. A real UART
+loses bytes that nobody listens to and the MCU runs on. So the agent is not given Renode's pty.
+The node `renode_firmware` puts a relay between them (`openamrobot_sil/hostlink.py`): it always
+drains `<work_dir>/usart3-<n>.pty`, offers `<work_dir>/usart3-<n>.link` to the agent, passes
+bytes both ways, and drops and counts bytes from the image when nobody reads the link. An
+agent that stops or stalls therefore never stops the image. `/sil/fw/status` carries the
+relay's counters (`relay`).
+
+Tests: host tests of the relay on a pty pair (300 kB with no reader never blocks the writer);
+with the console image, a reader of a relayed pty on USART3 leaves for 45 status lines and
+returns, the image keeps its sequence and `tick_miss` stays 0; with the micro-ROS image, the
+integration test requires the agent to work through the relay with bytes in both directions
+and no relay error. Not tested: stopping and restarting the agent during a run.
 
 ## 6. Clocks
 
@@ -318,6 +490,42 @@ wall-clock rate. Renode virtual time runs at most at wall-clock rate, and here s
 - All timing checks in the tests are plausibility checks on thread timing. They are not timing
   measurements.
 
+SW-07 (clocks are not shared [S15]). This stays true and is the contract of this phase:
+three clocks, no synchronisation. Each clock is measured, and the two numbers are reported
+separately and never combined:
+
+- Renode virtual/wall ratio, measured inside Renode. The helpers print a `SIL_TIME` sample
+  every 100 ms of virtual time (`sil_time_start`): virtual time and wall time since the start.
+  The node publishes it in `/sil/fw/status` (`time`). It is a second measurement next to
+  `time_ratio`, which uses the image's uptime: `time` also covers boot and does not depend on
+  what the image reports.
+- Gazebo real-time factor. The integration test measures it from the stamps of the Gazebo
+  joint states against their arrival time. Below 0.8 the test fails with `BLOCKED:`: the plant
+  would be slow against the wall-clock timers of the emulators. Above 1.05 it fails.
+
+### 6.1 Timeout assertions the tests may make
+
+Renode virtual time advances no faster than wall time. How strictly depends on the image:
+
+- Console image (`stm32:=renode`): the throttle holds the rule per 5 ms slice, by
+  construction, and a Renode that fell behind does not catch up.
+  `test_virtual_time_never_runs_ahead_of_wall_time` requires the shortest slice to have taken at
+  least its length in wall time.
+- micro-ROS image (`stm32:=renode_readonly`): Renode's own time source holds the rule over
+  the run, not per slice. After a slow stretch Renode may run faster than wall time for a while.
+
+With T a time in the image (virtual) and W a wall time:
+
+| Assertion | Allowed | Why |
+|---|---|---|
+| "The image reports X no earlier than T after the event that starts its timeout", measured in wall time | console image only: `not_before_wall_s(T)`, one slice of slack | T of virtual time takes at least T of wall time under the throttle. Not with the micro-ROS image, which can catch up |
+| "Between two of its own stamps the image waited at least or at most T" (ages, `up_us`, counters) | yes | the image's own clock |
+| "A host device that answers within W is on time for an image timeout T", for W well below T | yes with the throttle; with the micro-ROS image only as plausibility | W of wall time is at most W of virtual time under the throttle |
+| "The image reports X within W of wall time" as a pass or fail of the firmware | no | Renode may lag by any factor. It can only be a liveness wait of the harness (`liveness_wait_s(T)`); a run that exceeds it is BLOCKED, not a firmware failure |
+| "A host device with a wall-clock timeout W sees the image's periodic frame in time" | no, unless the measured ratio of that run is above period / W for the whole test | a lagging image sends late in wall time |
+| "Two events of the image are W apart in wall time" as a period or latency measurement | no | wall time between image events is not a property of the firmware here |
+| Any bound that mixes Gazebo time with Renode virtual time | no | the clocks are not synchronised. Gazebo motion is compared with what the image reports only by value, or at the sample time the image gives |
+
 Later option, not built: lock-step. Gazebo is stepped by a fixed number of iterations per
 Renode time quantum, and the emulators take their time from the same source. That needs an
 injectable clock in the vendored emulators, which is a change in openamr-platform-fw first.
@@ -357,8 +565,11 @@ BMS. Static values with injection (pack defaults from [S10]). No link to Gazebo.
 | `/sil/fw/console` | std_msgs/String | out of `renode_firmware` | One USART3 JSON line of the firmware image, unchanged |
 | `/sil/fw/wheel_speeds` | std_msgs/Float64MultiArray | out of `renode_firmware` | [ch1, ch2] rad/s from 606Ch:01 and :02 as the image reports them (0.1 r/min per unit, the emulator's scale). NaN when the image has no valid sample, never 0 |
 | `/sil/fw/status` | std_msgs/String (JSON) | out of `renode_firmware` | Pinned commit and preset, Renode starts, boots, banner, the image's tx total |
-| `/sil/fw/command` | std_msgs/String | into `renode_firmware` | `reset` (machine reset in the same Renode), `restart` (fresh Renode) |
+| `/sil/fw/command` | std_msgs/String | into `renode_firmware` | `reset` (machine reset in the same Renode), `restart` (fresh Renode), `pause`, `resume`, `can1_off`, `can1_on`, `can_state`. `monitor <command>` only with the node parameter `test_commands` |
 | `/sil/drive_bus/audit` | std_msgs/String (JSON) | out of `drive_bus_audit` | SDO audit counters of the `vcan_drive` capture |
+| `/sil/fw/tx_audit` | std_msgs/String (JSON) | out of `renode_firmware` | Firmware-side audit of every frame FDCAN1, FDCAN2 and FDCAN3 transmitted (section 4.3) |
+| `/sil/fw/odom`, `/sil/fw/odom_state` | nav_msgs/Odometry, std_msgs/String (JSON) | out of `fw_odometry` | Odometry from the wheel speeds the image reports, and its valid flag and counters (section 4.6) |
+| `/odom`, `/tf`, `/joint_states` | Odometry, TFMessage, JointState | out of `fw_odometry`, only with `robot_state:=true` | One writer each in the Renode modes (SW-08) |
 
 Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, renode,
 renode_readonly), `create_vcan`, `gazebo`, `gui`, `config_file`, `model`, `world`, and for the
@@ -380,6 +591,9 @@ from `scripts/sil_renode_firmware.sh`), `renode_work_dir`, `capture_file`.
   host link runs as serial micro-ROS, outbound only (section 4.2); UDP over Ethernet, the robot
   target, is not built. No firmware commands the drive, the lift or the BMS.
 - The combined robot model with the real lift and arms [S5] is not used in the tests.
+- Everything in section 4.7.
+- A bench capture for the replay (section 4.5). The trace is synthetic.
+- Stopping and restarting the micro-ROS agent during a run (section 5.1).
 
 ## 9. Sources
 
@@ -399,3 +613,5 @@ from `scripts/sil_renode_firmware.sh`), `renode_work_dir`, `capture_file`.
 | S13 | openamr-platform-fw PR #55 (`fw/telemetry-uros`) at 763bdd3ffe4a5a582445f72d4845d8a0eedeba3c: `boards/stm32/telemetry_image/README.md`, `tools/ci/renode_uros.py`, `tools/ci/build_uros_agent.sh` |
 | S14 | openamr-upperbody-fw PR #17 at 8dc7236e1eb38da68dabe063cd37aa11ba4c1faa, `docs/ctl017_object_dictionary.md` (CTL-017 object dictionary, proposal v1) |
 | S11 | Vendored emulators: openamr-platform-fw `tools/can_sil` at ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d (draft PR #53). PR #54 holds the same `tools/can_sil` files at that commit |
+| S15 | Digital twin phase 1 audit baseline, audits branch `audit/2026-09-28` at be17653, `digital-twin/phase1/run_profiles.md` (profiles `firmware_sil`, `faults`) and `single_writer_map.md` (SW-07, SW-08, SW-11) |
+| S16 | ZLAC8015D vendor manual 1.03 and CANopen routine 1.08, as filed in openamr-platform-hw. The V4.2 package is not available |
