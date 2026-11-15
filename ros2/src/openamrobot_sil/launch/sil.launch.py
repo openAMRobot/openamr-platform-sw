@@ -15,7 +15,10 @@ ROS-Gazebo bridge, and in the STM32 slot one of:
                           belong to the firmware alone) and plays the CAN3 and CAN2 roles (NMT
                           start and commands of the lift, Daly polls) the image never plays.
 
-In both Renode modes the drive bus audit captures vcan_drive for the whole run. The firmware
+In both Renode modes the drive bus audit captures vcan_drive for the whole run, the firmware
+node audits every frame the image's three FDCANs transmit (/sil/fw/tx_audit), and fw_odometry
+integrates the wheel speeds the image reports. robot_state:=true makes fw_odometry the one
+writer of /odom, of odom to base_footprint on /tf, and of /joint_states. The firmware
 is a binary built elsewhere (scripts/sil_renode_firmware.sh); this file records which one.
 Firmware-in-the-loop milestone for telemetry, development evidence only.
 """
@@ -53,7 +56,7 @@ def _true(text):
     return str(text).lower() in ('true', '1', 'yes')
 
 
-def renode_nodes(config_file, renode, uros=False):
+def renode_nodes(config_file, renode, uros=False, gazebo=False):
     """Drive bus audit and Renode firmware node. renode: dict of the renode_* arguments.
 
     uros: the micro-ROS image and its agent (stm32:=renode_readonly)."""
@@ -71,12 +74,16 @@ def renode_nodes(config_file, renode, uros=False):
                      'wait_for_audit': True,
                      'transport': 'uros' if uros else 'console',
                      'uros_agent': renode['uros_agent']}])
+    odometry = Node(package='openamrobot_sil', executable='fw_odometry', output='screen',
+                    parameters=[{'config_file': config_file,
+                                 'robot_state': _true(renode.get('robot_state', 'false')),
+                                 'use_sim_time': gazebo}])
     # The firmware node exits on a wrong banner or a Renode failure: the whole run stops.
     stop = RegisterEventHandler(OnProcessExit(
         target_action=firmware,
         on_exit=[LogInfo(msg='renode_firmware ended: shutting the SIL launch down'),
                  EmitEvent(event=Shutdown(reason='renode_firmware ended'))]))
-    return [audit, firmware, stop]
+    return [audit, firmware, odometry, stop]
 
 
 def can_nodes(config_file, stm32, gazebo, renode=None):
@@ -85,7 +92,8 @@ def can_nodes(config_file, stm32, gazebo, renode=None):
     readonly = stm32 == 'renode_readonly'
     nodes = []
     if stm32 in RENODE_MODES:
-        nodes += renode_nodes(config_file, renode or default_renode_args(), uros=readonly)
+        nodes += renode_nodes(config_file, renode or default_renode_args(), uros=readonly,
+                              gazebo=gazebo)
     nodes += [
         Node(package='openamrobot_sil', executable='zlac8015d_emulator', output='screen',
              parameters=params + [{'rpdo': readonly, 'stored_link_loss': readonly}]),
@@ -117,7 +125,7 @@ def default_renode_args():
             'uros_agent': os.environ.get('SIL_UROS_AGENT', ''),
             'fw_dir': os.environ.get('SIL_FW_DIR', ''),
             'renode_work_dir': '/tmp/openamrobot_sil_renode',
-            'capture_file': '/tmp/openamrobot_sil_vcan_drive.log'}
+            'capture_file': '/tmp/openamrobot_sil_vcan_drive.log', 'robot_state': 'false'}
 
 
 def gazebo_actions(sil_dir, model, world, gui):
@@ -177,7 +185,7 @@ def build_actions(stm32, create_vcan, gazebo, gui, config_file, model, world, re
 
 
 RENODE_ARGS = ('renode', 'fw_elf', 'fw_elf_uros', 'uros_agent', 'fw_dir', 'renode_work_dir',
-               'capture_file')
+               'capture_file', 'robot_state')
 
 
 def _setup(context):
@@ -252,5 +260,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'capture_file', default_value='/tmp/openamrobot_sil_vcan_drive.log',
             description='candump -L capture of vcan_drive (renode modes).'),
+        DeclareLaunchArgument(
+            'robot_state', default_value='false',
+            description='Renode modes. true: fw_odometry is the writer of /odom, of odom to '
+                        'base_footprint on /tf, and of /joint_states (audit item SW-08).'),
         OpaqueFunction(function=_setup),
     ])

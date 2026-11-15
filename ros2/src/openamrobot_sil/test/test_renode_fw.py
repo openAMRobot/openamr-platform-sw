@@ -51,7 +51,8 @@ def test_resc_is_the_platform_fw_machine_with_the_bridge_on_vcan_drive():
                                       'machine CreateSocketCANBridge "can1_bridge" "vcan_drive"',
                                       'connector Connect can1_bridge can1']
     assert 'cpu PerformanceInMips 5' in lines
-    assert lines[-5:] == ['include @/s/h.py', 'sil_follow_systick', 'sil_throttle_start 5',
+    assert lines[-6:] == ['include @/s/h.py', 'sil_time_start 100', 'sil_follow_systick',
+                          'sil_throttle_start 5',
                           'logLevel 3', 'start']
 
 
@@ -76,7 +77,8 @@ def test_resc_of_the_uros_image_puts_usart3_on_a_pty_without_throttle():
     assert 'CreateFileBackend' not in text
     # WFI image: Renode idles at host speed; neither the MIPS cap nor the throttle is used.
     assert 'PerformanceInMips' not in text and 'sil_throttle_start' not in text
-    assert lines[-4:] == ['include @/s/h.py', 'sil_follow_systick', 'logLevel 3', 'start']
+    assert lines[-5:] == ['include @/s/h.py', 'sil_time_start 100', 'sil_follow_systick',
+                          'logLevel 3', 'start']
 
 
 def test_reset_of_the_uros_image_sets_the_clock_hook_without_throttle():

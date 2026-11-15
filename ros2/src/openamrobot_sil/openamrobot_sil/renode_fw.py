@@ -7,8 +7,9 @@ micro-ROS client on USART3, serial transport: simulation and bench only). What i
 (the SIL emulators), the buses (Linux vcan).
 
 This module holds the pinned values and the logic that needs no ROS, no Renode and no vcan:
-the Renode script, the banner check, the console parser, the wheel speed conversion and the
-SDO audit of the drive bus. The ROS nodes and the tests use it. It decides nothing about
+the Renode script, the banner check, the console parser, the wheel speed conversion, the SDO
+audit of the drive bus, the audit of what the firmware itself transmitted (FirmwareTxAudit)
+and the time rule. The ROS nodes and the tests use it. It decides nothing about
 motion: it reads what the image prints and what is on the bus.
 
 Run as a script, it prints the pinned values as shell assignments for
@@ -45,6 +46,15 @@ UROS_DOMAIN_ID = 0
 # the Gazebo lift joint 0 m is the L1000 stop, 5 mm above it (ctl017_gazebo.JOINT_ZERO_MM).
 LIFT_POS_UNIT_MM = 0.1
 FW_ADDITIONS = 'tests/renode/stm32h723-additions.repl'
+# (FDCAN peripheral, Renode hub) of the three buses. The pinned image starts all three and
+# transmits on FDCAN1 only.
+FW_CAN = (('fdcan1', 'can1'), ('fdcan2', 'can2'), ('fdcan3', 'can3'))
+# CTL-017 object dictionary the CAN3 checks use: openamr-upperbody-fw PR #15 at this commit,
+# docs/ctl017_object_dictionary.md. config/ctl017_od_pin.json holds the generated table of
+# that file and its SHA-256 (scripts/sil_pin_ctl017_od.py writes and checks it).
+CTL017_OD_REPOSITORY = 'openAMRobot/openamr-upperbody-fw'
+CTL017_OD_COMMIT = '1a68c50c71902d1d9d7903e7bb47b6b6efa4d9fc'
+CTL017_OD_PATH = 'docs/ctl017_object_dictionary.md'
 FW_PROJECT_NAME = 'openamr-platform-fw telemetry_image'
 FW_PARAMS = 'test'      # banner "params" of an image built with TLM_TEST_PARAMS (RenodeTest)
 
@@ -74,6 +84,11 @@ UNKNOWN = 'unknown'
 UPLOAD_REQUEST = 0x40
 SDO_RX_BASE = 0x600
 SDO_TX_BASE = 0x580
+RPDO_BASES = (0x200, 0x300, 0x400, 0x500)
+# Objects no firmware frame may write: controlword, target velocity, link-loss time (drive).
+RESTRICTED_INDEXES = (0x6040, 0x60FF, 0x2000)
+# What a receive PDO of the SIL drive emulator writes (zlac_gazebo, SIL test values).
+SIL_RPDO_OBJECTS = {0x200: 0x60FF, 0x300: 0x6040}
 # 606Ch is reported in drive units. The SIL ZLAC8015D emulator (vendored platform-fw
 # tools/can_sil) uses 0.1 r/min per unit, so that scale is used here. The real drive's unit is
 # not settled (platform-fw zlac_telemetry.h TODO(Evans)); this is a SIL value.
@@ -87,7 +102,8 @@ class BannerError(RuntimeError):
 
 # ---- Renode script ----------------------------------------------------------------------
 def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
-         slice_ms=THROTTLE_SLICE_MS, aux_interfaces=None, uros_pty=None):
+         slice_ms=THROTTLE_SLICE_MS, aux_interfaces=None, uros_pty=None, fw_tap=None,
+         hub_tap=None, stub=None, hostlink=None):
     """Renode monitor script: machine, image, console, CAN1 and the SocketCAN bridge.
 
     The machine set-up is the one of platform-fw tools/ci/renode_telemetry.py: the STM32H743
@@ -103,7 +119,20 @@ def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
     micro-ROS image; the agent opens the terminal). With it the CPU keeps Renode's default speed
     and there is no throttle: the image idles in WFI, during which Renode advances virtual time
     at host speed, so it does not run ahead of the agent.
+
+    fw_tap: file that receives every frame FDCAN1, FDCAN2 or FDCAN3 transmits (read-only
+    proof, FirmwareTxAudit). hub_tap: file that receives every frame any member puts on a hub.
+    With either, FDCAN2 and FDCAN3 sit on hubs can2 and can3 also without aux_interfaces.
+    stub: path of platform-fw tools/ci/renode_drive_stub.py; the stub joins hub can1 as the
+    drive (Renode-only tests). Not together with can_interface.
+    hostlink: (uart, pty path): a second pty, on that UART, for the pty relay tests of the
+    console image.
     """
+    if stub and can_interface:
+        raise ValueError('the drive stub and the vcan bridge would both answer as the drive')
+    for name in [can_interface] + list(aux_interfaces or ()):
+        if name and not name.startswith('vcan'):
+            raise ValueError('the Renode bridge attaches to vcan only, refused: %r' % name)
     lines = [
         'mach create "openamr"',
         'machine LoadPlatformDescription @%s' % RENODE_PLATFORM,
@@ -131,16 +160,31 @@ def resc(elf, additions, console, helpers, can_interface=None, mips=RENODE_MIPS,
             'machine CreateSocketCANBridge "can1_bridge" "%s"' % can_interface,
             'connector Connect can1_bridge can1',
         ]
-    if aux_interfaces:
-        for n, iface in zip((2, 3), aux_interfaces):
+    if stub:
+        # While can1 is the only hub: the stub attaches to the first hub it finds.
+        lines += ['include @%s' % stub, 'tlm_stub_attach "can1"']
+    if aux_interfaces or fw_tap or hub_tap:
+        for n, iface in zip((2, 3), aux_interfaces or (None, None)):
             lines += [
                 'emulation CreateCANHub "can%d"' % n,
                 'connector Connect sysbus.fdcan%d can%d' % (n, n),
-                'machine CreateSocketCANBridge "can%d_bridge" "%s"' % (n, iface),
-                'connector Connect can%d_bridge can%d' % (n, n),
             ]
+            if iface:
+                lines += [
+                    'machine CreateSocketCANBridge "can%d_bridge" "%s"' % (n, iface),
+                    'connector Connect can%d_bridge can%d' % (n, n),
+                ]
+    if hostlink:
+        lines += ['emulation CreateUartPtyTerminal "hostlink" "%s" true' % hostlink[1],
+                  'connector Connect sysbus.%s hostlink' % hostlink[0]]
+    lines += ['include @%s' % helpers]
+    for fdcan, hub in FW_CAN:
+        if fw_tap:
+            lines.append('sil_fw_tap "sysbus.%s" "%s" @%s' % (fdcan, fdcan, fw_tap))
+        if hub_tap:
+            lines.append('sil_hub_tap "%s" "%s" @%s' % (hub, hub, hub_tap))
     lines += [
-        'include @%s' % helpers,
+        'sil_time_start 100',
         'sil_follow_systick',
     ]
     if not uros_pty:
@@ -299,6 +343,8 @@ class SdoAudit:
         self.unmatched_responses = 0
         self.overlaps = 0
         self.timeouts = 0
+        self.nmt = 0            # frames with COB-ID 000h, from anybody
+        self.pdo_writes = 0     # frames in the receive PDO ranges of this node (200h..500h + node)
         self.examples = []
         self._open = None    # (t, index, sub)
 
@@ -310,6 +356,11 @@ class SdoAudit:
         if extended:
             return
         data = bytes(data)
+        if arbitration_id == 0:
+            self.nmt += 1
+            self._note('t=%.6f NMT %s' % (t, data.hex()))
+        elif arbitration_id in [base + self.node_id for base in RPDO_BASES]:
+            self.pdo_writes += 1
         if arbitration_id == SDO_RX_BASE + self.node_id:
             self.requests += 1
             cs = data[0] if data else None
@@ -341,7 +392,8 @@ class SdoAudit:
         return {'node': self.node_id, 'requests': self.requests, 'uploads': self.uploads,
                 'non_upload': self.non_upload, 'responses': self.responses,
                 'unmatched_responses': self.unmatched_responses, 'overlaps': self.overlaps,
-                'timeouts': self.timeouts, 'min_gap_s': self.min_gap_s,
+                'timeouts': self.timeouts, 'nmt': self.nmt, 'pdo_writes': self.pdo_writes,
+                'min_gap_s': self.min_gap_s,
                 'examples': list(self.examples)}
 
 
@@ -351,10 +403,160 @@ def candump_line(t, interface, arbitration_id, data, extended=False):
     return '(%.6f) %s %s#%s' % (t, interface, ident, bytes(data).hex().upper())
 
 
+def parse_candump(line):
+    """One candump -L line as a dict, or None for a blank or comment line.
+
+    Keys: t, interface, id, data, extended, remote, fd. Classic and CAN FD ("##<flags>")
+    frames, and remote frames ("#R").
+    """
+    line = line.strip()
+    if not line or line.startswith('#'):
+        return None
+    stamp, interface, frame = line.split()
+    fd = '##' in frame
+    ident, _, payload = frame.partition('##' if fd else '#')
+    if fd:
+        payload = payload[1:]
+    remote = payload.upper().startswith('R')
+    return {'t': float(stamp.strip('()')), 'interface': interface, 'id': int(ident, 16),
+            'data': b'' if remote else bytes.fromhex(payload), 'extended': len(ident) > 3,
+            'remote': remote, 'fd': fd}
+
+
+def read_candump(path):
+    with open(path, encoding='utf-8') as f:
+        return [frame for frame in map(parse_candump, f) if frame is not None]
+
+
+# ---- read-only proof: what the firmware itself transmitted ------------------------------
+class FirmwareTxAudit:
+    """Checks every frame the image's FDCAN peripherals transmitted, on every bus.
+
+    Input: the tap of sil_renode_helpers.sil_fw_tap, which Renode fills from the FrameSent
+    event of FDCAN1, FDCAN2 and FDCAN3. A frame is in that tap only if that peripheral sent
+    it, so the sender is known, which a capture of the bus cannot show.
+
+    Allowed: an SDO initiate-upload request (40h, 8 bytes, 4 zero data bytes) from a
+    peripheral and to a node listed in `allowed` (default: FDCAN1 to node 1). Everything else
+    is a finding. The kinds:
+      nmt               COB-ID 000h
+      sdo_download      an SDO request that writes: initiate download (ccs 1), download
+                        segment (ccs 0), block download (ccs 6), to any node
+      restricted_write  a write to 6040h, 60FFh or 2000h: an SDO download of that index, or
+                        a receive PDO that the SIL drive maps to it (200h+n, 300h+n)
+      pdo_write         any other frame in a receive PDO range (200h..57Fh): it writes the
+                        objects the receiver maps, whatever they are
+      sdo_other         an SDO request that is neither a write nor a plain expedited upload
+                        request (upload segment, block upload, abort, malformed upload)
+      not_allowed       an upload request from a peripheral or to a node not in `allowed`
+      other             anything else: SYNC, TIME, EMCY, transmit PDO ranges, heartbeat,
+                        extended, remote and CAN FD frames
+    A frame can count under more than one kind. `violations` counts frames, once each.
+    """
+
+    KINDS = ('nmt', 'sdo_download', 'restricted_write', 'pdo_write', 'sdo_other',
+             'not_allowed', 'other')
+
+    def __init__(self, allowed=(('fdcan1', 1),), restricted=RESTRICTED_INDEXES,
+                 rpdo_objects=None):
+        self.allowed = set(allowed)
+        self.restricted = tuple(restricted)
+        self.rpdo_objects = dict(SIL_RPDO_OBJECTS if rpdo_objects is None else rpdo_objects)
+        self.frames = 0
+        self.uploads = 0
+        self.violations = 0
+        self.by_label = {}
+        self.findings = {kind: 0 for kind in self.KINDS}
+        self.upload_objects = {}
+        self.examples = []
+
+    def classify(self, label, arbitration_id, data, extended=False, remote=False, fd=False):
+        """Kinds of one frame; an empty list means an allowed upload request."""
+        data = bytes(data)
+        if extended or remote or fd:
+            return ['other']
+        if arbitration_id == 0:
+            return ['nmt']
+        function, node = arbitration_id & 0x780, arbitration_id & 0x7F
+        if function == SDO_RX_BASE and node:
+            ccs = data[0] >> 5 if data else None
+            index = int.from_bytes(data[1:3], 'little') if len(data) >= 3 else None
+            if ccs in (0, 1, 6):
+                kinds = ['sdo_download']
+                if ccs == 1 and index in self.restricted:
+                    kinds.append('restricted_write')
+                return kinds
+            if data[:1] != bytes([UPLOAD_REQUEST]) or len(data) != 8 or data[4:] != bytes(4):
+                return ['sdo_other']
+            return [] if (label, node) in self.allowed else ['not_allowed']
+        if function in RPDO_BASES and node:
+            if self.rpdo_objects.get(function) in self.restricted:
+                return ['restricted_write']
+            return ['pdo_write']
+        return ['other']
+
+    def feed(self, label, arbitration_id, data, t=0.0, extended=False, remote=False, fd=False):
+        self.frames += 1
+        self.by_label[label] = self.by_label.get(label, 0) + 1
+        kinds = self.classify(label, arbitration_id, data, extended, remote, fd)
+        if not kinds:
+            self.uploads += 1
+            key = '%04X:%02X' % (int.from_bytes(bytes(data)[1:3], 'little'), bytes(data)[3])
+            self.upload_objects[key] = self.upload_objects.get(key, 0) + 1
+            return kinds
+        self.violations += 1
+        for kind in kinds:
+            self.findings[kind] += 1
+        if len(self.examples) < 20:
+            self.examples.append('t=%.6f %s %X#%s %s' % (
+                t, label, arbitration_id, bytes(data).hex(), '+'.join(kinds)))
+        return kinds
+
+    def feed_frame(self, frame):
+        return self.feed(frame['interface'], frame['id'], frame['data'], frame['t'],
+                         frame['extended'], frame['remote'], frame['fd'])
+
+    def feed_file(self, path):
+        for frame in read_candump(path):
+            self.feed_frame(frame)
+        return self
+
+    def summary(self):
+        return {'frames': self.frames, 'uploads': self.uploads, 'violations': self.violations,
+                'findings': dict(self.findings), 'by_label': dict(self.by_label),
+                'upload_objects': dict(self.upload_objects), 'examples': list(self.examples)}
+
+
+# ---- time -------------------------------------------------------------------------------
+# Rule: Renode virtual time advances no faster than wall time. With the console image the
+# throttle holds it per 5 ms slice; with the micro-ROS image Renode's own time source does
+# (the image idles in WFI). Virtual time may lag by any factor. Which timeout assertions a
+# test may make under that rule: docs/architecture/sil-topology.md. The three helpers below
+# are the timing bounds the tests of the transmit audit, relay and negative tests use.
+def time_ratio(first, last):
+    """Renode virtual/wall ratio between two SIL_TIME samples, or None without wall time."""
+    wall = last['wall_us'] - first['wall_us']
+    return (last['virtual_us'] - first['virtual_us']) / wall if wall > 0 else None
+
+
+def not_before_wall_s(virtual_us, slice_ms=THROTTLE_SLICE_MS):
+    """Least wall time in which the image can see virtual_us pass: a firmware timeout cannot
+    fire earlier than this after the event that starts it. One slice of slack."""
+    return max(0.0, virtual_us / 1e6 - slice_ms / 1e3)
+
+
+def liveness_wait_s(virtual_us, ratio_floor=0.05, margin_s=10.0):
+    """How long a test waits (wall) for something the image does after virtual_us. It is a
+    bound on the harness, not on the firmware: a run slower than ratio_floor is BLOCKED, and
+    no test may read "it took this long" as firmware timing."""
+    return virtual_us / 1e6 / ratio_floor + margin_s
+
+
 def _shell():
     for name in ('FW_REPOSITORY', 'FW_COMMIT', 'FW_PRESET', 'FW_PRESET_UROS', 'FW_PROJECT_DIR',
                  'FW_ELF', 'FW_ELF_UROS', 'FW_UROS_AGENT_SCRIPT', 'FW_ADDITIONS',
-                 'RENODE_VERSION', 'RENODE_URL', 'RENODE_SHA256'):
+                 'RENODE_VERSION', 'RENODE_URL', 'RENODE_SHA256', 'CTL017_OD_REPOSITORY',
+                 'CTL017_OD_COMMIT', 'CTL017_OD_PATH'):
         print("%s='%s'" % (name, globals()[name]))
 
 

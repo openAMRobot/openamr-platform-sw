@@ -5,7 +5,10 @@ name: sil-tests
 # openamr-platform-fw telemetry image (pinned commit; presets RenodeTest and
 # TelemetryUrosSerialSimBench, the latter with a micro-ROS agent built from pinned commits) in
 # Renode 1.16.1 (pinned tarball and SHA-256) on vcan_drive, vcan_bms and vcan_aux: firmware in the
-# loop for telemetry only, read-only on all three buses.
+# loop for telemetry only, read-only on all three buses. Renode records every frame the image's
+# three FDCANs transmit; the tests fail on anything but SDO uploads on FDCAN1.
+# Drive behaviour is provisional in every result: the ZLAC8015D emulator follows the vendor
+# manual and CANopen routine as filed, not a drive on a bench.
 #
 # The vcan kernel module is loaded on the runner. ROS 2 Jazzy and Gazebo Harmonic run in the
 # ros:jazzy-ros-base image with the host network, so the container sees the vcan interfaces.
@@ -67,7 +70,7 @@ jobs:
             -e APT_FW="$APT_FW" -v "$PWD":/repo -w /repo "$SIL_IMAGE" sleep infinity
           $SIL 'apt-get update && apt-get install -y --no-install-recommends \
             python3-colcon-common-extensions python3-pytest python3-yaml python3-can iproute2 procps \
-            ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-nav-msgs \
+            ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-nav-msgs ros-jazzy-tf2-msgs \
             ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge $APT_FW'
           $SIL 'ip -br link show type vcan && python3 -c "import can; print(\"python-can\", can.__version__)"'
 
@@ -109,6 +112,18 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The CTL-017 object dictionary the CAN3 checks use: openamr-upperbody-fw at the pinned
+      # commit, read only. The checked-in pin must equal the file of that commit.
+      - name: Check the CTL-017 object dictionary pin against openamr-upperbody-fw
+        run: |
+          $SIL 'eval "$(python3 -I ros2/src/openamrobot_sil/openamrobot_sil/renode_fw.py shell)" && \
+            rm -rf /repo/.sil-renode/upperbody-fw && git init -q /repo/.sil-renode/upperbody-fw && \
+            cd /repo/.sil-renode/upperbody-fw && \
+            git remote add origin "https://github.com/$CTL017_OD_REPOSITORY.git" && \
+            git fetch -q --depth 1 origin "$CTL017_OD_COMMIT" && git checkout -q --detach FETCH_HEAD && \
+            cd /repo && python3 ros2/src/openamrobot_sil/scripts/sil_pin_ctl017_od.py check \
+              /repo/.sil-renode/upperbody-fw ros2/src/openamrobot_sil/config/ctl017_od_pin.json'
+
       # Renode only: the image on a Renode CAN hub with nothing else on it. No vcan, no Gazebo.
       - name: Renode tests of the firmware node, console and micro-ROS (banner or status, reset, fresh start, refused default build, agent, time ratio)
         run: |
@@ -117,6 +132,24 @@ jobs:
             cd ros2/src/openamrobot_sil/test_renode && \
             python3 -m pytest -v -s -p no:cacheprovider --junitxml=/repo/sil-renode-node.xml \
               test_renode_node.py test_renode_uros_node.py'
+
+      # Renode only: the console image against the platform-fw drive stub inside Renode.
+      # Transmit audit of the three FDCANs, negative tests, pty relay, time.
+      - name: Renode tests with the platform-fw drive stub (transmit audit, negative tests, pty relay)
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            set -a && . /repo/.sil-renode/sil_renode.env && set +a && \
+            cd ros2/src/openamrobot_sil/test_renode && \
+            python3 -m pytest -v -s -p no:cacheprovider --junitxml=/repo/sil-renode-stub.xml \
+              test_renode_stub.py'
+
+      # A candump trace on vcan_drive in place of the drive emulator. No Gazebo.
+      - name: Replay test (candump trace in place of the drive emulator)
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            set -a && . /repo/.sil-renode/sil_renode.env && set +a && \
+            python3 -m pytest -v -s -p no:cacheprovider --junitxml=/repo/sil-replay.xml \
+              ros2/src/openamrobot_sil/test_integration/test_sil_replay.py'
 
       # stm32:=renode_readonly: the micro-ROS image on vcan_drive, vcan_bms and vcan_aux through
       # Renode's SocketCAN bridges, its agent on USART3, Gazebo.
@@ -136,8 +169,13 @@ jobs:
           tail -n 300 sil-launch.log || true
           echo "---- renode_readonly launch"
           tail -n 300 sil-renode-launch.log || true
-          docker exec sil sh -c 'for f in /tmp/openamrobot_sil_renode*/renode-*.log /tmp/openamrobot_sil_renode*/agent-*.log; do
-            echo "---- $f"; tail -n 60 "$f"; done' || true
+          docker exec sil sh -c 'for f in /tmp/openamrobot_sil_renode*/renode-*.log /tmp/openamrobot_sil_renode*/agent-*.log \
+            /tmp/openamrobot_sil_replay/renode-*.log /tmp/openamrobot_sil_re*/node.log; do
+            echo "---- $f"; grep -v SIL_TIME "$f" | tail -n 60; done' || true
+          docker exec sil sh -c 'mkdir -p /repo/sil-taps && for d in /tmp/openamrobot_sil_renode \
+            /tmp/openamrobot_sil_renode_stub /tmp/openamrobot_sil_replay; do
+            for f in "$d"/fwtx-*.log "$d"/hub-*.log "$d"/sil-*.resc; do
+              [ -f "$f" ] && cp "$f" "/repo/sil-taps/$(basename "$d")-$(basename "$f")"; done; done' || true
 
       - name: Upload the drive bus capture and the Renode logs
         if: always()
@@ -147,6 +185,7 @@ jobs:
           path: |
             sil-vcan_drive.log
             sil-vcan_aux.log
+            sil-taps/
             sil-renode-launch.log
             sil-*.xml
             .sil-renode/sil_renode.env
@@ -158,8 +197,9 @@ jobs:
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 110, 'sil-gazebo.xml': 4,
-                      'sil-renode-node.xml': 14, 'sil-renode.xml': 12}
+          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 162, 'sil-gazebo.xml': 4,
+                      'sil-renode-node.xml': 14, 'sil-renode-stub.xml': 14, 'sil-replay.xml': 3,
+                      'sil-renode.xml': 18}
           for name, want in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')

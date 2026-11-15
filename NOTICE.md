@@ -70,6 +70,17 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 - **Licence:** MIT, copyright OpenAMRobot (Botshare LTD).
 - **Modification status:** adapted: renamed, made a monitor command, the print removed. The throttle and time report in the same file are new.
 
+#### Used at run time, not copied: platform-fw drive stub and CTL-017 object dictionary
+
+- `test_renode/test_renode_stub.py` loads `tools/ci/renode_drive_stub.py` from the openamr-platform-fw checkout at the
+  pinned commit (MIT) into Renode. The file is not committed here. The listener class in
+  `renode/sil_renode_helpers.py` registers on a CAN hub the way that stub does.
+- `ros2/src/openamrobot_sil/config/ctl017_od_pin.json` holds the identifier table and the generated object table of
+  `docs/ctl017_object_dictionary.md` of [openAMRobot/openamr-upperbody-fw](https://github.com/openAMRobot/openamr-upperbody-fw)
+  at commit `1a68c50c71902d1d9d7903e7bb47b6b6efa4d9fc` (draft PR #15, a proposal, not merged), with the SHA-256 of that
+  file. Licence: MIT, copyright OpenAMRobot (Botshare LTD). Extracted by `scripts/sil_pin_ctl017_od.py`, values unchanged.
+- `traces/zlac_synthetic_v1.candump` is written by `scripts/sil_make_trace.py` of this repository. It is not a capture.
+
 #### Not redistributed: firmware image and Renode
 
 `scripts/sil_renode_firmware.sh` fetches openamr-platform-fw at the pinned commit (MIT) and builds the firmware image, and

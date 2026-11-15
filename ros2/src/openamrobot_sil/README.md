@@ -69,6 +69,18 @@ and plays the CAN3 and CAN2 roles. The image's participant is on DDS domain 0: r
 `ROS_DOMAIN_ID` unset or 0. What is real and what is emulated: sections 4.1 and 4.2 of the
 topology document.
 
+Every frame the image's three FDCANs transmit is recorded inside Renode and audited
+(`/sil/fw/tx_audit`, section 4.3): only SDO uploads on FDCAN1 are allowed, and nothing on
+FDCAN2 and FDCAN3. The agent talks to the image through a pty relay, so a stopped agent does
+not block the emulation (section 5.1). Drive behaviour is provisional in every result: the
+emulator follows the vendor documents, not a drive on a bench.
+
+```bash
+ros2 topic echo /sil/fw/tx_audit                       # read-only proof, firmware side
+ros2 topic pub -1 /sil/fw/command std_msgs/msg/String "{data: can1_off}"   # bus loss; can1_on
+ros2 launch openamrobot_sil sil.launch.py stm32:=renode_readonly robot_state:=true   # /odom, /tf, /joint_states
+```
+
 ## Tests
 
 ```bash
@@ -81,6 +93,10 @@ CAN_SIL_IFACE=vcan_siltest python3 -m pytest test_zlac8015d.py test_ctl017.py
 python3 -m pytest ros2/src/openamrobot_sil/test_integration/test_sil_gazebo.py
 # Renode only (no vcan, no Gazebo); needs the variables of sil_renode.env (--default-too build)
 cd ros2/src/openamrobot_sil/test_renode && python3 -m pytest test_renode_node.py test_renode_uros_node.py
+# Renode with the platform-fw drive stub: transmit audit, negative tests, pty relay, time
+cd ros2/src/openamrobot_sil/test_renode && python3 -m pytest test_renode_stub.py
+# a candump trace on vcan_drive in place of the drive emulator (SIL_REPLAY_TRACE=<bench capture>)
+python3 -m pytest ros2/src/openamrobot_sil/test_integration/test_sil_replay.py
 # end to end with Gazebo and the firmware image in Renode
 python3 -m pytest ros2/src/openamrobot_sil/test_integration/test_sil_renode.py
 ```

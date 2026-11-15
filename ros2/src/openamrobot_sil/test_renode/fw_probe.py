@@ -58,11 +58,15 @@ class FwProbe(Node):
         self.wheels = []         # (monotonic time, (ch1, ch2))
         self.status = None
         self.audit = None
+        self.tx_audit = None
+        self.bad_console = []
         self.create_subscription(String, '/sil/fw/console', self.on_console, 200)
         self.create_subscription(String, '/sil/fw/status', self.on_status, 10)
         self.create_subscription(String, '/sil/drive_bus/audit', self.on_audit, 10)
+        self.create_subscription(String, '/sil/fw/tx_audit',
+                                 lambda m: setattr(self, 'tx_audit', json.loads(m.data)), 10)
         self.create_subscription(Float64MultiArray, '/sil/fw/wheel_speeds', self.on_wheels, 50)
-        self.cmd_pub = self.create_publisher(String, '/sil/fw/command', 10)
+        self.cmd_pub = self.create_publisher(String, '/sil/fw/command', 100)
         # The micro-ROS image's own topics (renode_readonly), best effort as published.
         self.uros = []           # (monotonic time, /base_fw/status JSON)
         self.uros_hb = []        # (monotonic time, /base_fw/drive_heartbeat)
@@ -76,8 +80,17 @@ class FwProbe(Node):
                                  qos)
 
     def on_console(self, msg):
+        # A reset can cut a line in half. The node publishes it unchanged and counts it as
+        # a bad line; an exception here would end the spin thread and blind the probe.
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            record = None
         with self.lock:
-            self.records.append((time.monotonic(), json.loads(msg.data)))
+            if isinstance(record, dict) and 't' in record:
+                self.records.append((time.monotonic(), record))
+            else:
+                self.bad_console.append(msg.data[:120])
 
     def on_status(self, msg):
         self.status = json.loads(msg.data)

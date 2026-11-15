@@ -13,6 +13,20 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation: transmit audit with the sender known, pty relay, negative tests, replay (15 Nov 2026)
+
+- Renode records every frame FDCAN1, FDCAN2 and FDCAN3 transmit. `FirmwareTxAudit` (`/sil/fw/tx_audit`) fails on NMT,
+  any SDO download, any receive PDO and any write to 6040h, 60FFh or 2000h, for a whole run, and requires zero frames
+  from FDCAN2 and FDCAN3, which the pinned image runs as receivers.
+- The micro-ROS agent talks to the image through a pty relay that always drains Renode's pseudo-terminal, so a stopped
+  agent cannot block the emulation. Stale console or status gives NaN wheel speeds and a `stale` flag.
+- Negative tests in Renode (bus loss, stale telemetry, UART corruption, duplicate SDO owner), with UART bytes and CAN
+  frames injected from the machine's time domain. Replay of a candump trace in place of the drive emulator (one
+  synthetic trace). CTL-017 object dictionary pinned by SHA and file hash.
+- New node `fw_odometry` and launch argument `robot_state` (one writer for `/odom`, `/tf` odom to base, `/joint_states`).
+  Renode virtual/wall ratio and Gazebo real-time factor reported separately. Topology sections 4.3 to 4.7, 5.1, 6.1.
+  Development evidence only; drive behaviour is provisional.
+
 ### Simulation — micro-ROS from the firmware, CAN2 and CAN3 bridged (15 Nov 2026)
 
 - Pinned openamr-platform-fw to `763bdd3` (head of `fw/telemetry-uros`, platform-fw PR #55, hosted checks green).

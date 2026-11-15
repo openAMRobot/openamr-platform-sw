@@ -33,7 +33,7 @@ def test_host_mode_starts_the_three_emulators_and_the_host_client(sil_launch):
 def test_renode_mode_starts_renode_and_the_audit_but_no_host_client(sil_launch):
     nodes = sil_launch.can_nodes(CONFIG, 'renode', True)
     assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'drive_bus_audit',
-                                  'renode_firmware', 'zlac8015d_emulator']
+                                  'fw_odometry', 'renode_firmware', 'zlac8015d_emulator']
 
 
 def _text(value):
@@ -55,7 +55,7 @@ def node_params(nodes, executable):
 def test_renode_readonly_mode_adds_the_command_only_host_client(sil_launch):
     nodes = sil_launch.can_nodes(CONFIG, 'renode_readonly', True, fw_args())
     assert executables(nodes) == ['ctl017_emulator', 'daly_bms_emulator', 'drive_bus_audit',
-                                  'renode_firmware', 'stm32_host_client', 'zlac8015d_emulator']
+                                  'fw_odometry', 'renode_firmware', 'stm32_host_client', 'zlac8015d_emulator']
     host = node_params(nodes, 'stm32_host_client')
     assert host['drive_mode'] == 'command_only' and host['wait_for_audit'] is True
     drive = node_params(nodes, 'zlac8015d_emulator')
@@ -96,7 +96,8 @@ def test_arguments_are_declared(sil_launch):
                 if isinstance(a, DeclareLaunchArgument)}
     assert sorted(declared) == ['capture_file', 'config_file', 'create_vcan', 'fw_dir', 'fw_elf',
                                 'fw_elf_uros', 'gazebo', 'gui', 'model', 'renode',
-                                'renode_work_dir', 'stm32', 'uros_agent', 'world']
+                                'renode_work_dir', 'robot_state', 'stm32', 'uros_agent',
+                                'world']
     assert declared['stm32'].choices == ['host', 'renode', 'renode_readonly']
 
 
@@ -113,3 +114,11 @@ def test_vcan_creation_names_the_three_buses(sil_launch):
 def test_unknown_stm32_value_is_refused(sil_launch):
     with pytest.raises(RuntimeError):
         sil_launch.build_actions('teensy', False, False, False, CONFIG, '', '')
+
+
+def test_robot_state_is_off_by_default_and_passed_to_fw_odometry(sil_launch):
+    nodes = sil_launch.can_nodes(CONFIG, 'renode_readonly', True)
+    assert node_params(nodes, 'fw_odometry')['robot_state'] is False
+    nodes = sil_launch.can_nodes(CONFIG, 'renode', True, dict(
+        sil_launch.default_renode_args(), robot_state='true'))
+    assert node_params(nodes, 'fw_odometry')['robot_state'] is True
