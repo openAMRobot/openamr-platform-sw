@@ -15,6 +15,14 @@
 # they are test deadlines, rule C5.
 version: 1
 files:
+  openamrobot_sil/sim_time.py:
+    counts: {time.monotonic: 1}
+    sites:
+      - what: SteadyClock.now(), the host-time implementation of the clock interface (internal plant, health checks)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
   openamrobot_sil/stm32_host.py:
     counts: {time.monotonic: 11, time.sleep: 1}
     sites:

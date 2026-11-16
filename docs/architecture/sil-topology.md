@@ -198,7 +198,17 @@ package, the domain it runs on now, the domain these rules assign, and where the
 happen. `test/test_clock_inventory.py` fails when a clock read is added or removed without an
 inventory change.
 
-### 6.5 Current state (15 Nov 2026)
+### 6.5 Clock interface
+
+`openamrobot_sil/sim_time.py` is the interface every device model takes instead of reading host
+time: `now()`, `generation` (increases on every reset or backward jump, so a command, enable or
+permit stamped earlier is never fresh again) and `paused`. `FedClock` is fed from `/clock`;
+`ManualClock` drives tests; `SteadyClock` is host time for an internal plant and for health checks.
+`Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6). A simulated
+communication deadline (a device timeout in its own domain) and a host communication failure (a
+process that stopped, seen in `steady`) are separate checks and never share a timer.
+
+### 6.6 Current state (15 Nov 2026)
 
 Every device timer in the package runs on `steady`, and every node timer too
 (`nodes/common.py` `steady_timer`). So all `gazebo` targets above are `to_change`:
