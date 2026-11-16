@@ -7,11 +7,12 @@ purpose. Under the robot weight the rubber compresses about 2 mm and the rigid c
 so in the loaded state every contact is on the floor plane and base_link is not pitched. The
 description models that loaded state: wheel collision radius = loaded radius = axle height.
 """
-import math
 import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
+
+from test_base_mass import rpy_matrix
 
 import xacro
 
@@ -31,13 +32,8 @@ def _tf(origin):
     if origin is not None:
         xyz = [float(v) for v in origin.get('xyz', '0 0 0').split()]
         rpy = [float(v) for v in origin.get('rpy', '0 0 0').split()]
-    r, p, y = rpy
-    cr, sr, cp, sp, cy, sy = (math.cos(r), math.sin(r), math.cos(p), math.sin(p),
-                              math.cos(y), math.sin(y))
     m = np.eye(4)
-    m[:3, :3] = [[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-                 [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-                 [-sp, cp * sr, cp * cr]]
+    m[:3, :3] = rpy_matrix(*rpy)
     m[:3, 3] = xyz
     return m
 
