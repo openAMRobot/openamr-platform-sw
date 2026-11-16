@@ -13,6 +13,21 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Base Gazebo sensors read the sensor profiles (#156, 17 Nov 2026)
+
+- `urdf/sensors.xacro` loads `config/sensor_profiles.yaml` with `xacro.load_yaml`; the base Gazebo sensors take every range,
+  rate, resolution, field of view and noise value from it, and a null value writes no SDF element. RPLIDAR S3: 0.05 to 40 m
+  (was 0.40 to 10 m), 3200 samples (was 360), no noise (was 0.001 m, no source). New Gemini 336L `gemini_rgbd_sensor`
+  (rgbd_camera) on `base_camera_link`: 90 deg, 1280 x 800, 30 Hz, depth clip 0.17 to 20 m, Gazebo topic `/base_camera/rgbd`
+  (Proposed; not bridged to ROS). TF-Luna 100 Hz datasheet default (was 50 Hz), half angle from the 2 deg field of view, no
+  noise (was 0.01 m). MB7060: no noise (was 0.01 m). Unchanged and reported in #156: IMU 50 Hz (profile ODR null), MB7060 half
+  angle 0.17 rad (beam_half_angle null), legacy `/rgb_image` camera (docking reads it). Topic names and frame ids unchanged.
+- `config/sensor_profiles.yaml`: ICM-42688-P zero-rate and zero-g tolerances (bounds, not standard deviations) and RMS noise
+  at 100 Hz (DS-000347 rev 1.9 Tables 1 and 2); TF-Luna invalid when Amp < 100 or Amp = 65535 (User Manual A05 section 6.4);
+  MB7060 compact package no-target output 765 cm and maximum effective range 645 cm (datasheet 11838ab).
+- New `test/test_gazebo_sensor_profiles.py` (81 tests; 26 fail with the xacros reverted); description-tests now 335.
+  Simulation only, not sensor acceptance.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged

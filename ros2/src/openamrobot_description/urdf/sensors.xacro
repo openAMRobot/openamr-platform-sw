@@ -6,6 +6,15 @@
      config/sensor_frames.yaml; keep both files in step. -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Sensor behaviour profiles (#138, #156): every Gazebo sensor number of the base reads
+       config/sensor_profiles.yaml, the one place the datasheet values and their sources live.
+       A profile value that is null (unknown) writes no SDF element: no noise block is written
+       where the profile has no sourced standard deviation. The few values the profile does
+       not give and Gazebo still needs are named at their use, with the owner who closes them.
+       Checked by test/test_gazebo_sensor_profiles.py. Simulation only. -->
+  <xacro:property name="sensor_profiles" lazy_eval="false"
+                  value="${xacro.load_yaml('../config/sensor_profiles.yaml')['frames']}"/>
+
   <material name="sensor_black">
     <color rgba="0.1 0.1 0.1 1"/>
   </material>
@@ -144,7 +153,12 @@
   <xacro:tof_frame name="tof_rear" x="-0.399" y="0" z="-0.0066" pitch="0.174533" yaw="${pi}"/>
 
   <!-- ── Gazebo range sensors (simulation only) ─────────────────────────── -->
-  <xacro:macro name="range_sensor_gazebo" params="name topic samples half_angle range_min range_max rate">
+  <!-- Range, resolution, rate and noise come from the profile channel `range` of the frame.
+       samples and half_angle shape the gpu_lidar fan. A null range_noise_stddev writes no
+       noise block. -->
+  <xacro:macro name="range_sensor_gazebo" params="name topic samples half_angle rate range_max">
+    <xacro:property name="p" value="${sensor_profiles[name]['channels']['range']}"/>
+    <xacro:property name="noise_stddev" value="${p['range_noise_stddev']['value']}"/>
     <gazebo reference="${name}">
       <sensor name="${name}_sensor" type="gpu_lidar">
         <pose relative_to="${name}">0 0 0 0 0 0</pose>
@@ -161,15 +175,17 @@
             </horizontal>
           </scan>
           <range>
-            <min>${range_min}</min>
+            <min>${p['range_min']['value']}</min>
             <max>${range_max}</max>
-            <resolution>0.01</resolution>
+            <resolution>${p['range_resolution']['value'] * 0.01}</resolution>
           </range>
-          <noise>
-            <type>gaussian</type>
-            <mean>0.0</mean>
-            <stddev>0.01</stddev>
-          </noise>
+          <xacro:if value="${noise_stddev is not None}">
+            <noise>
+              <type>gaussian</type>
+              <mean>0.0</mean>
+              <stddev>${noise_stddev}</stddev>
+            </noise>
+          </xacro:if>
         </lidar>
         <visualize>false</visualize>
         <always_on>true</always_on>
@@ -177,20 +193,38 @@
     </gazebo>
   </xacro:macro>
 
-  <!-- TF-Luna: 2 deg field of view, 0.2 to 8 m -->
-  <xacro:range_sensor_gazebo name="tof_front" topic="/tof/front"
-    samples="3" half_angle="0.0175" range_min="0.20" range_max="8.0" rate="50"/>
-  <xacro:range_sensor_gazebo name="tof_rear" topic="/tof/rear"
-    samples="3" half_angle="0.0175" range_min="0.20" range_max="8.0" rate="50"/>
+  <!-- TF-Luna: half angle from the 2 deg field of view, range 0.2 to 8 m (90 percent
+       reflectivity), resolution 1 cm. Rate: the rate the firmware configures when the profile
+       has it (frame_rate_configured, TODO(Evans)), otherwise the 100 Hz datasheet default.
+       range_noise_stddev is null (owner Cuma): no noise block. -->
+  <xacro:macro name="tof_sensor_gazebo" params="name topic">
+    <xacro:property name="t" value="${sensor_profiles[name]['channels']['range']}"/>
+    <xacro:property name="t_rate" value="${t['frame_rate_configured']['value']}"/>
+    <xacro:range_sensor_gazebo name="${name}" topic="${topic}" samples="3"
+      half_angle="${radians(t['fov']['value']) / 2}"
+      rate="${t['frame_rate_default']['value'] if t_rate is None else t_rate}"
+      range_max="${t['range_max_90pct']['value']}"/>
+  </xacro:macro>
+  <xacro:tof_sensor_gazebo name="tof_front" topic="/tof/front"/>
+  <xacro:tof_sensor_gazebo name="tof_rear" topic="/tof/rear"/>
 
-  <!-- MB7060: approximated as a narrow horizontal fan, 0.2 to 7.65 m, 10 Hz -->
-  <xacro:range_sensor_gazebo name="us_front_left" topic="/ultrasonic/front_left"
-    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
-  <xacro:range_sensor_gazebo name="us_front_right" topic="/ultrasonic/front_right"
-    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
-  <xacro:range_sensor_gazebo name="us_rear_left" topic="/ultrasonic/rear_left"
-    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
-  <xacro:range_sensor_gazebo name="us_rear_right" topic="/ultrasonic/rear_right"
-    samples="9" half_angle="0.17" range_min="0.20" range_max="7.65" rate="10"/>
+  <!-- MB7060: approximated as a narrow horizontal fan of 9 rays, range 0.2 to 7.65 m,
+       resolution 1 cm, 10 Hz free-run rate, from the profile. The half angle 0.17 rad has no
+       source: the profile's beam_half_angle is null (owner Vineeth, bench check of the beam
+       pattern) and a gpu_lidar fan needs one; kept as it was and reported in #156.
+       range_noise_stddev is null: no noise block. -->
+  <xacro:property name="us_half_angle_unsourced" value="0.17"/>
+  <xacro:macro name="us_sensor_gazebo" params="name topic">
+    <xacro:property name="u" value="${sensor_profiles[name]['channels']['range']}"/>
+    <xacro:property name="u_half" value="${u['beam_half_angle']['value']}"/>
+    <xacro:range_sensor_gazebo name="${name}" topic="${topic}" samples="9"
+      half_angle="${us_half_angle_unsourced if u_half is None else u_half}"
+      rate="${u['refresh_rate']['value']}"
+      range_max="${u['range_max']['value']}"/>
+  </xacro:macro>
+  <xacro:us_sensor_gazebo name="us_front_left" topic="/ultrasonic/front_left"/>
+  <xacro:us_sensor_gazebo name="us_front_right" topic="/ultrasonic/front_right"/>
+  <xacro:us_sensor_gazebo name="us_rear_left" topic="/ultrasonic/rear_left"/>
+  <xacro:us_sensor_gazebo name="us_rear_right" topic="/ultrasonic/rear_right"/>
 
 </robot>
