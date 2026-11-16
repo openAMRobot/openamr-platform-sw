@@ -34,4 +34,17 @@ install(DIRECTORY launch config docs models media
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  # Regression for platform-sw#125 review (P1): the docking server must be
+  # launched with remappings=[('cmd_vel', 'cmd_vel_dock')]. DockingServer
+  # publishes on the relative topic "cmd_vel", so without the remap its
+  # velocity commands land on the final /cmd_vel, bypassing collision_monitor
+  # and leaving twist_mux's cmd_vel_dock input (priority 20) unused.
+  ament_add_pytest_test(test_docking_launch_remap test/test_docking_launch_remap.py
+    TIMEOUT 60
+  )
+endif()
+
 ament_package()

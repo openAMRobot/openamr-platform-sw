@@ -92,6 +92,15 @@ def launch_setup(context, *args, **kwargs):
     map_file = LaunchConfiguration('map').perform(context)
     is_sim = _truthy(sim)
 
+    # D-19 (Alex, 11 Nov owner decision): the real launch keeps docking OFF by default; simulation
+    # keeps it ON. Resolved here rather than in the declaration so that an explicit
+    # use_docking:=true still works on real hardware once the three conditions are met.
+    if use_docking == '':
+        use_docking = 'true' if is_sim else 'false'
+        if not is_sim:
+            print('[bringup] D-19: docking is off on the real profile by default '
+                  '(pass use_docking:=true only once #124 conditions are met)')
+
     # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled
     # sim map.
     if not map_file:
@@ -215,11 +224,16 @@ def generate_launch_description():
             'use_camera', default_value='true',
             description='Real only: launch the IMX708 camera (false = lighter load).'),
         DeclareLaunchArgument(
-            'use_docking', default_value='true',
-            description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '
-                        'and IS the goal forwarder). Set false only for nav-only debug -> a plain '
-                        'topic_tools relay /goal_pose->/goal_pose_nav takes over as the '
-                        'forwarder. Exactly one forwarder runs in either case.'),
+            'use_docking', default_value='',
+            description='Empty (default) means: ON in simulation, OFF on the real robot. D-19 '
+                        '(Alex, 11 Nov) keeps reverse and automatic undock disabled in Build 1, '
+                        'and the opennav_docking server exposes a direct /undock_robot that the '
+                        '#90 constant cannot gate, so the real profile must not start it until '
+                        '(1) release no longer needs a dock_robot server, (2) a direct '
+                        '/undock_robot produces no motion, and (3) the real-profile runtime test '
+                        'runs. Dock_trigger owns /goal_pose and IS the goal forwarder when on; '
+                        'when off a plain topic_tools relay /goal_pose->/goal_pose_nav takes '
+                        'over. Exactly one forwarder runs in either case.'),
         DeclareLaunchArgument(
             'map', default_value='',
             description='Map YAML for AMCL/localization. Empty -> sim uses the bundled '

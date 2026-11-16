@@ -1,0 +1,258 @@
+name: docking-tests
+
+# Hardware-free checks for openamrobot_docking.
+#
+# Why this workflow exists: the path filters of nav-status-tests.yml
+# (ros2/src/openamrobot_nav2/**) and drivers-bringup-tests.yml (drivers and bringup)
+# both exclude ros2/src/openamrobot_docking/**, so a change confined to the docking
+# launch ran no functional test in CI at all. The repository ruleset requires DCO and
+# CLA, not this test, so the gap was silent.
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_docking/**'
+      # The docking launch loads the docking_server block from this file, so a change
+      # to the plugin, controller, dock or timeout parameters must re-run these checks
+      # (review on #125: path filters that miss the config leave the regression silent).
+      - 'ros2/src/openamrobot_nav2/config/**'
+      - '.github/workflows/docking-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/src/openamrobot_docking/**'
+      - 'ros2/src/openamrobot_nav2/config/**'
+      - '.github/workflows/docking-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docking-launch-tests:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install pytest
+        run: |
+          apt-get update
+          apt-get install -y python3-pytest
+
+      # Both profile cases: the sim launch and the real launch must each start exactly
+      # one opennav_docking node carrying the cmd_vel -> cmd_vel_dock remap.
+      - name: Run the docking launch regressions
+        run: |
+          python3 -m pytest -v -p no:cacheprovider --junitxml=docking-tests.xml \
+            ros2/src/openamrobot_docking/test/test_docking_launch_remap.py \
+            ros2/src/openamrobot_docking/test/test_docking_action_servers_parse.py \
+            ros2/src/openamrobot_docking/test/test_docking_action_servers_preflight.py
+
+      # A renamed or deleted test must not pass as an empty suite.
+      - name: Check that both profile cases ran
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('docking-tests.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          names = sorted(case.get('name') for case in suite.iter('testcase'))
+          print(f'{tests} tests, {skipped} skipped: {names}')
+          # 16 = 8 launch/parser + 6 preflight fail-closed cases + 1 preflight self-test
+          # + 1 failed-launch case. The preflight file was in the repo but not in this
+          # command, so its cases were never CI-enforced (review P2, 12 Nov).
+          assert tests == 16 and skipped == 0, f'expected 16 cases, none skipped, got {tests}'
+          # Ids, not identifier-style names: the preflight cases are parametrised with their
+          # human-readable labels ("query fails"), so an underscore probe silently never matches.
+          for probe in ('sim_profile_starts', 'real_profile_starts', 'does_not_default_docking_on',
+                        'real_profile_defaults_the_server_off', 'sim_profile_keeps_the_server_on',
+                        'non_numeric', 'missing_count', 'well_formed',
+                        'preflight_fails_closed', 'preflight_self_test_passes',
+                        'queryable, no servers', 'query fails', 'prose without a count',
+                        'foreign stack present', 'empty output', 'hung query',
+                        'failed_launch_is_an_error_not_a_mismatch'):
+              assert any(probe in n for n in names), f'{probe} case missing'
+          EOF
+
+  # Proves the servers actually become reachable, which the AST test cannot: it only sees the
+  # Node(...) declaration. Boots the real launch, waits for the lifecycle manager, and counts
+  # action servers. The expected count is a parameter because the D-19 enforcement decision
+  # (platform-sw#125) changes it for the Build 1 real profile: 1 = server exposed, 0 = disabled.
+  docking-action-servers:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 25
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install the packages this launch composes
+        shell: bash
+        run: |
+          set -eo pipefail
+          # This runner intermittently cannot resolve archive.ubuntu.com / security.ubuntu.com
+          # (only packages.ros.org resolves), and ros-jazzy-behaviortree-cpp needs libzmq5 and
+          # cppzmq-dev from Ubuntu universe. That is the whole reason this job flips between green
+          # and red with identical steps. Retry with backoff and Acquire::Retries before deciding
+          # anything about the repository.
+          APT_OPTS="-o Acquire::Retries=5 -o Acquire::http::Timeout=25"
+
+          # Update first: a fresh container has no package lists, and the ROS source is reachable
+          # even when the Ubuntu mirrors are not.
+          for attempt in 1 2 3; do
+            apt-get ${APT_OPTS} update && break
+            echo "apt-get update failed (attempt ${attempt}); retrying in 20s"
+            sleep 20
+          done
+
+          apt-get ${APT_OPTS} install -y --no-install-recommends \
+            python3-colcon-common-extensions git ros-jazzy-nav2-msgs \
+            ros-jazzy-nav2-lifecycle-manager ros-jazzy-tf2-ros
+
+          DOCK_PKG=""
+          for candidate in ros-jazzy-opennav-docking ros-jazzy-nav2-docking; do
+            if apt-cache show "$candidate" >/dev/null 2>&1; then DOCK_PKG="$candidate"; break; fi
+          done
+
+          UBUNTU_OK=0
+          if apt-cache show libzmq5 >/dev/null 2>&1; then UBUNTU_OK=1; fi
+
+          installed=0
+          if [ -n "$DOCK_PKG" ]; then
+            for attempt in 1 2 3; do
+              echo "attempt ${attempt}: apt-get update + install ${DOCK_PKG}"
+              if apt-get ${APT_OPTS} update >/dev/null 2>&1 \
+                 && apt-get ${APT_OPTS} install -y --no-install-recommends "$DOCK_PKG"; then
+                installed=1
+                break
+              fi
+              echo "attempt ${attempt} failed; waiting 30s (Ubuntu mirror DNS: $([ "$UBUNTU_OK" = 1 ] && echo resolvable || echo unresolved))"
+              sleep 30
+            done
+          fi
+
+          if [ "$installed" = "1" ]; then
+            echo "docking binary package installed: $DOCK_PKG"
+            echo "DOCKING_FROM=apt" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=Docking binary unavailable::Ubuntu mirror DNS or apt resolution failed in this runner; building opennav_docking from source instead."
+            apt-get -f install -y || true
+            apt-get ${APT_OPTS} install -y --no-install-recommends \
+              ros-jazzy-test-msgs ros-jazzy-nav2-util ros-jazzy-nav2-msgs ros-jazzy-nav2-core \
+              || echo "WARNING: some Nav2 dependencies unavailable; the source build may fail"
+            echo "DOCKING_FROM=source" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build the docking server if it is not available as a binary
+        if: env.DOCKING_FROM == 'source'
+        shell: bash
+        run: |
+          # No `-u`: the ROS setup scripts reference unset variables (AMENT_TRACE_SETUP_FILES).
+          set -eo pipefail
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p nav2_ws/src
+          git clone --depth 1 --branch jazzy https://github.com/ros-navigation/navigation2.git nav2_ws/src/navigation2
+          cd nav2_ws
+          # Non-fatal: whether the server exists is decided by the next step, which reports the
+          # environment condition instead of failing the job on it.
+          colcon build --packages-select opennav_docking --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            || echo "::warning title=Source build of opennav_docking failed::The container cannot supply the docking server in this run; the live check will be reported as NOT RUN." 
+
+      - name: Build openamrobot_docking
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p ws/src
+          cp -r ros2/src/openamrobot_docking ws/src/
+          # The launch declares its docking_server_params default with
+          # FindPackageShare('openamrobot_nav2'), which resolves at declaration time even when the
+          # argument is supplied - so the package has to exist in the underlay.
+          cp -r ros2/src/openamrobot_nav2 ws/src/
+          cd ws
+          # Fatal on purpose: both packages are local and build against ros:jazzy-ros-base
+          # (openamrobot_docking: rclcpp/geometry_msgs/tf2/tf2_ros; openamrobot_nav2: ament_python),
+          # so a build break here is a repository defect, not a container condition. The NOT RUN
+          # path belongs to a missing opennav_docking only (see "Decide whether the live check can
+          # run"). Silencing this turned a broken build into a green "live check: NOT RUN".
+          colcon build --packages-select openamrobot_docking openamrobot_nav2
+
+      # The container's apt state is not reliable: some runners cannot resolve Ubuntu mirrors, and
+      # some cannot satisfy ros-jazzy-behaviortree-cpp (libzmq5) even when they can. Rather than let
+      # that read as a repository failure - or silently pass - decide once whether the server is
+      # actually installed, and say so on the job summary if it is not.
+      - name: Decide whether the live check can run
+        shell: bash
+        run: |
+          set -eo pipefail
+          source /opt/ros/jazzy/setup.bash
+          if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
+          if [ -f ws/install/setup.bash ]; then source ws/install/setup.bash; fi
+          # Both are required: the server itself, and the workspace package whose launch file
+          # declares its parameter default via FindPackageShare('openamrobot_nav2'). Checking only
+          # the server produced a run where the launch died and the harness reported a count
+          # mismatch - a measurement of nothing, dressed as a result.
+          DOCK_OK=0; LAUNCH_OK=0
+          # `|| true`: this step runs under `set -e`, and a failed probe is an answer here.
+          ros2 pkg prefix opennav_docking >/dev/null 2>&1 && DOCK_OK=1 || true
+          ros2 pkg prefix openamrobot_nav2 >/dev/null 2>&1 && LAUNCH_OK=1 || true
+          if [ "$DOCK_OK" = 1 ] && [ "$LAUNCH_OK" = 1 ]; then
+            echo "CAN_RUN_LAUNCH=1" >> "$GITHUB_ENV"
+            echo "opennav_docking and openamrobot_nav2 are available; running the live check"
+          else
+            echo "docking server: $DOCK_OK, launch package: $LAUNCH_OK"
+            echo "CAN_RUN_LAUNCH=0" >> "$GITHUB_ENV"
+            echo "::warning title=Live docking check not run::This container could not supply opennav_docking and/or build openamrobot_nav2 (Ubuntu mirror DNS or dependency resolution). AST and parser regressions still ran. Last hosted green runs: 483731a (42839411816) and e5515f5 (42896476521)."
+            {
+              echo "### Live docking action-server check: NOT RUN"
+              echo ""
+              echo "The container could not provide \`opennav_docking\` and/or build \`openamrobot_nav2\` in this run — Ubuntu mirror DNS"
+              echo "or \`ros-jazzy-behaviortree-cpp\` dependency resolution. This is an environment"
+              echo "condition, not a repository failure; it is the reason this job alternates between"
+              echo "green and red on identical commits (platform-sw#57 proposes the pinned devcontainer"
+              echo "that would fix it)."
+              echo ""
+              echo "Hosted green runs of this check: \`483731a\` (42839411816), \`e5515f5\` (42896476521)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Both docking action servers come up (sim profile)
+        if: env.CAN_RUN_LAUNCH == '1'
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
+          bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
+            openamrobot_docking openamrobot_docking.launch.py 1 \
+            launch_trigger:=false launch_camera_pipeline:=false use_sim_time:=false \
+            docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml
+
+      # Negative control: the same harness, the same launch, docking switched off, expecting one
+      # server. It must report a MISMATCH (exit 10) - not merely fail. Any other non-zero exit is
+      # an infrastructure error (unqueryable graph, missing control node, launch crash) and proves
+      # nothing, so it is rejected rather than counted as the expected result.
+      - name: Harness reports a mismatch, not an error, when the server is switched off
+        if: env.CAN_RUN_LAUNCH == '1'
+        shell: bash
+        run: |
+          set +e
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          if [ -f nav2_ws/install/setup.bash ]; then source nav2_ws/install/setup.bash; fi
+          export HARNESS_TIMEOUT_S=60
+          bash ros2/src/openamrobot_docking/test/docking_action_servers.sh \
+              openamrobot_docking openamrobot_docking.launch.py 1 \
+              --control-node dock_trigger \
+              -- launch_docking_server:=false launch_trigger:=true launch_camera_pipeline:=false use_sim_time:=false \
+              docking_server_params:=$PWD/ros2/src/openamrobot_docking/test/fixtures/docking_server_params.yaml \
+              > negative_control.log 2>&1
+          rc=$?
+          set -e
+          tail -6 negative_control.log
+          case "$rc" in
+            10) echo "PASS: healthy graph, control node visible, counts differ as expected (exit 10)";;
+            0)  echo "FAIL: the harness passed with the docking server switched off"; cat negative_control.log; exit 1;;
+            *)  echo "FAIL: the negative control errored (exit $rc) instead of reporting a mismatch - it proves nothing"; cat negative_control.log; exit 1;;
+          esac
