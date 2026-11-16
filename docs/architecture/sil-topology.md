@@ -175,10 +175,10 @@ injectable clock in the vendored emulators, which is a change in openamr-platfor
 
 Drive. The ZLAC8015D emulator ramps its speed demand as the vendored model does. The node
 converts both wheel speeds to a body twist and publishes it for the Gazebo DiffDrive plugin of
-the unchanged base model. The conversion uses the wheel radius 0.100 m and the wheel
+the unchanged base model. The conversion uses the loaded wheel radius 0.098 m (unloaded 0.100 m) and the wheel
 separation 0.400 m of that plugin (a test checks they agree). The plugin's own acceleration
 limits apply on top. Object 606Ch reports the wheel joint speeds that Gazebo measures. 60FFh
-takes whole r/min, so 0.2 m/s becomes 19 r/min and 0.199 m/s.
+takes whole r/min, so 0.2 m/s becomes 19 r/min and 0.195 m/s.
 
 Lift. The CTL-017 emulator sends the speed of its motor model to a velocity controller on
 `lift_joint`. The joint position sets the Hall count and the three stop sensors. Joint

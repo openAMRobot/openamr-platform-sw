@@ -16,7 +16,7 @@ buses:
     core_node_id: 0x01         # heartbeat producer the lift node consumes (0x1016:01 default in the v1 dictionary)
 
 drive:
-  wheel_radius: 0.100          # m. openamrobot_description gazebo_control.xacro; test_sil_config.py checks they agree
+  wheel_radius: 0.098          # m, loaded radius (Alex decision 2026-11-15). openamrobot_description gazebo_control.xacro; test_sil_config.py checks they agree
   wheel_separation: 0.400      # m. Same file. Placeholder there (decision DRIVE-TRACK is open)
   left_sign: 1                 # SIL test value. Axis order and sign are open (actuator ledger Q-02)
   right_sign: 1                # SIL test value

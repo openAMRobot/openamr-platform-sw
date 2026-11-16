@@ -150,7 +150,7 @@ def test_0_2_m_per_s_command_moves_the_gazebo_base_and_odometry_returns(sil):
     assert abs(sil.get('gz_odom').twist.twist.linear.x) < 0.02
     sil.cmd = (0.2, 0.0)
     try:
-        # CAN1: the client wrote 19 r/min per wheel (0.2 m/s on a 0.1 m wheel, whole r/min)
+        # CAN1: the client wrote 19 r/min per wheel (0.2 m/s on the 0.098 m loaded wheel, whole r/min: 19 r/min is 0.195 m/s)
         assert sil.wait(lambda: sil.get('/sil/drive/emulator_state')['target_rpm'] == [19, 19], 3.0)
         time.sleep(5.0)
         state = sil.get('/sil/drive/emulator_state')
@@ -160,12 +160,12 @@ def test_0_2_m_per_s_command_moves_the_gazebo_base_and_odometry_returns(sil):
     moved = gz_odom.pose.pose.position.x - x0
     assert 0.6 < moved < 1.2, 'Gazebo base moved %.3f m in about 5 s' % moved
     assert abs(gz_odom.pose.pose.position.y) < 0.15
-    assert gz_odom.twist.twist.linear.x == pytest.approx(0.199, abs=0.02)
+    assert gz_odom.twist.twist.linear.x == pytest.approx(0.195, abs=0.02)
     # feedback path: Gazebo wheel speed -> 606Ch -> CAN1 -> host client odometry
     assert state['feedback'] == 'gazebo'
     assert state['actual_rpm'][0] == pytest.approx(19.0, abs=1.5)
     assert state['actual_rpm'][1] == pytest.approx(19.0, abs=1.5)
-    assert odom.twist.twist.linear.x == pytest.approx(0.199, abs=0.02)
+    assert odom.twist.twist.linear.x == pytest.approx(0.195, abs=0.02)
     returned = odom.pose.pose.position.x - odom0
     assert returned == pytest.approx(moved, rel=0.2), (returned, moved)
     assert sil.wait(lambda: abs(sil.get('gz_odom').twist.twist.linear.x) < 0.01, 3.0)
