@@ -11,8 +11,8 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Owner role: software-lead (maintainers.yaml)
 - Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
   `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026; job `description-gazebo-tests`
-  with pinned gz-sim 8.15.0 runs the friction test, #135, 14 Nov 2026), `docking-tests`
-  (9 Nov 2026, #125: path-filtered on `openamrobot_docking/**` and its nav2 config) and
+  with pinned gz-sim 8.15.0 runs the friction test, #135, 14 Nov 2026), `sil-tests` (14 Nov 2026),
+  `docking-tests` (9 Nov 2026, #125: path-filtered on `openamrobot_docking/**` and its nav2 config) and
   `repository-quality`; no `tools/verify.sh` yet. `repository-quality` PASS on main at
   dfd44a5 (16 Oct 2026).
 
@@ -21,6 +21,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
 | Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
+| Base and lift SIL on virtual CAN: package `openamrobot_sil` (ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux`, `vcan_bms`, bridged to Gazebo; host test client; `sil.launch.py`), `docs/architecture/sil-topology.md`, workflow `sil-tests` (14 Nov 2026) | claude/optimistic-planck-frfht7 | draft | owner: adopt, adapt or reject; then Renode attach (platform-fw #51) and the combined model |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
@@ -35,6 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
+| Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
 | Start `opennav_docking` so `/dock_robot`/`/undock_robot` exist (#123); **D-19 implemented** (Alex, 11 Nov): `use_docking` resolves from `sim` (on in simulation, off on the real profile) and the standalone real launch defaults `launch_docking_server` false; `launch_camera_pipeline` separates the AprilTag stack from the server (12 Nov 2026) | #125 | in review; hosted `docking-tests` green at `8c28493` (run [43283984064](https://github.com/openAMRobot/openamr-platform-sw/actions/runs/43283984064)): **16 regressions** (8 launch/parser + 6 preflight + 1 launch-failure + 1 self-test), hung-query cases force the no-coreutils fallback and assert it fires, sim live check **ran** and observed one server per action, negative control exit 10; `quality/test` **SKIPPED** in [43234782120](https://github.com/openAMRobot/openamr-platform-sw/actions/runs/43234782120); source-build fallback exercised off-CI (evidence branch `e38660e`) but not in the CI container (#57); workspace build is fatal again, so a build break cannot pass as NOT RUN | safety owner: real-profile runtime, direct `/undock_robot` no-motion and hardware remain NOT RUN; two-human review |
 
 ## Decisions this repository implements
@@ -56,6 +58,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Base E-stop and RESET (27 Oct 2026) are placeholders from datasheet dimensions in the
   release 001 button holes (22.5 mm in CAD v0.2); the Schneider STEP models and the XB4 hole
   tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
+- Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
@@ -63,4 +66,5 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Not verified
 
+- SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.

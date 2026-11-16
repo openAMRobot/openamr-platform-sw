@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!-- SIL model: the platform base, unchanged, plus a stand-in for the lift axis.
+
+     The base is robo_urdf.urdf.xacro of openamrobot_description, included as it is, with its
+     DiffDrive plugin. The ZLAC8015D emulator feeds that plugin (see config/gz_bridge_sil.yaml).
+
+     The lift here is a STAND-IN, not the robot's lift. The combined model with the real column,
+     carriage and arms is combined_robot.xacro in openamr-upperbody-sw. This file keeps only what
+     the CTL-017 emulator needs: a prismatic joint with the same name (lift_joint) and the same
+     limits. Limits: 0 to 0.350 m, 0.018 m/s, 800 N, as in combined_robot.xacro (upperbody-sw
+     8c4c548) and the actuator ledger entry lift_dold_hexalift_v4_350. Carriage mass and pose are
+     SIL test values with no source and no mechanical meaning. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openamrobot_sil">
+
+  <xacro:include filename="$(find openamrobot_description)/urdf/robo_urdf.urdf.xacro"/>
+
+  <link name="lift_carriage_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.10 0.10 0.02"/></geometry>
+    </visual>
+  </link>
+
+  <joint name="lift_joint" type="prismatic">
+    <parent link="base_link"/>
+    <child link="lift_carriage_link"/>
+    <origin xyz="0 0 0.40" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="0.350" effort="800" velocity="0.018"/>
+  </joint>
+
+  <gazebo>
+    <!-- Velocity command of the lift motor model, m/s, from the CTL-017 emulator. -->
+    <plugin filename="gz-sim-joint-controller-system" name="gz::sim::systems::JointController">
+      <joint_name>lift_joint</joint_name>
+      <topic>/sil/gz/lift_cmd_vel</topic>
+      <initial_velocity>0.0</initial_velocity>
+    </plugin>
+    <!-- Wheel and lift joint states for the emulators: wheel speed is the encoder feedback of
+         the drive emulator, lift position drives the Hall count and the stop sensors. -->
+    <plugin filename="gz-sim-joint-state-publisher-system"
+      name="gz::sim::systems::JointStatePublisher">
+      <topic>/sil/gz/joint_states</topic>
+      <update_rate>100</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+      <joint_name>lift_joint</joint_name>
+    </plugin>
+  </gazebo>
+</robot>
