@@ -1,0 +1,47 @@
+# openamrobot_sil configuration. One file for all nodes, loaded by sil.launch.py.
+# Every value names its source. "SIL test value" means: chosen here so the layer runs, not
+# decided by an owner and not a proposal. Sources are listed in docs/architecture/sil-topology.md.
+
+buses:
+  drive:
+    interface: vcan_drive      # CAN1. Bitrate 500 kbit/s provisional (BOM CAN buses sheet). vcan has no bitrate.
+    zlac_node_id: 1            # actuator ledger zlac8015d.node_id (vendor CANopen routine V1.07). Not in I8 rev 4 or the BOM.
+  bms:
+    interface: vcan_bms        # CAN2. Bitrate 250 kbit/s proposed (BOM CAN buses sheet).
+    bms_address: 0x01          # Daly protocol V1.0 as recorded in platform-fw daly_rx.h. Unconfirmed for the delivered unit.
+    host_address: 0x40         # same source, unconfirmed
+  aux:
+    interface: vcan_aux        # CAN3. Bitrate 500 kbit/s (CTL-017 v1 dictionary). BOM sheet: to be confirmed.
+    ctl017_node_id: 0x10       # CTL-017 v1 object dictionary, upperbody-fw PR #15
+    core_node_id: 0x01         # heartbeat producer the lift node consumes (0x1016:01 default in the v1 dictionary)
+
+drive:
+  wheel_radius: 0.100          # m. openamrobot_description gazebo_control.xacro; test_sil_config.py checks they agree
+  wheel_separation: 0.400      # m. Same file. Placeholder there (decision DRIVE-TRACK is open)
+  left_sign: 1                 # SIL test value. Axis order and sign are open (actuator ledger Q-02)
+  right_sign: 1                # SIL test value
+  heartbeat_ms: 100            # proposed D-24 value (platform-fw can1-drive-link.md). Not bench-validated
+  link_loss_ms: 250            # object 2000h. Proposed D-24 value (same source). Factory value 0 = off. Not bench-validated
+
+lift:
+  joint: lift_joint            # name in upperbody-sw combined_robot.xacro and in urdf/sil_robot.urdf.xacro
+  permit:                      # SIL test values, not proposals. The permit contract leaves all of them open
+    enabled: true
+    cob_id: 0x410              # RPDO3 default slot of node 0x10 (contract 4.1, first option)
+    flag_bits: 8               # contract 4.2, first option: flag 8, boot 16, sequence 16, reason 8
+    boot_bits: 16
+    seq_bits: 16
+    reason_bits: 8
+    permit_value: 1            # contract 4.5, first option
+    period_ms: 50              # producer period used by the host test client
+    timeout_ms: 200            # freshness time on the lift node. Not the 300 ms heartbeat consumer time
+    refused_result: 0x80       # cmd_result shown when a command is refused for lack of a permit. Not in the v1 table
+
+bms:
+  n_cells: 8                   # 8S LiFePO4 pack (E-01 rev1.8)
+  n_temps: 1                   # SIL test value
+  pack_voltage_v: 25.6         # nominal bus voltage (E-01 rev1.8)
+  current_a: 0.0               # SIL test value
+  soc_percent: 80.0            # SIL test value
+  capacity_ah: 84.0            # E-01 rev1.8 charging paragraph
+  poll_hz: 5                   # BOM CAN buses sheet (proposed)
