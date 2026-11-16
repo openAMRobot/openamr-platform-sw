@@ -53,7 +53,9 @@ Notes:
 - The three base buses stay separate, as on the robot [S1]. Nothing in this package bridges
   two vcan interfaces.
 - A vcan interface has no bit timing, no arbitration delay, no error frames and no bus-off.
-  The bitrates above are documentation of the real bus. They are not enforced or tested here.
+  The bitrates above are documentation of the real bus. vcan does not enforce them. The bus
+  fault layer (`sil-bus-fault-layer.md`, Proposed) models frame time, load, arbitration and
+  error states on these bitrates instead.
 - I8 rev 4 [S2] defines the host interface of the base controller. It states no CAN node ID
   and no bitrate. Every bus value above comes from the BOM sheet and the sources named.
 
@@ -270,7 +272,8 @@ Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, r
 ## 8. Not modelled and open
 
 - E-stop chain, contactors, brakes, motor power removal and charge inhibit. Out of scope.
-- CAN physical layer: bit timing, termination, error frames, bus-off, bus load.
+- CAN physical layer: bit timing, termination and transceiver delay. Frame time, bus load,
+  error counters and bus-off are modelled, not observed (`sil-bus-fault-layer.md`).
 - ZLAC8015D: PDOs (the vendor mapping is not recorded), position objects, the brake output,
   axis order and sign (Q-02 in [S5]), what the drive does when 2000h expires [S6]. The
   vendored emulator ramps to zero.

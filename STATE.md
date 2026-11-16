@@ -36,6 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
+| CAN and UART fault and timing layer (W4, Proposed): `openamrobot_sil/models/bus_faults.py` (FaultyBus, CanBusModel, CanErrorCounters, UartFaultModel), `config/models/bus_faults.yaml`, `docs/architecture/sil-bus-fault-layer.md`, 27 tests; stacked on #151 (16 Nov 2026) | hw/bus-fault-layer | draft | software lead: adopt, adapt or reject; then wire the emulators and the host client through FaultyBus; after #149 merges, call its sysfs guard in `check_virtual_bus` |
 | Clock contract (D2, Proposed): domains, rules C1 to C6, pause, reset and restart gates in docs/architecture/sil-topology.md section 6; config/clock_inventory.yaml and test_clock_inventory.py keep every clock read listed with its domain (16 Nov 2026) | ws1/clock-contract | draft | software lead accepts or changes the rules; then CTL-017 on Gazebo time through the `_now_ms` hook, node timers on ROS time; ZLAC8015D and canopen_common need an injectable clock in openamr-platform-fw first |
 
 ## Decisions this repository implements
@@ -61,6 +62,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Clock contract (16 Nov 2026): every device and node timer in openamrobot_sil still runs on host monotonic time (clock_inventory.yaml, status to_change); lift scenarios depend on runner speed until C1 is implemented.
+- Bus fault layer (16 Nov 2026): error counters, bus-off and load are modelled, not observed (vcan has no error frames); no emulator or node uses the layer yet; every real loss, latency and UART error rate is null until MP-07, MP-09, MP-10, MP-13, MP-15, MP-17 and MP-20 captures exist.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
 
