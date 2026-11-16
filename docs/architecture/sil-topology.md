@@ -213,7 +213,7 @@ process that stopped, seen in `steady`) are separate checks and never share a ti
 
 ### 6.6 Current state (17 Nov 2026)
 
-Implemented in `openamrobot_sil` (inventory: 4 sites `to_change`, all in vendored code):
+Implemented in `openamrobot_sil` (inventory: 3 sites `to_change`, all in vendored code):
 
 - **One clock per process.** Every CAN node gets `use_sim_time` from the launch (`gazebo:=true`).
   `nodes/common.py` `NodeClock` feeds one `FedClock` from `/clock` through a `ClockCoordinator`.

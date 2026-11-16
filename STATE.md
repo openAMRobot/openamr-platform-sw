@@ -61,7 +61,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
-- Clock contract (17 Nov 2026, ws1/time-injection): 4 inventory sites still `to_change`, all vendored (canopen_common tick, dt and SDO timeout; ZLAC8015D receipt time and 2000h link loss) until platform-fw #57; a Gazebo pause over 250 ms trips the emulated 2000h link loss on host time. Renode skew not reported yet.
+- Clock contract (17 Nov 2026, ws1/time-injection): 3 inventory sites still `to_change`, all vendored (canopen_common tick, dt and SDO timeout; ZLAC8015D receipt time and 2000h link loss) until platform-fw #57; a Gazebo pause over 250 ms trips the emulated 2000h link loss on host time. Renode skew not reported yet.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
 
