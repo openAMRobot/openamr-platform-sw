@@ -1,0 +1,508 @@
+# Parameters of the CANDIDATE ZLAC8015D drive and ZLLG80 hub motor model (F1, datasheet-informed at most).
+# Model: openamrobot_sil/models/drive_motor.py. Doc: docs/architecture/sil-drive-motor-model.md.
+# Test: test/test_drive_motor.py (also checks this file's fields and rules).
+#
+# Every entry has: value, unit, source, confidence, uncertainty, hardware_revision, owner, test,
+# last_verified, measurement_item (and an optional note).
+#   confidence: datasheet | supplier_confirmation | design_decision | cad | estimate | unknown
+#   value null  <=> confidence unknown; an unknown value names the measurement-plan item (MP-xx,
+#   audits branch audit/2026-09-28 digital-twin/phase1/measurement_plan.md) that closes it.
+#   last_verified: the date the value was checked against its source document. Nothing in this file
+#   was measured on hardware.
+# The model refuses to run while a required value is null; tests pass explicit TEST values instead.
+#
+# Sources used below:
+#   ROUTINE: ZLTECH "ZLAC8015D V4.0 CANopen Communication Routine Version 1.07-20250716.pdf",
+#     public mirror https://github.com/kaver06/ZLAC8015D_CANOpen_Motor_Controller_simulator @41e2f57
+#     Docs/Datasheets, sha256 ec12b36230b702383b1ac153f0666362c07739c683b425dc4bc2514733037892.
+#     The package we hold is labelled V4.0; the delivered drive is V4.2 (BOM Issue 7.15 DRV-002) and the
+#     V4.2 manual is not filed (gate Q-03). Every drive value here is a V4.0 value.
+#   MANUAL: ZLTECH "ZLAC8015 Servo Driver Manual (Special for Hub Servo Motor) V1.01" (2021-01-04), same
+#     mirror, ZLAC8015D_help.pdf, sha256 e02039007c3f1cbc25251e33891da12f3c63e600927e2cc6b5eda94d90a24344.
+#   LEDGER: openAMRobot/openamr-upperbody-sw PR #65, branch night-shift/actuator-ledger-2026-11-14 @2f871d0,
+#     ros2/src/openamrobot_upperbody_description/config/actuator_ledger.yaml (drive_hub_motor_left/right,
+#     zlac8015d), which cites the ZLLG80ASM250-L-B2 drawing V1.01 (platform-hw @8ed2b06) and the ZLTECH
+#     written answer of 18 Oct 2026 (P-03 item 21, BOM Issue 7.15 row DRV-001).
+#   CONFORMANCE: openAMRobot/audits branch audit/2026-09-28 digital-twin/phase1/emulator_conformance/zlac8015d.csv.
+version: 1
+model: zlac8015d_drive_and_zllg80_hub_motor
+fidelity: F1
+status: candidate
+parameters:
+  # --- motor ZLLG80ASM250-L-B2, per wheel ---------------------------------------------------
+  phase_resistance:
+    value: null
+    unit: ohm
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: Not on the drawing, the ledger or the supplier listing. DC-equivalent winding resistance; closes with RG-DRV-014.
+  phase_inductance:
+    value: null
+    unit: H
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: Not on file. Closes with RG-DRV-014.
+  torque_constant:
+    value: 0.85
+    unit: N*m/A
+    source: LEDGER rated_torque 5.5 N*m / rated_current 6.5 A (drawing V1.01); peak 16 N*m / 19 A gives 0.84
+    confidence: estimate
+    uncertainty: not stated; a ratio of two rated values, and the drawing does not say whether 6.5 A is RMS or amplitude
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_current_limit_bounds_torque
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Derived, not a datasheet constant. Replace with the maker's Kt or the MP-09 current and torque capture (RG-DRV-014).
+  back_emf_constant:
+    value: 0.85
+    unit: V*s/rad
+    source: Equal to torque_constant in the DC-equivalent model (SI units); cross-check LEDGER 24 V / max_speed 27.227 rad/s gives 0.88
+    confidence: estimate
+    uncertainty: not stated; the 0.85 and 0.88 figures disagree by about 4 percent
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_back_emf_limits_top_speed
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: No-load speed against bus voltage (MP-09, RG-DRV-014) closes it.
+  rated_torque:
+    value: 5.5
+    unit: N*m
+    source: LEDGER drive_hub_motor_left rated_torque (drawing V1.01)
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  peak_torque:
+    value: 16.0
+    unit: N*m
+    source: LEDGER drive_hub_motor_left peak_torque (drawing V1.01)
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  rated_current:
+    value: 6.5
+    unit: A
+    source: LEDGER drive_hub_motor_left rated_current (drawing V1.01)
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  peak_current:
+    value: 19.0
+    unit: A
+    source: LEDGER drive_hub_motor_left peak_current (drawing V1.01)
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Lower than the drive's factory current limit (current_limit, 30 A). Which limit the commissioned 2015h holds is an owner decision.
+  max_speed:
+    value: 27.227
+    unit: rad/s
+    source: LEDGER drive_hub_motor_left max_speed (260 r/min, drawing V1.01)
+    confidence: datasheet
+    uncertainty: not stated; the drawing gives it at 24 V
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_back_emf_limits_top_speed
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  encoder_lines:
+    value: 1024
+    unit: '1'
+    source: LEDGER extra.encoder_lines (BOM Issue 7.15 Technical register DRV-001); ROUTINE 200Eh encoder wire number factory value 1024
+    confidence: datasheet
+    uncertainty: not stated; the filed drawing V1.01 gives no resolution (RG-DRV-010)
+    hardware_revision: ZLLG80ASM250-L-B2 drawing V1.01
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  encoder_counts_per_rev:
+    value: null
+    unit: '1'
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07 with ZLLG80ASM250-L-B2
+    owner: Evans
+    test: test_encoder_quantisation (TEST value)
+    last_verified: null
+    measurement_item: MP-09
+    note: 6064h counts per wheel turn. 4 x 1024 lines would be 4096 if the drive decodes quadrature, but no document says so; a host fixture's 4096 is not a source. One wheel turn by hand (RG-DRV-010, RG-SEN-026). While null, 6064h is reported as None.
+  brake_release_time:
+    value: 0.1
+    unit: s
+    source: LEDGER drive_hub_motor_left brake_release_time (ZLTECH written answer 18 Oct 2026, P-03 item 21, BOM Issue 7.15 row DRV-001)
+    confidence: supplier_confirmation
+    uncertainty: stated as at most 0.1 s; the model uses the maximum
+    hardware_revision: ZLLG80ASM250-L-B2 (brake not on drawing V1.01)
+    owner: Evans
+    test: test_brake_release_and_engage_delays
+    last_verified: '2026-11-16'
+    measurement_item: MP-11
+  brake_engage_time:
+    value: 0.03
+    unit: s
+    source: LEDGER drive_hub_motor_left brake_engage_time (ZLTECH written answer 18 Oct 2026, P-03 item 21, BOM Issue 7.15 row DRV-001)
+    confidence: supplier_confirmation
+    uncertainty: stated as at most 0.03 s without a suppression diode, at most 0.100 s with a plain diode
+    hardware_revision: ZLLG80ASM250-L-B2 (brake not on drawing V1.01)
+    owner: Evans
+    test: test_brake_release_and_engage_delays
+    last_verified: '2026-11-16'
+    measurement_item: MP-11
+    note: The quench circuit decides which value applies (P-03 item 30 A5). A plant delay only; not stop evidence (RG-TIM-012).
+  brake_holding_torque:
+    value: 6.0
+    unit: N*m
+    source: LEDGER drive_hub_motor_left brake_holding_torque (ZLTECH written answer 18 Oct 2026)
+    confidence: supplier_confirmation
+    uncertainty: an earlier supplier answer (21 Sep 2026) said 5 N*m; decision D-25 open
+    hardware_revision: ZLLG80ASM250-L-B2 (brake not on drawing V1.01)
+    owner: Evans
+    test: test_brake_release_and_engage_delays
+    last_verified: '2026-11-16'
+    measurement_item: MP-11
+  # --- drive ZLAC8015D (documents labelled V4.0) ---------------------------------------------
+  current_limit:
+    value: 30.0
+    unit: A
+    source: ROUTINE 2015h:01/:02 maximum driver output current, factory 300 x 0.1 A; MANUAL 2.1 output current (peak) max 30 A
+    confidence: datasheet
+    uncertainty: not stated; whether the limit is a phase amplitude or RMS is not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_current_limit_bounds_torque
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Factory value, above the motor peak of 19 A. The commissioned value is an owner decision (RG-DRV-014).
+  rated_current_setting:
+    value: 15.0
+    unit: A
+    source: ROUTINE 2014h:01/:02 driver rated output current, factory 150 x 0.1 A; MANUAL 2.1 output current (peak) typical 15 A
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Not used by the model; the overload function that reads it (2012h, 2016h) is not modelled.
+  voltage_utilisation:
+    value: null
+    unit: '1'
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: Fraction of the bus voltage the DC-equivalent winding can see (modulation scheme not documented). No-load top speed against bus voltage closes it (RG-DRV-014).
+  speed_kp:
+    value: null
+    unit: A*s/rad
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: The drive register 201Dh (speed Kp, factory 500) has no documented scaling to SI. A step-response capture (RG-DRV-012) fits it.
+  speed_ki:
+    value: null
+    unit: A/rad
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: The drive register 201Eh (speed Ki, factory 100) has no documented scaling to SI. The speed feedforward 201Fh (factory 1000) and the speed observer 2022h to 2025h are not modelled.
+  speed_kp_register:
+    value: 500
+    unit: '1'
+    source: ROUTINE 201Dh:01/:02 factory value
+    confidence: datasheet
+    uncertainty: raw register value, scaling not documented
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  speed_ki_register:
+    value: 100
+    unit: '1'
+    source: ROUTINE 201Eh:01/:02 factory value
+    confidence: datasheet
+    uncertainty: raw register value, scaling not documented
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  profile_acceleration_time:
+    value: 0.5
+    unit: s
+    source: ROUTINE 6083h:01/:02 acceleration time, factory 500 ms, range 0 to 32767 ms; CONFORMANCE ZLAC-014
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_step_response_follows_the_ramp
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  profile_deceleration_time:
+    value: 0.5
+    unit: s
+    source: ROUTINE 6084h:01/:02 deceleration time, factory 500 ms; CONFORMANCE ZLAC-015
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_link_loss_on_the_injected_clock
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: The P-03 item 30 A6 deceleration limits (1.5 and 1.0 m/s^2) are not yet written as drive values (RG-DRV-012).
+  ramp_reference_speed:
+    value: null
+    unit: r/min
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: TEST value in test_drive_motor.py
+    last_verified: null
+    measurement_item: MP-09
+    note: The speed 6083h and 6084h times refer to is not documented (CONFORMANCE ZLAC-040; the vendored emulator assumes 1000 r/min). Step capture closes it (RG-DRV-012).
+  target_velocity_limit:
+    value: 1000
+    unit: r/min
+    source: ROUTINE 60FFh:01/:02 range -1000 to 1000 r/min and 2008h motor max speed factory 1000; CONFORMANCE ZLAC-017
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_target_takes_whole_counts_in_range
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Command range of the drive, not a motor rating and not the 0.5 m/s base speed ceiling.
+  given_speed_resolution_setting:
+    value: 1
+    unit: '1'
+    source: ROUTINE 2026h given speed resolution, factory 1 (1 r/min per count; 1/value r/min per count, values 1 to A)
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_target_takes_whole_counts_in_range
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: D-24 requires it to read 1 before any speed maths (CONFORMANCE ZLAC-005). The routine's row text says it sets the given (target) speed resolution; whether it also scales 606Ch is open (RG-DRV-009).
+  speed_resolution_subindex:
+    value: 5
+    unit: '1'
+    source: ROUTINE 2026h object table (sub-index 05 given speed resolution, 06 velocity overshoot); CONFORMANCE ZLAC-005
+    confidence: datasheet
+    uncertainty: unresolved (Evans); the same document's version history says V1.07 added 2026h:05 parking mode and 2026h:06 given speed resolution, while its object table puts parking mode at :04
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Not read by the model (the model takes the setting, not the address). An SDO read of 2026h:04 to :06 on the delivered V4.2 drive closes it (RG-DRV-009).
+  actual_velocity_unit:
+    value: 0.1
+    unit: r/min
+    source: ROUTINE 606Ch:01/:02 velocity actual value, unit 0.1 r/min; CONFORMANCE ZLAC-012, ZLAC-013
+    confidence: datasheet
+    uncertainty: one count; whether 2026h changes it is open (RG-DRV-009)
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_encoder_quantisation
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  actual_current_unit:
+    value: 0.1
+    unit: A
+    source: ROUTINE 6077h:01/:02 torque actual value, unit 0.1 A, range -600 to 600
+    confidence: datasheet
+    uncertainty: one count
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_current_limit_bounds_torque
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  bus_voltage_unit:
+    value: 0.01
+    unit: V
+    source: ROUTINE 2035h bus voltage, unit 0.01 V
+    confidence: datasheet
+    uncertainty: one count; the accuracy of the drive's measurement is not documented
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_voltage_faults_from_the_bus_input
+    last_verified: '2026-11-16'
+    measurement_item: MP-12
+  over_voltage_threshold:
+    value: 60.0
+    unit: V
+    source: MANUAL 2.1 electrical index, over-voltage protection typical 60 VDC
+    confidence: datasheet
+    uncertainty: typical value only, no minimum or maximum; manual V1.01 (2021), not confirmed for V4.2 (Q-03)
+    hardware_revision: ZLAC8015 manual V1.01
+    owner: Evans
+    test: test_voltage_faults_from_the_bus_input
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+    note: The register row RG-DRV-017 lists the threshold as unknown; this manual gives a typical value. A supply sweep closes it.
+  under_voltage_threshold:
+    value: 16.0
+    unit: V
+    source: MANUAL 2.1 electrical index, under-voltage protection typical 16 VDC (input voltage 20 to 48 VDC)
+    confidence: datasheet
+    uncertainty: typical value only, no minimum or maximum; manual V1.01 (2021), not confirmed for V4.2 (Q-03)
+    hardware_revision: ZLAC8015 manual V1.01
+    owner: Evans
+    test: test_voltage_faults_from_the_bus_input
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+  link_loss_time:
+    value: 0.0
+    unit: s
+    source: ROUTINE 2000h communication power-down protection time, unit ms, range 0 to 32767, factory 0 (off); CONFORMANCE ZLAC-003
+    confidence: datasheet
+    uncertainty: none for the factory value; D-24 proposes 0.25 s (platform-fw #20 still compares 0.5 s), not yet written
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_link_loss_on_the_injected_clock
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+    note: What restarts the timer (ZLAC-042) and the reaction on expiry (ZLAC-046) are unknown; see link_loss_reaction.
+  link_loss_reaction:
+    value: ramp_to_zero_with_6084h_no_fault
+    unit: null
+    source: Vendored platform-fw emulator at ad4b023 (zlac8015d_emulator.py), CONFORMANCE ZLAC-046
+    confidence: design_decision
+    uncertainty: the real reaction (ramp, quick stop, freewheel or fault, per wheel or not) is unknown
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_link_loss_on_the_injected_clock
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+    note: Fixed in the model code; this entry records the choice. Any frame to the node restarts the timer, as in the emulator.
+  disabled_shaft:
+    value: free
+    unit: null
+    source: ROUTINE 2007h shaft lock method, factory 0 (not enable, not lock the shaft)
+    confidence: datasheet
+    uncertainty: behaviour with PWM off not measured
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_faults_are_reported_latched_and_need_a_reset
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+    note: Disabled or faulted, the model gives zero torque.
+  fault_reset:
+    value: 6040h bit 7
+    unit: null
+    source: ROUTINE 3.7 clear error (601 2B 40 60 00 80 00 00 00); MANUAL 3.5 (faults also clear on a power cycle); CONFORMANCE ZLAC-053
+    confidence: datasheet
+    uncertainty: whether a reset clears a fault whose cause is still present is not documented; the model keeps it (CiA 402)
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_faults_are_reported_latched_and_need_a_reset
+    last_verified: '2026-11-16'
+    measurement_item: MP-10
+  fault_high_half_axis:
+    value: null
+    unit: null
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_faults_are_reported_latched_and_need_a_reset
+    last_verified: null
+    measurement_item: MP-10
+    note: ROUTINE section 3.7 says the high 16 bits of 603Fh are the left driver; its 603Fh object row says the right motor (RG-FLT-015). The model reports halves without a wheel meaning.
+  motor_temperature_threshold:
+    value: 80.0
+    unit: degC
+    source: ROUTINE 2013h:01/:02 motor temperature protection threshold, factory 800 x 0.1 degC
+    confidence: datasheet
+    uncertainty: not stated
+    hardware_revision: ZLAC8015D V4.0 routine V1.07
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+    note: Not used. No thermal resistance or time constant of the motor is on file, so there is no thermal state; over_temperature is injection only.
+  # --- SIL settings (not drive or motor properties) -----------------------------------------
+  axis_sign_1:
+    value: 1
+    unit: '1'
+    source: SIL value as in openamrobot_sil/zlac_gazebo.py left_sign (actuator ledger Q-02)
+    confidence: design_decision
+    uncertainty: axis order and sign on the real drive unknown (RG-DRV-011)
+    hardware_revision: SIL
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  axis_sign_2:
+    value: 1
+    unit: '1'
+    source: SIL value as in openamrobot_sil/zlac_gazebo.py right_sign (actuator ledger Q-02)
+    confidence: design_decision
+    uncertainty: axis order and sign on the real drive unknown (RG-DRV-011)
+    hardware_revision: SIL
+    owner: Evans
+    test: test_parameter_file_rules
+    last_verified: '2026-11-16'
+    measurement_item: MP-09
+  max_substep:
+    value: 0.0005
+    unit: s
+    source: Numerical setting of this model (RL integration substep), not a device property
+    confidence: design_decision
+    uncertainty: not applicable; the RL discretisation is exact for any substep
+    hardware_revision: SIL
+    owner: Evans
+    test: test_stable_and_consistent_up_to_2_ms_steps
+    last_verified: '2026-11-16'
+    measurement_item: null

@@ -13,6 +13,15 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — ZLAC8015D drive and hub motor model, candidate (16 Nov 2026)
+
+- `openamrobot_sil.models.drive_motor`: reduced-order model of the ZLAC8015D and two ZLLG80 hub motors (F1):
+  RL winding with back-EMF, PI speed loop with the 6083h/6084h ramp, current limit, bus voltage as input, 606Ch,
+  6064h and 6077h quantisation, brake release and engage delays as plant states, 603Fh faults with latch and
+  fault reset, 2000h link loss and clock-generation reset on the injected clock. Parameters with sources in
+  `config/models/zlac8015d_motor.yaml`; doc `docs/architecture/sil-drive-motor-model.md`; 25 tests. Not wired
+  into launch files or Gazebo. Development evidence only.
+
 ### Documentation
 
 - Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
