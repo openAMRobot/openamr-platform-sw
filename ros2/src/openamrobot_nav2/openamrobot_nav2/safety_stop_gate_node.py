@@ -205,6 +205,24 @@ _REAL_ACTION_SERVER_NAMES = {
 
 def _real_action_server_name(action: str) -> str:
     return _REAL_ACTION_SERVER_NAMES.get(action, action)
+# Actions additionally owned by their own goal_proxy_node.py (platform-sw#124,
+# D-13) - cancelling only the REAL server (above) stops the robot but never
+# asks the PUBLIC action's own ServerGoalHandle to cancel, so that handle's
+# FSM never passes through CANCELING and the proxy's own result-mapping
+# (navigate_to_pose_goal_proxy_node.py's _execute: "canceled() is only a
+# valid transition if a cancel was actually requested... on THIS goal
+# handle") falls through to abort() even though the real goal ended
+# CANCELED - Nikolai's 16 Nov reproduction on fa730a5: public status settles
+# at ABORTED while the real server's own status is CANCELED, for every Stop
+# issued during an executing goal. Cancelling the public name too lets the
+# proxy's own cancel_callback accept it, so is_cancel_requested becomes True
+# and canceled() is the valid, reported transition - same real goal, now
+# reported correctly on both names. Real-name cancellation above is kept
+# unchanged: it is still the only thing that reaches a goal submitted via
+# bt_navigator's internal self_client_ bypass, which this list does not
+# cover. dock_robot/undock_robot have no such proxy yet, so they are not
+# added here.
+_PUBLIC_PROXY_ACTIONS = ('navigate_to_pose', 'navigate_through_poses')
 # Producers backed by the goal-authority ledger (D-13) - a subset of
 # _CANCEL_ACTIONS. navigate_to_pose and navigate_through_poses are now
 # owned end to end by their own goal_proxy_node.py (platform-sw#124,
@@ -281,6 +299,16 @@ class SafetyStopGateNode(Node):
             action: self.create_client(
                 CancelGoal, f'{_real_action_server_name(action)}/_action/cancel_goal')
             for action in _CANCEL_ACTIONS
+        }
+        # Cancel the PUBLIC proxy name too, in addition to the real server
+        # above - see _PUBLIC_PROXY_ACTIONS' own comment. Fire-and-forget,
+        # same as _cancel_clients: a rejection here (e.g. no active goal left
+        # on the proxy by the time this reaches it) is not tracked against
+        # _cancel_rejected, since nothing in _release_blockers reads it -
+        # that check still reads the real server's own status, unchanged.
+        self._proxy_cancel_clients = {
+            action: self.create_client(CancelGoal, f'{action}/_action/cancel_goal')
+            for action in _PUBLIC_PROXY_ACTIONS
         }
         self._goal_statuses = {action: None for action in _CANCEL_ACTIONS}  # list[int] or None
         # panthera-momagdii's #90 second review: _LEDGER_STATUS_DISCOVERY_
@@ -399,6 +427,9 @@ class SafetyStopGateNode(Node):
             if client.service_is_ready():
                 future = client.call_async(CancelGoal.Request(goal_info=zero_goal))
                 future.add_done_callback(self._make_cancel_response_cb(action))
+        for client in self._proxy_cancel_clients.values():
+            if client.service_is_ready():
+                client.call_async(CancelGoal.Request(goal_info=zero_goal))
 
     def _abort_docking(self) -> None:
         if self._dock_abort_client.service_is_ready():

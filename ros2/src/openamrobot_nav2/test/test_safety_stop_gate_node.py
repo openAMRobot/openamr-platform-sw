@@ -739,6 +739,55 @@ class TestEngageCancelsGoalsAndAbortsDocking(NodeTestCase):
         self._spin_both(timeout_s=0.3)
         self.assertTrue(calls, 'dock_trigger ~/abort was never called')
 
+    def _serve_public_cancel_goal(self, action):
+        calls = []
+
+        def _cb(request, response):
+            calls.append(request)
+            response.return_code = 0
+            return response
+
+        self.probe.create_service(CancelGoal, f'{action}/_action/cancel_goal', _cb)
+        return calls
+
+    def test_engage_also_cancels_the_public_proxy_action_name_not_only_the_real_one(self):
+        # Nikolai's 16 Nov reproduction on PR#90 head fa730a5: engage only
+        # ever cancelled navigate_to_pose_real/navigate_through_poses_real
+        # (the redirect above exists specifically to reach a goal that
+        # bypassed the proxy - see the previous test). That left the
+        # PROXY's own public ServerGoalHandle never asked to cancel, so its
+        # FSM never passed through CANCELING: navigate_to_pose_goal_proxy_
+        # node.py's _execute() can only call goal_handle.canceled() when
+        # goal_handle.is_cancel_requested is True (calling it otherwise
+        # raises an invalid-transition error), so it fell through to
+        # goal_handle.abort() even though the real goal's own result was
+        # STATUS_CANCELED - the public action reported ABORTED for a Stop
+        # the operator asked for and got, mismatching the real server's own
+        # CANCELED. Measured directly against the real rclpy action state
+        # machine (not assumed): calling .canceled() on a goal handle whose
+        # own cancel was never requested raises RCLError ("invalid
+        # transition... from state EXECUTING with event CANCELED"); calling
+        # it after a CANCEL_GOAL event (the same transition a cancel request
+        # produces) succeeds. The gate must ask for that cancel itself, on
+        # the PUBLIC name, in addition to the real one it already asks on -
+        # this test targets ONLY the two proxied actions (navigate_to_pose,
+        # navigate_through_poses); dock_robot/undock_robot have no proxy yet
+        # and are not expected to answer on their own name here.
+        proxied = [a for a in _CANCEL_ACTIONS if a not in ('dock_robot', 'undock_robot')]
+        real_calls = {action: self._serve_cancel_goal(action) for action in proxied}
+        public_calls = {action: self._serve_public_cancel_goal(action) for action in proxied}
+        self._spin_both(timeout_s=0.5)  # let the gate's clients discover both fake servers
+        self._call_trigger('/safety/stop_lock_engage')
+        self._spin_both(timeout_s=0.3)
+        for action in proxied:
+            self.assertTrue(
+                real_calls[action], f'{action}_real cancel_goal was never called')
+            self.assertTrue(
+                public_calls[action],
+                f'{action} (public) cancel_goal was never called - engage cancelled only '
+                f'the real server, leaving the proxy\'s own goal handle never asked to '
+                'cancel, so it cannot correctly report CANCELED on the public action')
+
     def test_a_goal_that_bypassed_the_proxy_via_goal_pose_is_still_cancelled_and_blocks_resume(
             self):
         # panthera-momagdii's #90 second review, the safety-critical finding:
