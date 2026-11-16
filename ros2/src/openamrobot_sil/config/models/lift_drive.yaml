@@ -1,0 +1,440 @@
+# Lift drive model parameters (candidate, F1), read by openamrobot_sil/models/lift_drive.py.
+#
+# Column DOLD Hexalift V4 350 mm (BS-HM240G350530-MFF24), driven by the upper-body controller
+# CTL-017 (NUCLEO-G474RE + Infineon BLDC-SHIELD_IFX007T, BOM Issue 7.15 row CTL-017, Evans to
+# confirm D-11). Documentation: docs/architecture/sil-lift-drive-model.md.
+#
+# Every entry has: value, unit, source, confidence, uncertainty, hardware_revision, owner, test,
+# last_verified, measurement_item.
+# confidence is one of datasheet, supplier_confirmation, design_decision, cad, estimate, unknown.
+# value null means unknown; the model then uses the stated fallback (see "fallback" in the entry
+# and the model docstring) and lists it in LiftDrive.assumed. last_verified is the date the value
+# was last checked against its source, never against hardware: nothing here is measured.
+# Measurement items MP-xx are those of audits branch audit/2026-09-28,
+# digital-twin/phase1/measurement_plan.md.
+schema: openamrobot_sil/lift_drive_parameters/1
+status: candidate
+fidelity: F1
+parameters:
+  # --- supply and H-bridge ------------------------------------------------------------------
+  bus_voltage_nominal_v:
+    value: 24.0
+    unit: V
+    source: E-01 Safety and Power Distribution Baseline rev1.8 (SAFE 24 V converter MEAN WELL DDR-240B-24, 24 V output); actuator ledger supply_bus_voltage_nominal
+    confidence: design_decision
+    uncertainty: converter output tolerance not filed
+    hardware_revision: DDR-240B-24
+    owner: Evans
+    test: test_lift_drive.py::test_no_load_speed_anchor
+    last_verified: '2026-11-16'
+    measurement_item: MP-12
+  supply_current_limit_a:
+    value: 10.0
+    unit: A
+    source: E-01 rev1.8 line 68 ("Limit output current to 10 A or less"); converter output rating 10 A
+    confidence: design_decision
+    uncertainty: converter overload behaviour (constant current or hiccup) not filed; modelled as a hard clamp
+    hardware_revision: DDR-240B-24
+    owner: Evans
+    test: test_lift_drive.py::test_current_is_limited_by_the_supply
+    last_verified: '2026-11-16'
+    measurement_item: MP-12
+  bridge_current_limit_a:
+    value: 55.0
+    unit: A
+    source: Infineon IFX007T data sheet Rev 1.0 (2018-09-11), current limitation level min 55 A, typ 77 A, max 98 A at VS 13.5 V, https://www.infineon.com/dgdl/Infineon-IFX007T-DS-v01_00-EN.pdf
+    confidence: datasheet
+    uncertainty: min of the range; the level depends on dI/dt. Shield PCB average limit 30 A (Motor Control Shield with IFX007T user manual v1.0)
+    hardware_revision: IFX007T
+    owner: Evans
+    test: test_lift_drive.py::test_current_is_limited_by_the_supply
+    last_verified: '2026-11-16'
+    measurement_item: null
+  bridge_path_resistance_ohm:
+    value: 0.010
+    unit: ohm
+    source: IFX007T data sheet Rev 1.0, path RDS(on) typ 10.0 mohm, max 12.8 mohm at 25 C; one high side and one low side carry the motor current in an H-bridge
+    confidence: datasheet
+    uncertainty: rises with junction temperature (only typical curves given)
+    hardware_revision: IFX007T
+    owner: Evans
+    test: test_lift_drive.py::test_parameters_have_every_field
+    last_verified: '2026-11-16'
+    measurement_item: null
+  current_sense_ratio:
+    value: 19500
+    unit: '1'
+    source: IFX007T data sheet Rev 1.0, dkILIS 15000 / 19500 / 24000 (min / typ / max)
+    confidence: datasheet
+    uncertainty: -23 % / +23 % without calibration
+    hardware_revision: IFX007T
+    owner: Evans
+    test: test_lift_drive.py::test_current_report_gain_and_resolution
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  current_sense_ratio_actual:
+    value: null
+    unit: '1'
+    source: null
+    confidence: unknown
+    uncertainty: within 15000 to 24000
+    hardware_revision: IFX007T
+    owner: Evans
+    test: test_lift_drive.py::test_current_report_gain_and_resolution
+    last_verified: null
+    measurement_item: MP-14
+    fallback: current_sense_ratio (reported current equals motor current)
+  current_report_resolution_a:
+    value: 0.001
+    unit: A
+    source: CTL-017 v1 object dictionary (openamr-upperbody-fw PR #15 at 1a68c50), TPDO2 motor_current u16 mA
+    confidence: design_decision
+    uncertainty: none (wire format of a proposal)
+    hardware_revision: CTL-017 OD v1
+    owner: Evans
+    test: test_lift_drive.py::test_current_report_gain_and_resolution
+    last_verified: '2026-11-16'
+    measurement_item: null
+  pwm_frequency_hz:
+    value: 25000
+    unit: Hz
+    source: Motor Control Shield with IFX007T user manual v1.0 ("high frequency PWM, e.g. 25 kHz"); not a CTL-017 decision
+    confidence: estimate
+    uncertainty: CTL-017 firmware value not set; not used by the averaged model
+    hardware_revision: BLDC-SHIELD_IFX007T
+    owner: Evans
+    test: null
+    last_verified: '2026-11-16'
+    measurement_item: null
+  # --- column motor (DC, reduced order, lumped to the carriage axis) ------------------------
+  rated_voltage_v:
+    value: 24.0
+    unit: V
+    source: P-03 item 16; BOM Issue 7.15 row MEC-018; actuator ledger rated_voltage
+    confidence: datasheet
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_no_load_speed_anchor
+    last_verified: '2026-11-16'
+    measurement_item: null
+  no_load_speed_m_s:
+    value: 0.018
+    unit: m/s
+    source: BOM Issue 7.15 row MEC-018 (18 mm/s); actuator ledger max_speed (no-load, DOLD datasheet 2023_08_16)
+    confidence: datasheet
+    uncertainty: catalogue value; speed under load not measured (RG-DRV-018)
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_no_load_speed_anchor
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  max_current_a:
+    value: 7.0
+    unit: A
+    source: E-01 rev1.8 line 68 (DOLD rated 24 V, max 7 A); actuator ledger peak_current
+    confidence: datasheet
+    uncertainty: catalogue maximum; running current of the ordered model unknown (RG-DRV-020)
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_rated_push_current_anchor
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  rated_push_force_n:
+    value: 800.0
+    unit: N
+    source: BOM Issue 7.15 row MEC-018; actuator ledger peak_force
+    confidence: datasheet
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_rated_push_current_anchor
+    last_verified: '2026-11-16'
+    measurement_item: null
+  rated_pull_force_n:
+    value: 400.0
+    unit: N
+    source: BOM Issue 7.15 row MEC-018; actuator ledger extra.pull_force
+    confidence: datasheet
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_effort_stays_within_the_column_ratings
+    last_verified: '2026-11-16'
+    measurement_item: null
+  holding_force_n:
+    value: 800.0
+    unit: N
+    source: DOLD written confirmation of 14 Oct 2026, quoted in E-01 rev1.8 line 84 (holds 800 N with the power off)
+    confidence: supplier_confirmation
+    uncertainty: holding test on the delivered unit pending (RG-DRV-022, RG-MEC-022)
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: test_lift_drive.py::test_power_removed_during_a_move_holds_when_self_locking
+    last_verified: '2026-11-16'
+    measurement_item: MP-05
+  transmission_self_locking:
+    value: true
+    unit: null
+    source: DOLD written confirmation of 14 Oct 2026 (holds with the power off, no brake); actuator ledger brake_present false
+    confidence: supplier_confirmation
+    uncertainty: holding test on the delivered unit pending
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: test_lift_drive.py::test_power_removed_during_a_move_holds_when_self_locking
+    last_verified: '2026-11-16'
+    measurement_item: MP-05
+  no_load_current_a:
+    value: 1.0
+    unit: A
+    source: no source for the column; same as the CTL-017 emulator placeholder MOVING_CURRENT_MA 1000 (vendored ctl017_emulator.py)
+    confidence: estimate
+    uncertainty: unknown, plausibly 0.3 to 2 A
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_no_load_speed_anchor
+    last_verified: null
+    measurement_item: MP-14
+  current_at_rated_push_a:
+    value: 7.0
+    unit: A
+    source: assumption that the catalogue maximum current (max_current_a) is drawn at the rated push force
+    confidence: estimate
+    uncertainty: unknown; the real current at 800 N may be lower
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_rated_push_current_anchor
+    last_verified: null
+    measurement_item: MP-14
+  winding_resistance_ohm:
+    value: 1.0
+    unit: ohm
+    source: no source; chosen so that the speed at the rated push is about 74 % of the no-load speed
+    confidence: estimate
+    uncertainty: unknown; sets the speed drop under load and the stall current
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_speed_falls_and_current_rises_with_payload
+    last_verified: null
+    measurement_item: MP-14
+  winding_inductance_h:
+    value: null
+    unit: H
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_inductance_gives_a_first_order_current_rise
+    last_verified: null
+    measurement_item: MP-14
+    fallback: 0 (current follows voltage within one step)
+  gear_ratio:
+    value: null
+    unit: '1'
+    source: actuator ledger gear_ratio (spindle lead and gearbox not in any input)
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: null
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+    fallback: not needed; the model uses the lumped constant K = Ke * 2 pi * gear_ratio / spindle_lead
+  spindle_lead_m:
+    value: null
+    unit: m
+    source: actuator ledger gear_ratio note (spindle lead not in any input)
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: null
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+    fallback: not needed; see gear_ratio
+  back_efficiency:
+    value: null
+    unit: '1'
+    source: null
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: test_lift_drive.py::test_derived_constants_are_self_locking
+    last_verified: null
+    measurement_item: MP-05
+    fallback: 2 - 1 / forward efficiency (small-angle screw relation; negative means self-locking)
+  static_friction_n:
+    value: null
+    unit: N
+    source: actuator ledger joint_friction (no source)
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: test_lift_drive.py::test_friction_parameters_slow_the_lift
+    last_verified: '2026-11-16'
+    measurement_item: MP-05
+    fallback: 0 (motor-side losses are in no_load_current_a)
+  viscous_friction_n_s_per_m:
+    value: null
+    unit: N*s/m
+    source: actuator ledger joint_damping (no source)
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Cuma
+    test: test_lift_drive.py::test_friction_parameters_slow_the_lift
+    last_verified: '2026-11-16'
+    measurement_item: MP-05
+    fallback: 0
+  coast_distance_m:
+    value: null
+    unit: m
+    source: RG-DRV-022 (coast distance unknown)
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_drive_off_stops_within_one_hall_count
+    last_verified: '2026-11-16'
+    measurement_item: MP-05
+    fallback: no coast; a self-locking drive stops within the coupling time constant
+  # --- carried load -------------------------------------------------------------------------
+  carriage_link_mass_kg:
+    value: 6.721
+    unit: kg
+    source: openamrobot-docs mass export lift_carriage_link (docs@852c32c docs/assets/roadmap/model/mass_export.yaml line 2058, via RG-MEC-025)
+    confidence: cad
+    uncertainty: nothing weighed; believed to include the estimated 2.81 kg moving stage (RG-MEC-024), not stated by the export
+    hardware_revision: null
+    owner: Cuma
+    test: test_lift_drive.py::test_load_force_is_the_carried_weight
+    last_verified: '2026-11-16'
+    measurement_item: MP-01
+  arms_mass_kg:
+    value: 12.26
+    unit: kg
+    source: RG-MEC-025, arms 2 x 6.13 kg upstream nominal
+    confidence: estimate
+    uncertainty: delivered arm sub-assemblies not weighed (RG-MEC-033)
+    hardware_revision: OpenArm 2.0
+    owner: Cuma
+    test: test_lift_drive.py::test_load_force_is_the_carried_weight
+    last_verified: '2026-11-16'
+    measurement_item: MP-01
+  payload_mass_kg:
+    value: 0.0
+    unit: kg
+    source: scenario input; no payload by default
+    confidence: design_decision
+    uncertainty: null
+    hardware_revision: null
+    owner: Alex
+    test: test_lift_drive.py::test_speed_falls_and_current_rises_with_payload
+    last_verified: '2026-11-16'
+    measurement_item: null
+  gravity_m_s2:
+    value: 9.81
+    unit: m/s^2
+    source: standard value
+    confidence: design_decision
+    uncertainty: null
+    hardware_revision: null
+    owner: Alex
+    test: test_lift_drive.py::test_load_force_is_the_carried_weight
+    last_verified: '2026-11-16'
+    measurement_item: null
+  # --- sensing --------------------------------------------------------------------------------
+  hall_pitch_m:
+    value: 0.0002092
+    unit: m
+    source: CTL-017 OD v1 default 0x2101:01 hall_nm_per_count 209200 and vendored ctl017_emulator.py MM_PER_HALL 0.2092, both TODO(Evans)
+    confidence: estimate
+    uncertainty: Hall signal type and counts per mm unknown (RG-DRV-019)
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_hall_rate_at_the_nominal_speed
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  hall_count_up_positive:
+    value: true
+    unit: null
+    source: CTL-017 OD v1 default 0x2101:02 = 1
+    confidence: design_decision
+    uncertainty: wiring sign not confirmed
+    hardware_revision: CTL-017 OD v1
+    owner: Evans
+    test: test_lift_drive.py::test_hall_rate_at_the_nominal_speed
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  stop_sensor_positions_m:
+    value: [0.0, 0.175, 0.350]
+    unit: m
+    source: CTL-017 OD v1 defaults 0x2100:01..03 (5, 180, 355 mm) less the 5 mm joint zero of ctl017_gazebo.py; stops L1000, L1175, L1350 (P-03 items 16 to 18); sensors at z 120, 295, 470 mm (RG-SEN-025)
+    confidence: design_decision
+    uncertainty: switch points as mounted unknown (RG-DRV-021)
+    hardware_revision: IME12-04BNSZC0S
+    owner: Cuma
+    test: test_lift_drive.py::test_stop_sensors_switch_at_their_positions
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  stop_sensor_window_m:
+    value: 0.001
+    unit: m
+    source: vendored ctl017_emulator.py SENSOR_WINDOW_MM 1.0 (half width, TODO(Evans))
+    confidence: estimate
+    uncertainty: depends on the flag geometry (2 mm gap against a 4 mm sensing range, RG-SEN-025)
+    hardware_revision: IME12-04BNSZC0S
+    owner: Cuma
+    test: test_lift_drive.py::test_stop_sensors_switch_at_their_positions
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  stop_sensor_hysteresis_m:
+    value: null
+    unit: m
+    source: SICK IME12-04BNSZC0S data sheet, hysteresis 5 to 15 % of the 4 mm sensing range (radial); travel-direction hysteresis against the flag not known, https://motionworld.com/assets/SICK-IME12_04BNSZC0S-Datasheet.pdf
+    confidence: unknown
+    uncertainty: null
+    hardware_revision: IME12-04BNSZC0S
+    owner: Cuma
+    test: test_lift_drive.py::test_stop_sensor_hysteresis_widens_the_release
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+    fallback: 0
+  end_switch_positions_m:
+    value: [-0.005, 0.355]
+    unit: m
+    source: vendored ctl017_emulator.py TRAVEL_MM 360 (test value, TODO(Evans)) with the 5 mm joint zero; the column has two internal end switches (Use Case 1 rev18.6 line 166)
+    confidence: estimate
+    uncertainty: the catalogue stroke is 350 mm (RG-MEC-021), so the real ends may coincide with L1000 and L1350
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_end_switches_and_stall_at_the_end_of_travel
+    last_verified: '2026-11-16'
+    measurement_item: MP-14
+  end_switch_cuts_motor:
+    value: null
+    unit: null
+    source: null
+    confidence: unknown
+    uncertainty: whether the column's internal end switches remove motor current in that direction
+    hardware_revision: BS-HM240G350530-MFF24
+    owner: Evans
+    test: test_lift_drive.py::test_end_switches_and_stall_at_the_end_of_travel
+    last_verified: null
+    measurement_item: MP-14
+    fallback: false (the motor stalls against the end and draws the stall current)
+  # --- numerics -------------------------------------------------------------------------------
+  drive_coupling_n_s_per_m:
+    value: 10000.0
+    unit: N*s/m
+    source: numerical choice of this model, not a physical value; time constant m / b about 2 ms for the 19 kg load, b dt / m about 0.5 at a 1 ms Gazebo step
+    confidence: design_decision
+    uncertainty: a mass mismatch of 1 kg between this file and the Gazebo links gives about 1 mm/s speed error
+    hardware_revision: null
+    owner: Mohamed
+    test: test_lift_drive.py::test_coupling_is_stable_at_the_gazebo_step
+    last_verified: '2026-11-16'
+    measurement_item: null
