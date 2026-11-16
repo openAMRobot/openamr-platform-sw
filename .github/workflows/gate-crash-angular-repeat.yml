@@ -18,10 +18,12 @@ permissions:
   contents: read
 
 env:
-  # Same temporary pin as nav-status-tests.yml - see that file's own
-  # comment. Keep both in sync until interfaces#35 merges.
-  INTERFACES_REPO: skunal3318/openamrobot-interfaces
-  INTERFACES_REF: cb83b228b2e01dd795bde729d0097869ee18c9a6
+  # Repinned to upstream main (Mohamed's review on #142, D-30): interfaces#35
+  # (StopState.msg, NavigationStatus.msg CONTRACT_VERSION 1->2) merged 15 Nov
+  # 2026 as 50ed777. Same pin as nav-status-tests.yml on #90 - keep both in
+  # sync; main never carries the fork pin.
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
 
 jobs:
   angular-repeat:
@@ -73,21 +75,47 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           source ws/install/setup.bash
           : > bounds.txt
+          any_over=0
           for i in $(seq 1 20); do
             echo "=== run $i ==="
+            # Mohamed's review on #142: `shell: bash` runs with `-e`, so
+            # `out=$(pytest ...)` on its own aborts this step the instant a run's
+            # own bound_s exceeds 0.5s and the test asserts - before the next line
+            # even echoes $out. That is exactly the one case Alex asked to see
+            # ("if the spread touches 0.5s we talk about the cause, not the
+            # number"), so it must never go unlogged. `|| rc=$?` keeps the
+            # assignment's own exit status at 0 (rc=$? always succeeds), so -e
+            # does not fire here; the real pytest exit code is still captured in
+            # $rc for the check below.
+            rc=0
             out=$(python3 -m pytest -s \
               ros2/src/openamrobot_nav2/test/test_gate_crash_full_chain_cmd_vel_bound.py::TestGateCrashCmdVelBound::test_last_nonzero_angular_z_after_a_gate_crash_is_within_half_a_second \
-              2>&1)
+              2>&1) || rc=$?
             echo "$out"
-            value=$(echo "$out" | grep -oP 'angular\.z kill-to-last-nonzero bound_s=\K[0-9.]+')
+            # The print() in the test only runs AFTER its own assertion passes -
+            # on a failing run (bound_s > 0.5), only the assertion's own message
+            # ("...arrived 0.512s after...") carries the value, never the
+            # "bound_s=" print line. Try both.
+            value=$(echo "$out" | grep -oP 'angular\.z kill-to-last-nonzero bound_s=\K[0-9.]+' || true)
             if [ -z "$value" ]; then
-              echo "FAIL: run $i produced no bound_s value - treating the whole evidence set as inconclusive"
+              value=$(echo "$out" | grep -oP 'arrived \K[0-9.]+(?=s after)' || true)
+            fi
+            if [ -z "$value" ]; then
+              echo "FAIL: run $i produced no bound_s value at all (pytest exit $rc) - treating the whole evidence set as inconclusive"
               exit 1
             fi
             echo "$value" >> bounds.txt
+            if [ "$rc" -ne 0 ]; then
+              echo "NOTE: run $i's own bound_s=$value exceeded the 0.5s bound (pytest exit $rc) - recorded anyway, not swallowed"
+              any_over=1
+            fi
           done
           echo "=== all 20 runs' bound_s values ==="
           cat bounds.txt
+          if [ "$any_over" -ne 0 ]; then
+            echo "At least one run's bound_s exceeded 0.5s - see the NOTE lines above for which"
+            exit 1
+          fi
 
       - name: Compute min / median / max
         shell: bash
