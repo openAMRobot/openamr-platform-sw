@@ -2,13 +2,17 @@
 
 What it models: open-circuit voltage against state of charge, one series resistance,
 capacity and coulomb counting. Terminal voltage = OCV(SOC) - I * R, I positive = discharge.
-What it does not model: cell imbalance, temperature, relaxation (RC branches), ageing,
-hysteresis, BMS protection or charge inhibit. Nothing here decides a fault; the numbers only
-feed the emulator frames so that voltage-dependent host behaviour can be exercised.
+What it does not model: cell imbalance, temperature, relaxation (RC branches: no source gives
+their parameters), ageing, hysteresis, BMS protection or charge inhibit. Nothing here decides a
+fault; the numbers only feed the emulator frames and the power model (power.py).
 
-Every parameter carries a source in config/sil.yaml (section bms.model) and in
-docs/architecture/sil-battery-model.md. Parameters marked UNKNOWN are placeholders with a
-stated default and a TODO(Evans) flag.
+Time: PackSimulation.tick() takes dt from an injected clock (duck-typed: now(), generation,
+paused; the clock contract of docs/architecture/sil-topology.md). No model here reads host time.
+A new clock generation (simulation reset) returns every part to its configured initial state.
+
+Every parameter carries its source, confidence and measurement item in config/power_model.yaml
+(model_params.Params). A parameter with no robot value runs on its sil_default, and the state
+output lists it under defaults_in_use.
 
 Pack current = drive estimate + constant loads. The drive estimate is not a motor model:
 the ZLAC8015D emulator has no torque or phase current, so the wheel torque is estimated from
@@ -64,7 +68,12 @@ class PackModel:
         self.n_series = int(n_series)
         self.capacity_ah = float(capacity_ah)
         self.resistance_ohm = float(resistance_ohm)
-        self.soc_percent = min(100.0, max(0.0, float(soc_percent)))
+        self.initial_soc_percent = min(100.0, max(0.0, float(soc_percent)))
+        self.reset()
+
+    def reset(self):
+        """Configured initial state."""
+        self.soc_percent = self.initial_soc_percent
         self.current_a = 0.0
         self.voltage_v = self.ocv_v()
         self.charge_ah = 0.0  # net discharged Ah since start, for tests and logs
@@ -110,6 +119,10 @@ class Charger:
         self.voltage_v = float(voltage_v)
         self.current_a = float(current_a)
         self.taper_a = float(taper_a)
+        self.reset()
+
+    def reset(self):
+        """Configured initial state: off. Whether it is on is an input (bench operator)."""
         self.on = False
         self.done = False
 
@@ -146,6 +159,9 @@ class DriveLoadEstimator:
         self.regen = p['regen_fraction']
         self.standby_w = p['drive_enabled_standby_w']
         self.r = float(wheel_radius_m)
+        self.reset()
+
+    def reset(self):
         self._last = None  # (t, (omega_l, omega_r))
 
     def power_w(self, t, wheel_rad_s, enabled=True):
@@ -169,43 +185,100 @@ class DriveLoadEstimator:
         return total
 
 
-def from_config(bms_cfg, wheel_radius_m):
-    """(PackModel, Charger, DriveLoadEstimator, loads) from the bms section of sil.yaml."""
+def from_config(bms_cfg, wheel_radius_m, params):
+    """(PackModel, Charger, DriveLoadEstimator, loads) from the bms section of sil.yaml and the
+    parameters of config/power_model.yaml (model_params.Params)."""
     m = bms_cfg['model']
-    ocv = OcvCurve(m['ocv_cell_v'])
-    res = dict(m['resistance'])
-    res['n_series'] = bms_cfg['n_cells']
-    pack = PackModel(ocv, bms_cfg['n_cells'], bms_cfg['capacity_ah'],
-                     series_resistance_ohm(res), bms_cfg['soc_percent'])
-    ch = m['charger']
+    pk = params.section('pack')
+    if pk['n_series'] != bms_cfg['n_cells'] or pk['capacity_ah'] != bms_cfg['capacity_ah']:
+        raise ValueError('sil.yaml bms and power_model.yaml pack disagree on cells or capacity')
+    ocv = OcvCurve(pk['cell_ocv_v'])
+    pack = PackModel(ocv, pk['n_series'], pk['capacity_ah'], series_resistance_ohm(pk),
+                     bms_cfg['soc_percent'])
+    ch = params.section('charger')
     charger = Charger(ch['voltage_v'], ch['current_a'], ch['taper_a'])
-    drive = DriveLoadEstimator(m['drive'], wheel_radius_m)
+    drive = DriveLoadEstimator(params.section('drive'), wheel_radius_m)
     loads = m['loads']
     return pack, charger, drive, loads
+
+
+def power_from_config(bms_cfg, params, pack, charger):
+    """PowerModel with the initial switch states and rail loads of sil.yaml bms.model.power."""
+    from openamrobot_sil.power import PowerModel
+    pw = bms_cfg['model']['power']
+    return PowerModel(params, pack, charger, pw['initial_switches'], pw['initial_loads'],
+                      pw.get('converters_start_on', True))
 
 
 class PackSimulation:
     """Ties the pack model to a DalyBmsEmulator. No ROS. One step() per tick.
 
-    Inputs: drive power (from DriveLoadEstimator), constant loads, an injected current step,
-    the charger. Output: the emulator's pack voltage, current and SOC.
+    Inputs: drive power (from DriveLoadEstimator), constant loads or a PowerModel, an injected
+    current step, the charger. Output: the emulator's pack voltage, current and SOC.
     current_sign_discharge maps model current (I > 0 discharges) to the reported current.
+
+    With a PowerModel, the rail loads, switch states and the traction power (drive_w) go through
+    it and the constant loads are not used. tick() advances by the time of the injected clock.
     """
 
-    def __init__(self, emu, pack, charger, loads, current_sign_discharge=-1):
+    def __init__(self, emu, pack, charger, loads, current_sign_discharge=-1, clock=None,
+                 power=None, drive=None):
         self.emu = emu
         self.pack = pack
         self.charger = charger
+        self.power = power
+        self.drive = drive
+        self.clock = clock
         self.const_w = float(loads.get('electronics_w', 0.0))
         self.const_a = float(loads.get('arms_a', 0.0))
+        self.sign = -1.0 if current_sign_discharge < 0 else 1.0
+        self._gen = clock.generation if clock is not None else None
+        self._last_t = clock.now() if clock is not None else None
+        self.resets = 0
+        self._reset_inputs()
+        self.publish()
+
+    def _reset_inputs(self):
         self.step_a = 0.0      # injected extra current, for current-step scenarios
         self.drive_w = 0.0
-        self.sign = -1.0 if current_sign_discharge < 0 else 1.0
         self.enabled = True
+
+    def reset(self):
+        """Back to the configured initial state (gate D3), then publish it."""
+        self.pack.reset()
+        self.charger.reset()
+        if self.power is not None:
+            self.power.reset()
+        if self.drive is not None:
+            self.drive.reset()
+        self._reset_inputs()
+        self.resets += 1
         self.publish()
+
+    def tick(self):
+        """Advance by the injected clock's elapsed time. A new generation resets; a paused
+        clock or a clock that did not advance integrates nothing."""
+        c = self.clock
+        if c.generation != self._gen:
+            self._gen = c.generation
+            self._last_t = c.now()
+            self.reset()
+            return 0.0
+        now = c.now()
+        dt = now - self._last_t
+        self._last_t = now
+        if c.paused or dt <= 0.0:
+            return 0.0
+        self.step(dt)
+        return dt
 
     def step(self, dt):
         if not self.enabled:
+            return
+        if self.power is not None:
+            self.power.set_load('traction_w', self.drive_w)
+            self.power.step(dt, extra_a=self.step_a)
+            self.publish()
             return
         load_a = self.const_a + self.step_a
         # Loads first, then the charger supplies what it can up to its limit.
@@ -226,12 +299,18 @@ class PackSimulation:
                             soc_percent=self.pack.soc_percent)
 
     def state(self):
-        return {'model_enabled': self.enabled, 'ocv_v': round(self.pack.ocv_v(), 3),
-                'resistance_ohm': self.pack.resistance_ohm,
-                'model_current_a': round(self.pack.current_a, 3),
-                'drive_w': round(self.drive_w, 1), 'step_a': self.step_a,
-                'charger_on': self.charger.on, 'charge_done': self.charger.done,
-                'net_discharged_ah': round(self.pack.charge_ah, 4)}
+        out = {'model_enabled': self.enabled, 'ocv_v': round(self.pack.ocv_v(), 3),
+               'resistance_ohm': self.pack.resistance_ohm,
+               'model_current_a': round(self.pack.current_a, 3),
+               'drive_w': round(self.drive_w, 1), 'step_a': self.step_a,
+               'charger_on': self.charger.on, 'charge_done': self.charger.done,
+               'net_discharged_ah': round(self.pack.charge_ah, 4)}
+        if self.power is not None:
+            out['power'] = self.power.state()
+        if self.clock is not None:
+            out['clock_generation'] = self._gen
+            out['model_resets'] = self.resets
+        return out
 
 
 RPM_TO_RAD_S = 2.0 * math.pi / 60.0

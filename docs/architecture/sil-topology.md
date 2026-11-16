@@ -188,9 +188,11 @@ openamr-upperbody-sw [S5]: 0 to 0.350 m, 0.018 m/s, 800 N. The launch argument `
 another xacro.
 
 BMS. A lumped 8S LiFePO4 pack model (open-circuit voltage against SOC, series resistance,
-coulomb counting) sets pack voltage, current and SOC in the existing frames. Its load is a
-constant electronics and arm load plus a drive estimate from the ZLAC8015D emulator wheel
-speeds; there is no direct link to Gazebo. Parameters, sources and limits:
+coulomb counting on the injected clock) sets pack voltage, current and SOC in the existing
+frames. A power model behind it carries the BAT and SAFE buses, the three DC/DC rails, the
+direct branches and the externally set switch states (disconnect, BMS switches, K1, K2, Kpre);
+the traction load is a drive estimate from the ZLAC8015D emulator wheel speeds. There is no
+direct link to Gazebo. Parameters, sources and limits:
 [sil-battery-model.md](sil-battery-model.md). `bms.model.enabled: false` restores the static
 values with injection (pack defaults from [S10]).
 

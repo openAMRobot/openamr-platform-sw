@@ -11,12 +11,14 @@ import pytest
 
 from conftest import PACKAGE_DIR, wait_for
 from openamrobot_sil import battery_model as bm
-from openamrobot_sil import config, daly_bms
+from openamrobot_sil import config, daly_bms, model_params
 from openamrobot_sil.stm32_host import BmsHost
 
 CFG_PATH = os.path.join(PACKAGE_DIR, 'config', 'sil.yaml')
 CFG = config.load(CFG_PATH)
 BMS = CFG['bms']
+PARAMS_PATH = os.path.join(PACKAGE_DIR, 'config', BMS['model']['parameters_file'])
+PARAMS = model_params.load(PARAMS_PATH)
 WHEEL_R = CFG['drive']['wheel_radius']
 # Comparison level for the low-voltage scenario: 2.8 V per cell is a commissioning candidate
 # in BOM Decisions D65, "not an approved setting". The test checks that the model can cross
@@ -25,40 +27,55 @@ CANDIDATE_LOW_CELL_V = 2.8
 
 
 def model():
-    return bm.from_config(BMS, WHEEL_R)
+    return bm.from_config(BMS, WHEEL_R, PARAMS)
+
+
+class FakeClock:
+    """Duck-typed clock of the clock contract: now(), generation, paused."""
+
+    def __init__(self, t=0.0):
+        self.t = float(t)
+        self.generation = 0
+        self.paused = False
+
+    def now(self):
+        return self.t
+
+
+class RecordingEmu:
+    """Stands in for DalyBmsEmulator.set_values without a bus."""
+
+    def __init__(self):
+        self.values = {}
+
+    def set_values(self, **kw):
+        self.values.update(kw)
 
 
 # --- sources -----------------------------------------------------------------------------
 
-def test_every_model_number_has_a_source_tag():
-    """No unexplained number: each numeric line under bms.model carries [M], [E], [U] or
-    'SIL test value', or is an OCV table row whose table header is tagged."""
+def test_sil_yaml_model_numbers_are_sil_test_values():
+    """Physical parameters live in power_model.yaml; every number left under bms.model in
+    sil.yaml is a run setting or scenario input and says so."""
     lines = open(CFG_PATH, encoding='utf-8').read().splitlines()
     start = lines.index('  model:')
-    in_table = False
     for line in lines[start + 1:]:
         if line and not line.startswith('    '):
             break
         body = line.split('#')[0]
-        if re.match(r'^\s+- \[', body):
-            assert in_table, line
-            continue
-        in_table = 'ocv_cell_v' in body and '[U]' in line
         if re.search(r':\s*-?[\d.]', body):
-            assert re.search(r'\[M\]|\[E\]|\[U\]|SIL test value', line), line
-            if '[U]' in line:
-                assert 'TODO(Evans)' in line, line
+            assert 'SIL test value' in line, line
 
 
 def test_capacity_and_series_count_follow_the_bom():
-    assert BMS['n_cells'] == 8
-    assert BMS['capacity_ah'] == 105.0
+    assert BMS['n_cells'] == PARAMS.get('pack.n_series') == 8
+    assert BMS['capacity_ah'] == PARAMS.get('pack.capacity_ah') == 105.0
 
 
 # --- model maths -------------------------------------------------------------------------
 
 def test_ocv_is_monotonic_and_interpolates():
-    ocv = bm.OcvCurve(BMS['model']['ocv_cell_v'])
+    ocv = bm.OcvCurve(PARAMS.get('pack.cell_ocv_v'))
     values = [ocv.cell_v(s) for s in range(0, 101)]
     assert values == sorted(values)
     assert ocv.cell_v(-5) == ocv.cell_v(0) and ocv.cell_v(120) == ocv.cell_v(100)
@@ -67,6 +84,13 @@ def test_ocv_is_monotonic_and_interpolates():
         bm.OcvCurve([(0, 3.3), (50, 3.2), (100, 3.4)])
     with pytest.raises(ValueError):
         bm.OcvCurve([(10, 3.0), (100, 3.4)])
+
+
+def test_ocv_table_stays_inside_the_cell_voltage_limits():
+    """The placeholder OCV table stays between the LF105 discharge and charge cut-off."""
+    lo, hi = PARAMS.get('pack.cell_discharge_cutoff_v'), PARAMS.get('pack.cell_charge_cutoff_v')
+    assert all(lo <= v <= hi for _, v in PARAMS.get('pack.cell_ocv_v'))
+    assert 'pack.cell_ocv_v' in PARAMS.defaults_in_use()
 
 
 def test_pack_voltage_stays_inside_the_documented_range():
@@ -78,8 +102,9 @@ def test_pack_voltage_stays_inside_the_documented_range():
 
 
 def test_series_resistance_sums_its_parts():
-    r = dict(BMS['model']['resistance'], n_series=8)
+    r = PARAMS.section('pack')
     copper = 1.68e-8 * (8 * 0.056 / 4.0e-5 + 0.72 / 2.5e-5)
+    assert r['cell_dc_resistance_ohm'] == 0.0018   # LF105 spec rev D DCR upper bound
     assert bm.series_resistance_ohm(r) == pytest.approx(
         8 * r['cell_dc_resistance_ohm'] + copper + r['bms_path_ohm'])
 
@@ -107,7 +132,7 @@ def test_constant_power_load_solves_v_and_i_together():
 
 def test_drive_estimate_at_constant_speed_is_rolling_loss_over_efficiency():
     _, _, drive, _ = model()
-    p = BMS['model']['drive']
+    p = PARAMS.section('drive')
     omega = 0.5 / WHEEL_R
     drive.power_w(0.0, (omega, omega))
     got = drive.power_w(1.0, (omega, omega))
@@ -119,7 +144,7 @@ def test_drive_estimate_at_constant_speed_is_rolling_loss_over_efficiency():
 
 def test_drive_estimate_accelerating_and_braking():
     _, _, drive, _ = model()
-    p = BMS['model']['drive']
+    p = PARAMS.section('drive')
     m, eta = p['robot_mass_kg'], p['drive_efficiency']
     drive.power_w(0.0, (0.0, 0.0), enabled=False)
     # 1.5 m/s2 (P-03 item 30 A6 travel deceleration, used here as acceleration) to 0.3 m/s
@@ -149,6 +174,70 @@ def test_charger_cc_until_full_then_stops():
     assert charger.current(pack) == pytest.approx(20.0)
     pack.soc_percent = 100.0
     assert charger.current(pack) == 0.0 and charger.done
+
+
+# --- injected clock -----------------------------------------------------------------------
+
+def clocked_sim(clock, load_a=0.0):
+    pack, charger, drive, loads = model()
+    sim = bm.PackSimulation(RecordingEmu(), pack, charger, dict(loads, electronics_w=0.0,
+                                                                arms_a=load_a),
+                            BMS['model']['current_sign_discharge'], clock=clock, drive=drive)
+    return sim
+
+
+def test_coulomb_counting_uses_the_injected_clock_not_host_time(monkeypatch):
+    """50 A for 72 s of injected time takes 1 Ah, whatever the host clock does."""
+    import time as host_time
+
+    def no_host_time():
+        raise AssertionError('model read host time')
+    clock = FakeClock(100.0)
+    sim = clocked_sim(clock, load_a=50.0)
+    monkeypatch.setattr(host_time, 'monotonic', no_host_time)
+    monkeypatch.setattr(host_time, 'time', no_host_time)
+    monkeypatch.setattr(host_time, 'perf_counter', no_host_time)
+    for _ in range(720):
+        clock.t += 0.1
+        sim.tick()
+    assert sim.pack.charge_ah == pytest.approx(1.0, rel=1e-9)
+    assert sim.pack.soc_percent == pytest.approx(BMS['soc_percent'] - 100.0 / 105.0, rel=1e-9)
+
+
+def test_paused_or_still_clock_integrates_nothing():
+    clock = FakeClock()
+    sim = clocked_sim(clock, load_a=50.0)
+    clock.paused = True
+    clock.t += 10.0
+    assert sim.tick() == 0.0
+    clock.paused = False
+    assert sim.tick() == 0.0          # time did not advance since the paused tick
+    assert sim.pack.charge_ah == 0.0
+    clock.t += 3.6
+    sim.tick()
+    assert sim.pack.charge_ah == pytest.approx(0.05)
+
+
+def test_new_generation_resets_to_the_configured_initial_state():
+    """Gate D3: a simulation reset (new clock generation) returns SOC, charger, injected
+    current and drive estimate to the configured start, and the frames show it."""
+    clock = FakeClock()
+    sim = clocked_sim(clock, load_a=50.0)
+    sim.charger.on = True
+    sim.step_a = 30.0
+    sim.drive_w = 200.0
+    for _ in range(50):
+        clock.t += 1.0
+        sim.tick()
+    assert sim.pack.soc_percent < BMS['soc_percent']
+    clock.generation += 1
+    clock.t = 0.0
+    assert sim.tick() == 0.0
+    assert sim.pack.soc_percent == BMS['soc_percent'] and sim.pack.charge_ah == 0.0
+    assert (sim.step_a, sim.drive_w, sim.charger.on, sim.resets) == (0.0, 0.0, False, 1)
+    assert sim.drive._last is None
+    assert sim.emu.values['soc_percent'] == BMS['soc_percent']
+    assert sim.emu.values['current_a'] == 0.0
 
 
 # --- scenarios over CAN2 (vcan, BLOCKED without it) ---------------------------------------

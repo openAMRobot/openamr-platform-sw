@@ -1,0 +1,942 @@
+# Battery and power model parameters of openamrobot_sil (proposal, 16 Nov 2026).
+# Read by openamrobot_sil/model_params.py; equations and the rail topology are in
+# docs/architecture/sil-battery-model.md.
+#
+# Every parameter has the same fields:
+#   value              robot value, or null when no source gives it. Never a guess.
+#   unit               SI unit ('1' for a count or a ratio)
+#   source             document, row and revision (URL for a public datasheet)
+#   confidence         datasheet | supplier_confirmation | design_decision | cad | estimate | unknown
+#   uncertainty        range or conflict as stated by the source; 'none stated' if the source gives none
+#   hardware_revision  revision of the part or document the value belongs to
+#   owner              who confirms or replaces the value
+#   test               test in test/test_battery_model.py or test/test_power_model.py that uses it
+#   last_verified      date of a bench measurement on the robot's own part; null = never measured
+#   measurement_item   measurement plan item (audits digital-twin/phase1/measurement_plan.md) and RG rows
+#   sil_default        only where value is null: the number the SIL runs with so the layer works.
+#                      Not a property of the robot, never acceptance evidence; the model reports
+#                      every parameter that runs on its sil_default (state key defaults_in_use).
+#
+# Rail topology follows E-01 rev1.8 section 3 (power distribution). The model never decides a
+# contactor, precharge relay, disconnect or BMS switch state: those are inputs (decision D11).
+version: 1
+
+pack:
+  n_series:
+    value: 8
+    unit: '1'
+    source: BOM Issue 7.15 Hardware BOM row PWR-001 (8 x EVE LF105, 8S1P, 25.6 V)
+    confidence: design_decision
+    uncertainty: none stated
+    hardware_revision: BOM Issue 7.15
+    owner: Evans
+    test: test_capacity_and_series_count_follow_the_bom
+    last_verified: null
+    measurement_item: null
+  capacity_ah:
+    value: 105.0
+    unit: Ah
+    source: EVE LF105 product specification PBRI-LF105-D06-01 rev D (2022-11-08), min capacity 105.0 Ah at 0.5 C, 25 C, 2.5 to 3.65 V, fresh cell (https://www.rcscomponents.kiev.ua/datasheets/PBRI-LF105-D06-01-2022-1.pdf); BOM Issue 7.15 PWR-001
+    confidence: datasheet
+    uncertainty: E-01 rev1.8 charging paragraph and RG-DRV-023 state 84 Ah (open conflict, owner Evans); usable capacity of the delivered pack not measured
+    hardware_revision: LF105 spec rev D
+    owner: Evans
+    test: test_terminal_voltage_sags_by_i_times_r_and_coulomb_counting
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023, RG-DRV-024)
+  cell_ocv_v:
+    value: null
+    unit: V against SOC percent
+    source: none. The LF105 specification (rev D and rev F) gives no OCV table; only graphs of loaded discharge curves
+    confidence: unknown
+    uncertainty: placeholder LiFePO4 shape, not EVE data; the endpoints 2.5 V and 3.45 V are not OCV measurements
+    hardware_revision: null
+    owner: Evans
+    test: test_ocv_is_monotonic_and_interpolates
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-024)
+    sil_default: [[0, 2.50], [5, 3.00], [10, 3.20], [20, 3.25], [40, 3.28], [60, 3.30], [80, 3.32], [90, 3.33], [95, 3.35], [100, 3.45]]
+  cell_discharge_cutoff_v:
+    value: 2.5
+    unit: V
+    source: EVE LF105 specification PBRI-LF105-D06-01 rev D, discharge cut-off 2.5 V above 0 C (2.0 V at or below 0 C)
+    confidence: datasheet
+    uncertainty: cell limit, not the BMS setting; the BMS threshold of the delivered unit is unknown (RG-DRV-037)
+    hardware_revision: LF105 spec rev D
+    owner: Evans
+    test: test_ocv_table_stays_inside_the_cell_voltage_limits
+    last_verified: null
+    measurement_item: MP-13 (RG-DRV-037)
+  cell_charge_cutoff_v:
+    value: 3.65
+    unit: V
+    source: EVE LF105 specification PBRI-LF105-D06-01 rev D, charge cut-off Umax 3.65 V
+    confidence: datasheet
+    uncertainty: none stated
+    hardware_revision: LF105 spec rev D
+    owner: Evans
+    test: test_ocv_table_stays_inside_the_cell_voltage_limits
+    last_verified: null
+    measurement_item: null
+  cell_max_continuous_c:
+    value: 1.0
+    unit: '1'
+    source: EVE LF105 specification PBRI-LF105-D06-01 rev D, max continuous discharge 1 C (3 C for 60 s at 30 % SOC or more)
+    confidence: datasheet
+    uncertainty: pulse limits depend on SOC and temperature (spec table 13); only the continuous value is used, as a flag
+    hardware_revision: LF105 spec rev D
+    owner: Evans
+    test: test_pack_flag_above_the_continuous_cell_rating
+    last_verified: null
+    measurement_item: null
+  cell_dc_resistance_ohm:
+    value: 0.0018
+    unit: ohm
+    source: EVE LF105 specification PBRI-LF105-D06-01 rev D, DCR <= 1.8 mOhm at 25 C, 50 % SOC, 1 C, 10 s pulse, fresh cell
+    confidence: datasheet
+    uncertainty: upper bound; the 10 s pulse value includes fast polarisation, so it overstates the instant step. AC 1 kHz resistance is 0.32 +/- 0.05 mOhm at 30 to 40 % SOC (ohmic lower bound). Rises with age and cold
+    hardware_revision: LF105 spec rev D
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+  copper_resistivity_ohm_m:
+    value: 1.68e-8
+    unit: ohm m
+    source: annealed copper at 20 C, handbook value
+    confidence: estimate
+    uncertainty: plus about 0.4 % per K above 20 C
+    hardware_revision: null
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: null
+  busbar_count:
+    value: 8
+    unit: '1'
+    source: mass ledger PWR-024 estimate, 8 copper busbars
+    confidence: estimate
+    uncertainty: count and shape follow the assembler
+    hardware_revision: null
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+  busbar_length_m:
+    value: 0.056
+    unit: m
+    source: mass ledger PWR-024 estimate, 56 x 20 x 2 mm, full length counted
+    confidence: estimate
+    uncertainty: current path shorter than the bar
+    hardware_revision: null
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+  busbar_section_m2:
+    value: 4.0e-5
+    unit: m2
+    source: mass ledger PWR-024 estimate, 20 mm x 2 mm
+    confidence: estimate
+    uncertainty: none stated
+    hardware_revision: null
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+  cable_length_m:
+    value: 0.72
+    unit: m
+    source: BOM cable estimate CBL-001, 0.36 m with allowance, doubled for the return
+    confidence: estimate
+    uncertainty: routing not released
+    hardware_revision: BOM Issue 7.15
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+  cable_section_m2:
+    value: 2.5e-5
+    unit: m2
+    source: BOM CBL-001 and E-01 rev1.8 BAT row, 25 mm2
+    confidence: design_decision
+    uncertainty: none stated
+    hardware_revision: E-01 rev1.8
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: null
+  bms_path_ohm:
+    value: null
+    unit: ohm
+    source: none. Daly BMS MOSFETs, F0, disconnect, PWR-018 tray link and lugs together; the BMS is not ordered and has no datasheet (component inventory PWR-002)
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_series_resistance_sums_its_parts
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-025)
+    sil_default: 0.005
+
+charger:
+  voltage_v:
+    value: 28.4
+    unit: V
+    source: E-01 rev1.8 and BOM Issue 7.15 PWR-005, Daly 28.4 V / 20 A bench charger (3.55 V per cell)
+    confidence: design_decision
+    uncertainty: none stated
+    hardware_revision: BOM Issue 7.15
+    owner: Evans
+    test: test_scenario_charge_from_a_low_state
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+  current_a:
+    value: 20.0
+    unit: A
+    source: same as voltage_v
+    confidence: design_decision
+    uncertainty: none stated
+    hardware_revision: BOM Issue 7.15
+    owner: Evans
+    test: test_charger_cc_until_full_then_stops
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+  taper_a:
+    value: null
+    unit: A
+    source: none. End-of-charge current of the Daly charger is not on file
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_charger_cc_until_full_then_stops
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+    sil_default: 2.0
+
+drive:
+  robot_mass_kg:
+    value: 86.3
+    unit: kg
+    source: mass ledger D-26, P-03 item 30 A6
+    confidence: design_decision
+    uncertainty: not weighed; the URDF base mass PR gives 87.11 kg whole robot
+    hardware_revision: P-03 rev20.6
+    owner: Evans
+    test: test_drive_estimate_accelerating_and_braking
+    last_verified: null
+    measurement_item: null
+  rolling_resistance:
+    value: null
+    unit: '1'
+    source: none. Wheels and castors on the Use_Case_1 floor not measured
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_drive_estimate_at_constant_speed_is_rolling_loss_over_efficiency
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+    sil_default: 0.02
+  drive_efficiency:
+    value: null
+    unit: '1'
+    source: none. Battery to wheel efficiency of ZLAC8015D plus ZLLG80ASM250-L-B not on file (torque-speed curve missing, component inventory DRV-001)
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_drive_estimate_at_constant_speed_is_rolling_loss_over_efficiency
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+    sil_default: 0.70
+  regen_fraction:
+    value: null
+    unit: '1'
+    source: none. Regeneration and the regen clamp are open (PWR-010, D-23)
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_drive_estimate_accelerating_and_braking
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-027)
+    sil_default: 0.0
+  drive_enabled_standby_w:
+    value: null
+    unit: W
+    source: none. ZLAC8015D input power enabled at standstill not on file
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_drive_estimate_at_constant_speed_is_rolling_loss_over_efficiency
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-023)
+    sil_default: 10.0
+
+# DC/DC converters. All three sit on the battery side; none on 12 V (the component inventory
+# lists no 12 V rail; CMP-002: compute input never 12 V). Datasheet values were read from the
+# MEAN WELL specification sheets as mirrored by the sources named; the MEAN WELL site was not
+# reachable from the agent session, so each value says where it was read.
+converters:
+  rsd_60g_5:
+    part:
+      value: MEAN WELL RSD-60G-5
+      unit: '1'
+      source: BOM Issue 7.15 PWR-007; E-01 rev1.8 5 V rail (STM32, RPLIDAR S3, near-field sensors, IMU)
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: BOM Issue 7.15
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    input_bus:
+      value: bat
+      unit: '1'
+      source: E-01 rev1.8 section 3, 5 V rail on the BAT bus behind F-5V
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: 9.0
+      unit: V
+      source: MEAN WELL RSD-60 specification, G type input 9 to 36 VDC (read from https://pdf.elecfans.com/MEANWELL/RSD-60G-24.html and https://uk.rs-online.com/web/p/dc-dc-converters/1408111)
+      confidence: datasheet
+      uncertainty: the datasheet states shutdown below Vimin without a hysteresis value
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_input_undervoltage_turns_the_rail_off
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    input_max_v:
+      value: 36.0
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    output_v:
+      value: 5.0
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: MP-12 (RG-SEN-001)
+    rated_current_a:
+      value: 12.0
+      unit: A
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    rated_power_w:
+      value: 60.0
+      unit: W
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    efficiency:
+      value: 0.89
+      unit: '1'
+      source: MEAN WELL RSD-60 specification, RSD-60G-5 efficiency 89 % typical (read from https://pdf.elecfans.com/MEANWELL/RSD-60G-24.html)
+      confidence: datasheet
+      uncertainty: typical value at full load and nominal input; light-load efficiency lower and not tabulated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: MP-12 (RG-SEN-001)
+    limit_fraction:
+      value: 1.05
+      unit: '1'
+      source: MEAN WELL RSD-60 specification, overload 105 to 135 % rated output power, constant current limiting, automatic recovery
+      confidence: datasheet
+      uncertainty: 1.05 to 1.35; the lower bound is used, so the limit appears at the earliest load the datasheet allows
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    peak_fraction:
+      value: 1.05
+      unit: '1'
+      source: RSD-60 specification states no short-time overload, so the constant current limit applies at once (peak equals limit_fraction)
+      confidence: datasheet
+      uncertainty: as limit_fraction
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    peak_s:
+      value: 0.0
+      unit: s
+      source: RSD-60 specification states no short-time overload
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    setup_s:
+      value: 0.1
+      unit: s
+      source: MEAN WELL RSD-60 specification, setup 100 ms, rise 60 ms at full load
+      confidence: datasheet
+      uncertainty: full-load value; the 60 ms rise is not modelled (output steps after setup)
+      hardware_revision: RSD-60 spec (revision not read)
+      owner: Evans
+      test: test_converter_output_appears_after_its_setup_time
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    fuse_a:
+      value: 5.0
+      unit: A
+      source: E-01 rev1.8 and E-01 BOM rev1.2 row F-5V, ATO 5 A
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file, so the model flags the rating and never opens the fuse
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+  rsd_100b_24:
+    part:
+      value: MEAN WELL RSD-100B-24
+      unit: '1'
+      source: BOM Issue 7.15 PWR-012; E-01 rev1.8 regulated 24 V rail (PNOZ, K1/K2 coils, reset lamp, charge relay, panel, USB hub, fan)
+      confidence: design_decision
+      uncertainty: BOM Electrical sheet COIL row places it behind K1/K2; E-01 rev1.8 puts it on the BAT bus (always on, it feeds the PNOZ and the coils). The model follows E-01 rev1.8
+      hardware_revision: BOM Issue 7.15
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    input_bus:
+      value: bat
+      unit: '1'
+      source: E-01 rev1.8 section 3, regulated 24 V rail on the BAT bus behind F-24V
+      confidence: design_decision
+      uncertainty: see part
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: 16.8
+      unit: V
+      source: MEAN WELL RSD-100 specification (file RSD-100-SPEC 2013-04-26), B type input 16.8 to 31.2 VDC (read from https://nonprod.docs.rs-online.com/05dc/0900766b80ef2584.pdf and https://octopart.com/part/mean-well/RSD-100B-24)
+      confidence: datasheet
+      uncertainty: the RS listing (https://uk.rs-online.com/web/p/dc-dc-converters/7212446) gives 14.4 to 33.6 V; the protection curve in the 2013 sheet reads as off about 25.6 V, on about 27.6 V, which does not match 16.8 V. Revision of the ordered unit not known
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_input_undervoltage_turns_the_rail_off
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    input_max_v:
+      value: 31.2
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: see input_min_v
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    output_v:
+      value: 24.0
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: null
+    rated_current_a:
+      value: 4.2
+      unit: A
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    rated_power_w:
+      value: 100.8
+      unit: W
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    efficiency:
+      value: 0.89
+      unit: '1'
+      source: MEAN WELL RSD-100 specification, efficiency row read in model order (88, 89, 89 % for B-5, B-12, B-24); octopart listing 89 % for RSD-100B-24
+      confidence: datasheet
+      uncertainty: column mapping read from extracted text plus one distributor listing; typical at full load
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    limit_fraction:
+      value: 1.05
+      unit: '1'
+      source: MEAN WELL RSD-100 specification, overload 105 to 135 % rated output power, constant current limiting, automatic recovery
+      confidence: datasheet
+      uncertainty: 1.05 to 1.35; lower bound used
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    peak_fraction:
+      value: 1.05
+      unit: '1'
+      source: RSD-100 specification states no short-time overload, so the constant current limit applies at once (peak equals limit_fraction)
+      confidence: datasheet
+      uncertainty: as limit_fraction
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    peak_s:
+      value: 0.0
+      unit: s
+      source: RSD-100 specification states no short-time overload
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: null
+    setup_s:
+      value: 0.8
+      unit: s
+      source: MEAN WELL RSD-100 specification, setup 800 ms, rise 50 ms at full load
+      confidence: datasheet
+      uncertainty: full-load value; rise not modelled
+      hardware_revision: RSD-100-SPEC 2013-04-26
+      owner: Evans
+      test: test_converter_output_appears_after_its_setup_time
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    fuse_a:
+      value: 7.5
+      unit: A
+      source: E-01 rev1.8 and E-01 BOM rev1.2 row F-24V, ATO 7.5 A
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+  ddr_240b_24:
+    part:
+      value: MEAN WELL DDR-240B-24
+      unit: '1'
+      source: BOM Issue 7.15 PWR-030; E-01 rev1.8 SAFE 24 V converter (lift H-bridge, DOLD Hexalift V4, brake release 2 x 12.5 W); datasheet index entry https://www.meanwell.com/Upload/PDF/DDR-240/DDR-240-SPEC.pdf (SHA-256 4ebd709a...)
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: BOM Issue 7.15
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    input_bus:
+      value: safe
+      unit: '1'
+      source: E-01 rev1.8 section 3, SAFE bus behind F-LIFT 15 A; an E-stop removes its input
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: 16.5
+      unit: V
+      source: MEAN WELL DDR-240 specification, B type input 16.8 to 33.6 VDC, under-voltage lockout power on 16.8 V, off 16.5 V (read from https://manuals.plus/mean-well/ddr-240b-24-240w-din-rail-type-dc-dc-converter-manual)
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_input_undervoltage_turns_the_rail_off
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    input_on_v:
+      value: 16.8
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_input_undervoltage_turns_the_rail_off
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    input_max_v:
+      value: 33.6
+      unit: V
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    output_v:
+      value: 24.0
+      unit: V
+      source: same as input_min_v (adjustable 24 to 28 V; factory 24 V assumed)
+      confidence: datasheet
+      uncertainty: output adjustment of the fitted unit not recorded
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    rated_current_a:
+      value: 10.0
+      unit: A
+      source: same as input_min_v; E-01 rev1.8 limits the output to 10 A or less
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    rated_power_w:
+      value: 240.0
+      unit: W
+      source: same as input_min_v
+      confidence: datasheet
+      uncertainty: none stated
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_parameters_come_from_the_inventory_parts
+      last_verified: null
+      measurement_item: null
+    efficiency:
+      value: 0.90
+      unit: '1'
+      source: MEAN WELL DDR-240 specification, efficiency 90 % typical for the B input type (read from the manuals.plus copy named in input_min_v)
+      confidence: datasheet
+      uncertainty: the table in the copy read is garbled; 90 % is the value aligned with the B input range. Typical at full load
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_efficiency_power_balance
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    limit_fraction:
+      value: 1.05
+      unit: '1'
+      source: MEAN WELL DDR-240 specification, constant current protection 105 to 135 % rated output power with auto-recovery after the peak period
+      confidence: datasheet
+      uncertainty: 1.05 to 1.35; lower bound used
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_current_limit_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    peak_fraction:
+      value: 1.5
+      unit: '1'
+      source: MEAN WELL DDR-240 specification, normally works within 150 % rated output power for more than 3 s, then constant current protection
+      confidence: datasheet
+      uncertainty: the sheet says more than 3 s; 3 s is used as the peak time
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_peak_then_constant_current
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    peak_s:
+      value: 3.0
+      unit: s
+      source: same as peak_fraction
+      confidence: datasheet
+      uncertainty: lower bound of 'more than 3 s'
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_peak_then_constant_current
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-035)
+    setup_s:
+      value: 0.5
+      unit: s
+      source: MEAN WELL DDR-240 specification, setup 500 ms, rise 60 ms
+      confidence: datasheet
+      uncertainty: rise not modelled
+      hardware_revision: DDR-240 spec (revision not read)
+      owner: Evans
+      test: test_converter_output_appears_after_its_setup_time
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-031)
+    fuse_a:
+      value: 15.0
+      unit: A
+      source: E-01 rev1.8 and E-01 BOM rev1.2 row F-LIFT, ATO 15 A (converter input about 11 A at 20 V)
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+
+# Branches fed straight from a bus (no converter): input range and fuse rating.
+branches:
+  compute:
+    bus:
+      value: bat
+      unit: '1'
+      source: E-01 rev1.8 section 3, compute branch on the BAT bus behind F-J401 with inrush/TVS protection (PWR-009, PWR-029)
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: MP-12 (RG-BOO-013)
+    input_min_v:
+      value: 19.0
+      unit: V
+      source: component inventory CMP-002, reComputer Robotics 104 input 19 to 54 V (exact SKU to confirm)
+      confidence: design_decision
+      uncertainty: carrier SKU and its input range not confirmed (D-01)
+      hardware_revision: BOM Issue 7.15
+      owner: Alex
+      test: test_branch_undervoltage_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-BOO-013)
+    fuse_a:
+      value: 10.0
+      unit: A
+      source: E-01 rev1.8 row F-J401, ATO 10 A
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+  traction:
+    bus:
+      value: safe
+      unit: '1'
+      source: E-01 rev1.8 section 3, ZLAC8015D on the SAFE bus behind F-TRAC
+      confidence: design_decision
+      uncertainty: none stated
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: null
+      unit: V
+      source: none. ZLAC8015D V4.2 DC input rating open (component inventory DRV-002, Q-03)
+      confidence: unknown
+      uncertainty: unknown
+      hardware_revision: null
+      owner: Evans
+      test: test_branch_undervoltage_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-023)
+      sil_default: 0.0
+    fuse_a:
+      value: 40.0
+      unit: A
+      source: E-01 rev1.8 row F-TRAC, MIDI 40 A (2.0 build)
+      confidence: design_decision
+      uncertainty: Conestoga build uses ATO 20 A
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+  arm_left:
+    bus:
+      value: safe
+      unit: '1'
+      source: E-01 rev1.8 section 3, left arm on the SAFE bus behind F-ARM-L (gate ARM-VOLT; arm conversion stage PWR-013 not drawn)
+      confidence: design_decision
+      uncertainty: arm input range open (ARM-VOLT)
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: null
+      unit: V
+      source: none. OpenArm 2.0 input range open (gate ARM-VOLT)
+      confidence: unknown
+      uncertainty: unknown
+      hardware_revision: null
+      owner: Om
+      test: test_branch_undervoltage_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-024)
+      sil_default: 0.0
+    fuse_a:
+      value: 30.0
+      unit: A
+      source: E-01 rev1.8 row F-ARM-L, MIDI 30 A
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+  arm_right:
+    bus:
+      value: safe
+      unit: '1'
+      source: E-01 rev1.8 section 3, right arm on the SAFE bus behind F-ARM-R
+      confidence: design_decision
+      uncertainty: arm input range open (ARM-VOLT)
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_rails_follow_the_e01_topology
+      last_verified: null
+      measurement_item: null
+    input_min_v:
+      value: null
+      unit: V
+      source: none. OpenArm 2.0 input range open (gate ARM-VOLT)
+      confidence: unknown
+      uncertainty: unknown
+      hardware_revision: null
+      owner: Om
+      test: test_branch_undervoltage_flag
+      last_verified: null
+      measurement_item: MP-12 (RG-DRV-024)
+      sil_default: 0.0
+    fuse_a:
+      value: 30.0
+      unit: A
+      source: E-01 rev1.8 row F-ARM-R, MIDI 30 A
+      confidence: design_decision
+      uncertainty: rating only; no trip curve on file
+      hardware_revision: E-01 rev1.8
+      owner: Evans
+      test: test_branch_fuse_rating_flag
+      last_verified: null
+      measurement_item: null
+
+# SAFE bus: K1 then K2 in series from the BAT bus; Kpre with its resistor and 1 A fuse across
+# K2 only (E-01 rev1.8). The states are inputs; these values only shape the bus voltage.
+safe_bus:
+  drive_input_capacitance_f:
+    value: 9.4e-4
+    unit: F
+    source: ZLTECH (29 Oct 2026) as recorded in E-01 rev1.8, 940 uF +/- 10 % per ZLAC8015D, 50 to 60 A inrush at switch-on
+    confidence: supplier_confirmation
+    uncertainty: +/- 10 %
+    hardware_revision: ZLAC8015D V4.2
+    owner: Evans
+    test: test_precharge_follows_the_rc_curve
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-026)
+  other_input_capacitance_f:
+    value: null
+    unit: F
+    source: none. Arm and DDR-240B-24 input capacitance not measured (E-01 rev1.8, D-22)
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_precharge_follows_the_rc_curve
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-026)
+    sil_default: 0.0
+  precharge_resistance_ohm:
+    value: null
+    unit: ohm
+    source: none. Resistor value, pulse rating and timing are sized by Evans (D-22, BOM PWR-014)
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: null
+    owner: Evans
+    test: test_precharge_follows_the_rc_curve
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-026)
+    sil_default: 47.0
+  precharge_fuse_a:
+    value: 1.0
+    unit: A
+    source: E-01 rev1.8 precharge paragraph, 1 A fuse with Kpre across K2 (BOM PWR-015)
+    confidence: design_decision
+    uncertainty: rating only
+    hardware_revision: E-01 rev1.8
+    owner: Evans
+    test: test_precharge_follows_the_rc_curve
+    last_verified: null
+    measurement_item: null
+  contactor_operate_s:
+    value: null
+    unit: s
+    source: none. Gigavac GX11CAC operate time not read into the twin
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: GX11CAC
+    owner: Evans
+    test: test_contactor_follows_its_input_after_the_operate_time
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-026)
+    sil_default: 0.0
+  contactor_release_s:
+    value: null
+    unit: s
+    source: none. Gigavac GX11CAC release time not read into the twin
+    confidence: unknown
+    uncertainty: unknown
+    hardware_revision: GX11CAC
+    owner: Evans
+    test: test_contactor_follows_its_input_after_the_operate_time
+    last_verified: null
+    measurement_item: MP-12 (RG-DRV-026)
+    sil_default: 0.0
