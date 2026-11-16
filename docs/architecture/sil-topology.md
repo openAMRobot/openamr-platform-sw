@@ -140,36 +140,96 @@ choose the transport. Two options for the emulated machine:
 Neither option is built in this PR. With `stm32:=host` there is no host link: the host test
 client subscribes to `/cmd_vel` directly and publishes `/sil/base/odom`.
 
-## 6. Clocks
+## 6. Clocks (contract, Proposed)
 
-Three clocks exist.
+Status: Proposed under decision D2 of the digital twin plan (15 Nov 2026). Owner of the contract:
+software lead. Firmware timer semantics stay with the platform lead. The contract comes before
+any timer change; this section changes no code.
 
-| Clock | Owner | Used for |
+### 6.1 Domains
+
+| Domain | Source | Runs during a Gazebo pause |
 |---|---|---|
-| Gazebo simulation time | Gazebo, 1 ms step, real-time factor 1.0 (`worlds/sil_flat.sdf`), on `/clock` | Physics, joint states, stamps of nodes with `use_sim_time` |
-| Renode virtual time | Renode | Everything inside the firmware: its timeouts, its heartbeat, its status stamps |
-| Host monotonic time | Linux | Every timer inside the emulators: heartbeat periods, the 2000h link-loss time, the CTL-017 command deadline and heartbeat consumer, the permit freshness time. The vendored emulators read `time.monotonic()` |
+| `gazebo` | Gazebo simulation time on `/clock`, step 1 ms (`fast`) or 1/1500 s (`fine`) | no |
+| `renode` | Renode virtual time of the emulated MCU | yes, unless Renode is paused too |
+| `ros` | ROS time of a node with `use_sim_time:=true`; equals `gazebo` in every SIL launch | no |
+| `steady` | host monotonic time (`time.monotonic()`, `ClockType.STEADY_TIME`) | yes |
 
-A vcan frame carries no time. It is delivered at once.
+A vcan frame carries no time. It is delivered at once; an injected delay is counted in the
+receiver's domain.
 
-Rule for this phase: all three clocks run at wall-clock rate and are not synchronised.
+### 6.2 Rules
 
-- Gazebo runs with real-time factor 1.0. A Gazebo that runs slower makes the plant slow
-  against the protocol timers. Example: the CTL-017 model raises fault F02 when the Hall rate
-  falls below 43 counts per second [S3]. The lift gives about 86 counts per second at
-  18 mm/s, so a real-time factor below about 0.5 trips that fault.
-- Renode must hold its virtual time to host time. This is to be confirmed on the pinned
-  Renode version. An emulated machine that runs slower than real time will see the drive
-  link-loss time and the lift deadlines expire early.
-- Consumers judge freshness by local receipt time. I8 rev 4 [S2] already requires that: the
-  header stamp of the base controller is its own monotonic time and is diagnostic only. So no
-  consumer needs Gazebo time and Renode time to agree.
-- All timing checks in the tests are plausibility checks on thread timing. They are not timing
-  measurements.
+- **C1** Device timers follow the plant. Every timer that models device behaviour (protocol
+  timeouts, heartbeat periods and consumers, the 2000h link-loss time, CTL-017 deadlines, Hall
+  rate windows, permit freshness, plant integration steps) runs on `gazebo` when the plant is
+  Gazebo, and on `steady` when the plant is internal (no Gazebo). The Linux stand-in for the base
+  controller (`stm32:=host`) is a device in this sense.
+- **C2** Firmware in Renode keeps Renode virtual time. Renode is held to host time until
+  lock-step exists. Every run reports the Renode virtual-to-host ratio next to the Gazebo
+  real-time factor, and the skew between Renode time and Gazebo time over the run. The skew bound
+  is set in WS4 with the platform lead; until then it is reported, not enforced.
+- **C3** Firmware watchdog semantics are not simulation parameters. No SIL profile lengthens a
+  firmware or emulator timeout to make a slow runner pass. A slow runner is handled by C1 pacing
+  and by the scene's real-time-factor guard (scenario BLOCKED), never by a longer timeout.
+- **C4** ROS nodes use ROS time. Node timers, stamps and freshness checks inside ROS nodes use
+  `ros`; a node does not pace a device timer on its own steady clock.
+- **C5** `steady` is for process health only: thread liveness, node readiness, launch and test
+  deadlines, and blocking receive calls as an upper bound of waiting. A `steady` check never raises
+  a device fault; it reports "simulation stalled" separately, with the wall time and the last
+  simulation time.
+- **C6** Freshness is judged by receipt time in the receiver's own domain (I8 rev 4 [S2]: the base
+  controller's header stamp is diagnostic only). No consumer needs two domains to agree.
 
-Later option, not built: lock-step. Gazebo is stepped by a fixed number of iterations per
-Renode time quantum, and the emulators take their time from the same source. That needs an
-injectable clock in the vendored emulators, which is a change in openamr-platform-fw first.
+### 6.3 Events and their gates (D3)
+
+| Event | Required behaviour | Gate test |
+|---|---|---|
+| Gazebo paused 5 s wall time, then resumed | `gazebo` timers freeze, so no device timeout fires in the pause. A pause longer than 1 s wall time (proposal) counts as a stall under C5: on resume every drive target is zero, the lift permit is invalid until a new permit frame arrives, and motion needs a new command sent after the resume | drive, enable and lift permit do not survive; nothing re-arms by itself |
+| Simulation time reset or moved backward | every emulated device takes it as a power cycle: boot-up frame, targets and enable dropped, permit invalid, lift unhomed unless at a stop sensor | same |
+| Renode restart | the firmware boots fresh; devices see heartbeat loss, then boot-up; nothing from before the restart is valid | same |
+| micro-ROS agent restart | the firmware keeps its own timeouts (`renode`) and stops on link loss as its production code does | same |
+| CAN frames delayed by an injected time | the receiver judges the age by its receipt time (C6); a late frame is not treated as fresh | stale command refused |
+
+### 6.4 Inventory
+
+`ros2/src/openamrobot_sil/config/clock_inventory.yaml` lists every clock read and timer in this
+package, the domain it runs on now, the domain these rules assign, and where the change has to
+happen. `test/test_clock_inventory.py` fails when a clock read is added or removed without an
+inventory change.
+
+### 6.5 Clock interface
+
+`openamrobot_sil/sim_time.py` is the interface every device model takes instead of reading host
+time: `now()`, `generation` (increases on every reset or backward jump, so a command, enable or
+permit stamped earlier is never fresh again) and `paused`. `FedClock` is fed from `/clock`;
+`ManualClock` drives tests; `SteadyClock` is host time for an internal plant and for health checks.
+`Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6). A simulated
+communication deadline (a device timeout in its own domain) and a host communication failure (a
+process that stopped, seen in `steady`) are separate checks and never share a timer.
+
+### 6.6 Current state (15 Nov 2026)
+
+Every device timer in the package runs on `steady`, and every node timer too
+(`nodes/common.py` `steady_timer`). So all `gazebo` targets above are `to_change`:
+
+- CTL-017: the vendored emulator reads time through one hook, `_now_ms()`. `Ctl017Gazebo` can
+  override it in this repository without changing vendored code.
+- ZLAC8015D and the CANopen node base (`canopen_common.py`) read `time.monotonic()` directly. An
+  injectable clock is a change in openamr-platform-fw first, then a re-vendor.
+- The host stand-in (`stm32_host.py`) and the Gazebo glue (`zlac_gazebo.py`) are in this
+  repository.
+
+Consequence until the change: a Gazebo that runs slower than real time makes the plant slow
+against the protocol timers. Example: the CTL-017 model raises fault F02 when the Hall rate falls
+below 43 counts per second [S3]; the lift gives about 86 counts per second at 18 mm/s, so a
+real-time factor below about 0.5 trips it. Seen on the Build 1 scene on 16 Nov 2026: at a
+real-time factor of 0.55 the lift moved 9 mm and raised F02; at 0.2 to 0.4 the scene's guard
+reported BLOCKED. All timing checks in the tests are plausibility checks on thread timing, not
+timing measurements.
+
+Later option, not built: lock-step. Gazebo is stepped by a fixed number of iterations per Renode
+time quantum, and the emulators take their time from the same source.
 
 ## 7. Data flow and ROS interface (Proposed)
 

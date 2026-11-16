@@ -13,6 +13,10 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Documentation
+
+- Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
