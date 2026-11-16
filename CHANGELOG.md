@@ -13,6 +13,10 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Clock contract implemented for the base and lift SIL (17 Nov 2026)
+
+- One fed `/clock` clock per SIL process (`ClockCoordinator`, `NodeClock`): a stall longer than 1 s wall time (proposal) is reported as "simulation stalled" on a steady health timer, never as a device fault. CTL-017 runs every timer on Gazebo time through the vendored `_now_ms()` hook (no vendored change, no timeout value changed); a time reset is a power cycle and a stall drops motion and the permit. ZLAC8015D wheel feedback and the host stand-in (pacing, keep-alive, heartbeat, permit, BMS timeout) use the fed clock; node timers run on ROS time. Gate tests for pause, reset, restart, delayed frames and runner speed. ZLAC8015D and `canopen_common` still read host time until openamr-platform-fw #57.
+
 ### Documentation
 
 - Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.

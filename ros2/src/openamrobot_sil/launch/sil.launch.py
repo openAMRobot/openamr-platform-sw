@@ -30,7 +30,8 @@ def _true(text):
 
 def can_nodes(config_file, stm32, gazebo):
     """The nodes that open vcan sockets."""
-    params = [{'config_file': config_file}]
+    # Every CAN node takes Gazebo time when Gazebo runs (clock contract C1, C4).
+    params = [{'config_file': config_file, 'use_sim_time': gazebo}]
     nodes = [
         Node(package='openamrobot_sil', executable='zlac8015d_emulator', output='screen',
              parameters=params),
@@ -41,7 +42,7 @@ def can_nodes(config_file, stm32, gazebo):
     ]
     if stm32 == 'host':
         nodes.append(Node(package='openamrobot_sil', executable='stm32_host_client',
-                          output='screen', parameters=params + [{'use_sim_time': gazebo}]))
+                          output='screen', parameters=params))
     else:
         nodes.append(LogInfo(msg=(
             'stm32:=renode: no host test client. Attach the Renode machine to the vcan '
