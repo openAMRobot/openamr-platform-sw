@@ -52,7 +52,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 63 tests ran
+      - name: Check that all 64 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -60,7 +60,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 63 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 64 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the one that checks #164's station tree, which this PR does not own.

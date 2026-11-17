@@ -7,9 +7,12 @@ the nominal station pose in the map. The node:
 1. sends that goal to Nav2's navigate_to_pose with behavior_tree = navigate_to_station.xml (platform-sw #164);
 2. after the robot has stopped, averages `samples` station poses from /station_alignment/station_pose (base frame,
    independent of AMCL);
-3. if the measured residual is within the station goal checker tolerance it succeeds; otherwise it composes the
+3. if the measured residual is within accept_along, accept_lateral and accept_yaw it succeeds; otherwise it composes the
    robot's current map pose with the measured station pose and sends that corrected goal to the same tree, up to
-   `max_iterations` times.
+   `max_iterations` times. A differential base cannot step sideways: a lateral residual up to `accept_lateral`
+   is left (the reach tolerates -0.20 to +0.15 m along the shelf) and only the distance and the yaw are corrected in
+   place; a larger one is corrected by a goal `backoff` behind the corrected station, then the corrected station, so
+   that the controller approaches it on a curve. A correction Nav2 fails is measured again and retried by backing off.
 
 It is an action client of Nav2 only: it publishes no velocity, runs no controller and starts no navigator. Motion is
 controller_server's StationApproach controller and station_goal_checker, through the velocity smoother and the
@@ -66,12 +69,14 @@ class StationAlignment(Node):
         self.declare_parameter("samples", 8)
         self.declare_parameter("sample_timeout_s", 6.0)
         self.declare_parameter("max_iterations", 3)
-        self.declare_parameter("accept_xy", 0.025)
-        self.declare_parameter("accept_yaw", 0.05)
+        self.declare_parameter("accept_along", 0.03)
+        self.declare_parameter("accept_lateral", 0.02)
+        self.declare_parameter("accept_yaw", 0.06)
         self.declare_parameter("max_correction_xy", 0.15)
         self.declare_parameter("max_correction_yaw", 0.30)
         self.declare_parameter("max_sample_spread_xy", 0.01)
         self.declare_parameter("navigation_timeout_s", 300.0)
+        self.declare_parameter("backoff", 0.30)
         self.group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
         self.samples = []
@@ -179,6 +184,7 @@ class StationAlignment(Node):
         report["iterations"].append({"goal": target, "nav2": why})
         if not ok:
             return finish(False, why)
+        failed = False
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
@@ -190,21 +196,34 @@ class StationAlignment(Node):
             step.update({"residual": residual, "spread_xy": spread})
             if spread > float(p("max_sample_spread_xy")):
                 return finish(False, f"marker samples spread {spread:.4f} m")
-            if geometry.within(residual, float(p("accept_xy")), float(p("accept_yaw"))):
+            limits = (float(p("accept_along")), float(p("accept_lateral")), float(p("accept_yaw")))
+            if geometry.accepted(residual, *limits):
                 return finish(True, "")
             if not geometry.within(residual, float(p("max_correction_xy")), float(p("max_correction_yaw"))):
                 return finish(False, f"residual {residual} beyond the correction limit")
             if iteration == int(p("max_iterations")):
                 return finish(False, f"residual {residual} after {iteration} corrections")
+            direct = abs(residual[1]) <= float(p("accept_lateral")) and not failed
+            target_in_base = (residual[0], 0.0, residual[2]) if direct else residual
             try:
-                corrected = geometry.corrected_goal(self._map_from_base(), residual)
+                map_from_base = self._map_from_base()
             except TransformException as e:
                 return finish(False, f"no {p('global_frame')} pose: {e}")
+            corrected = geometry.corrected_goal(map_from_base, target_in_base)
             step["corrected_goal"] = corrected
+            step["mode"] = "direct" if direct else "backoff"
+            failed = False
+            if not direct:
+                staging = geometry.compose(corrected, (-float(p("backoff")), 0.0, 0.0))
+                ok, why = self._navigate(goal_handle, staging, p("global_frame"))
+                step["staging_nav2"] = why
+                if goal_handle.is_cancel_requested:
+                    return finish(False, "canceled")
             ok, why = self._navigate(goal_handle, corrected, p("global_frame"))
             step["nav2"] = why
-            if not ok:
-                return finish(False, why)
+            if goal_handle.is_cancel_requested:
+                return finish(False, "canceled")
+            failed = not ok
         return finish(False, "unreachable")
 
 

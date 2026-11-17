@@ -11,6 +11,8 @@ import math
 
 def wrap(angle):
     """angle in (-pi, pi]."""
+    if -math.pi < angle <= math.pi:
+        return angle
     a = math.fmod(angle + math.pi, 2.0 * math.pi)
     if a <= 0.0:
         a += 2.0 * math.pi
@@ -155,6 +157,11 @@ def corrected_goal(map_from_base, base_from_station):
 
 def within(residual, tolerance_xy, tolerance_yaw):
     return math.hypot(residual[0], residual[1]) <= tolerance_xy and abs(wrap(residual[2])) <= tolerance_yaw
+
+
+def accepted(residual, along, lateral, yaw):
+    """Per-axis acceptance of a residual (station in the robot frame): distance to the shelf, along the shelf, yaw."""
+    return abs(residual[0]) <= along and abs(residual[1]) <= lateral and abs(wrap(residual[2])) <= yaw
 
 
 def pose_error(actual, target):

@@ -121,6 +121,13 @@ def test_mean_pose_wraps_yaw():
     assert abs(g.wrap(m[2] - math.pi)) < 1e-9
 
 
+def test_accepted_is_per_axis():
+    assert g.accepted((0.03, -0.02, 0.06), 0.03, 0.02, 0.06)
+    assert not g.accepted((0.031, 0.0, 0.0), 0.03, 0.02, 0.06)
+    assert not g.accepted((0.0, 0.021, 0.0), 0.03, 0.02, 0.06)
+    assert not g.accepted((0.0, 0.0, -0.061), 0.03, 0.02, 0.06)
+
+
 def test_within_and_pose_error():
     assert g.within((0.02, 0.01, 0.04), 0.025, 0.05)
     assert not g.within((0.02, 0.02, 0.0), 0.025, 0.05)

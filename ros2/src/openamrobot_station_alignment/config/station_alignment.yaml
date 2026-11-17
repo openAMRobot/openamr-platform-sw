@@ -37,10 +37,15 @@ station_alignment:
     samples: 8
     sample_timeout_s: 6.0
     max_iterations: 3
-    # Equal to station_goal_checker (platform-sw #164, 0.025 m, 0.05 rad): a smaller correction would not move the
-    # robot, because the goal checker accepts it at once.
-    accept_xy: 0.025
-    accept_yaw: 0.05
+    # Acceptance per axis of the measured residual (the station in the robot frame). Not below station_goal_checker
+    # (platform-sw #164, 0.025 m, 0.05 rad) plus the marker error, because a smaller correction would not move the
+    # robot: the goal checker accepts it at once. Worst accepted pose: hypot(0.03, 0.02) = 0.036 m and 0.06 rad,
+    # inside the 0.04 m / 0.08 rad reach budget. A lateral residual up to accept_lateral is not driven (a
+    # differential base cannot step sideways); a larger one is corrected from a goal `backoff` behind the station.
+    accept_along: 0.03
+    accept_lateral: 0.02
+    accept_yaw: 0.06
+    backoff: 0.30
     # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
     max_correction_xy: 0.15
     max_correction_yaw: 0.30

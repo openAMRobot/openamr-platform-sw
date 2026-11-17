@@ -42,10 +42,11 @@ def test_detector_configuration_matches_the_scene():
     assert not set(tags["tag"]["ids"]) & {0, 1, 2}, "ids 0 to 2 are the charging dock's"
 
 
-def test_alignment_accepts_at_the_station_goal_checker_tolerance():
+def test_alignment_acceptance_is_inside_the_reach_budget_and_not_below_the_goal_checker():
     params = yaml.safe_load(read("config/station_alignment.yaml"))["station_alignment"]["ros__parameters"]
-    assert (params["accept_xy"], params["accept_yaw"]) == (evaluation.CHECKER_XY, evaluation.CHECKER_YAW)
-    assert params["accept_xy"] < evaluation.REACH_XY and params["accept_yaw"] < evaluation.REACH_YAW
+    assert math.hypot(params["accept_along"], params["accept_lateral"]) < evaluation.REACH_XY
+    assert params["accept_yaw"] < evaluation.REACH_YAW
+    assert params["accept_along"] >= evaluation.CHECKER_XY and params["accept_yaw"] >= evaluation.CHECKER_YAW
 
 
 def test_marker_model_places_the_tags_of_the_scene():
