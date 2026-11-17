@@ -95,7 +95,15 @@ done after 8 such poses; "marker not seen" when nothing at all arrives in 6 s; "
 all are older, after 6 s plus a 15 s latency allowance. Every deadline (window, Nav2 goals) is on the node clock; no
 wall clock is used. The detector had the same fault on its side: it dropped a detection whose tag transforms were
 not yet in the buffer once its image stamp was 1 s old, so stamps delayed by the pipeline were lost; it now counts
-that 1 s from when the detection arrived (`sampling.pending_expired`). The report records the received count and the latency (arrival minus stamp) of the poses.
+that 1 s from when the detection arrived (`sampling.pending_expired`).
+
+Reproduced in this world (run 44188740454): target real-time factor 0.2 and image stamps 7 s of simulation time old
+on arrival (test-only `image_delay_relay`). With the alignment node of 353e3d6 the detector published 91 station
+poses (stats 50 of 50) and the alignment ended "marker not seen: 0 samples in 6.0 s", the Baseline 1 signature.
+With this node every trial ended aligned (3 of 3, 0.021 to 0.024 m, 30 to 44 poses received per window, latency
+7.05 s). Which stage of the Baseline 1 pipeline lags is not identified: its log has no per-stage stamps. The
+detector now logs `age_ms_max` and the report the received count and latency per window, so the next Baseline 1
+run shows it. The report records the received count and the latency (arrival minus stamp) of the poses.
 
 Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
 which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,
