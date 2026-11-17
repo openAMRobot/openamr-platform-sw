@@ -20,7 +20,6 @@ collision monitor, as for every other goal. A residual larger than max_correctio
 A diagnostic JSON line per goal goes to /station_alignment/report (Proposed).
 """
 import json
-import math
 import os
 import threading
 import time
@@ -37,9 +36,12 @@ from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from openamrobot_station_alignment import geometry
+from openamrobot_station_alignment import geometry, sampling
 
 STATUS_SUCCEEDED = 4
+# Proposed result code (NavigateToPose.Result.error_code, outside Nav2's 9000 to 9011): the station goal of #164
+# succeeded but the marker gave no usable sample, so no correction was made.
+NOT_ALIGNED = 9900
 
 
 def _pose_of(msg_pose):
@@ -68,6 +70,8 @@ class StationAlignment(Node):
         self.declare_parameter("settle_s", 1.0)
         self.declare_parameter("samples", 8)
         self.declare_parameter("sample_timeout_s", 6.0)
+        self.declare_parameter("max_latency_s", 15.0)
+        self.declare_parameter("on_marker_not_seen", "succeed_unaligned")
         self.declare_parameter("max_iterations", 3)
         self.declare_parameter("accept_along", 0.03)
         self.declare_parameter("accept_lateral", 0.02)
@@ -80,6 +84,7 @@ class StationAlignment(Node):
         self.group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
         self.samples = []
+        self.sequence = 0
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.nav = ActionClient(self, NavigateToPose, self.get_parameter("navigate_action").value,
@@ -95,9 +100,12 @@ class StationAlignment(Node):
     def on_station_pose(self, msg):
         if msg.header.frame_id != self.get_parameter("base_frame").value:
             return
+        received = self.get_clock().now().nanoseconds
         with self.lock:
-            self.samples.append((Time.from_msg(msg.header.stamp), _pose_of(msg.pose.pose)))
-            del self.samples[:-100]
+            self.sequence += 1
+            self.samples.append((self.sequence, Time.from_msg(msg.header.stamp).nanoseconds, received,
+                                 _pose_of(msg.pose.pose)))
+            del self.samples[:-200]
 
     def _sleep_sim(self, seconds):
         end = self.get_clock().now().nanoseconds + int(seconds * 1e9)
@@ -105,22 +113,23 @@ class StationAlignment(Node):
             time.sleep(0.02)
 
     def _collect(self, after):
-        """Mean of `samples` station poses stamped after `after`, or None on timeout or spread."""
-        n = int(self.get_parameter("samples").value)
-        deadline = time.monotonic() + 10.0 * float(self.get_parameter("sample_timeout_s").value)
-        sim_deadline = after.nanoseconds + int(float(self.get_parameter("sample_timeout_s").value) * 1e9)
+        """Sample window on simulation time (sampling.SampleWindow): (status, window)."""
+        window = sampling.SampleWindow(after.nanoseconds, int(self.get_parameter("samples").value),
+                                       float(self.get_parameter("sample_timeout_s").value),
+                                       float(self.get_parameter("max_latency_s").value))
+        seen = 0
         while rclpy.ok():
             with self.lock:
-                fresh = [p for t, p in self.samples if t.nanoseconds > after.nanoseconds]
-            if len(fresh) >= n:
-                fresh = fresh[-n:]
-                m = geometry.mean_pose(fresh)
-                spread = max(math.hypot(p[0] - m[0], p[1] - m[1]) for p in fresh)
-                return m, spread, len(fresh)
-            if self.get_clock().now().nanoseconds > sim_deadline or time.monotonic() > deadline:
-                return None, None, len(fresh)
+                new = [s for s in self.samples if s[0] > seen]
+                seen = self.sequence
+            for _, stamp_ns, received_ns, pose in new:
+                if received_ns >= after.nanoseconds or stamp_ns > after.nanoseconds:
+                    window.add(stamp_ns, received_ns, pose)
+            status = window.poll(self.get_clock().now().nanoseconds)
+            if status != sampling.WAITING:
+                return status, window
             time.sleep(0.05)
-        return None, None, 0
+        return sampling.NOT_SEEN, window
 
     # ------------------------------------------------------------------ Nav2
     def _navigate(self, goal_handle, pose, frame):
@@ -135,7 +144,8 @@ class StationAlignment(Node):
         if not self.nav.wait_for_server(timeout_sec=30.0):
             return False, "navigate_to_pose not available"
         sent = self.nav.send_goal_async(goal, feedback_callback=lambda fb: goal_handle.publish_feedback(fb.feedback))
-        deadline = time.monotonic() + float(self.get_parameter("navigation_timeout_s").value) * 10.0
+        timeout_ns = int(float(self.get_parameter("navigation_timeout_s").value) * 1e9)
+        deadline = self.get_clock().now().nanoseconds + timeout_ns
         while rclpy.ok() and not sent.done():
             time.sleep(0.02)
         handle = sent.result()
@@ -145,7 +155,7 @@ class StationAlignment(Node):
         while rclpy.ok() and not result.done():
             if goal_handle.is_cancel_requested:
                 handle.cancel_goal_async()
-            if time.monotonic() > deadline:
+            if self.get_clock().now().nanoseconds > deadline:
                 handle.cancel_goal_async()
                 return False, "Nav2 goal timed out"
             time.sleep(0.05)
@@ -168,8 +178,22 @@ class StationAlignment(Node):
         report = {"nominal_goal": target, "iterations": [], "outcome": None}
         result = NavigateToPose.Result()
 
+        def not_aligned(why):
+            """Marker not usable after the #164 approach: the base is where #164 stopped it. Proposed result:
+            SUCCEEDED with error_code NOT_ALIGNED and outcome "not aligned", unless on_marker_not_seen is abort."""
+            if p("on_marker_not_seen") == "abort":
+                return finish(False, why)
+            report["outcome"] = f"not aligned: {why}"
+            result.error_code = NOT_ALIGNED
+            if hasattr(result, "error_msg"):
+                result.error_msg = report["outcome"]
+            self.report.publish(String(data=json.dumps(report)))
+            self.get_logger().warn(f"station alignment {report['outcome']}")
+            goal_handle.succeed()
+            return result
+
         def finish(ok, why):
-            report["outcome"] = "succeeded" if ok else f"aborted: {why}"
+            report["outcome"] = "aligned" if ok else f"aborted: {why}"
             self.report.publish(String(data=json.dumps(report)))
             self.get_logger().info(f"station alignment {report['outcome']}")
             if ok:
@@ -188,11 +212,16 @@ class StationAlignment(Node):
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
-            residual, spread, count = self._collect(self.get_clock().now())
-            step = {"iteration": iteration, "samples": count, "stopped_s": stopped.nanoseconds * 1e-9}
+            opened = self.get_clock().now()
+            status, window = self._collect(opened)
+            step = {"iteration": iteration, "stopped_s": stopped.nanoseconds * 1e-9,
+                    "window_opened_s": opened.nanoseconds * 1e-9, "window_status": status, **window.summary()}
             report["iterations"].append(step)
-            if residual is None:
-                return finish(False, f"marker not seen: {count} samples in {p('sample_timeout_s')} s")
+            if status != sampling.DONE:
+                why = ("marker not seen" if status == sampling.NOT_SEEN else "no fresh marker sample") + \
+                    f": {window.received} received, {len(window.fresh)} fresh, simulation time"
+                return not_aligned(why) if iteration == 0 else finish(False, why)
+            residual, spread = window.result()
             step.update({"residual": residual, "spread_xy": spread})
             if spread > float(p("max_sample_spread_xy")):
                 return finish(False, f"marker samples spread {spread:.4f} m")

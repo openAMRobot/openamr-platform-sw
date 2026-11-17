@@ -12,7 +12,8 @@ PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAV2 = os.path.join(os.path.dirname(PKG), "openamrobot_nav2")
 SOURCES = sorted(glob.glob(os.path.join(PKG, "openamrobot_station_alignment", "*.py"))
                  + glob.glob(os.path.join(PKG, "launch", "*.py")) + glob.glob(os.path.join(PKG, "scripts", "*.py")))
-NODES = [p for p in SOURCES if os.path.basename(p) in ("station_alignment_node.py", "station_marker_detector.py")]
+NODES = [p for p in SOURCES if os.path.basename(p) in (
+    "station_alignment_node.py", "station_marker_detector.py", "image_delay_relay.py")]
 
 
 def tree(path):
@@ -26,11 +27,11 @@ def names(node):
 
 
 def test_sources_exist():
-    assert len(SOURCES) >= 8 and len(NODES) == 2
+    assert len(SOURCES) >= 8 and len(NODES) == 3
 
 
 def test_no_velocity_type_and_no_cmd_vel_in_the_nodes():
-    assert len(NODES) == 2
+    assert len(NODES) == 3
     for path in NODES:
         t = tree(path)
         assert not names(t) & {"Twist", "TwistStamped"}, path
@@ -45,7 +46,7 @@ def test_publishers_are_only_the_station_pose_and_the_report():
             if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
                     and call.func.attr == "create_publisher"):
                 published.append(ast.unparse(call.args[0]))
-    assert sorted(published) == ["PoseWithCovarianceStamped", "String"]
+    assert sorted(published) == ["Image", "PoseWithCovarianceStamped", "String"]
 
 
 def test_the_alignment_node_is_a_navigate_to_pose_client_and_server_only():
@@ -88,3 +89,11 @@ def test_the_station_tree_of_platform_sw_164_is_present():
     with open(path, encoding="utf-8") as f:
         xml = f.read()
     assert 'goal_checker_id="station_goal_checker"' in xml and 'controller_id="StationApproach"' in xml
+
+
+def test_the_alignment_node_uses_no_wall_clock():
+    """Every deadline on the node clock, simulation time with use_sim_time (Baseline 1 at a real-time factor of 0.2;
+    353e3d6 bounded the sample window and Nav2 goals with time.monotonic as well)."""
+    t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
+    # time.sleep only paces the polling; every deadline is on the node clock (simulation time)
+    assert "monotonic" not in {n.attr for n in ast.walk(t) if isinstance(n, ast.Attribute)}

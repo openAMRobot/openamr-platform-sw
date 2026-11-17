@@ -231,9 +231,10 @@ def main(argv=None):
     record["command_publishers"] = node.publishers()
     pubs_ok, pubs_why = command_publishers_ok(record["command_publishers"])
     passed, why = evaluate(record["trials"], args.trials)
-    aligned_ok = all(t["aligned"]["nav2"] == "succeeded" for t in record["trials"])
+    aligned_ok = all(t["aligned"]["nav2"] == "succeeded"
+                     and (t["aligned"].get("report") or {}).get("outcome") == "aligned" for t in record["trials"])
     if not aligned_ok:
-        why.append("an alignment action did not succeed")
+        why.append("an alignment did not end aligned")
     record["passed"] = ready and passed and pubs_ok and aligned_ok
     record["reasons"] = ([] if ready else ["stack not ready"]) + why + pubs_why
     with open(args.out, "w", encoding="utf-8") as f:

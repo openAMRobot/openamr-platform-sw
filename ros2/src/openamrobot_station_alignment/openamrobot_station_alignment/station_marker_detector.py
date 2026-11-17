@@ -121,6 +121,9 @@ class StationMarkerDetector(Node):
         out.pose.covariance = geometry.covariance(list(self.window), self.get_parameter("floor_xy").value, floor_yaw)
         self.pub.publish(out)
         self.stats["published"] += 1
+        # stamp age at publication on this node's clock, ms (simulation time with use_sim_time)
+        age_ms = int((self.get_clock().now() - Time.from_msg(stamp_msg)).nanoseconds * 1e-6)
+        self.stats["age_ms_max"] = max(self.stats["age_ms_max"], age_ms)
 
 
 def main(args=None):

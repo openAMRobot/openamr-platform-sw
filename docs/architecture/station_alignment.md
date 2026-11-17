@@ -85,6 +85,22 @@ Limits, from the first simulation runs:
   the goal. The next measurement sees it; a station tree in the odom frame, or no filter update during the final
   move, would remove it (owner decision, section 8).
 
+Sample window, on simulation time only (`sampling.py`, 18 Nov 2026). Integrated in Baseline 1 at a real-time
+factor of about 0.2 (openamr-upperbody-sw runs 44155397328, 44155429472, 44155442866), the alignment aborted in 3 of 6
+runs with no sample in its 6 s window although the detector published at 5 Hz during it. The alignment's clock was
+right (30.34 s at the stop, as the runner's real-time factor monitor), so the station poses arrived with image stamps
+more than 6 s of simulation time old, and the fixed window that started when the robot had settled never saw a fresh
+one. The window now counts only poses whose image was taken after the robot settled, as before, but waits for them:
+done after 8 such poses; "marker not seen" when nothing at all arrives in 6 s; "no fresh sample" when poses arrive but
+all are older, after 6 s plus a 15 s latency allowance. Every deadline (window, Nav2 goals) is on the node clock; no
+wall clock is used. The report records the received count and the latency (arrival minus stamp) of the poses.
+
+Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
+which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,
+outside Nav2's codes) and the report outcome `not aligned: ...`; a caller that needs the alignment checks the code.
+`on_marker_not_seen: abort` restores an abort. After a correction has moved the robot, a missing marker still aborts.
+Accuracy limits are unchanged.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.
@@ -95,7 +111,8 @@ known relative to it.
 |---|---|---|---|
 | `/station_alignment/station_pose` | geometry_msgs/PoseWithCovarianceStamped, frame base_footprint, image stamp | station_marker_detector | station_alignment |
 | `/station_alignment/navigate_to_station` | action nav2_msgs/action/NavigateToPose (goal: nominal station in map; behavior_tree ignored) | station_alignment | mission layer |
-| `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, outcome) | station_alignment | diagnostics, trial runner |
+| `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, sample window, outcome `aligned`, `not aligned: ...` or `aborted: ...`) | station_alignment | diagnostics, trial runner |
+| `NavigateToPose.Result.error_code` 9900 NOT_ALIGNED | result code with status SUCCEEDED: #164 reached the station, no marker correction | station_alignment | mission layer |
 | `station_marker_3`, `station_marker_4` | TF frames of apriltag_ros | apriltag_ros | station_marker_detector |
 | `station_alignment.launch.py` arguments `use_sim_time`, `image_topic`, `camera_info_topic`, `tags_file`, `params_file` | launch arguments | | bringup |
 | `config/station_alignment.yaml` | parameters (tag ids, offsets, standoff, accept and correction limits) | | both nodes |
