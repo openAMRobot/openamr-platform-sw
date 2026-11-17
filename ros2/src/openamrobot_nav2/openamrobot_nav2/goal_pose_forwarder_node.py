@@ -65,6 +65,15 @@ class GoalPoseForwarder(Node):
         # rather than forwarding a goal before this node actually knows the gate's state.
         self._stop_state = StopState.STATE_LOCKED
         self._current_goal_handle = None
+        # Mohamed's #90 review on 31dcd09, P2 (item 3): a second goal_pose can arrive while
+        # the first's send_goal_async is still pending (_current_goal_handle is still None,
+        # since _on_goal_response has not run yet), so cancelling only _current_goal_handle
+        # misses it and both end up active. _goal_generation increments on every accepted
+        # goal_pose; _on_goal_response compares against it once the send resolves and cancels
+        # immediately if a newer goal_pose has since superseded it, instead of relying on
+        # Nav2's own preemption for a case this node's own "one active goal" contract already
+        # promises to guarantee.
+        self._goal_generation = 0
 
         cb_group = ReentrantCallbackGroup()
         state_qos = QoSProfile(
@@ -89,6 +98,16 @@ class GoalPoseForwarder(Node):
                 'or retried; send a fresh goal_pose after Resume' % self._stop_state)
             return
 
+        # Mohamed's #90 review, P2 (item 2): send_goal_async() against a server that is not
+        # up yet never answers at all - a goal sent in that window was silently lost, with
+        # none of the rejection/failure logging the module docstring promises. Checked and
+        # logged here, same as every other rejection path in this node.
+        if not self._client.server_is_ready():
+            self.get_logger().warning(
+                f'{_PUBLIC_ACTION_NAME} action server not ready - goal_pose rejected, not '
+                'queued or retried; send a fresh goal_pose once it is up')
+            return
+
         # One active goal: cancel whatever this node itself last sent before sending the new
         # one, fire-and-forget (same convention the goal-owning proxies' own cancel paths
         # use) - the old goal's own terminal transition happens through the proxy's existing
@@ -97,13 +116,27 @@ class GoalPoseForwarder(Node):
             self._current_goal_handle.cancel_goal_async()
             self._current_goal_handle = None
 
+        # See _goal_generation's own comment: this goal_pose's generation is recorded now,
+        # before the send even resolves, so _on_goal_response can tell whether it is still
+        # the newest one by the time acceptance comes back.
+        self._goal_generation += 1
+        generation = self._goal_generation
+
         goal = NavigateToPose.Goal()
         goal.pose = msg
         send_future = self._client.send_goal_async(goal)
-        send_future.add_done_callback(self._on_goal_response)
+        send_future.add_done_callback(
+            lambda f: self._on_goal_response(f, generation))
 
-    def _on_goal_response(self, future) -> None:
+    def _on_goal_response(self, future, generation) -> None:
         goal_handle = future.result()
+        if generation != self._goal_generation:
+            # A further goal_pose arrived and was accepted before THIS goal even finished
+            # being accepted - cancel it immediately instead of leaving two goals active
+            # (Mohamed's #90 review, P2, item 3).
+            if goal_handle.accepted:
+                goal_handle.cancel_goal_async()
+            return
         if not goal_handle.accepted:
             self.get_logger().warning(
                 f'{_PUBLIC_ACTION_NAME} rejected the forwarded goal_pose goal - not retrying')

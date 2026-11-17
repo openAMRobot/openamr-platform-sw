@@ -86,9 +86,9 @@ def _pkg_prefix_available(pkg):
     return result.returncode == 0
 
 
-pytestmark = pytest.mark.skipif(
+pytestmark = pytest.mark.skipif(  # tracking: #90/#124
     not _pkg_prefix_available('tf2_ros'),
-    reason='needs the real ros2 CLI and tf2_ros installed [#90/#124]')
+    reason='needs the real ros2 CLI and tf2_ros installed')
 
 from action_msgs.msg import GoalStatus, GoalStatusArray  # noqa: E402,I100
 from action_msgs.srv import CancelGoal  # noqa: E402
