@@ -19,9 +19,15 @@ PATTERNS = {
     'time.monotonic': r'time\.monotonic\(',
     'time.time': r'time\.time\(',
     'time.sleep': r'time\.sleep\(',
-    'steady_timer': r'(?<!def )steady_timer\(',
+    'device_timer': r'(?<!def )device_timer\(',
+    'health_timer': r'(?<!def )health_timer\(',
     'create_timer': r'create_timer\(',
     'get_clock': r'get_clock\(\)',
+    # reads of an injected clock of the contract (sim_time.py interface)
+    'clock.now': r'clock\.now\(\)',
+    'clock.snapshot': r'clock\.snapshot\(\)',
+    'Stamp': r'(?<!class )\bStamp\(',
+    'is_fresh': r'(?<!def )is_fresh\(',
 }
 DOMAINS = {'gazebo', 'renode', 'ros', 'steady'}
 RULES = {'C1', 'C2', 'C3', 'C4', 'C5', 'C6'}

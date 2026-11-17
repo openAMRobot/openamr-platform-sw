@@ -13,12 +13,20 @@ dictionary of openamr-upperbody-fw PR #15, which is a proposal. This subclass ad
    code, the timeout and the refusal result are not decided anywhere. PermitConfig carries
    them as SIL test values and they are not proposals.
 
+Time (clock contract, docs/architecture/sil-topology.md section 6, rule C1): every CTL-017 timer
+(Hall rate window, stall, move deadline, keep-alive, heartbeat consumer, standstill, permit
+freshness) reads the vendored ``_now_ms()`` hook, which this subclass points at the clock it is
+given: the process ``FedClock`` fed from Gazebo ``/clock`` in a SIL launch, host steady time
+for the internal plant. The timeout values are not changed (rule C3). A time reset is a power
+cycle of the node; a stall halts the lift and invalidates the permit, so motion needs a new
+command after the resume.
+
 Emulation of documented device behaviour only. Not a safety function.
 """
 import struct
-import time
 
 from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
+from openamrobot_sil.sim_time import ClockWatch, SteadyClock
 
 # Joint position 0 m is the L1000 stop. The v1 dictionary puts L1000 5 mm above the lower
 # end (0x2100:01 = 5000 um), L1175 at 180 mm and L1350 at 355 mm (0x2100:02, :03).
@@ -69,7 +77,12 @@ class PermitConfig:
 
 class GazeboCtl017(c.Ctl017Emulator):
     def __init__(self, bus, node_id=c.NODE_ID, start_pos_mm=None, operational=False,
-                 permit=None):
+                 permit=None, clock=None):
+        # Set before the vendored constructor: its _reinit() reads _now_ms().
+        self.clock = clock if clock is not None else SteadyClock()
+        self._clock_watch = ClockWatch(self.clock)
+        self.clock_resets = 0
+        self.clock_stalls = 0
         self.permit_cfg = permit
         self.external = False
         self._joint_mm = None
@@ -78,6 +91,32 @@ class GazeboCtl017(c.Ctl017Emulator):
         self.permit_stops = 0
         self._permit_reset()
         super().__init__(bus, node_id, start_pos_mm, operational)
+
+    # --- time: the clock contract ----------------------------------------
+    def _now_ms(self):
+        """Overrides the vendored hook: every CTL-017 timer reads the given clock (C1)."""
+        return clock_ms(self.clock)
+
+    def _follow_clock(self):
+        """Apply a reset or a stall of the clock before this step uses the time."""
+        event = self._clock_watch.poll()
+        if event == 'reset':
+            # Time moved backward: power cycle. Boot-up frame, PRE-OPERATIONAL, targets and
+            # permit dropped, unhomed unless the lift stands at a stop sensor.
+            self.clock_resets += 1
+            self.power_cycle()
+        elif event in ('stall', 'resume'):
+            # Pause longer than the stall bound: the vendored STOP command, and the permit is
+            # invalid until a new permit frame arrives. Repeated at the resume, so a frame or
+            # command received during the pause does not carry over. No fault is raised.
+            if event == 'stall':
+                self.clock_stalls += 1
+            self._cmd_stop()
+            self.permit_valid = False
+
+    def tick(self, dt):
+        self._follow_clock()
+        super().tick(dt)
 
     # --- plant: the Gazebo lift joint -------------------------------------
     def attach_external_plant(self, joint_position_m):
@@ -138,6 +177,7 @@ class GazeboCtl017(c.Ctl017Emulator):
         self.permit_valid = False  # a permit seen before an NMT transition is not kept
 
     def on_rx_frame(self, msg):
+        self._follow_clock()
         cfg = self.permit_cfg
         if cfg is None or msg.arbitration_id != cfg.cob_id:
             super().on_rx_frame(msg)
@@ -204,8 +244,11 @@ class GazeboCtl017(c.Ctl017Emulator):
                 'permit_rx_count': self.permit_rx_count,
                 'permit_refusals': self.permit_refusals,
                 'permit_stops': self.permit_stops,
+                'clock_resets': self.clock_resets,
+                'clock_stalls': self.clock_stalls,
             }
 
 
-def wall_ms():
-    return int(time.monotonic() * 1000)
+def clock_ms(clock):
+    """Milliseconds of a clock of the contract, the time base of every CTL-017 timer."""
+    return int(clock.now() * 1000)

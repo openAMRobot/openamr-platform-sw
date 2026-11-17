@@ -7,7 +7,8 @@ from std_msgs.msg import String
 
 from openamrobot_sil import config
 from openamrobot_sil.canbus import open_bus
-from openamrobot_sil.nodes.common import joint_value, publish_json, steady_timer
+from openamrobot_sil.nodes.common import (NodeClock, device_timer, joint_value, publish_json,
+                                          thread_check)
 from openamrobot_sil.zlac_gazebo import GazeboZlac8015d, wheel_speeds_to_twist
 
 
@@ -17,15 +18,19 @@ class ZlacNode(Node):
         cfg = config.load(self.declare_parameter('config_file', '').value)
         self.drive = cfg['drive']
         self.bus = open_bus(cfg['buses']['drive']['interface'])
+        self.cmd_pub = self.create_publisher(Twist, '/sil/drive/gz_cmd_vel', 10)
+        # One simulation clock per process (clock contract C1): Gazebo time with use_sim_time.
+        self.sim = NodeClock(self, on_stall=self.hold_plant)
         self.emu = GazeboZlac8015d(
             self.bus, cfg['buses']['drive']['zlac_node_id'], self.drive['heartbeat_ms'],
-            self.drive['left_sign'], self.drive['right_sign']).start()
-        self.cmd_pub = self.create_publisher(Twist, '/sil/drive/gz_cmd_vel', 10)
+            self.drive['left_sign'], self.drive['right_sign'], clock=self.sim.clock).start()
+        self.sim.add_check(thread_check('ZLAC8015D emulator', self.emu))
         self.state_pub = self.create_publisher(String, '/sil/drive/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
         self.create_subscription(String, '/sil/drive/inject', self.on_inject, 10)
-        steady_timer(self, 0.02, self.on_cmd)
-        steady_timer(self, 0.05, lambda: publish_json(self.state_pub, self.emu.state()))
+        device_timer(self, 0.02, self.on_cmd)
+        device_timer(self, 0.05, lambda: publish_json(
+            self.state_pub, dict(self.emu.state(), sim_clock=self.sim.status())))
         self.inject = {
             'oc-lo': lambda: self.emu.inject_over_current('low'),
             'oc-hi': lambda: self.emu.inject_over_current('high'),
@@ -44,6 +49,10 @@ class ZlacNode(Node):
         right = joint_value(msg, 'right_wheel_joint', 'velocity')
         if left is not None and right is not None:
             self.emu.set_wheel_feedback(left, right)
+
+    def hold_plant(self):
+        """Stall (C5): hold the Gazebo wheel command at zero, so the resume starts from rest."""
+        self.cmd_pub.publish(Twist())
 
     def on_cmd(self):
         left, right = self.emu.demand_rad_s()

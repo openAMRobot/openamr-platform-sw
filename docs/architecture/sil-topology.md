@@ -143,8 +143,8 @@ client subscribes to `/cmd_vel` directly and publishes `/sil/base/odom`.
 ## 6. Clocks (contract, Proposed)
 
 Status: Proposed under decision D2 of the digital twin plan (15 Nov 2026). Owner of the contract:
-software lead. Firmware timer semantics stay with the platform lead. The contract comes before
-any timer change; this section changes no code.
+software lead. Firmware timer semantics stay with the platform lead. Section 6.6 records what
+is implemented.
 
 ### 6.1 Domains
 
@@ -190,6 +190,12 @@ receiver's domain.
 | Renode restart | the firmware boots fresh; devices see heartbeat loss, then boot-up; nothing from before the restart is valid | same |
 | micro-ROS agent restart | the firmware keeps its own timeouts (`renode`) and stops on link loss as its production code does | same |
 | CAN frames delayed by an injected time | the receiver judges the age by its receipt time (C6); a late frame is not treated as fresh | stale command refused |
+| `/clock` jumps forward (one step longer than 1 s simulation time, proposal) | not a new generation. Device timers see the elapsed time, so a timeout that expires in it acts as on the device (C3): a stamp, permit or keep-alive from before the jump is stale, the lift with the permit gate halts on the expired permit without a fault, without the gate it raises F07, and the drive's wheel feedback is stale. The coordinator reports the jump ("simulation time jumped forward", with both times; not a device fault) next to any fault it lets expire. Nothing re-arms by itself | stale permit or feedback never fresh, old command not executed again, jump reported |
+| the same `/clock` time twice | not an advance and not a reset: no generation change, no stall while the time still advances; a paused Gazebo that republishes its frozen time still stalls after 1 s | no generation change, no false stall |
+| `/clock` delayed on `steady` time while simulation time is continuous | C5 only: a gap up to the 1 s stall bound changes nothing; a longer gap is one stall (report with wall time and last simulation time), handled as a pause; the next time resumes without a jump report | stall exactly above the bound |
+| before the first `/clock` | no device timer runs and no command is accepted: CTL-017 stays in INIT, the host stand-in sends nothing; the coordinator declares no stall | no frame, no command accepted |
+| `/clock` lost, then back | stall reported once; a command accepted during the pause, or held by the stand-in, does not move an actuator after the return; the drive comes back with a zero target | nothing moves from a command before the stall |
+| frames queued before a reset, delivered after it | a frame received after a reset meets the power-cycled node (PRE-OPERATIONAL, then INIT) and is not executed; frames carry no time or generation, so a frame delayed in transport past the node's restart cannot be told apart (gap) | queued frames rejected |
 
 ### 6.4 Inventory
 
@@ -202,31 +208,84 @@ inventory change.
 
 `openamrobot_sil/sim_time.py` is the interface every device model takes instead of reading host
 time: `now()`, `generation` (increases on every reset or backward jump, so a command, enable or
-permit stamped earlier is never fresh again) and `paused`. `FedClock` is fed from `/clock`;
+permit stamped earlier is never fresh again), `snapshot()` (time and generation read together) and
+`paused`. `FedClock` keeps time and generation in one tuple that a `/clock` update replaces in a
+single assignment, so a `Stamp` taken on another thread never pairs a pre-reset time with the new
+generation, or the reverse. `FedClock` is fed from `/clock`;
 `ManualClock` drives tests; `SteadyClock` is host time for an internal plant and for health checks.
-`Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6). A simulated
+`Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6); a stamp
+taken before a stall (`stalls` counter) is not fresh after it either. `ClockCoordinator` feeds a
+`FedClock` and declares the stall on `steady` time (C5); `ClockWatch` lets a device model see a
+reset or a stall at its next step. A simulated
 communication deadline (a device timeout in its own domain) and a host communication failure (a
 process that stopped, seen in `steady`) are separate checks and never share a timer.
 
-### 6.6 Current state (15 Nov 2026)
+### 6.6 Current state (17 Nov 2026)
 
-Every device timer in the package runs on `steady`, and every node timer too
-(`nodes/common.py` `steady_timer`). So all `gazebo` targets above are `to_change`:
+Implemented in `openamrobot_sil` (inventory: 3 sites `to_change`, all in vendored code):
 
-- CTL-017: the vendored emulator reads time through one hook, `_now_ms()`. `Ctl017Gazebo` can
-  override it in this repository without changing vendored code.
-- ZLAC8015D and the CANopen node base (`canopen_common.py`) read `time.monotonic()` directly. An
-  injectable clock is a change in openamr-platform-fw first, then a re-vendor.
-- The host stand-in (`stm32_host.py`) and the Gazebo glue (`zlac_gazebo.py`) are in this
-  repository.
+- **One clock per process.** Every CAN node gets `use_sim_time` from the launch (`gazebo:=true`).
+  `nodes/common.py` `NodeClock` feeds one `FedClock` from `/clock` through a `ClockCoordinator`.
+  A steady health timer (100 ms, C5) declares a stall when `/clock` has not advanced for longer
+  than 1 s wall time (proposal), logs "simulation stalled" with the wall time and the last
+  simulation time, holds the Gazebo plant command at zero, and never raises a device fault. It
+  also reports a stopped emulator or stand-in thread. Without Gazebo the clock is `steady` (C1).
+- **CTL-017.** `GazeboCtl017` overrides the vendored `_now_ms()` hook with the given clock, so the
+  Hall rate window, stall, move deadline, keep-alive, heartbeat consumer, standstill and permit
+  freshness run on `gazebo`. No timeout value and no vendored file changed (C3). A backward time
+  is a power cycle (boot-up frame, PRE-OPERATIONAL, targets and permit dropped, unhomed unless at
+  a stop sensor). A stall is the vendored STOP command plus an invalid permit, at the stall and
+  again at the resume, so neither a command nor a permit frame from before or during the pause
+  carries over; the host keep-alive of the old command does not restart motion.
+- **ZLAC8015D.** `GazeboZlac8015d` judges the Gazebo wheel feedback by receipt time on the given
+  clock (C6). A reset or a stall is the vendored `power_cycle()`: targets zero, drive disabled,
+  boot-up frame.
+- **Host stand-in** (`stm32_host.py`): loop pacing, odometry time, keep-alive, heartbeat, NMT
+  retry, permit period and the BMS answer timeout run on the given clock; host sleeps are only
+  an upper bound of one wait (at most 2 ms). After a reset or a stall it drops the lift command
+  and the drive twist and brings the drive up again with a zero target.
+- **Node timers.** Device-step and publish timers run on ROS time (`device_timer`, C4) and stop
+  in a pause; only the health timer runs on `steady` (`health_timer`, C5).
+- Gate tests: `test/test_clock_gates.py` runs CTL-017, the lift joint and the stand-in in
+  lock-step on a fed clock with a manual wall clock (pause, reset, restart, delayed permit frames,
+  runner speed, forward jump, duplicate times, first clock, clock loss, frames queued across a
+  reset) and the drive on a manual or coordinated clock; `test/test_sim_time.py` covers the
+  coordinator for jumps, duplicates and delayed `/clock`; `test_integration/test_sil_gazebo.py`
+  pauses Gazebo 5 s wall time and resets it through `gz service` on `/world/sil_flat/control`.
+- **Health callback: simulation-only hold, not a second command authority.** The steady health
+  timer of `NodeClock` (C5) logs reports and, once per stall, calls the node's `hold_plant`, which
+  publishes a zero command to the Gazebo plant topic (`/sil/drive/gz_cmd_vel`,
+  `/sil/lift/gz_cmd_vel`). That is its only effect: it sends no CAN frame and does not change the
+  emulated device; the devices drop motion at their own next step through `ClockWatch`.
+  `test_node_clock.py` checks this for the drive and the lift node.
+- Forward jumps: `ClockCoordinator` counts a forward step above `JUMP_BOUND_S` (1 s simulation
+  time, proposal, the stall bound value) and `NodeClock` logs `jump_report()`. Report only: no
+  device decision reads it and no timeout changed (C3).
+- Open gap, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
+  ZLAC8015D handles a frame from its receive queue after the reset power cycle; an RPDO1 delayed
+  in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch). A platform lead
+  decision.
+- First clock, ZLAC8015D (#160, 17 Nov 2026, Proposed, platform lead to confirm): as the CTL-017
+  node, `GazeboZlac8015d` is not powered before the first `/clock`: no boot-up, no heartbeat, every
+  received frame dropped, no step; at the first clock time it powers up through the vendored
+  `power_cycle()`. Wrapper only, no vendored file changed.
 
-Consequence until the change: a Gazebo that runs slower than real time makes the plant slow
-against the protocol timers. Example: the CTL-017 model raises fault F02 when the Hall rate falls
-below 43 counts per second [S3]; the lift gives about 86 counts per second at 18 mm/s, so a
-real-time factor below about 0.5 trips it. Seen on the Build 1 scene on 16 Nov 2026: at a
-real-time factor of 0.55 the lift moved 9 mm and raised F02; at 0.2 to 0.4 the scene's guard
-reported BLOCKED. All timing checks in the tests are plausibility checks on thread timing, not
-timing measurements.
+Not yet on `gazebo` (openamr-platform-fw #57 first, then a re-vendor):
+`canopen_common.py` (node tick and `dt`, heartbeat producer period, SDO client timeout) and
+`zlac8015d_emulator.py` (receipt time and the 2000h link-loss time). Consequences until then: a
+Gazebo pause longer than the 250 ms link-loss time trips the emulated 2000h link loss in the pause
+(the stall power cycle follows, so nothing survives the resume either way); the drive ramp and the
+heartbeat producers run on host time; the CTL-017 timers are evaluated on a 5 ms host tick, so at
+a real-time factor far above 1 a check sees coarser simulation steps.
+
+Runner speed: with CTL-017 on `gazebo`, the F02 Hall rate window counts Hall pulses from the
+Gazebo joint against Gazebo time, so it no longer depends on the real-time factor. The 16 Nov
+Build 1 observation (F02 at a real-time factor of 0.55, [S3]: 43 counts per second minimum,
+about 86 at 18 mm/s) came from the window running on host time; the lock-step test runs the lift
+at about a third of real time without F02 and raises F02 when the override is removed.
+
+Renode is not attached in these tests; its virtual-to-host ratio and its skew against Gazebo
+(C2) are not reported yet and are not assumed zero.
 
 Later option, not built: lock-step. Gazebo is stepped by a fixed number of iterations per Renode
 time quantum, and the emulators take their time from the same source.
