@@ -98,17 +98,23 @@ jobs:
           ip -d link show type vcan || true
           tail -n 300 sil-launch.log || true
 
-      # A missing, renamed or skipped test must not pass as a smaller suite.
+      # A missing, renamed or skipped test must not pass as a smaller suite. JUnit lists an xfail
+      # as skipped: the expected xfails (strict, each naming its tracking issue: #159, #160) are
+      # counted apart, and any other skip still fails.
       - name: Check test counts
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 87, 'sil-gazebo.xml': 4}
-          for name, want in expected.items():
+          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (131, 3), 'sil-gazebo.xml': (6, 0)}
+          for name, (want, want_xfail) in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')
-              tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+              tests = int(suite.get('tests'))
               failed = int(suite.get('failures')) + int(suite.get('errors'))
-              print(f'{name}: {tests} tests, {skipped} skipped, {failed} failed')
-              assert tests == want and skipped == 0 and failed == 0, f'{name}: expected {want}, none skipped'
+              marks = [s.get('type') for s in suite.iter('skipped')]
+              xfail = sum(1 for t in marks if t == 'pytest.xfail')
+              skipped = len(marks) - xfail
+              print(f'{name}: {tests} tests, {xfail} xfail, {skipped} skipped, {failed} failed')
+              assert tests == want and xfail == want_xfail and skipped == 0 and failed == 0, \
+                  f'{name}: expected {want} tests and {want_xfail} xfail, none skipped'
           EOF

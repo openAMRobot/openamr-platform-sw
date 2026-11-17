@@ -239,3 +239,71 @@ def test_lift_moves_only_with_a_fresh_permit(sil):
     time.sleep(1.5)
     assert sil.lift_position() == pytest.approx(halted, abs=0.002)
     assert sil.get(lift)['faults'] == 0
+
+
+# --- clock contract gates D3 (docs/architecture/sil-topology.md section 6.3) ------------------
+
+WORLD_CONTROL = '/world/sil_flat/control'
+LIFT_STATE = '/sil/lift/emulator_state'
+DRIVE_STATE = '/sil/drive/emulator_state'
+
+
+def gz_control(req):
+    """Pause, resume or reset the Gazebo world through its control service."""
+    r = subprocess.run(['gz', 'service', '-s', WORLD_CONTROL, '--reqtype', 'gz.msgs.WorldControl',
+                        '--reptype', 'gz.msgs.Boolean', '--timeout', '5000', '--req', req],
+                       capture_output=True, text=True, timeout=20)
+    assert r.returncode == 0 and 'data: true' in r.stdout, (req, r.stdout, r.stderr)
+
+
+def test_gazebo_pause_5_s_drops_drive_enable_and_lift_permit_and_nothing_rearms(sil):
+    sil.permit_pub.publish(Bool(data=True))
+    assert sil.wait(lambda: sil.get(LIFT_STATE)['permit_fresh'], 2.0)
+    lift_stalls = sil.get(LIFT_STATE)['clock_stalls']
+    drive_stalls = sil.get(DRIVE_STATE)['clock_stalls']
+    sil.lift_pub.publish(Int8(data=0))                     # lift moving down to L1000
+    sil.cmd = (0.2, 0.0)                                   # base moving at 0.2 m/s
+    assert sil.wait(lambda: sil.get(LIFT_STATE)['drive_on'], 3.0)
+    assert sil.wait(lambda: sil.get('gz_odom').twist.twist.linear.x > 0.15, 5.0)
+    gz_control('pause: true')
+    try:
+        time.sleep(5.0)                                    # 5 s wall time
+        sil.cmd = None                                     # no drive command after the pause
+    finally:
+        gz_control('pause: false')
+    assert sil.wait(lambda: sil.get(LIFT_STATE)['clock_stalls'] == lift_stalls + 1, 5.0)
+    assert sil.wait(lambda: sil.get(DRIVE_STATE)['clock_stalls'] == drive_stalls + 1, 5.0)
+    state = sil.get(LIFT_STATE)
+    assert not state['drive_on'] and state['target_stop'] == 0xFF
+    assert state['faults'] == 0                            # a stall is not a device fault
+    assert state['sim_clock']['stalls'] >= 1
+    assert 'simulation stalled' in tail_log(1000)
+    assert sil.wait(lambda: abs(sil.get('gz_odom').twist.twist.linear.x) < 0.01, 3.0)
+    held = sil.lift_position()
+    x = gz_x(sil)
+    time.sleep(2.0)                                        # nothing re-arms by itself
+    assert sil.get(DRIVE_STATE)['demand_rpm'] == [0.0, 0.0]
+    assert abs(gz_x(sil) - x) < 0.01
+    assert abs(sil.lift_position() - held) < 0.002 and not sil.get(LIFT_STATE)['drive_on']
+    assert sil.get('/sil/lift/status')['cmd'] is None      # the stand-in dropped its command
+    # A new command after the resume moves the lift again.
+    sil.lift_pub.publish(Int8(data=0))
+    assert sil.wait(lambda: sil.get(LIFT_STATE)['drive_on'], 3.0)
+    assert sil.wait(lambda: sil.lift_position() < held - 0.003, 5.0)
+
+
+def test_simulation_time_reset_is_a_power_cycle_of_every_emulated_device(sil):
+    sil.cmd = None
+    lift_resets = sil.get(LIFT_STATE)['clock_resets']
+    drive_resets = sil.get(DRIVE_STATE)['clock_resets']
+    host_events = sil.get('/sil/lift/status')['clock_events']
+    gz_control('reset: {all: true}')                       # simulation time back to 0
+    assert sil.wait(lambda: sil.get(LIFT_STATE)['clock_resets'] == lift_resets + 1, 10.0)
+    assert sil.wait(lambda: sil.get(DRIVE_STATE)['clock_resets'] == drive_resets + 1, 10.0)
+    assert sil.wait(lambda: sil.get('/sil/lift/status')['clock_events'] > host_events, 10.0)
+    state = sil.get(LIFT_STATE)
+    assert not state['drive_on'] and state['target_stop'] == 0xFF and state['faults'] == 0
+    assert sil.get('/sil/lift/status')['cmd'] is None
+    time.sleep(2.0)                                        # nothing from before the reset survives
+    assert sil.get(DRIVE_STATE)['demand_rpm'] == [0.0, 0.0]
+    assert not sil.get(LIFT_STATE)['drive_on']

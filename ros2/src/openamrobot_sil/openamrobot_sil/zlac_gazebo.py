@@ -4,11 +4,17 @@ The CANopen behaviour (NMT, heartbeat, SDO, velocity mode, 2000h link-loss, faul
 vendored openamr-platform-fw emulator, unchanged. This subclass replaces only the plant:
 the ramped speed demand of the drive goes to Gazebo, and 606Ch reports the wheel speeds
 that Gazebo measures. Protocol evidence only. Nothing here shows that a real wheel stops.
+
+Time (clock contract, docs/architecture/sil-topology.md section 6): the freshness of the Gazebo
+wheel feedback is judged by receipt time on the given clock (C1, C6). A time reset or a stall of
+that clock is a power cycle of the drive (the vendored ``power_cycle()``): targets zero, drive
+disabled, boot-up frame. The vendored 2000h link-loss time and the node tick still read host
+monotonic time until openamr-platform-fw gives them an injectable clock.
 """
 import math
-import time
 
 from openamrobot_sil.can_sil import zlac8015d_emulator
+from openamrobot_sil.sim_time import ClockWatch, Stamp, SteadyClock, is_fresh
 
 RPM_TO_RAD_S = 2.0 * math.pi / 60.0
 
@@ -21,29 +27,48 @@ class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
     """
 
     def __init__(self, bus, node_id=1, heartbeat_ms=100, left_sign=1, right_sign=1,
-                 feedback_timeout_s=0.5):
+                 feedback_timeout_s=0.5, clock=None):
+        self.clock = clock if clock is not None else SteadyClock()
+        self._clock_watch = ClockWatch(self.clock)
+        self.clock_resets = 0
+        self.clock_stalls = 0
         super().__init__(bus, node_id, heartbeat_ms)
         self.signs = (float(left_sign), float(right_sign))
         self.feedback_timeout_s = feedback_timeout_s
         self._feedback_rad_s = None
-        self._feedback_time = 0.0
+        self._feedback_stamp = None
 
     def set_wheel_feedback(self, left_rad_s, right_rad_s):
         """Wheel joint speeds from Gazebo, rad/s, positive forward."""
         with self.lock:
             self._feedback_rad_s = (float(left_rad_s), float(right_rad_s))
-            self._feedback_time = time.monotonic()
+            self._feedback_stamp = Stamp(self.clock)
 
     def feedback_fresh(self):
         return (self._feedback_rad_s is not None and
-                time.monotonic() - self._feedback_time <= self.feedback_timeout_s)
+                is_fresh(self._feedback_stamp, self.clock, self.feedback_timeout_s))
+
+    def _follow_clock(self):
+        """A reset or a stall of the clock is a power cycle: nothing from before it survives."""
+        event = self._clock_watch.poll()
+        if event == 'reset':
+            self.clock_resets += 1
+            self.power_cycle()
+        elif event == 'stall':
+            self.clock_stalls += 1
+            self.power_cycle()
 
     def demand_rad_s(self):
         """Speed the drive asks of each wheel now (left, right), rad/s, positive forward."""
         with self.lock:
             return tuple(self.signs[i] * self.rpm[i] * RPM_TO_RAD_S for i in (0, 1))
 
+    def _handle(self, msg):
+        self._follow_clock()  # a frame received after a reset or stall meets the new state
+        super()._handle(msg)
+
     def tick(self, dt):
+        self._follow_clock()
         super().tick(dt)
         # The vendored tick wrote its own ramp model into 606Ch. With Gazebo attached the
         # encoder value is the Gazebo wheel speed instead. Without fresh feedback (protocol
@@ -70,6 +95,8 @@ class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
                 'link_loss_events': self.link_loss_events,
                 'bus_off': self.bus_off,
                 'feedback': 'gazebo' if self.feedback_fresh() else 'internal',
+                'clock_resets': self.clock_resets,
+                'clock_stalls': self.clock_stalls,
             }
 
 
