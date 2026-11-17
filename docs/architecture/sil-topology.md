@@ -208,7 +208,10 @@ inventory change.
 
 `openamrobot_sil/sim_time.py` is the interface every device model takes instead of reading host
 time: `now()`, `generation` (increases on every reset or backward jump, so a command, enable or
-permit stamped earlier is never fresh again) and `paused`. `FedClock` is fed from `/clock`;
+permit stamped earlier is never fresh again), `snapshot()` (time and generation read together) and
+`paused`. `FedClock` keeps time and generation in one tuple that a `/clock` update replaces in a
+single assignment, so a `Stamp` taken on another thread never pairs a pre-reset time with the new
+generation, or the reverse. `FedClock` is fed from `/clock`;
 `ManualClock` drives tests; `SteadyClock` is host time for an internal plant and for health checks.
 `Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6); a stamp
 taken before a stall (`stalls` counter) is not fresh after it either. `ClockCoordinator` feeds a

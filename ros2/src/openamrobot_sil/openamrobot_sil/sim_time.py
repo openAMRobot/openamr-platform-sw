@@ -7,6 +7,9 @@ Every device model takes a clock object instead of reading host time. A clock gi
 - ``now()``: seconds in its domain;
 - ``generation``: an integer that increases on every reset or backward jump of that time.
   A command, enable or permit stamped in an older generation is never fresh again (gate D3);
+- ``snapshot()``: ``(now, generation)`` read together. A ``FedClock`` keeps both in one tuple
+  that a writer replaces in a single assignment, so a reader on another thread never pairs a
+  new time with an old generation;
 - ``paused``: True while the domain does not advance;
 - ``stalls``: an integer that increases every time a stall is declared (a pause longer than the
   stall bound). A command, enable or permit received before a stall is never fresh after it;
@@ -22,6 +25,7 @@ on host steady time (C5). ``ClockWatch`` lets a device model see a reset or a st
 step, on its own thread.
 """
 import math
+import threading
 import time
 
 
@@ -38,6 +42,11 @@ class SimClock:
 
     def now(self):
         raise NotImplementedError
+
+    def snapshot(self):
+        """``(now, generation)`` together. A clock whose time and generation can change on
+        another thread overrides this to read both in one step."""
+        return self.now(), self.generation
 
 
 class SteadyClock(SimClock):
@@ -60,23 +69,40 @@ class FedClock(SimClock):
     domain = 'gazebo'
 
     def __init__(self, start=0.0, domain='gazebo'):
+        # (t, generation) is one tuple, replaced in a single assignment under the writer lock,
+        # so now(), generation and snapshot() each read one consistent pair.
+        self._lock = threading.Lock()
+        self._state = (float(start), 0)
         super().__init__()
         self.domain = domain
-        self._t = float(start)
         self.fed = False
+
+    @property
+    def generation(self):
+        return self._state[1]
+
+    @generation.setter
+    def generation(self, value):
+        with self._lock:
+            self._state = (self._state[0], int(value))
 
     def update(self, t):
         t = float(t)
         if not math.isfinite(t):
             raise ValueError('simulation time must be finite')
-        if t < self._t:
-            self.generation += 1
-        self._t = t
+        with self._lock:
+            last_t, gen = self._state
+            if t < last_t:
+                gen += 1
+            self._state = (t, gen)
         self.fed = True
-        return self.generation
+        return gen
 
     def now(self):
-        return self._t
+        return self._state[0]
+
+    def snapshot(self):
+        return self._state
 
     def declare_stall(self):
         """The coordinator saw no advance for longer than the stall bound (C5)."""
@@ -98,15 +124,21 @@ class ManualClock(FedClock):
         if dt < 0:
             raise ValueError('use reset() to go back in time')
         if not self.paused:
-            self.update(self._t + dt)
+            with self._lock:
+                last_t, gen = self._state
+                t = last_t + float(dt)
+                if not math.isfinite(t):
+                    raise ValueError('simulation time must be finite')
+                self._state = (t, gen)
 
     def reset(self, t=0.0):
         """Backward jump (simulation reset). Always a new generation, even to the same time."""
-        if float(t) >= self._t:
-            self.generation += 1
-            self._t = float(t)
-        else:
-            self.update(t)
+        t = float(t)
+        if not math.isfinite(t):
+            raise ValueError('simulation time must be finite')
+        with self._lock:
+            last_t, gen = self._state
+            self._state = (t, gen + 1)
 
 
 class Stamp:
@@ -115,8 +147,7 @@ class Stamp:
     __slots__ = ('t', 'generation', 'stalls')
 
     def __init__(self, clock):
-        self.t = clock.now()
-        self.generation = clock.generation
+        self.t, self.generation = clock.snapshot()
         self.stalls = clock.stalls
 
 

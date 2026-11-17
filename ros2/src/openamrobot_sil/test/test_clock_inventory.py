@@ -25,6 +25,7 @@ PATTERNS = {
     'get_clock': r'get_clock\(\)',
     # reads of an injected clock of the contract (sim_time.py interface)
     'clock.now': r'clock\.now\(\)',
+    'clock.snapshot': r'clock\.snapshot\(\)',
     'Stamp': r'(?<!class )\bStamp\(',
     'is_fresh': r'(?<!def )is_fresh\(',
 }
