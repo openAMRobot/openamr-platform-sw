@@ -105,15 +105,14 @@ def _visible_tags(offset):
     return seen
 
 
-@pytest.mark.parametrize("dx,dy,dyaw", list(itertools.product((-0.04, 0.0, 0.04), (-0.04, 0.0, 0.04), (-0.08, 0.08))))
-def test_both_tags_are_in_the_image_within_the_reach_budget(dx, dy, dyaw):
+@pytest.mark.parametrize("dx,dy,dyaw", list(itertools.product((-0.06, 0.0, 0.06), (-0.06, 0.0, 0.06), (-0.08, 0.08))))
+def test_both_tags_are_in_the_image_where_station_approach_stops(dx, dy, dyaw):
+    # 0.058 m: the largest AMCL error at the station in Baseline 1; 0.08 rad: the reach budget's yaw
     assert _visible_tags((dx, dy, dyaw)) == set(scene.MARKER_IDS)
 
 
-@pytest.mark.parametrize("dx,dy,dyaw", list(itertools.product((-0.06, 0.06), (-0.06, 0.06), (-0.1, 0.1))))
-def test_at_least_one_tag_is_in_the_image_at_the_worst_amcl_error(dx, dy, dyaw):
-    # 0.058 m: the largest AMCL error at the station in Baseline 1; one tag gives the single-tag estimate
-    assert _visible_tags((dx, dy, dyaw))
+def test_one_tag_drops_out_beyond_that_envelope():
+    assert _visible_tags((0.06, 0.06, 0.1)) != set(scene.MARKER_IDS)
 
 
 _OCCUPIED = []

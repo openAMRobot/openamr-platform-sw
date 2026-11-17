@@ -6,15 +6,18 @@ station_marker_detector:
     base_frame: base_footprint
     detections_topic: /apriltag/detections
     station_pose_topic: /station_alignment/station_pose
-    # Marker plate: 36h11 ids 3 and 4 (0 to 2 are the charging dock's), centres 0.15 m either side of the plate
+    # Marker plate: 36h11 ids 3 and 4 (0 to 2 are the charging dock's), centres 0.10 m either side of the plate
     # origin along the shelf axis; the station is 0.713 m in front of the plate face (parking gap 0.30 m + footprint
     # front 0.415 m - plate 0.002 m in front of the shelf edge), facing the shelf. scene.py derives the same numbers;
     # test/test_scene.py checks that they agree.
     tag_ids: [3, 4]
     tag_frames: [station_marker_3, station_marker_4]
-    tag_offsets: [-0.15, 0.15]
+    tag_offsets: [-0.10, 0.10]
     standoff: 0.713
     lateral: 0.0
+    # Both tags: the shelf axis comes from the 0.20 m baseline between them. One tag alone gives its face normal,
+    # whose yaw is ambiguous in a near-frontal view (PnP flip); min_tags 1 would publish it with a larger yaw floor.
+    min_tags: 2
     window: 10
     gate_xy: 0.02
     gate_yaw: 0.04

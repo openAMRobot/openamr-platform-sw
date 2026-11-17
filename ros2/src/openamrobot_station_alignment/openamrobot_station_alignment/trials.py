@@ -40,6 +40,7 @@ class Runner(Node):
                          parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, True)])
         self.lock = threading.Lock()
         self.latest = {}
+        self.markers = []
         self.create_subscription(Odometry, "/station_alignment/ground_truth/odom", self._store("truth"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._store("amcl"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/station_alignment/station_pose",
@@ -52,6 +53,12 @@ class Runner(Node):
         def cb(msg):
             with self.lock:
                 self.latest[key] = msg
+                if key == "marker":
+                    q = msg.pose.pose.orientation
+                    self.markers.append((Time.from_msg(msg.header.stamp).nanoseconds,
+                                         (msg.pose.pose.position.x, msg.pose.pose.position.y,
+                                          geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))))
+                    del self.markers[:-200]
         return cb
 
     def get(self, key):
@@ -97,10 +104,15 @@ class Runner(Node):
         o.x, o.y, o.z, o.w = qx, qy, qz, qw
         goal.behavior_tree = tree
         started = time.monotonic()
-        future = client.send_goal_async(goal)
-        while not future.done():
-            time.sleep(0.05)
-        handle = future.result()
+        for _ in range(60):
+            # Nav2's action server exists before bt_navigator is active, and rejects goals until then.
+            future = client.send_goal_async(goal)
+            while not future.done():
+                time.sleep(0.05)
+            handle = future.result()
+            if handle.accepted:
+                break
+            time.sleep(5.0)
         if not handle.accepted:
             return "rejected", time.monotonic() - started
         result = handle.get_result_async()
@@ -113,7 +125,8 @@ class Runner(Node):
             time.monotonic() - started
 
     def measure(self, station):
-        self.sleep_sim(1.5)
+        settled = self.get_clock().now().nanoseconds + int(0.5 * 1e9)
+        self.sleep_sim(2.5)
         truth, amcl = self.truth(), self.amcl()
         out = {"truth": truth, "amcl": amcl}
         if truth is not None:
@@ -122,17 +135,17 @@ class Runner(Node):
         if truth is not None and amcl is not None:
             out["amcl_error_xy"] = math.hypot(amcl[0] - truth[0], amcl[1] - truth[1])
             out["amcl_error_yaw"] = abs(geometry.wrap(amcl[2] - truth[2]))
-        marker = self.get("marker")
-        if truth is not None and marker is not None:
-            q = marker.pose.pose.orientation
-            measured = (marker.pose.pose.position.x, marker.pose.pose.position.y,
-                        geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        # The marker estimate of the stopped robot: the mean of the estimates stamped after it settled.
+        with self.lock:
+            fresh = [p for t, p in self.markers if t > settled]
+        out["marker_samples"] = len(fresh)
+        if truth is not None and fresh:
+            measured = geometry.mean_pose(fresh)
             true_rel = geometry.between(truth, station)
             e = geometry.between(true_rel, measured)
             out.update(marker_measured=measured, marker_true=true_rel, marker_error_xy=math.hypot(e[0], e[1]),
-                       marker_error_yaw=abs(e[2]), marker_sigma_xy=math.sqrt(marker.pose.covariance[0]),
-                       marker_age_s=(self.get_clock().now().nanoseconds
-                                     - Time.from_msg(marker.header.stamp).nanoseconds) * 1e-9)
+                       marker_error_yaw=abs(e[2]),
+                       marker_spread_xy=max(math.hypot(p[0] - measured[0], p[1] - measured[1]) for p in fresh))
         return out
 
     def publishers(self):

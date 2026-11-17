@@ -7,7 +7,7 @@ import pytest
 
 from openamrobot_station_alignment import geometry as g
 
-LAYOUT = g.Layout({3: -0.15, 4: 0.15}, standoff=0.713)
+LAYOUT = g.Layout({3: -0.10, 4: 0.10}, standoff=0.713)
 
 
 def close(a, b, tol=1e-9):
@@ -84,9 +84,9 @@ def test_baseline_yaw_error_is_small_for_millimetre_tag_noise():
         noisy = {i: ((p[0] + rng.gauss(0, 0.002), p[1] + rng.gauss(0, 0.002), p[2]), r) for i, (p, r) in tags.items()}
         pose, _ = g.station_from_tags(LAYOUT, noisy)
         worst = max(worst, abs(pose[2]))
-    # 0.30 m baseline, 2 mm per tag: sqrt(2) * 0.002 / 0.30 = 0.0094 rad standard deviation of the yaw from one frame;
-    # the worst of 200 frames stays well inside the 0.08 rad budget. The alignment averages 8 frames.
-    assert worst < 0.04
+    # 0.20 m baseline, 2 mm per tag: sqrt(2) * 0.002 / 0.20 = 0.014 rad standard deviation of the yaw from one frame;
+    # the worst of 200 frames stays inside the 0.08 rad budget. The alignment averages 8 frames.
+    assert worst < 0.06
 
 
 def test_corrected_goal_is_the_true_station_when_the_measurement_is_exact():

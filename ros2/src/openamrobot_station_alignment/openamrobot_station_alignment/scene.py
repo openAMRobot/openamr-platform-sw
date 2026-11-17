@@ -29,10 +29,10 @@ OBSTACLES = (("obstacle_box_a", (0.40, 0.40, 0.50), (2.5, -1.5, 0.0)),
 CYLINDERS = (("obstacle_post", 0.10, 1.00, (1.5, 1.2)),)
 
 # Marker plate (Proposed): two 36h11 tags on the work shelf front, below board 0, above the LiDAR plane (0.222 m).
-# Panel 0.125 m, black square 0.10 m (8 of 10 modules). Centres 0.15 m left and right of the unit centre, 0.32 m above
+# Panel 0.125 m, black square 0.10 m (8 of 10 modules). Centres 0.10 m left and right of the unit centre, 0.32 m above
 # the floor. The plate face is MARKER_FACE_OFFSET in front of the shelf front edge. Estimated, not a site value.
 MARKER_IDS = (3, 4)
-MARKER_OFFSETS = {3: -0.15, 4: 0.15}   # along the shelf axis u (local +x of the unit)
+MARKER_OFFSETS = {3: -0.10, 4: 0.10}   # along the shelf axis u (local +x of the unit)
 MARKER_HEIGHT = 0.32
 MARKER_PANEL = 0.125
 MARKER_TAG_SIZE = 0.10

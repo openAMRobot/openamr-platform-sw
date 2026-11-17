@@ -28,7 +28,7 @@ class StationMarkerDetector(Node):
         self.declare_parameter("station_pose_topic", "/station_alignment/station_pose")
         self.declare_parameter("tag_ids", [3, 4])
         self.declare_parameter("tag_frames", ["station_marker_3", "station_marker_4"])
-        self.declare_parameter("tag_offsets", [-0.15, 0.15])
+        self.declare_parameter("tag_offsets", [-0.10, 0.10])
         self.declare_parameter("standoff", 0.713)
         self.declare_parameter("lateral", 0.0)
         self.declare_parameter("window", 10)
@@ -37,6 +37,7 @@ class StationMarkerDetector(Node):
         self.declare_parameter("floor_xy", 0.003)
         self.declare_parameter("floor_yaw", 0.005)
         self.declare_parameter("single_tag_floor_yaw", 0.03)
+        self.declare_parameter("min_tags", 2)
         self.declare_parameter("tf_timeout", 0.2)
         p = self.get_parameter
         ids = [int(i) for i in p("tag_ids").value]
@@ -49,7 +50,9 @@ class StationMarkerDetector(Node):
         self.base_frame = p("base_frame").value
         self.window = collections.deque(maxlen=int(p("window").value))
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        # Own spin thread: lookups below wait for the tag transforms of the same image, which must not depend on
+        # this callback returning.
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
         self.pub = self.create_publisher(PoseWithCovarianceStamped, p("station_pose_topic").value, 10)
         self.create_subscription(AprilTagDetectionArray, p("detections_topic").value, self.on_detections, 10)
 
@@ -70,7 +73,7 @@ class StationMarkerDetector(Node):
                 tags[tag_id] = self._tag(self.frames[tag_id], msg.header.stamp)
             except TransformException as e:
                 self.get_logger().debug(f"tag {tag_id}: {e}")
-        if not tags:
+        if len(tags) < int(self.get_parameter("min_tags").value):
             return
         try:
             pose, mode = geometry.station_from_tags(self.layout, tags)
