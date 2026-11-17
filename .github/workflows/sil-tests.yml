@@ -93,13 +93,13 @@ jobs:
           tail -n 300 sil-launch.log || true
 
       # A missing, renamed or skipped test must not pass as a smaller suite. JUnit lists an xfail
-      # as skipped: the expected xfails (strict, each naming its tracking issue: #159, #160) are
+      # as skipped: the expected xfails (strict, each naming its tracking issue: #159) are
       # counted apart, and any other skip still fails.
       - name: Check test counts
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (139, 4), 'sil-gazebo.xml': (6, 0)}
+          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (140, 3), 'sil-gazebo.xml': (6, 0)}
           for name, (want, want_xfail) in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')

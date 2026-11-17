@@ -268,11 +268,14 @@ Implemented in `openamrobot_sil` (inventory: 3 sites `to_change`, all in vendore
   The host stand-in takes a new permit boot id at a reset. `test/test_lift_fw_sil.py` covers the
   lift path scenarios (permit, motion and feedback, cancel, reset, stale frames, repeated,
   delayed and jumping clock, bridge and host reconnection).
-- Open gaps, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
+- Open gap, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
   ZLAC8015D handles a frame from its receive queue after the reset power cycle; an RPDO1 delayed
-  in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch); #160 the
-  ZLAC8015D emulator heartbeats and accepts SDO before the first `/clock` (vendored tick on host
-  time, with #57). Both are platform lead decisions.
+  in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch). A platform lead
+  decision.
+- First clock, ZLAC8015D (#160, 17 Nov 2026, Proposed, platform lead to confirm): as the CTL-017
+  node, `GazeboZlac8015d` is not powered before the first `/clock`: no boot-up, no heartbeat, every
+  received frame dropped, no step; at the first clock time it powers up through the vendored
+  `power_cycle()`. Wrapper only, no vendored file changed.
 
 Not yet on `gazebo` (openamr-platform-fw #57 first, then a re-vendor):
 `canopen_common.py` (node tick and `dt`, heartbeat producer period, SDO client timeout) and
