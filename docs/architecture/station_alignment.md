@@ -93,7 +93,9 @@ more than 6 s of simulation time old, and the fixed window that started when the
 one. The window now counts only poses whose image was taken after the robot settled, as before, but waits for them:
 done after 8 such poses; "marker not seen" when nothing at all arrives in 6 s; "no fresh sample" when poses arrive but
 all are older, after 6 s plus a 15 s latency allowance. Every deadline (window, Nav2 goals) is on the node clock; no
-wall clock is used. The report records the received count and the latency (arrival minus stamp) of the poses.
+wall clock is used. The detector had the same fault on its side: it dropped a detection whose tag transforms were
+not yet in the buffer once its image stamp was 1 s old, so stamps delayed by the pipeline were lost; it now counts
+that 1 s from when the detection arrived (`sampling.pending_expired`). The report records the received count and the latency (arrival minus stamp) of the poses.
 
 Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
 which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,

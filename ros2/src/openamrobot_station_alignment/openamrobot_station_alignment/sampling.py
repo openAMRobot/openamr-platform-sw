@@ -20,6 +20,13 @@ from openamrobot_station_alignment import geometry
 DONE, WAITING, NOT_SEEN, STALE = "done", "waiting", "not_seen", "stale"
 
 
+def pending_expired(received_ns, now_ns, timeout_s):
+    """The detector's wait for the tag transforms of one image, counted from when the detection arrived, never from
+    the image stamp: a stamp several seconds old (low real-time factor, a lagging camera pipeline) is not a reason to
+    drop a detection whose transforms are on their way."""
+    return now_ns - received_ns > int(timeout_s * 1e9)
+
+
 def without_marker(iteration, nominal_ok):
     """What the alignment does when the window ends without a usable marker pose.
 

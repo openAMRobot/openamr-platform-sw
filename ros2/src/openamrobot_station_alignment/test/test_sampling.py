@@ -86,3 +86,10 @@ def test_without_a_marker_only_an_untouched_successful_approach_is_not_aligned()
     assert sampling.without_marker(0, True) == "not_aligned"
     assert sampling.without_marker(0, False) == "abort"
     assert sampling.without_marker(1, True) == "abort"
+
+
+def test_the_detector_does_not_drop_a_detection_for_its_old_stamp():
+    # image stamped 7 s ago (simulation time), detection received now: its transforms still get tf_timeout to arrive
+    received = 40 * S
+    assert not sampling.pending_expired(received, received + int(0.5 * S), 1.0)
+    assert sampling.pending_expired(received, received + int(1.5 * S), 1.0)

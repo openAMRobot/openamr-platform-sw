@@ -12,12 +12,11 @@ import collections
 import rclpy
 from apriltag_msgs.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
-from openamrobot_station_alignment import geometry
+from openamrobot_station_alignment import geometry, sampling
 
 
 class StationMarkerDetector(Node):
@@ -76,24 +75,25 @@ class StationMarkerDetector(Node):
         seen = sorted({int(d.id) for d in msg.detections if int(d.id) in self.frames})
         self.stats[f"seen_{len(seen)}"] += 1
         if len(seen) >= int(self.get_parameter("min_tags").value):
-            self.pending.append((Time.from_msg(msg.header.stamp), msg.header.stamp, seen))
+            self.pending.append((self.get_clock().now().nanoseconds, Time.from_msg(msg.header.stamp),
+                                 msg.header.stamp, seen))
 
     def process_pending(self):
-        """Estimate every queued image whose tag transforms have arrived; drop those older than tf_timeout."""
-        now = self.get_clock().now()
+        """Estimate every queued image whose tag transforms have arrived; drop those that waited tf_timeout."""
+        now = self.get_clock().now().nanoseconds
         keep = collections.deque()
-        timeout = Duration(seconds=float(self.get_parameter("tf_timeout").value))
+        timeout = float(self.get_parameter("tf_timeout").value)
         while self.pending:
-            stamp, stamp_msg, seen = self.pending.popleft()
+            received, stamp, stamp_msg, seen = self.pending.popleft()
             ready = [i for i in seen if self.tf_buffer.can_transform(self.base_frame, self.frames[i], stamp)]
             if len(ready) == len(seen):
                 self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
-            elif now - stamp > timeout:
+            elif sampling.pending_expired(received, now, timeout):
                 self.stats["tf_failed"] += 1
                 if len(ready) >= int(self.get_parameter("min_tags").value):
                     self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
             else:
-                keep.append((stamp, stamp_msg, seen))
+                keep.append((received, stamp, stamp_msg, seen))
         self.pending = keep
 
     def estimate(self, stamp_msg, tags):
