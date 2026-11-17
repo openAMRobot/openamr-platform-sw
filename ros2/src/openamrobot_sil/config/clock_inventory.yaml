@@ -74,9 +74,14 @@ files:
         rule: C1
         status: conforms
   openamrobot_sil/ctl017_gazebo.py:
-    counts: {clock.now: 1}
+    counts: {clock.now: 2}
     sites:
       - what: clock_ms(), behind the _now_ms override; time base of every CTL-017 timer and of the permit freshness gate
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: _now() and the _run override, firmware time of the CTL-017 node thread (the dt of every emulator step and the heartbeat producer period); the host receive timeout of tick_s stays a wait bound
         current: gazebo
         target: gazebo
         rule: C1
@@ -97,7 +102,7 @@ files:
   openamrobot_sil/vendor/can_sil/canopen_common.py:
     counts: {time.monotonic: 5}
     sites:
-      - what: node thread tick and the dt passed to every emulator tick (plant integration, heartbeat period)
+      - what: node thread tick and the dt passed to every emulator tick (plant integration, heartbeat period); the CTL-017 node replaces this loop with the firmware-time loop of ctl017_gazebo.py, the ZLAC8015D node still runs it
         current: steady
         target: gazebo
         rule: C1

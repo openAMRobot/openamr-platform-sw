@@ -27,6 +27,21 @@ boot-up frame (clock-reset contract R1). A reset loses the receive queue with th
 frames received before the reset never act after it (R5). Frames delayed in transport past the
 reset cannot be told apart, since CAN frames carry no generation (#159).
 
+Three clocks (docs/architecture/clock-reset-contract.md, "Three clocks"):
+
+- simulation time: the Gazebo lift joint, the fed ``/clock`` and every feedback freshness check;
+- firmware time: what the emulated node itself counts with. Every CTL-017 timer (``_now_ms``),
+  the ``dt`` of each emulator step and the heartbeat producer period (``_now``). In SIL it is the
+  fed simulation clock, so a slow or fast Gazebo changes no device decision;
+- wall-clock supervision: host steady time, only for the coordinator's stall check and the
+  simulation-only hold of the Gazebo lift command (C5). It never reaches a device timer.
+
+The vendored node thread (``CanopenNode._run`` at the pinned SHA) reads host time for the step
+``dt`` and the heartbeat period. ``_run`` below is the same loop with those two reads on the
+node clock, which is what openamr-platform-fw#58 (``CanopenNode._now()``) gives the vendored
+loop; after the re-vendor at that merge SHA the override reduces to ``_now``. The host receive
+timeout stays a wait bound only (``tick_s`` of host time per poll).
+
 Emulation of documented device behaviour only. Not a safety function.
 """
 import struct
@@ -107,6 +122,34 @@ class GazeboCtl017(c.Ctl017Emulator):
     def _now_ms(self):
         """Overrides the vendored hook: every CTL-017 timer reads the given clock (C1)."""
         return clock_ms(self.clock)
+
+    def _now(self):
+        """Firmware time in seconds: the node clock (same shape as openamr-platform-fw#58)."""
+        return self.clock.now()
+
+    def _run(self):
+        """Node thread: the vendored loop with the step dt and the heartbeat period on firmware
+        time. Frame handling, the step and the heartbeat condition are the vendored ones."""
+        last = self._now()
+        while self._running:
+            msg = self.bus.recv(timeout=self.tick_s)   # host wait bound only
+            now = self._now()
+            with self.lock:
+                if msg is not None and not self.bus_off:
+                    self._handle(msg)
+                if not self.clock.fed:
+                    last = now       # before the first clock: no time has passed for the node
+                elif now < last:
+                    # Time moved backward (reset): no negative step; the heartbeat period
+                    # restarts at the new time.
+                    last = now
+                    self._last_hb = now
+                self.tick(now - last)
+                if (self.heartbeat_enabled and self.heartbeat_ms > 0 and
+                        now - self._last_hb >= self.heartbeat_ms / 1000.0):
+                    self._last_hb = now
+                    self._send(canopen_common.HB_BASE + self.node_id, [self.nmt_state])
+            last = now
 
     def _power_on(self):
         """First clock time: power-up. Returns False while the clock is not fed yet (R1)."""

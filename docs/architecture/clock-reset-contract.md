@@ -9,7 +9,8 @@ lock-step stand-in for Gazebo. It is not real-robot, mechanical, electrical or s
 Tests: `ros2/src/openamrobot_sil/test/test_lift_fw_sil.py` (new) and
 `ros2/src/openamrobot_sil/test/test_clock_gates.py`, `test_sim_time.py`, `test_node_clock.py`
 (from the clock contract work). Below, `fw_sil::name` is a test of the first file, `gates::name`
-of the second, `sim_time::name` and `node_clock::name` of the others.
+of the second, `sim_time::name`, `node_clock::name` and `rtf::name` (`test_lift_rtf.py`) of the
+others.
 
 ## 1. The path
 
@@ -25,6 +26,25 @@ of the second, `sim_time::name` and `node_clock::name` of the others.
 | Feedback | `JointStatePublisher` 100 Hz, bridge, `ctl017_node.py` `on_joints`, `GazeboCtl017.set_joint_position`, Hall count and stop sensors |
 | Status back to ROS 2 | TPDO1/TPDO2 decoded by `LiftHost._rx`, `/sil/lift/status` |
 | Clock | `/clock` bridged from Gazebo, `nodes/common.py` `NodeClock`, `sim_time.py` `ClockCoordinator` and `FedClock` |
+
+## Three clocks
+
+Every time read on the lift path belongs to exactly one of three clocks (17 Nov 2026, Proposed):
+
+| Clock | What runs on it | Source in SIL |
+|---|---|---|
+| Simulation time | the Gazebo lift joint, `/clock`, joint feedback freshness, the host stand-in loop, keep-alive, core heartbeat and permit period | Gazebo `/clock` through `NodeClock` and `FedClock` |
+| Firmware time | what the emulated node counts with: every CTL-017 timer (`_now_ms`), the `dt` of each emulator step and the heartbeat producer period (`_now`, node thread `GazeboCtl017._run`) | the same fed simulation clock: in SIL the firmware is driven by the plant's time |
+| Wall-clock supervision | the stall check of `ClockCoordinator.check` (1 s, C5) and its one effect, the simulation-only hold of the Gazebo lift command; host receive and sleep bounds of a wait | host steady time |
+
+Wall-clock supervision decides nothing on the device: it neither raises a fault nor sends a CAN
+frame. So the real-time factor (RTF) changes how long a scenario takes, not what the node does.
+Before 17 Nov the CTL-017 timers ran on host time and the node faulted below an RTF of about
+0.55 (Baseline 1 phase 4, BLOCKED); with the timers on firmware time the lift moves without a
+fault at RTF 0.1 and 0.2, and the heartbeat keeps its 100 ms period in simulation time.
+Tests: `rtf::test_lift_moves_without_fault_at_low_real_time_factor`,
+`rtf::test_lift_heartbeat_and_step_run_on_firmware_time_at_low_real_time_factor`
+(`test_lift_rtf.py`, threaded: emulator, host stand-in and a Gazebo stand-in at a set RTF).
 
 ## 2. Rules
 
@@ -144,7 +164,7 @@ Open (G4, G5): see section 3.
 | ID | Gap | Where | Owner, tracking |
 |---|---|---|---|
 | G1 | The plant is a velocity command of gz-sim `JointController` on DART. The demand at full duty is 0.018 m/s, equal to the `lift_joint` velocity limit, and L1000 and L1350 sit at the joint limits 0 and 0.350 m. gz-sim issue 1684 reports DART ignoring a velocity command close to the velocity limit and joints stuck at a position limit. Not observed: the hosted Gazebo test moves the lift up from 0 m to L1175 and passed on 38728c8. Not excluded either; not run here (no Gazebo). The effort coupling of #155 is the proposed replacement | `urdf/sil_robot.urdf.xacro`, `ctl017_node.py` | software lead, #155 |
-| G2 | The node thread tick, the `dt` of each step and the heartbeat producer period of the vendored `canopen_common` run on host time after the first clock; CTL-017 timers are evaluated on a 5 ms host tick | vendored `canopen_common.py` | platform lead, openamr-platform-fw #57 |
+| G2 | Closed for the CTL-017 node in the SIL wrapper (17 Nov 2026): `GazeboCtl017._run` takes the step `dt` and the heartbeat period from firmware time; the loop is the vendored one with the clock hook of openamr-platform-fw #58, to reduce to a `_now` override after the re-vendor. Still open for the ZLAC8015D node (vendored loop on host time). CTL-017 timers are still evaluated on a 5 ms host poll, so at an RTF above 1 one step covers more than 5 ms of simulation time | vendored `canopen_common.py` | platform lead, openamr-platform-fw #57, #58 |
 | G3 | A frame delayed in transport past a reset carries no generation: an RPDO1 runs, a permit frame of the old boot arriving before the first frame of the new boot is trusted for one period | CTL-017 v1 wire contract | platform lead, #159 |
 | G4 | During a bridge outage Gazebo keeps the last lift demand (`JointController` has no command timeout) and the hold of R9 goes through the same bridge, so the lift moves at up to 18 mm/s for the outage. The node reports it as F08 (motion after stop) once the outage exceeds the stall bound | plant, bridge | software lead |
 | G5 | RPDO1 has no producer boot id: after a host restart, a first command with the last sequence number is taken as a keep-alive (same op and stop, silently not executed) or refused with a sequence conflict | CTL-017 v1 wire contract | platform lead, #159 (strict xfail `fw_sil::test_the_first_command_of_a_restarted_host_is_executed_even_with_the_last_seq`) |
