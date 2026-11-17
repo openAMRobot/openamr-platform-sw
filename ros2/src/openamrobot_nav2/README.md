@@ -35,7 +35,7 @@ Experimental.
 
 ```
 openamrobot_nav2/
-├── behavior_trees/             # Custom Nav2 behavior tree XML files
+├── behavior_trees/             # navigate_to_pose.xml, navigate_through_poses.xml (stock Nav2 1.3.14 + goal checker id), navigate_to_station.xml
 ├── config/
 │   ├── slam.yaml               # SLAM Toolbox parameters
 │   ├── nav2_params.yaml        # Nav2 stack parameters
@@ -294,3 +294,19 @@ next pose. Sim only, nothing validated on hardware.
 ## License
 
 MIT
+
+---
+
+## Station approach (Proposed, 17 Nov 2026)
+
+For a goal where the arms must reach something (a manipulation station), send `NavigateToPose` with
+`behavior_tree` set to `$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_to_station.xml`. The tree runs the
+default navigation with the global tolerances (0.35 m, 0.35 rad), then plans once more with `StationPlanner` (NavFn,
+the path ends at the goal pose) and follows that path with the `StationApproach` controller
+(`nav2_graceful_controller`) until `station_goal_checker` (0.025 m, 0.05 rad) accepts. The commands go through the same
+velocity smoother and collision monitor as every other goal. Goals without `behavior_tree` are unchanged; the default
+trees only name `general_goal_checker`, which is required once two goal checkers exist.
+
+The tolerances come from the arm reach of the Build 1 work-shelf grasp (openamr-upperbody-sw
+`docs/integration/station_approach.md`). They are simulation-derived working values, not a site acceptance tolerance.
+`test/test_station_approach_config.py` checks the consistency of the parameters and trees, not the motion.
