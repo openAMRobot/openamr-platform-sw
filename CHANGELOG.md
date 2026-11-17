@@ -13,6 +13,15 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Lift drive model, candidate (16 Nov 2026)
+
+- `openamrobot_sil/models/lift_drive.py` with `config/models/lift_drive.yaml`: averaged IFX007T H-bridge, reduced-order DC
+  motor of the DOLD Hexalift V4 column, self-locking transmission, carried load, Hall count and stop sensors, plant
+  conditions for the CTL-017 faults F01 to F09 (`inject`, `clear`; F06 has no plant condition), injected clock with
+  reset dropping the motion command. Returns the effort for the Gazebo `lift_joint`; not wired into launch or scene.
+  40 tests in `test_lift_drive.py`; documentation `docs/architecture/sil-lift-drive-model.md`. Candidate values,
+  simulation evidence only.
+
 ### Documentation
 
 - Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
