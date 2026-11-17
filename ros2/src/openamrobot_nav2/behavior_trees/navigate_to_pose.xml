@@ -1,6 +1,7 @@
 <!--
   SPDX-License-Identifier: Apache-2.0
-  Source: ros-navigation/navigation2 tag 1.3.14 (the ros-jazzy-nav2-bt-navigator 1.3.14 apt package),
+  Source: ros-navigation/navigation2 tag 1.3.14, commit 58e4019eb149ed4387938d9cd13f38659b86f754
+  (the ros-jazzy-nav2-bt-navigator 1.3.14 apt package),
   nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml. Apache-2.0, copyright the Nav2 authors.
   One modification: FollowPath names goal_checker_id="general_goal_checker". controller_server has a second goal
   checker (station_goal_checker, nav2_params.yaml), and with two checkers an empty goal_checker_id is refused
