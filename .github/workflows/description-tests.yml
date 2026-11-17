@@ -70,15 +70,24 @@ jobs:
 
   # Gazebo Harmonic job for test_gazebo_friction.py: the friction must survive the
   # URDF to SDF conversion (`gz sdf -p`). Gazebo is pinned to the exact vendor packages below
-  # (recorded 14 Nov 2026: gz-sim 8.15.0, sdformat 14.9.0; vendor builds re-pinned 16 Nov 2026 after the ROS sync removed the old builds). With OPENAMR_REQUIRE_GZ=1 a
-  # missing gz fails, and a non-zero or empty `gz sdf -p` result always fails; none skips.
+  # (recorded 14 Nov 2026: gz-sim 8.15.0, sdformat 14.9.0). They are installed from the
+  # Jazzy snapshot repository (snapshots.ros.org), which keeps each snapshot for at least six
+  # months, so a ROS sync that drops a build from packages.ros.org no longer breaks this job.
+  # Snapshot 2026-10-05 is the newest one published on 17 Nov 2026 and holds exactly the builds
+  # recorded on 14 Nov. Every ros-jazzy-gz-* and ros-jazzy-sdformat* package comes from the
+  # snapshot (apt pin 1001). To move the pin: pick a newer snapshot date, set the three builds
+  # it lists, and keep the version check. The snapshot signing key expires 2027-06-01.
+  # With OPENAMR_REQUIRE_GZ=1 a missing gz fails, and a non-zero or empty `gz sdf -p` result
+  # always fails; none skips.
   description-gazebo-tests:
     runs-on: ubuntu-24.04
     container: ros:jazzy-ros-base
     env:
-      GZ_SIM_VENDOR: 0.0.13-1noble.20261031.125555
-      GZ_TOOLS_VENDOR: 0.0.8-1noble.20261025.230735
-      SDFORMAT_VENDOR: 0.0.14-1noble.20261031.120928
+      ROS_SNAPSHOT_DATE: 2026-10-05
+      ROS_SNAPSHOT_KEY: 4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA
+      GZ_SIM_VENDOR: 0.0.13-1noble.20260905.073557
+      GZ_TOOLS_VENDOR: 0.0.8-1noble.20260820.143431
+      SDFORMAT_VENDOR: 0.0.14-1noble.20260905.033543
       GZ_SIM_VERSION: 8.15.0
       SDFORMAT_VERSION: 14.9.0
       OPENAMR_REQUIRE_GZ: '1'
@@ -88,13 +97,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install test tools and pinned Gazebo Harmonic
+      - name: Add the pinned Jazzy snapshot repository
+        shell: bash
         run: |
           apt-get update
+          apt-get install -y curl ca-certificates gnupg
+          curl -fsS "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${ROS_SNAPSHOT_KEY}" \
+            | gpg --dearmor > /usr/share/keyrings/ros-snapshots.gpg
+          fpr=$(gpg --show-keys --with-colons /usr/share/keyrings/ros-snapshots.gpg | awk -F: '$1=="fpr"{print $10; exit}')
+          test "${fpr}" = "${ROS_SNAPSHOT_KEY}" || { echo "snapshot key fingerprint ${fpr} is not ${ROS_SNAPSHOT_KEY}"; exit 1; }
+          echo "deb [signed-by=/usr/share/keyrings/ros-snapshots.gpg] http://snapshots.ros.org/jazzy/${ROS_SNAPSHOT_DATE}/ubuntu noble main" \
+            > /etc/apt/sources.list.d/ros-snapshots.list
+          printf 'Package: ros-jazzy-gz-* ros-jazzy-sdformat*\nPin: origin snapshots.ros.org\nPin-Priority: 1001\n' \
+            > /etc/apt/preferences.d/ros-snapshots
+          apt-get update
+          apt-cache policy ros-jazzy-gz-sim-vendor ros-jazzy-gz-tools-vendor ros-jazzy-sdformat-vendor
+
+      - name: Install test tools and pinned Gazebo Harmonic
+        run: |
           apt-get install -y python3-colcon-common-extensions python3-pytest ros-jazzy-xacro \
             ros-jazzy-gz-sim-vendor=${GZ_SIM_VENDOR} \
             ros-jazzy-gz-tools-vendor=${GZ_TOOLS_VENDOR} \
             ros-jazzy-sdformat-vendor=${SDFORMAT_VENDOR}
+          dpkg-query -W 'ros-jazzy-gz-*' 'ros-jazzy-sdformat*'
 
       - name: Print and check the Gazebo version
         shell: bash
