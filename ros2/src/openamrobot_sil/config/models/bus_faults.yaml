@@ -1,0 +1,268 @@
+# CAN and UART fault and timing layer of openamrobot_sil (W4, Proposed, 16 Nov 2026).
+# Read by openamrobot_sil/models/bus_faults.py (load_config, build_can, build_uart) and checked
+# by test/test_bus_faults.py. Documentation: docs/architecture/sil-bus-fault-layer.md.
+#
+# Every physical parameter is a record with the fields
+#   value, unit, source, confidence, uncertainty, hardware_revision, owner, test,
+#   last_verified, measurement_item
+# confidence: measured | manufacturer_document | cad | design_decision | estimate | unknown
+# (vocabulary of audits digital-twin/phase1/CONVENTIONS.md). An unknown value is null and names
+# a measurement item (MP-xx of audits digital-twin/phase1/measurement_plan.md). Nothing here is
+# measured: last_verified is null everywhere.
+# Owners are roles of Team doc section 7, not persons.
+#
+# References use <repo>@<sha>:<path>#L<line>. audits@d776cec is the audits main branch read on
+# 16 Nov 2026; platform-sw@fe071f4 is the base of this branch (ws1/clock-contract).
+#
+# `profiles` are scenario settings (fault rates chosen for a test), not properties of the real
+# bus. They are SIL test values and are not parameter records.
+version: 1
+status: Proposed
+
+can_buses:
+  drive:
+    interface: vcan_drive
+    frame_format: classic
+    stuffing: worst
+    nominal_bitrate:
+      {value: 500000, unit: bit/s,
+       source: "audits@d776cec:night-shift/inputs/digital-twin/bom/CAN_buses.csv#L4; platform-sw@fe071f4:docs/architecture/sil-topology.md#L46",
+       confidence: design_decision, uncertainty: provisional in the BOM sheet,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_bus_load_matches_hand_calculation, last_verified: null,
+       measurement_item: MP-15}
+    data_bitrate:
+      {value: null, unit: bit/s, source: "audits@d776cec:night-shift/inputs/digital-twin/bom/CAN_buses.csv#L4 (classic CAN, no data phase)",
+       confidence: design_decision, uncertainty: not applicable to classic CAN,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_records_are_complete, last_verified: null,
+       measurement_item: MP-15}
+    worst_case_frame_time_8_bytes:
+      {value: 0.000270, unit: s,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L89 (RG-COM-009)",
+       confidence: estimate, uncertainty: paper value; no transceiver delay or cable effect,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_frame_bits_hand_calculation, last_verified: null,
+       measurement_item: MP-15}
+    bus_off_recovery:
+      {value: null, unit: mode,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L167 (RG-FLT-014: unknown)",
+       confidence: unknown, uncertainty: STM32 FDCAN restart policy of the firmware not set; the model falls back to error_model.default_bus_off_recovery,
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_bus_off_manual_recovery_timing, last_verified: null,
+       measurement_item: MP-10}
+    frame_loss_rate:
+      {value: null, unit: 1,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L89 (RG-COM-009: error handling untested)",
+       confidence: unknown, uncertainty: no capture on the real cable,
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_loss_rate_within_binomial_bounds, last_verified: null,
+       measurement_item: MP-09}
+  bms:
+    interface: vcan_bms
+    frame_format: classic
+    stuffing: worst
+    nominal_bitrate:
+      {value: 250000, unit: bit/s,
+       source: "audits@d776cec:night-shift/inputs/digital-twin/bom/CAN_buses.csv#L5; platform-sw@fe071f4:docs/architecture/sil-topology.md#L47",
+       confidence: design_decision, uncertainty: proposed; to confirm on the delivered BMS,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_builds_every_bus, last_verified: null,
+       measurement_item: MP-13}
+    data_bitrate:
+      {value: null, unit: bit/s, source: "audits@d776cec:night-shift/inputs/digital-twin/bom/CAN_buses.csv#L5 (classic CAN)",
+       confidence: design_decision, uncertainty: not applicable to classic CAN,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_records_are_complete, last_verified: null,
+       measurement_item: MP-13}
+    bus_off_recovery:
+      {value: null, unit: mode,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L167 (RG-FLT-014: unknown)",
+       confidence: unknown, uncertainty: firmware restart policy not set,
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_bus_off_manual_recovery_timing, last_verified: null,
+       measurement_item: MP-10}
+    response_delay:
+      {value: null, unit: s,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L97 (RG-COM-017: unknown)",
+       confidence: unknown, uncertainty: the emulator answers at once,
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_delay_and_jitter_statistics, last_verified: null,
+       measurement_item: MP-13}
+  aux:
+    interface: vcan_aux
+    frame_format: classic
+    stuffing: worst
+    nominal_bitrate:
+      {value: 500000, unit: bit/s,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L99 (RG-COM-019); platform-sw@fe071f4:docs/architecture/sil-topology.md#L48",
+       confidence: design_decision, uncertainty: proposal; the BOM sheet says to be confirmed,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_builds_every_bus, last_verified: null,
+       measurement_item: MP-14}
+    data_bitrate:
+      {value: null, unit: bit/s, source: "audits@d776cec:night-shift/inputs/digital-twin/bom/CAN_buses.csv#L7 (classic CAN)",
+       confidence: design_decision, uncertainty: not applicable to classic CAN,
+       hardware_revision: BOM Issue 7.15, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_records_are_complete, last_verified: null,
+       measurement_item: MP-14}
+    bus_off_recovery:
+      {value: null, unit: mode, source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L167 (RG-FLT-014: unknown)",
+       confidence: unknown, uncertainty: no CTL-017 firmware in a recorded SHA,
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_bus_off_manual_recovery_timing, last_verified: null,
+       measurement_item: MP-14}
+  arm_l: &arm_bus
+    interface: not created in this package (upper-body emulator)
+    frame_format: fd
+    stuffing: worst
+    nominal_bitrate:
+      {value: 1000000, unit: bit/s,
+       source: "openarm_can@bfd4e52:setup/cli/cli.hpp#L33-L37 via audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L81 (RG-COM-001)",
+       confidence: manufacturer_document, uncertainty: upstream default; delivered kit not evidenced (RG-COM-006),
+       hardware_revision: OpenArm v2.0 upstream, owner: manipulation owner,
+       test: test_bus_faults.py::test_fd_frame_time_against_arm_estimate, last_verified: null,
+       measurement_item: MP-07}
+    data_bitrate:
+      {value: 5000000, unit: bit/s,
+       source: "openarm_can@bfd4e52:setup/cli/cli.hpp#L33-L37 via audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L81 (RG-COM-001)",
+       confidence: manufacturer_document, uncertainty: BRS on motor replies unknown (RG-COM-002),
+       hardware_revision: OpenArm v2.0 upstream, owner: manipulation owner,
+       test: test_bus_faults.py::test_fd_frame_time_against_arm_estimate, last_verified: null,
+       measurement_item: MP-07}
+    bus_off_recovery:
+      {value: manual, unit: mode,
+       source: "openarm_can@bfd4e52:setup/cli/cli.hpp#L40-L42 via audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L84 (RG-COM-004: restart-ms 0)",
+       confidence: manufacturer_document, uncertainty: bus state with motors unpowered unknown,
+       hardware_revision: OpenArm v2.0 upstream, owner: manipulation owner,
+       test: test_bus_faults.py::test_bus_off_manual_recovery_timing, last_verified: null,
+       measurement_item: MP-07}
+    reply_latency:
+      {value: null, unit: s,
+       source: "audits@d776cec:digital-twin/phase1/reality_gap_register.csv#L85 (RG-COM-005: unknown)",
+       confidence: unknown, uncertainty: no capture,
+       hardware_revision: null, owner: manipulation owner,
+       test: test_bus_faults.py::test_delay_and_jitter_statistics, last_verified: null,
+       measurement_item: MP-07}
+  arm_r: *arm_bus
+
+error_model:
+  # ISO 11898-1 fault confinement. A standard, filed nowhere in the project yet: the clause is
+  # named in the source and the confidence is manufacturer_document by analogy.
+  tec_tx_error_increment: &iso
+    {value: 8, unit: count, source: "ISO 11898-1:2015 clause 12.1.4 (fault confinement rules)",
+     confidence: manufacturer_document, uncertainty: "exceptions of the standard (ACK error while error-passive, stuff error in an arbitration flag) are not modelled",
+     hardware_revision: n/a, owner: firmware and base controller owner,
+     test: test_bus_faults.py::test_error_counter_state_machine, last_verified: null,
+     measurement_item: MP-10}
+  success_decrement: {<<: *iso, value: 1}
+  rec_rx_error_increment: {<<: *iso, value: 1}
+  rec_rx_error_severe_increment: {<<: *iso, value: 8}
+  rec_passive_success_value: {<<: *iso, value: 127, uncertainty: the standard allows 119 to 127}
+  error_passive_threshold: {<<: *iso, value: 128}
+  bus_off_threshold: {<<: *iso, value: 256}
+  recovery_sequences: {<<: *iso, value: 128, test: test_bus_faults.py::test_bus_off_manual_recovery_timing}
+  recovery_sequence_bits: {<<: *iso, value: 11, unit: bit, test: test_bus_faults.py::test_bus_off_manual_recovery_timing}
+  error_frame_bits:
+    {value: 23, unit: bit, source: "ISO 11898-1:2015 (error flag up to 12 bits including superposition, delimiter 8, intermission 3)",
+     confidence: estimate, uncertainty: 17 to 23 bits depending on the flag superposition; worst case used,
+     hardware_revision: n/a, owner: firmware and base controller owner,
+     test: test_bus_faults.py::test_tx_errors_drive_bus_off_and_cost_bus_time, last_verified: null,
+     measurement_item: MP-15}
+  passive_suspend_bits:
+    {value: 8, unit: bit, source: "ISO 11898-1:2015 (suspend transmission of an error-passive transmitter)",
+     confidence: manufacturer_document, uncertainty: none in the model,
+     hardware_revision: n/a, owner: firmware and base controller owner,
+     test: test_bus_faults.py::test_tx_errors_drive_bus_off_and_cost_bus_time, last_verified: null,
+     measurement_item: MP-15}
+  default_bus_off_recovery:
+    {value: manual, unit: mode, source: "SIL test value: a bus-off stays until recovery is requested, like Linux restart-ms 0 (RG-COM-004)",
+     confidence: estimate, uncertainty: used only where a bus has no recovery value,
+     hardware_revision: n/a, owner: firmware and base controller owner,
+     test: test_bus_faults.py::test_bus_off_manual_recovery_timing, last_verified: null,
+     measurement_item: MP-10}
+
+uarts:
+  tof_front: &tf_luna
+    sensor: TF-Luna on STM32 USART2
+    baud:
+      {value: 115200, unit: bit/s,
+       source: "audits@d776cec:night-shift/inputs/evans-documents.md#L204-L212; platform-sw@fe071f4:ros2/src/openamrobot_drivers/launch/drivers.launch.py#L42",
+       confidence: manufacturer_document, uncertainty: STM32 clock error not known (RG-TIM-009),
+       hardware_revision: Benewake PD-TF-Luna-Datasheet-A05, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_uart_baud_mismatch_threshold, last_verified: null,
+       measurement_item: MP-20}
+    data_bits: {value: 8, unit: bit, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L212", confidence: manufacturer_document, uncertainty: none, hardware_revision: Benewake PD-TF-Luna-Datasheet-A05, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    parity: {value: N, unit: none, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L212", confidence: manufacturer_document, uncertainty: none, hardware_revision: Benewake PD-TF-Luna-Datasheet-A05, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    stop_bits: {value: 1, unit: bit, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L212", confidence: manufacturer_document, uncertainty: none, hardware_revision: Benewake PD-TF-Luna-Datasheet-A05, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    byte_error_rate:
+      {value: null, unit: 1, source: null, confidence: unknown,
+       uncertainty: no capture; MP-20 does not list a UART error capture yet (proposed addition),
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_uart_corruption_rates, last_verified: null,
+       measurement_item: MP-20}
+  tof_rear: *tf_luna
+  ultrasonic_front_left: &mb7060
+    sensor: MB7060 on an STM32 UART (RX inverted)
+    baud:
+      {value: 9600, unit: bit/s,
+       source: "audits@d776cec:night-shift/inputs/evans-documents.md#L198-L210",
+       confidence: manufacturer_document, uncertainty: STM32 clock error not known (RG-TIM-009),
+       hardware_revision: MaxBotix XL-MaxSonar-WR datasheet 11838ab, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null,
+       measurement_item: MP-20}
+    data_bits: {value: 8, unit: bit, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L210", confidence: manufacturer_document, uncertainty: none, hardware_revision: MaxBotix XL-MaxSonar-WR datasheet 11838ab, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    parity: {value: N, unit: none, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L210", confidence: manufacturer_document, uncertainty: none, hardware_revision: MaxBotix XL-MaxSonar-WR datasheet 11838ab, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    stop_bits: {value: 1, unit: bit, source: "audits@d776cec:night-shift/inputs/evans-documents.md#L210", confidence: manufacturer_document, uncertainty: none, hardware_revision: MaxBotix XL-MaxSonar-WR datasheet 11838ab, owner: firmware and base controller owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-20}
+    byte_error_rate:
+      {value: null, unit: 1, source: null, confidence: unknown,
+       uncertainty: no capture; MP-20 does not list a UART error capture yet (proposed addition),
+       hardware_revision: null, owner: firmware and base controller owner,
+       test: test_bus_faults.py::test_uart_corruption_rates, last_verified: null,
+       measurement_item: MP-20}
+  ultrasonic_front_right: *mb7060
+  ultrasonic_rear_left: *mb7060
+  ultrasonic_rear_right: *mb7060
+  lidar:
+    sensor: RPLIDAR S3 through a USB to UART adapter on the Jetson
+    baud:
+      {value: 1000000, unit: bit/s,
+       source: "audits@d776cec:night-shift/inputs/findings-web.md#L122; platform-sw@fe071f4:ros2/src/openamrobot_drivers/launch/drivers.launch.py#L36",
+       confidence: manufacturer_document, uncertainty: USB adapter buffering and latency not modelled,
+       hardware_revision: Slamtec RPLIDAR S3 (S3M1-R2) datasheet rev 1.0, owner: navigation owner,
+       test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null,
+       measurement_item: MP-17}
+    data_bits: {value: 8, unit: bit, source: "audits@d776cec:night-shift/inputs/findings-web.md#L122", confidence: manufacturer_document, uncertainty: none, hardware_revision: Slamtec RPLIDAR S3 (S3M1-R2) datasheet rev 1.0, owner: navigation owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-17}
+    parity: {value: N, unit: none, source: "audits@d776cec:night-shift/inputs/findings-web.md#L122", confidence: manufacturer_document, uncertainty: none, hardware_revision: Slamtec RPLIDAR S3 (S3M1-R2) datasheet rev 1.0, owner: navigation owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-17}
+    stop_bits: {value: 1, unit: bit, source: "audits@d776cec:night-shift/inputs/findings-web.md#L122", confidence: manufacturer_document, uncertainty: none, hardware_revision: Slamtec RPLIDAR S3 (S3M1-R2) datasheet rev 1.0, owner: navigation owner, test: test_bus_faults.py::test_config_builds_every_uart, last_verified: null, measurement_item: MP-17}
+    byte_error_rate:
+      {value: null, unit: 1, source: null, confidence: unknown,
+       uncertainty: no capture; MP-17 does not list a UART error capture yet (proposed addition),
+       hardware_revision: null, owner: navigation owner,
+       test: test_bus_faults.py::test_uart_corruption_rates, last_verified: null,
+       measurement_item: MP-17}
+
+profiles:
+  # SIL test values. Not measured, not proposals for the real bus.
+  nominal:
+    seed: 0
+    can: {}
+    uart: {}
+  degraded:
+    seed: 20261116
+    can:
+      drive:
+        - {name: drive_rx_heartbeat, arbitration_id: 0x700, mask: 0x780, direction: rx,
+           delay_s: 0.002, jitter: {distribution: uniform, low_s: 0.0, high_s: 0.003},
+           loss_p: 0.01}
+        - {name: drive_tx_targets, arbitration_id: 0x600, mask: 0x780, direction: tx,
+           delay_s: 0.001, jitter: {distribution: exponential, mean_s: 0.0005},
+           loss_p: 0.005, duplicate_p: 0.002, reorder_p: 0.01, reorder_window_s: 0.005}
+      bms:
+        - {name: bms_answers, arbitration_id: 0x0, mask: 0x0, extended: true, direction: rx,
+           delay_s: 0.010, jitter: {distribution: normal, mean_s: 0.0, sigma_s: 0.003},
+           burst: {rate_hz: 0.05, duration_s: 0.5}}
+    uart:
+      tof_front: {byte_loss_p: 0.001, framing_error_p: 0.0005,
+                  noise_burst_rate_hz: 0.1, noise_burst_duration_s: 0.002}
+      lidar: {byte_loss_p: 0.0001}

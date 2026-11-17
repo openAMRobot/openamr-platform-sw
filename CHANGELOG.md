@@ -13,6 +13,10 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — CAN and UART fault and timing layer (W4, Proposed, 16 Nov 2026)
+
+- `openamrobot_sil/models/bus_faults.py`: `FaultyBus` wraps a given python-can virtual or vcan bus and adds per-rule delay, jitter, loss, duplication, reordering and outages on the injected clock; `CanBusModel` computes frame time, serialisation, priority arbitration and bus load; `CanErrorCounters` models TEC, REC, error-passive, bus-off and recovery (ISO 11898-1); `UartFaultModel` corrupts sensor UART byte streams. A clock generation change flushes every queued frame. Parameters with sources in `config/models/bus_faults.yaml`; documentation `docs/architecture/sil-bus-fault-layer.md`; 27 tests in `test_bus_faults.py`. No emulator uses the layer yet. Development evidence only.
+
 ### Documentation
 
 - Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
