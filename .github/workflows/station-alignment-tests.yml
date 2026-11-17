@@ -14,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
+      - 'docs/architecture/station_alignment.md'
       - '.github/workflows/station-alignment-tests.yml'
   workflow_dispatch:
     inputs:
