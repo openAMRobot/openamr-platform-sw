@@ -111,3 +111,11 @@ def test_the_station_controller_stays_inside_the_commissioning_limits():
     assert 0.0 < approach['v_linear_min'] < approach['v_linear_max'] <= COMMISSIONING_V
     assert approach['v_angular_max'] <= COMMISSIONING_W
     assert approach['v_angular_min_in_place'] <= approach['v_angular_max']
+
+
+def test_amcl_updates_within_the_station_approach():
+    """AMCL corrects the map pose during the last part of the station approach: it updates at least every 0.05 m and
+    0.05 rad of odometry, well inside the 0.35 m and 0.35 rad left after the coarse navigation."""
+    amcl = params()['amcl']['ros__parameters']
+    assert amcl['update_min_d'] <= 0.05
+    assert amcl['update_min_a'] <= 0.05

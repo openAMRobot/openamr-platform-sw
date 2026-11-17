@@ -38,8 +38,12 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.2
-    update_min_d: 0.25
+    # 0.25 m / 0.2 rad -> 0.05 m / 0.05 rad (Proposed, 17 Nov 2026, station approach). With 0.25 / 0.2 AMCL updated 16
+    # times in a 130 s Baseline 1 mission and not during the last 0.3 m of the station approach; at the station its map
+    # pose was 0.035 to 0.050 m from ground truth (runs 44100053272, 44100120091), against the 0.015 m the station
+    # tolerance leaves to localization. More filter updates cost CPU on the robot computer: owner to confirm.
+    update_min_a: 0.05
+    update_min_d: 0.05
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5
