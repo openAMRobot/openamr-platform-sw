@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Test plant of the station alignment simulation: openamrobot_description robo_urdf.urdf.xacro unchanged, plus two
+     Gazebo-only elements. No link, joint, mass or inertia is added or changed.
+
+     1. Ground truth: the world pose of base_footprint (OdometryPublisher). The trial runner reads it. No robot node does.
+     2. A test-only base camera sensor at the pose of base_camera_link (base_link + (0.387, 0, 0.046), pitch -0.1745 rad,
+        10 deg up, bt10), image frame base_camera_color_optical_frame. The description gives base_camera_link no Gazebo
+        sensor; its only camera sensor is the legacy camera_link one (/rgb_image), 0.154 m higher and level (audits #89,
+        upperbody-sw #24, platform-sw #53). This sensor is declared on base_link with an explicit pose; the workflow
+        checks the pose `gz sdf -p` gives it against base_footprint (scripts/check_camera_pose.py) before any trial.
+        It goes away when the description carries a verified base camera sensor (dependency, not fixed here).
+        Every camera parameter is UNVERIFIED: 640 x 400 at 5 Hz is a reduced working value for hosted CI runners; the
+        94 deg horizontal field of view is the vendor figure for the Gemini 336L colour stream, not checked here.
+     Simulation only. No safety function. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openamrobot">
+  <xacro:include filename="$(find openamrobot_description)/urdf/robo_urdf.urdf.xacro"/>
+
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odom_topic>/station_alignment/gz/ground_truth_odom</odom_topic>
+      <tf_topic>/station_alignment/gz/ground_truth_tf</tf_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+  </gazebo>
+
+  <gazebo reference="base_link">
+    <sensor name="station_alignment_base_camera" type="camera">
+      <pose>0.387 0 0.046 0 -0.1745 0</pose>
+      <topic>/base_camera/color/image_raw</topic>
+      <gz_frame_id>base_camera_color_optical_frame</gz_frame_id>
+      <update_rate>5</update_rate>
+      <camera>
+        <horizontal_fov>1.6406</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>400</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>8.0</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.007</stddev>
+        </noise>
+      </camera>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+    </sensor>
+  </gazebo>
+</robot>

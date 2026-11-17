@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openamrobot_station_alignment</name>
+  <version>0.1.0</version>
+  <description>Station-relative final alignment (Proposed): AprilTag marker plate on the shelf, station pose estimate
+    with covariance in base_footprint, and a goal refinement that hands corrected station goals to Nav2's station
+    tree. No velocity publisher, no controller. Includes a separate test world and a simulated trial runner.</description>
+
+  <maintainer email="botshare.ai@gmail.com">OpenAMRobot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>apriltag_msgs</exec_depend>
+  <exec_depend>apriltag_ros</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>openamrobot_nav2</exec_depend>
+
+  <!-- Simulation only (station_alignment_sim.launch.py, trials) -->
+  <exec_depend>openamrobot_description</exec_depend>
+  <exec_depend>openamrobot_docking</exec_depend>
+  <exec_depend>openamrobot_perception</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

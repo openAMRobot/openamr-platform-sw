@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT -->
+<sdf version="1.9">
+  <!-- Station marker plate (Proposed, 17 Nov 2026): two coplanar AprilTag 36h11 panels, ids 3 and 4, 0.125 m panels with
+       a 0.10 m black square, 0.30 m apart. The +x face shows the tags (same convention as model://apriltag_dock).
+       +x is the shelf's outward normal, +y is minus the shelf axis u: tag 3 (u -0.15) is at y +0.15, tag 4 at y -0.15.
+       Visual only: no collision, so the plate is not an obstacle; it stands above the LiDAR plane (0.222 m).
+       Ids 0 to 2 stay the charging dock's. Simulation only; the real plate is a printed target. -->
+  <model name="station_marker">
+    <static>true</static>
+    <link name="link">
+      <visual name="tag3">
+        <pose>0 0.150 0 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <geometry><box><size>0.002 0.125 0.125</size></box></geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0 0 0 0</specular>
+          <pbr><metal>
+            <albedo_map>model://station_marker/materials/textures/apriltag_36h11_id3.png</albedo_map>
+            <metalness>0.0</metalness>
+            <roughness>1.0</roughness>
+          </metal></pbr>
+        </material>
+      </visual>
+      <visual name="tag4">
+        <pose>0 -0.150 0 0 0 0</pose>
+        <cast_shadows>false</cast_shadows>
+        <geometry><box><size>0.002 0.125 0.125</size></box></geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0 0 0 0</specular>
+          <pbr><metal>
+            <albedo_map>model://station_marker/materials/textures/apriltag_36h11_id4.png</albedo_map>
+            <metalness>0.0</metalness>
+            <roughness>1.0</roughness>
+          </metal></pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

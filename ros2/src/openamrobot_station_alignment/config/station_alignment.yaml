@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MIT
+# Station-relative final alignment (Proposed, 17 Nov 2026). docs/architecture/station_alignment.md.
+# Station: Build 1 work shelf. Every value is a simulation working value, not a site or robot value.
+station_marker_detector:
+  ros__parameters:
+    base_frame: base_footprint
+    detections_topic: /apriltag/detections
+    station_pose_topic: /station_alignment/station_pose
+    # Marker plate: 36h11 ids 3 and 4 (0 to 2 are the charging dock's), centres 0.15 m either side of the plate
+    # origin along the shelf axis; the station is 0.713 m in front of the plate face (parking gap 0.30 m + footprint
+    # front 0.415 m - plate 0.002 m in front of the shelf edge), facing the shelf. scene.py derives the same numbers;
+    # test/test_scene.py checks that they agree.
+    tag_ids: [3, 4]
+    tag_frames: [station_marker_3, station_marker_4]
+    tag_offsets: [-0.15, 0.15]
+    standoff: 0.713
+    lateral: 0.0
+    window: 10
+    gate_xy: 0.02
+    gate_yaw: 0.04
+    floor_xy: 0.003
+    floor_yaw: 0.005
+    single_tag_floor_yaw: 0.03
+
+station_alignment:
+  ros__parameters:
+    navigate_action: navigate_to_pose
+    action_name: /station_alignment/navigate_to_station
+    station_pose_topic: /station_alignment/station_pose
+    report_topic: /station_alignment/report
+    global_frame: map
+    base_frame: base_footprint
+    settle_s: 1.0
+    samples: 8
+    sample_timeout_s: 6.0
+    max_iterations: 3
+    # Equal to station_goal_checker (platform-sw #164, 0.025 m, 0.05 rad): a smaller correction would not move the
+    # robot, because the goal checker accepts it at once.
+    accept_xy: 0.025
+    accept_yaw: 0.05
+    # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
+    max_correction_xy: 0.15
+    max_correction_yaw: 0.30
+    max_sample_spread_xy: 0.01
+    navigation_timeout_s: 300.0
