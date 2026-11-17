@@ -204,11 +204,14 @@ class StationAlignment(Node):
                 goal_handle.abort()
             return result
 
-        ok, why = self._navigate(goal_handle, target, frame)
+        nominal_ok, why = self._navigate(goal_handle, target, frame)
         report["iterations"].append({"goal": target, "nav2": why})
-        if not ok:
-            return finish(False, why)
-        failed = False
+        if goal_handle.is_cancel_requested:
+            return finish(False, "canceled")
+        # A failed #164 goal is not the end: the base may stop a few centimetres off (for example the progress
+        # checker on a goal it already almost reached). The marker decides; without a marker the failure stands.
+        nominal_why = why
+        failed = not nominal_ok
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
@@ -220,7 +223,9 @@ class StationAlignment(Node):
             if status != sampling.DONE:
                 why = ("marker not seen" if status == sampling.NOT_SEEN else "no fresh marker sample") + \
                     f": {window.received} received, {len(window.fresh)} fresh, simulation time"
-                return not_aligned(why) if iteration == 0 else finish(False, why)
+                if sampling.without_marker(iteration, nominal_ok) == "not_aligned":
+                    return not_aligned(why)
+                return finish(False, why if nominal_ok or iteration else f"{nominal_why}; {why}")
             residual, spread = window.result()
             step.update({"residual": residual, "spread_xy": spread})
             if spread > float(p("max_sample_spread_xy")):

@@ -20,6 +20,16 @@ from openamrobot_station_alignment import geometry
 DONE, WAITING, NOT_SEEN, STALE = "done", "waiting", "not_seen", "stale"
 
 
+def without_marker(iteration, nominal_ok):
+    """What the alignment does when the window ends without a usable marker pose.
+
+    "not_aligned" only right after a #164 approach that Nav2 reported succeeded and before any correction moved the
+    base: the base is where #164 put it. Otherwise "abort": Nav2 failed (the base may be anywhere), or a correction
+    already moved the base without a confirming measurement.
+    """
+    return "not_aligned" if iteration == 0 and nominal_ok else "abort"
+
+
 class SampleWindow:
     def __init__(self, after_ns, samples, timeout_s, max_latency_s):
         self.after_ns = int(after_ns)

@@ -80,3 +80,9 @@ def test_result_is_the_mean_of_the_last_samples():
         w.add((k + 1) * S, (k + 1) * S, pose)
     mean, spread = w.result()
     assert abs(mean[0] - 0.02) < 1e-12 and abs(spread - 0.01) < 1e-12
+
+
+def test_without_a_marker_only_an_untouched_successful_approach_is_not_aligned():
+    assert sampling.without_marker(0, True) == "not_aligned"
+    assert sampling.without_marker(0, False) == "abort"
+    assert sampling.without_marker(1, True) == "abort"

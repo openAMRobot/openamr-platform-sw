@@ -98,7 +98,9 @@ wall clock is used. The report records the received count and the latency (arriv
 Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
 which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,
 outside Nav2's codes) and the report outcome `not aligned: ...`; a caller that needs the alignment checks the code.
-`on_marker_not_seen: abort` restores an abort. After a correction has moved the robot, a missing marker still aborts.
+`on_marker_not_seen: abort` restores an abort. After a correction has moved the robot, or when Nav2 reported the #164
+goal failed, a missing marker aborts. A failed #164 goal is measured before it is reported: Nav2 aborted a resent
+station goal on the progress checker with the base about 3 cm away (run 44163882664); the marker then decides.
 Accuracy limits are unchanged.
 
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
