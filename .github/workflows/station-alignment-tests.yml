@@ -91,6 +91,7 @@ jobs:
       - name: Revert run of the sample window fix (353e3d6 node)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"   # undo the previous step's removal
           git fetch --no-tags --depth=1 origin 353e3d650a79f470c42f507faa7683054e101832
           cd "$PKG_DIR"
           git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/openamrobot_station_alignment/station_alignment_node.py \
