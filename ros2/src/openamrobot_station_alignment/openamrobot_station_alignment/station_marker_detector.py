@@ -15,7 +15,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, TransformListener
 
 from openamrobot_station_alignment import geometry
 
@@ -38,7 +38,7 @@ class StationMarkerDetector(Node):
         self.declare_parameter("floor_yaw", 0.005)
         self.declare_parameter("single_tag_floor_yaw", 0.03)
         self.declare_parameter("min_tags", 2)
-        self.declare_parameter("tf_timeout", 0.2)
+        self.declare_parameter("tf_timeout", 1.0)
         p = self.get_parameter
         ids = [int(i) for i in p("tag_ids").value]
         frames = list(p("tag_frames").value)
@@ -50,13 +50,13 @@ class StationMarkerDetector(Node):
         self.base_frame = p("base_frame").value
         self.window = collections.deque(maxlen=int(p("window").value))
         self.tf_buffer = Buffer()
-        # Own spin thread: lookups below wait for the tag transforms of the same image, which must not depend on
-        # this callback returning.
-        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.pending = collections.deque()
         self.pub = self.create_publisher(PoseWithCovarianceStamped, p("station_pose_topic").value, 10)
         self.create_subscription(AprilTagDetectionArray, p("detections_topic").value, self.on_detections, 10)
         self.stats = collections.Counter()
         self.create_timer(10.0, self.log_stats)
+        self.create_timer(0.05, self.process_pending)
 
     def log_stats(self):
         """Counts of the last 10 s (node clock): detection messages, ids seen, TF failures, poses published."""
@@ -65,29 +65,38 @@ class StationMarkerDetector(Node):
         self.stats.clear()
 
     def _tag(self, frame, stamp):
-        t = self.tf_buffer.lookup_transform(self.base_frame, frame, Time.from_msg(stamp),
-                                            Duration(seconds=float(self.get_parameter("tf_timeout").value)))
+        t = self.tf_buffer.lookup_transform(self.base_frame, frame, stamp)
         q = t.transform.rotation
         v = t.transform.translation
         return (v.x, v.y, v.z), geometry.rotation_matrix(q.x, q.y, q.z, q.w)
 
     def on_detections(self, msg):
+        """Queue the detection: apriltag_ros publishes the detections before the tag transforms of the same image."""
         self.stats["messages"] += 1
         seen = sorted({int(d.id) for d in msg.detections if int(d.id) in self.frames})
         self.stats[f"seen_{len(seen)}"] += 1
-        if not seen:
-            return
-        tags = {}
-        for tag_id in seen:
-            try:
-                tags[tag_id] = self._tag(self.frames[tag_id], msg.header.stamp)
-            except TransformException as e:
+        if len(seen) >= int(self.get_parameter("min_tags").value):
+            self.pending.append((Time.from_msg(msg.header.stamp), msg.header.stamp, seen))
+
+    def process_pending(self):
+        """Estimate every queued image whose tag transforms have arrived; drop those older than tf_timeout."""
+        now = self.get_clock().now()
+        keep = collections.deque()
+        timeout = Duration(seconds=float(self.get_parameter("tf_timeout").value))
+        while self.pending:
+            stamp, stamp_msg, seen = self.pending.popleft()
+            ready = [i for i in seen if self.tf_buffer.can_transform(self.base_frame, self.frames[i], stamp)]
+            if len(ready) == len(seen):
+                self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
+            elif now - stamp > timeout:
                 self.stats["tf_failed"] += 1
-                if self.stats["tf_failed"] <= 2:
-                    self.get_logger().warn(f"tag {tag_id}: {e}")
-        if len(tags) < int(self.get_parameter("min_tags").value):
-            self.stats["too_few_tags"] += 1
-            return
+                if len(ready) >= int(self.get_parameter("min_tags").value):
+                    self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
+            else:
+                keep.append((stamp, stamp_msg, seen))
+        self.pending = keep
+
+    def estimate(self, stamp_msg, tags):
         try:
             pose, mode = geometry.station_from_tags(self.layout, tags)
         except ValueError as e:
@@ -103,7 +112,7 @@ class StationMarkerDetector(Node):
         if mode == "single":
             floor_yaw = max(floor_yaw, self.get_parameter("single_tag_floor_yaw").value)
         out = PoseWithCovarianceStamped()
-        out.header.stamp = msg.header.stamp
+        out.header.stamp = stamp_msg
         out.header.frame_id = self.base_frame
         out.pose.pose.position.x, out.pose.pose.position.y = pose[0], pose[1]
         qx, qy, qz, qw = geometry.quaternion_of_yaw(pose[2])

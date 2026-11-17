@@ -76,7 +76,7 @@ class StationAlignment(Node):
         self.lock = threading.Lock()
         self.samples = []
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         self.nav = ActionClient(self, NavigateToPose, self.get_parameter("navigate_action").value,
                                 callback_group=self.group)
         self.report = self.create_publisher(String, self.get_parameter("report_topic").value, 10)
