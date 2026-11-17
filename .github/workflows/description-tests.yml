@@ -70,15 +70,15 @@ jobs:
 
   # Gazebo Harmonic job for test_gazebo_friction.py: the friction must survive the
   # URDF to SDF conversion (`gz sdf -p`). Gazebo is pinned to the exact vendor packages below
-  # (recorded 14 Nov 2026: gz-sim 8.15.0, sdformat 14.9.0). With OPENAMR_REQUIRE_GZ=1 a
+  # (recorded 14 Nov 2026: gz-sim 8.15.0, sdformat 14.9.0; vendor builds re-pinned 16 Nov 2026 after the ROS sync removed the old builds). With OPENAMR_REQUIRE_GZ=1 a
   # missing gz fails, and a non-zero or empty `gz sdf -p` result always fails; none skips.
   description-gazebo-tests:
     runs-on: ubuntu-24.04
     container: ros:jazzy-ros-base
     env:
-      GZ_SIM_VENDOR: 0.0.13-1noble.20260905.073557
-      GZ_TOOLS_VENDOR: 0.0.8-1noble.20260820.143431
-      SDFORMAT_VENDOR: 0.0.14-1noble.20260905.033543
+      GZ_SIM_VENDOR: 0.0.13-1noble.20261031.125555
+      GZ_TOOLS_VENDOR: 0.0.8-1noble.20261025.230735
+      SDFORMAT_VENDOR: 0.0.14-1noble.20261031.120928
       GZ_SIM_VERSION: 8.15.0
       SDFORMAT_VERSION: 14.9.0
       OPENAMR_REQUIRE_GZ: '1'
