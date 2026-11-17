@@ -139,7 +139,8 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_navigation_launch_bt_xml_resolves_to_no_backup.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_behavior_server_direct_actions_absent.py \
             ros2/src/openamrobot_nav2/test/test_goal_pose_forwarder_full_chain.py \
-            ros2/src/openamrobot_nav2/test/test_goal_pose_forwarder_node.py
+            ros2/src/openamrobot_nav2/test/test_goal_pose_forwarder_node.py \
+            ros2/src/openamrobot_nav2/test/test_station_approach_config.py
           # (platform-sw#90, Mohamed's review on 31dcd09): test_goal_pose_forwarder_node.py
           # covers the two P2 points from that review directly against a fake
           # navigate_to_pose server (no navigation_launch.py/tf2_ros needed) - a goal_pose
