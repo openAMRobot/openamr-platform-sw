@@ -222,7 +222,7 @@ class LiftHost(_Worker):
         self.permit_period_s = permit_period_s
         self.permit = False          # false at boot
         self.permit_silent = False   # True: stop sending permit frames (expiry test)
-        self.boot_id = random.getrandbits(16) or 1
+        self.boot_id = self._new_boot_id()
         self.permit_seq = 0
         self.seq = 0
         self.cmd = None
@@ -251,6 +251,17 @@ class LiftHost(_Worker):
         # Never replay a command given before; send heartbeat and permit state at once.
         self.cmd = None
         self._t_hb = self._t_ka = self._t_permit = self._t_nmt = -math.inf
+        if event == 'reset':
+            # A reset power cycles every emulated device, this stand-in too: a new permit boot
+            # id, so a permit frame of the old boot that arrives late is not trusted (R5).
+            self.boot_id = self._new_boot_id(self.boot_id)
+
+    @staticmethod
+    def _new_boot_id(old=None):
+        boot = random.getrandbits(16) or 1
+        while boot == old:
+            boot = random.getrandbits(16) or 1
+        return boot
 
     def set_permit(self, permit):
         with self.lock:

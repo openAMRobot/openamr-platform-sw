@@ -21,9 +21,17 @@ for the internal plant. The timeout values are not changed (rule C3). A time res
 cycle of the node; a stall halts the lift and invalidates the permit, so motion needs a new
 command after the resume.
 
+Before the first ``/clock`` the node is not powered: it sends no frame (boot-up, heartbeat),
+drops every received frame and runs no step; it powers up at the first clock time with a
+boot-up frame (clock-reset contract R1). A reset loses the receive queue with the power cycle:
+frames received before the reset never act after it (R5). Frames delayed in transport past the
+reset cannot be told apart, since CAN frames carry no generation (#159).
+
 Emulation of documented device behaviour only. Not a safety function.
 """
 import struct
+
+import can
 
 from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
 from openamrobot_sil.sim_time import ClockWatch, SteadyClock
@@ -83,6 +91,9 @@ class GazeboCtl017(c.Ctl017Emulator):
         self._clock_watch = ClockWatch(self.clock)
         self.clock_resets = 0
         self.clock_stalls = 0
+        self.powered = self.clock.fed  # False until the first clock time (R1)
+        self.pre_clock_drops = 0     # frames received before the first clock
+        self.reset_drops = 0         # frames in the receive queue at a reset (R5)
         self.permit_cfg = permit
         self.external = False
         self._joint_mm = None
@@ -97,14 +108,39 @@ class GazeboCtl017(c.Ctl017Emulator):
         """Overrides the vendored hook: every CTL-017 timer reads the given clock (C1)."""
         return clock_ms(self.clock)
 
+    def _power_on(self):
+        """First clock time: power-up. Returns False while the clock is not fed yet (R1)."""
+        if self.powered:
+            return True
+        if not self.clock.fed:
+            return False
+        self.powered = True
+        self._clock_watch = ClockWatch(self.clock)
+        self._reinit()           # every timer starts at the first clock time
+        self._send_boot()
+        return True
+
+    def _drain_rx(self):
+        """A power cycle loses the receive queue: drop what is waiting in it (R5)."""
+        while True:
+            try:
+                msg = self.bus.recv(timeout=0)
+            except can.CanError:
+                return
+            if msg is None:
+                return
+            self.reset_drops += 1
+
     def _follow_clock(self):
         """Apply a reset or a stall of the clock before this step uses the time."""
         event = self._clock_watch.poll()
         if event == 'reset':
             # Time moved backward: power cycle. Boot-up frame, PRE-OPERATIONAL, targets and
-            # permit dropped, unhomed unless the lift stands at a stop sensor.
+            # permit dropped, unhomed unless the lift stands at a stop sensor. The receive queue
+            # is lost with it.
             self.clock_resets += 1
             self.power_cycle()
+            self._drain_rx()
         elif event in ('stall', 'resume'):
             # Pause longer than the stall bound: the vendored STOP command, and the permit is
             # invalid until a new permit frame arrives. Repeated at the resume, so a frame or
@@ -113,10 +149,28 @@ class GazeboCtl017(c.Ctl017Emulator):
                 self.clock_stalls += 1
             self._cmd_stop()
             self.permit_valid = False
+        return event
 
     def tick(self, dt):
+        if not self._power_on():
+            return
         self._follow_clock()
         super().tick(dt)
+
+    def _handle(self, msg):
+        """Every received frame (NMT, SDO, PDO) meets the clock first (R1, R5)."""
+        if not self._power_on():
+            self.pre_clock_drops += 1
+            return
+        if self._follow_clock() == 'reset':
+            self.reset_drops += 1    # received before the reset was seen: lost with the queue
+            return
+        super()._handle(msg)
+
+    def _send(self, arb_id, data):
+        if not self.powered:
+            return  # not powered before the first clock: no boot-up, no heartbeat (R1)
+        super()._send(arb_id, data)
 
     # --- plant: the Gazebo lift joint -------------------------------------
     def attach_external_plant(self, joint_position_m):
@@ -246,6 +300,9 @@ class GazeboCtl017(c.Ctl017Emulator):
                 'permit_stops': self.permit_stops,
                 'clock_resets': self.clock_resets,
                 'clock_stalls': self.clock_stalls,
+                'powered': self.powered,
+                'pre_clock_drops': self.pre_clock_drops,
+                'reset_drops': self.reset_drops,
             }
 
 

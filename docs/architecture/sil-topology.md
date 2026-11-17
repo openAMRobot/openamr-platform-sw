@@ -261,6 +261,13 @@ Implemented in `openamrobot_sil` (inventory: 3 sites `to_change`, all in vendore
 - Forward jumps: `ClockCoordinator` counts a forward step above `JUMP_BOUND_S` (1 s simulation
   time, proposal, the stall bound value) and `NodeClock` logs `jump_report()`. Report only: no
   device decision reads it and no timeout changed (C3).
+- Lift path (17 Nov 2026, [clock-reset-contract.md](clock-reset-contract.md), Proposed): before the
+  first `/clock` the CTL-017 node sends no frame, drops every received frame and runs no step; it
+  powers up with a boot-up frame at the first clock time. A reset drops the node's receive queue
+  with the power cycle, and every received frame, NMT included, meets the clock before it acts.
+  The host stand-in takes a new permit boot id at a reset. `test/test_lift_fw_sil.py` covers the
+  lift path scenarios (permit, motion and feedback, cancel, reset, stale frames, repeated,
+  delayed and jumping clock, bridge and host reconnection).
 - Open gaps, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
   ZLAC8015D handles a frame from its receive queue after the reset power cycle; an RPDO1 delayed
   in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch); #160 the
