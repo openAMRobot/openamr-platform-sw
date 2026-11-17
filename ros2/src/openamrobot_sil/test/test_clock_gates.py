@@ -483,7 +483,6 @@ def test_host_stand_in_sends_nothing_before_the_first_clock(make_bus):
         lift_host.stop()
 
 
-@pytest.mark.xfail(strict=True, reason='#160: ZLAC8015D emulator heartbeat and SDO run before the first /clock')  # tracked: #160
 def test_before_the_first_clock_the_drive_sends_no_heartbeat_and_takes_no_enable(make_bus):
     clock = FedClock()
     raw = make_bus()
@@ -496,6 +495,29 @@ def test_before_the_first_clock_the_drive_sends_no_heartbeat_and_takes_no_enable
         heartbeats = [d for d in frames(raw, 0x701) if d != b'\x00']
         assert heartbeats == []                            # no heartbeat producer yet
         assert not emu.enabled                             # no command accepted
+    finally:
+        emu.stop()
+
+
+def test_at_the_first_clock_the_drive_boots_then_heartbeats_and_takes_an_enable(make_bus):
+    """#160: the first /clock powers the drive: boot-up frame first, then heartbeats, and
+    an SDO enable sent after the first clock is accepted."""
+    clock = FedClock()
+    raw = make_bus()
+    emu = GazeboZlac8015d(make_bus(), 1, clock=clock).start()
+    try:
+        time.sleep(0.1)
+        assert frames(raw, 0x701) == []                    # nothing before the first clock
+        clock.update(0.0)                                  # first /clock
+        assert wait_for(lambda: emu.powered, 1.0)
+        time.sleep(0.35)
+        hb = frames(raw, 0x701)
+        assert hb and hb[0] == b'\x00' and len(hb) >= 3   # boot-up, then heartbeats
+        sdo = canopen_common.SdoClient(raw, 1)
+        for word in (0x06, 0x07, 0x0F):
+            sdo.write(0x6040, 0, word, 2)
+        assert emu.enabled
+        assert emu.pre_clock_drops == 0
     finally:
         emu.stop()
 
