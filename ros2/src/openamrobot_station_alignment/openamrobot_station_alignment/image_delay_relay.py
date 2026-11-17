@@ -9,7 +9,6 @@ import collections
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from rclpy.time import Time
 from sensor_msgs.msg import Image
 
 
@@ -23,13 +22,19 @@ class ImageDelayRelay(Node):
         # Reliable output: compatible with reliable subscribers (camera_info_sync) and best-effort ones alike. A
         # best-effort publisher here left camera_info_sync with no image at all (run 44168522141, rtf02).
         self.pub = self.create_publisher(Image, self.get_parameter("output").value, 10)
-        self.create_subscription(Image, self.get_parameter("input").value, self.queue.append, qos_profile_sensor_data)
+        self.delay_ns = int(float(self.get_parameter("delay_s").value) * 1e9)
+        self.create_subscription(Image, self.get_parameter("input").value, self.on_image, qos_profile_sensor_data)
         self.create_timer(0.02, self.release)
 
+    def on_image(self, msg):
+        self.queue.append(msg)
+
     def release(self):
-        delay = int(float(self.get_parameter("delay_s").value) * 1e9)
         now = self.get_clock().now().nanoseconds
-        while self.queue and Time.from_msg(self.queue[0].header.stamp).nanoseconds + delay <= now:
+        while self.queue:
+            stamp = self.queue[0].header.stamp
+            if stamp.sec * 1_000_000_000 + stamp.nanosec + self.delay_ns > now:
+                break
             self.pub.publish(self.queue.popleft())
 
 
