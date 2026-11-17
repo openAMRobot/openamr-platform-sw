@@ -13,6 +13,7 @@ is collision_monitor. Simulation evidence only: not robot, site or safety accept
 import argparse
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -244,8 +245,11 @@ def main(argv=None):
     with open(args.markdown, "w", encoding="utf-8") as f:
         f.write(text)
     print(text, flush=True)
-    rclpy.shutdown()
-    return 0 if record["passed"] else 1
+    code = 0 if record["passed"] else 1
+    # Exit without interpreter teardown: tearing down rclpy with the executor thread still spinning ended the
+    # process with status 245 after "result: PASS" (run 44168522141, rtf1). The result files are written above.
+    sys.stdout.flush()
+    os._exit(code)
 
 
 if __name__ == "__main__":

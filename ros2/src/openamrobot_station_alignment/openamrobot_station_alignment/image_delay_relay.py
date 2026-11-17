@@ -20,7 +20,9 @@ class ImageDelayRelay(Node):
         self.declare_parameter("output", "/base_camera/color/image_delayed")
         self.declare_parameter("delay_s", 7.0)
         self.queue = collections.deque()
-        self.pub = self.create_publisher(Image, self.get_parameter("output").value, qos_profile_sensor_data)
+        # Reliable output: compatible with reliable subscribers (camera_info_sync) and best-effort ones alike. A
+        # best-effort publisher here left camera_info_sync with no image at all (run 44168522141, rtf02).
+        self.pub = self.create_publisher(Image, self.get_parameter("output").value, 10)
         self.create_subscription(Image, self.get_parameter("input").value, self.queue.append, qos_profile_sensor_data)
         self.create_timer(0.02, self.release)
 

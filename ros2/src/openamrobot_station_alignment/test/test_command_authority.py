@@ -97,3 +97,10 @@ def test_the_alignment_node_uses_no_wall_clock():
     t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
     # time.sleep only paces the polling; every deadline is on the node clock (simulation time)
     assert "monotonic" not in {n.attr for n in ast.walk(t) if isinstance(n, ast.Attribute)}
+
+
+def test_the_image_relay_publishes_reliable():
+    """A best-effort publisher reaches no reliable subscriber (camera_info_sync): run 44168522141 got no image."""
+    t = tree(os.path.join(PKG, "openamrobot_station_alignment", "image_delay_relay.py"))
+    calls = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "create_publisher"]
+    assert len(calls) == 1 and ast.unparse(calls[0].args[2]) != "qos_profile_sensor_data"
