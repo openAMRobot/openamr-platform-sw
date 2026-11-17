@@ -12,6 +12,8 @@ BMS answer timeout run on the clock it is given (the process ``FedClock`` in a S
 steady time otherwise). Host sleeps are only an upper bound of one wait (C5). After a reset or
 a stall of that clock it drops every buffered command and starts the drive bring-up again, so
 no actuator resumes from a command given before.
+
+With stm32:=renode_readonly it runs with DriveHost mode "command_only" next to the firmware.
 """
 import math
 import random
@@ -24,8 +26,33 @@ import can
 from openamrobot_sil import daly_bms
 from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
 from openamrobot_sil.sim_time import ClockWatch, Stamp, SteadyClock
-from openamrobot_sil.zlac_gazebo import (RPM_TO_RAD_S, twist_to_wheel_speeds,
-                                         wheel_speeds_to_twist)
+from openamrobot_sil.zlac_gazebo import (RPDO1_BASE, RPDO2_BASE, RPM_TO_RAD_S,
+                                         twist_to_wheel_speeds, wheel_speeds_to_twist)
+
+DRIVE_MODES = ('sdo', 'command_only')
+
+
+class SdoForbidden(RuntimeError):
+    """The command-only drive client tried to send an SDO request."""
+
+
+class _CommandOnlyBus:
+    """Bus wrapper of the command-only drive client: it refuses every frame to the SDO server
+    of the drive (600h + node), so the client cannot take the SDO channel from the firmware."""
+
+    def __init__(self, bus, node_id):
+        self._bus = bus
+        self._sdo_id = canopen_common.SDO_RX_BASE + node_id
+        self.sent = 0
+        self.refused = 0
+
+    def send(self, msg, timeout=None):
+        if not msg.is_extended_id and msg.arbitration_id == self._sdo_id:
+            self.refused += 1
+            raise SdoForbidden('command-only drive client: SDO frame %03X refused'
+                               % msg.arbitration_id)
+        self._bus.send(msg, timeout)
+        self.sent += 1
 
 
 # Longest single host sleep while waiting for the worker clock (C5: an upper bound of waiting).
@@ -99,14 +126,30 @@ class _Worker:
 
 class DriveHost(_Worker):
     """CAN1 role: configure and enable the ZLAC8015D, write 60FFh, read 606Ch, integrate
-    odometry from the speeds the drive reports."""
+    odometry from the speeds the drive reports.
+
+    mode "command_only" (stm32:=renode_readonly): the firmware image in Renode owns the SDO
+    channel of the drive and reads 606Ch, 6041h, 603Fh and 2026h itself. The client then sends
+    no SDO frame at all, only the SIL receive PDOs of zlac_gazebo (controlword enable sequence,
+    then the wheel targets every cycle), reads nothing and integrates no odometry. 2000h is not
+    written either; the emulator starts with it stored (stored_link_loss_ms).
+    """
 
     period_s = 0.02  # 50 Hz control cycle assumed in platform-fw docs/architecture/can1-drive-link.md
 
     def __init__(self, bus, node_id, link_loss_ms, wheel_radius, wheel_separation,
-                 left_sign=1, right_sign=1, sdo_timeout_s=0.1, clock=None):
+                 left_sign=1, right_sign=1, sdo_timeout_s=0.1, clock=None, mode='sdo'):
         super().__init__(clock)
-        self.sdo = canopen_common.SdoClient(bus, node_id, timeout=sdo_timeout_s)
+        if mode not in DRIVE_MODES:
+            raise ValueError('drive mode must be one of %s, got %r' % (DRIVE_MODES, mode))
+        self.mode = mode
+        self.node_id = node_id
+        self.cmd_bus = None
+        if mode == 'command_only':
+            self.cmd_bus = _CommandOnlyBus(bus, node_id)
+            self.sdo = None
+        else:
+            self.sdo = canopen_common.SdoClient(bus, node_id, timeout=sdo_timeout_s)
         self.link_loss_ms = int(link_loss_ms)
         self.wheel_radius = wheel_radius
         self.wheel_separation = wheel_separation
@@ -158,11 +201,29 @@ class DriveHost(_Worker):
             s.write(0x6040, 0, word, 2)
         self.configured = True
 
+    def _send_pdo(self, arb_id, data):
+        self.cmd_bus.send(can.Message(arbitration_id=arb_id, data=data, is_extended_id=False))
+
+    def _step_command_only(self, rpm):
+        try:
+            if not self.configured:
+                for word in (0x06, 0x07, 0x0F):            # CiA 402 enable sequence, RPDO2
+                    self._send_pdo(RPDO2_BASE + self.node_id, struct.pack('<H', word))
+                self.configured = True
+            self._send_pdo(RPDO1_BASE + self.node_id, struct.pack('<ii', rpm[0], rpm[1]))
+        except can.CanError:
+            with self.lock:
+                self.sdo_errors += 1
+                self.configured = False
+
     def step(self):
         with self.lock:
             if self.silent:
                 return
             rpm = self.target_rpm()
+        if self.mode == 'command_only':
+            self._step_command_only(rpm)
+            return
         try:
             if not self.configured:
                 self._bring_up()
@@ -197,7 +258,9 @@ class DriveHost(_Worker):
 
     def state(self):
         with self.lock:
-            return {'configured': self.configured, 'silent': self.silent,
+            return {'mode': self.mode, 'configured': self.configured, 'silent': self.silent,
+                    'pdo_frames_sent': self.cmd_bus.sent if self.cmd_bus else 0,
+                    'sdo_frames_refused': self.cmd_bus.refused if self.cmd_bus else 0,
                     'sdo_errors': self.sdo_errors, 'statusword': self.statusword,
                     'fault_code': self.fault_code, 'target_rpm': list(self.target_rpm()),
                     'wheel_rad_s': list(self.wheel_rad_s), 'samples': self.samples,
