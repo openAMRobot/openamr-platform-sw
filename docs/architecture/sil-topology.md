@@ -214,7 +214,10 @@ inventory change.
 
 `openamrobot_sil/sim_time.py` is the interface every device model takes instead of reading host
 time: `now()`, `generation` (increases on every reset or backward jump, so a command, enable or
-permit stamped earlier is never fresh again) and `paused`. `FedClock` is fed from `/clock`;
+permit stamped earlier is never fresh again), `snapshot()` (time and generation read together) and
+`paused`. `FedClock` keeps time and generation in one tuple that a `/clock` update replaces in a
+single assignment, so a `Stamp` taken on another thread never pairs a pre-reset time with the new
+generation, or the reverse. `FedClock` is fed from `/clock`;
 `ManualClock` drives tests; `SteadyClock` is host time for an internal plant and for health checks.
 `Stamp` and `is_fresh` judge freshness by receipt time in the receiver's domain (C6); a stamp
 taken before a stall (`stalls` counter) is not fresh after it either. `ClockCoordinator` feeds a
@@ -264,11 +267,21 @@ Implemented in `openamrobot_sil` (inventory: 3 sites `to_change`, all in vendore
 - Forward jumps: `ClockCoordinator` counts a forward step above `JUMP_BOUND_S` (1 s simulation
   time, proposal, the stall bound value) and `NodeClock` logs `jump_report()`. Report only: no
   device decision reads it and no timeout changed (C3).
-- Open gaps, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
+- Lift path (17 Nov 2026, [clock-reset-contract.md](clock-reset-contract.md), Proposed): before the
+  first `/clock` the CTL-017 node sends no frame, drops every received frame and runs no step; it
+  powers up with a boot-up frame at the first clock time. A reset drops the node's receive queue
+  with the power cycle, and every received frame, NMT included, meets the clock before it acts.
+  The host stand-in takes a new permit boot id at a reset. `test/test_lift_fw_sil.py` covers the
+  lift path scenarios (permit, motion and feedback, cancel, reset, stale frames, repeated,
+  delayed and jumping clock, bridge and host reconnection).
+- Open gap, tracked, tests `xfail` (strict): #159 frames from before a reset act after it (the
   ZLAC8015D handles a frame from its receive queue after the reset power cycle; an RPDO1 delayed
-  in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch); #160 the
-  ZLAC8015D emulator heartbeats and accepts SDO before the first `/clock` (vendored tick on host
-  time, with #57). Both are platform lead decisions.
+  in transport past the CTL-017 restart runs, since RPDO1 has no producer epoch). A platform lead
+  decision.
+- First clock, ZLAC8015D (#160, 17 Nov 2026, Proposed, platform lead to confirm): as the CTL-017
+  node, `GazeboZlac8015d` is not powered before the first `/clock`: no boot-up, no heartbeat, every
+  received frame dropped, no step; at the first clock time it powers up through the vendored
+  `power_cycle()`. Wrapper only, no vendored file changed.
 
 Not yet on `gazebo` (openamr-platform-fw #57 first, then a re-vendor):
 `canopen_common.py` (node tick and `dt`, heartbeat producer period, SDO client timeout) and

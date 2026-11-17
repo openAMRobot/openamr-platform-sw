@@ -217,3 +217,54 @@ def test_fed_clock_is_not_fed_before_its_first_time():
     clk.update(0.0)
     assert clk.fed and clk.generation == 0
     assert ManualClock().fed and SteadyClock().fed
+
+
+# --- atomic stamp (review finding, 17 Nov 2026) ------------------------------------------------
+
+class ResetOnFirstRead(ManualClock):
+    """Deterministic stand-in for a /clock reset arriving on another thread: the first read of
+    the clock state returns the pre-reset value and then a reset to 0 s lands, before any
+    second read the reader makes."""
+
+    def __init__(self, start):
+        super().__init__(start)
+        self.armed = False
+
+    def _fire(self):
+        if self.armed:
+            self.armed = False
+            self.reset(0.0)
+
+    def now(self):
+        t = super().now()
+        self._fire()
+        return t
+
+    def snapshot(self):
+        state = super().snapshot()
+        self._fire()
+        return state
+
+
+def test_stamp_takes_time_and_generation_together_across_a_reset():
+    clk = ResetOnFirstRead(100.0)
+    clk.armed = True
+    s = Stamp(clk)
+    assert clk.generation == 1 and clk.now() == 0.0       # the reset landed during the stamp
+    # never a pre-reset time paired with the new generation, or the reverse
+    assert (s.t, s.generation) in ((100.0, 0), (0.0, 1))
+    clk.advance(100.05)
+    assert not is_fresh(s, clk, 0.1)    # a pre-reset value never becomes fresh after the reset
+
+
+def test_snapshot_is_time_and_generation_of_every_clock():
+    clk = FedClock(2.0)
+    assert clk.snapshot() == (2.0, 0)
+    clk.update(1.0)
+    assert clk.snapshot() == (1.0, 1) == (clk.now(), clk.generation)
+    man = ManualClock(3.0)
+    man.reset(3.0)
+    man.advance(0.5)
+    assert man.snapshot() == (3.5, 1)
+    t, gen = SteadyClock().snapshot()
+    assert gen == 0 and t <= SteadyClock().now()

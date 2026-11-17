@@ -14,13 +14,13 @@
 # needs: where the change has to happen first (vendored code changes start in openamr-platform-fw).
 #
 # Counted patterns per file: time.monotonic(, time.time(, time.sleep(, device_timer( and
-# health_timer( calls, create_timer(, get_clock(), clock.now(), Stamp( and is_fresh( calls. The
-# vendored platform-fw tests (vendor/can_sil/tests) are not counted: they are test deadlines,
-# rule C5.
+# health_timer( calls, create_timer(, get_clock(), clock.now(), clock.snapshot(), Stamp( and
+# is_fresh( calls. The vendored platform-fw tests (vendor/can_sil/tests) are not counted: they
+# are test deadlines, rule C5.
 version: 1
 files:
   openamrobot_sil/sim_time.py:
-    counts: {time.monotonic: 1, clock.now: 3}
+    counts: {time.monotonic: 1, clock.now: 2, clock.snapshot: 1}
     sites:
       - what: SteadyClock.now(), the host-time implementation of the clock interface (internal plant, health checks)
         current: steady
@@ -36,6 +36,11 @@ files:
         current: gazebo
         target: gazebo
         rule: C1
+        status: conforms
+      - what: Stamp receipt time and generation, read together by clock.snapshot() in the receiver's domain
+        current: gazebo
+        target: gazebo
+        rule: C6
         status: conforms
   openamrobot_sil/stm32_host.py:
     counts: {time.sleep: 1, clock.now: 12, Stamp: 1}
@@ -69,9 +74,14 @@ files:
         rule: C1
         status: conforms
   openamrobot_sil/ctl017_gazebo.py:
-    counts: {clock.now: 1}
+    counts: {clock.now: 2}
     sites:
       - what: clock_ms(), behind the _now_ms override; time base of every CTL-017 timer and of the permit freshness gate
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: _now() and the _run override, firmware time of the CTL-017 node thread (the dt of every emulator step and the heartbeat producer period); the host receive timeout of tick_s stays a wait bound
         current: gazebo
         target: gazebo
         rule: C1
@@ -92,7 +102,7 @@ files:
   openamrobot_sil/vendor/can_sil/canopen_common.py:
     counts: {time.monotonic: 5}
     sites:
-      - what: node thread tick and the dt passed to every emulator tick (plant integration, heartbeat period)
+      - what: node thread tick and the dt passed to every emulator tick (plant integration, heartbeat period); the CTL-017 node replaces this loop with the firmware-time loop of ctl017_gazebo.py, the ZLAC8015D node still runs it
         current: steady
         target: gazebo
         rule: C1
