@@ -6,11 +6,11 @@ This branch is never merged into `main`: each PR keeps its own review. Simulatio
 
 | Order | PR | Branch | Head SHA | Merge commit | Conflicts | Gate status |
 |---|---|---|---|---|---|---|
-| 1 | #152 | ci/repin-gz-vendor-2026-11-16 | `546743b` | `6d35912` | none | see the PR's run on this branch |
-| 2 | #146 | fix/wheel-loaded-radius | `68642a8` | `0742c3d` | none (CHANGELOG.md, STATE.md, sil-topology.md merged automatically) | see the PR's run on this branch |
-| 3 | #149 | claude/optimistic-planck-frfht7 | `e7f242e` | `d4c9f72` | none | see the PR's run on this branch |
-| 4 | #151 | ws1/clock-contract | `fe071f4` | `e9e6481` | `sil-tests.yml` protocol count, `CHANGELOG.md` | see the PR's run on this branch |
-| 5 | #158 | ws1/time-injection (stacked on #151) | `38728c8` | `d36b33a` | `sil-tests.yml` protocol count, `CHANGELOG.md` | see the PR's run on this branch |
+| 1 | #152 | ci/repin-gz-vendor-2026-11-16 | `546743b` | `6d35912` | none | branch gate |
+| 2 | #146 | fix/wheel-loaded-radius | `68642a8` | `0742c3d` | none (CHANGELOG.md, STATE.md, sil-topology.md merged automatically) | branch gate |
+| 3 | #149 | claude/optimistic-planck-frfht7 | `e7f242e` | `d4c9f72` | none | branch gate |
+| 4 | #151 | ws1/clock-contract | `fe071f4` | `e9e6481` | `sil-tests.yml` protocol count, `CHANGELOG.md` | branch gate |
+| 5 | #158 | ws1/time-injection (stacked on #151) | `38728c8` | `d36b33a` | `sil-tests.yml` protocol count, `CHANGELOG.md` | branch gate |
 | - | #141 | sil/renode-telemetry | `9913d87` | not merged | see below | excluded |
 | - | #144 | sil/renode-uros (stacked on #141) | `53a69e9` | not merged | see below | excluded |
 | - | #145 | claude/jolly-albattani-o25o3c (stacked on #144) | `8c5bd52` | not merged | see below | excluded |
@@ -50,4 +50,15 @@ with #151 and #158.
   Python's in-process CAN bus, not vcan; no ROS on the machine, so the 10 tests of the two ignored files did not run.
 - `python3 -m pytest --collect-only` of `test` with a collection-only stub for `launch_ros`: 126 collected, plus 5 in
   `test_node_clock.py` counted from the source: 131.
-- Not run here: colcon build, vcan, Gazebo, the CI workflows. Their results are in the draft PR of this branch.
+- Not run here: colcon build, vcan, Gazebo. CI on the branch head `e0dd1d7` (draft PR #161), 17 Nov 2026:
+  `sil-tests` run 44076631488 passed (36 vendored, 131 protocol with 3 strict xfail, 6 Gazebo end-to-end, all on vcan);
+  `description-tests` run 44076631476 passed (221 description tests; 14 friction tests on gz-sim 8.15.0 and sdformat
+  14.9.0 with #152's vendor pins; 13 of 14 fail with the fix reverted, as intended); `Repository quality` passed.
+
+## Branch gate status
+
+"branch gate" in the table means: the merged tree passes the platform workflows above. It is not Baseline 1.
+The whole-robot acceptance run (openamr-upperbody-sw draft PR #77, run 44076639872) on `d36b33a` did not pass:
+3 of 8 phases passed. Record and classification: openamr-upperbody-sw `docs/integration/baseline1.md`.
+
+Heads that moved after these merges (pinned here at the verified SHA, not re-merged): #158 is now `0b18678`.
