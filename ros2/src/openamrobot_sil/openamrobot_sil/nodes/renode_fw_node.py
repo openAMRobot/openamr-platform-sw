@@ -29,7 +29,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, MultiArrayDimension, String
 
 from openamrobot_sil import config, renode_fw
-from openamrobot_sil.nodes.common import publish_json, steady_timer
+from openamrobot_sil.nodes.common import outside_gazebo_timer, publish_json
 
 
 class RenodeFirmwareNode(Node):
@@ -73,8 +73,8 @@ class RenodeFirmwareNode(Node):
         self._console = None
         self._parser = None
         self._t_start = None
-        steady_timer(self, 0.02, self.poll)
-        steady_timer(self, 0.2, self.publish_status)
+        outside_gazebo_timer(self, 0.02, self.poll)
+        outside_gazebo_timer(self, 0.2, self.publish_status)
         self.get_logger().info('firmware %s@%s preset %s, Renode %s, CAN1 on %s' % (
             renode_fw.FW_REPOSITORY, renode_fw.FW_COMMIT, renode_fw.FW_PRESET,
             renode_fw.RENODE_VERSION, self.can_interface or 'an internal hub only'))

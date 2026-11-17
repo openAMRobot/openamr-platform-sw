@@ -124,7 +124,7 @@ files:
         rule: C5
         status: conforms
   openamrobot_sil/nodes/common.py:
-    counts: {health_timer: 1, create_timer: 2, clock.now: 2}
+    counts: {health_timer: 1, create_timer: 3, clock.now: 2}
     sites:
       - what: device_timer(), the node timer helper on the node's ROS time
         current: ros
@@ -135,6 +135,11 @@ files:
         current: steady
         target: steady
         rule: C5
+        status: conforms
+      - what: outside_gazebo_timer(), host steady timer for the nodes outside the Gazebo domain (Renode firmware node console poll 20 ms and status 200 ms, drive bus capture status 200 ms); keeps running in a Gazebo pause; never an emulator device timer
+        current: steady
+        target: steady
+        rule: C2
         status: conforms
       - what: NodeClock log lines with the fed time
         current: gazebo

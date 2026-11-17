@@ -15,7 +15,7 @@ from std_msgs.msg import String
 
 from openamrobot_sil import config, renode_fw
 from openamrobot_sil.canbus import open_bus
-from openamrobot_sil.nodes.common import publish_json, steady_timer
+from openamrobot_sil.nodes.common import outside_gazebo_timer, publish_json
 
 
 class DriveBusAuditNode(Node):
@@ -35,7 +35,7 @@ class DriveBusAuditNode(Node):
         self._running = True
         self._thread = threading.Thread(target=self._rx, daemon=True)
         self._thread.start()
-        steady_timer(self, 0.2, self.publish)
+        outside_gazebo_timer(self, 0.2, self.publish)
         self.get_logger().info('capturing %s to %s' % (self.interface, self.capture_file))
 
     def _rx(self):

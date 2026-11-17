@@ -28,6 +28,14 @@ def health_timer(node, period_s, callback):
     return node.create_timer(period_s, callback, clock=STEADY)
 
 
+def outside_gazebo_timer(node, period_s, callback):
+    """Timer on host steady time for a node outside the Gazebo domain: the Renode firmware node
+    (console polling and status, the firmware itself keeps Renode virtual time, C2) and the drive
+    bus capture (test evidence, C5). It must keep running while Gazebo is paused, so it cannot be
+    on ROS time. Never a device timer of an emulator."""
+    return node.create_timer(period_s, callback, clock=STEADY)
+
+
 class NodeClock:
     """The simulation clock of one SIL process.
 
