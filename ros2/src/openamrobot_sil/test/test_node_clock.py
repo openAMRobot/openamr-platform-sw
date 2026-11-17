@@ -61,3 +61,78 @@ def test_sim_time_node_feeds_one_clock_from_clock_messages(make_node):
 def test_node_without_sim_time_uses_steady_time(make_node):
     sim = NodeClock(make_node(False))
     assert isinstance(sim.clock, SteadyClock) and sim.status()['domain'] == 'steady'
+
+
+# --- the health callback is a simulation-only hold, not a second command authority ------------
+
+import os  # noqa: E402
+import types  # noqa: E402
+
+from geometry_msgs.msg import Twist  # noqa: E402
+from std_msgs.msg import Float64  # noqa: E402
+
+from openamrobot_sil.canbus import open_bus  # noqa: E402
+from openamrobot_sil.nodes import ctl017_node, zlac8015d_node  # noqa: E402
+
+CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      'config', 'sil.yaml')
+
+
+@pytest.fixture
+def sim_time_ros():
+    rclpy.init(args=['--ros-args', '-p', 'use_sim_time:=true', '-p', 'config_file:=' + CONFIG])
+    yield
+    rclpy.shutdown()
+
+
+def drain(bus):
+    out = []
+    msg = bus.recv(timeout=0.05)
+    while msg is not None:
+        out.append(msg)
+        msg = bus.recv(timeout=0.05)
+    return out
+
+
+def device_view(kind, node):
+    if kind == 'drive':
+        s = node.emu.state()
+        return (s['enabled'], s['target_rpm'], s['demand_rpm'], s['nmt_state'], s['faults'],
+                s['clock_stalls'], s['clock_resets'])
+    s = node.emu.state_dict()
+    return (s['drive_on'], s['target_stop'], s['state'], s['nmt_state'], s['faults'],
+            s['cmd_result'], s['clock_stalls'], s['clock_resets'])
+
+
+@pytest.mark.parametrize('kind', ['drive', 'lift'])
+def test_health_callback_only_effect_is_the_simulation_only_plant_hold(sim_time_ros, monkeypatch,
+                                                                       kind):
+    module = zlac8015d_node if kind == 'drive' else ctl017_node
+    channel = 'virtual:health-%s' % kind
+    monkeypatch.setattr(module, 'open_bus', lambda _iface: open_bus(channel))
+    node = module.ZlacNode() if kind == 'drive' else module.Ctl017Node()
+    spy = open_bus(channel)
+    try:
+        if kind == 'drive':
+            node.emu.stop()          # the emulator thread reacts on its own step; not tested here
+        drain(spy)
+        published = []
+        node.cmd_pub = types.SimpleNamespace(publish=published.append)   # spy on the hold
+        wall = ManualClock()
+        node.sim.coordinator.steady = wall
+        node.sim.on_clock(ClockMsg(clock=Time(sec=5)))
+        before = device_view(kind, node)
+        node.sim.on_health()                               # no stall: no effect at all
+        assert published == []
+        wall.advance(1.5)
+        for _ in range(5):
+            node.sim.on_health()                           # one stall, one hold
+        hold = Twist() if kind == 'drive' else Float64(data=0.0)
+        assert published == [hold]                         # zero to the Gazebo plant only
+        assert drain(spy) == []                            # no CAN frame from the health path
+        assert device_view(kind, node) == before           # the emulated device untouched
+        assert node.sim.status()['stalls'] == 1
+    finally:
+        node.shutdown()
+        node.destroy_node()
+        spy.shutdown()

@@ -35,7 +35,10 @@ class NodeClock:
     ``ClockCoordinator``; a steady health timer declares a stall when ``/clock`` stops (C5) and
     logs "simulation stalled", never a device fault. Without ``use_sim_time`` (internal plant)
     the clock is host steady time (C1). ``on_stall`` is called once per stall, on the health
-    timer, so the node can hold its plant command at zero while Gazebo does not run.
+    timer, so the node can hold its plant command at zero while Gazebo does not run. That hold
+    is the only thing the health timer does besides logging: a simulation-only hold of the
+    Gazebo plant command, not a second command authority. It sends no CAN frame and does not
+    touch the emulated device; the devices react to the stall at their own next step.
     ``add_check(fn)``: ``fn()`` returns None or a process-health problem to log.
     """
 
@@ -60,7 +63,11 @@ class NodeClock:
         self._checks.append(fn)
 
     def on_clock(self, msg):
+        jumps = self.coordinator.jumps
         event = self.coordinator.feed(msg.clock.sec + msg.clock.nanosec * 1e-9)
+        if self.coordinator.jumps != jumps:
+            # Forward jump: reported next to any device timeout it lets expire (not a fault).
+            self.node.get_logger().warning(self.coordinator.jump_report())
         if event == 'reset':
             self.node.get_logger().warning(
                 'simulation time moved backward to %.3f s: emulated devices power cycle' %
@@ -86,7 +93,7 @@ class NodeClock:
         if self.coordinator is not None:
             return self.coordinator.status()
         return {'domain': 'steady', 'fed': False, 'generation': 0, 'paused': False, 'stalls': 0,
-                'resets': 0}
+                'resets': 0, 'jumps': 0}
 
 
 def thread_check(name, worker):

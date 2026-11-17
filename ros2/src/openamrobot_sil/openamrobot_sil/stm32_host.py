@@ -70,6 +70,9 @@ class _Worker:
         """Drop what was buffered before a reset or stall. Subclasses extend it."""
 
     def _run(self):
+        if not self.clock.fed:
+            # First-clock startup: no step, no frame before the first /clock time (C1).
+            self._wait_until(0.0)
         next_t = self.clock.now()
         while self._running:
             if self.follow_clock() == 'reset':
@@ -81,10 +84,10 @@ class _Worker:
         """Wait until the worker clock reaches t; returns the next base time of the loop."""
         clock = self.clock
         generation = clock.generation
-        if t - clock.now() <= 0:
+        if clock.fed and t - clock.now() <= 0:
             return clock.now()  # behind: do not catch up with a burst
         while self._running and clock.generation == generation:
-            remaining = t - clock.now()
+            remaining = t - clock.now() if clock.fed else WAIT_POLL_S
             if remaining <= 0:
                 return t
             time.sleep(min(remaining, WAIT_POLL_S))

@@ -9,7 +9,9 @@ Every device model takes a clock object instead of reading host time. A clock gi
   A command, enable or permit stamped in an older generation is never fresh again (gate D3);
 - ``paused``: True while the domain does not advance;
 - ``stalls``: an integer that increases every time a stall is declared (a pause longer than the
-  stall bound). A command, enable or permit received before a stall is never fresh after it.
+  stall bound). A command, enable or permit received before a stall is never fresh after it;
+- ``fed``: False only for a ``FedClock`` that has not received its first time yet. A device
+  model or stand-in does not act before it (first-clock startup).
 
 ``Stamp`` and ``is_fresh`` implement freshness by receipt time in the receiver's domain (rule C6).
 Host-process health (rule C5) uses ``SteadyClock`` only and never raises a device fault.
@@ -32,6 +34,7 @@ class SimClock:
         self.generation = 0
         self.paused = False
         self.stalls = 0
+        self.fed = True
 
     def now(self):
         raise NotImplementedError
@@ -60,6 +63,7 @@ class FedClock(SimClock):
         super().__init__()
         self.domain = domain
         self._t = float(start)
+        self.fed = False
 
     def update(self, t):
         t = float(t)
@@ -68,6 +72,7 @@ class FedClock(SimClock):
         if t < self._t:
             self.generation += 1
         self._t = t
+        self.fed = True
         return self.generation
 
     def now(self):
@@ -87,6 +92,7 @@ class ManualClock(FedClock):
 
     def __init__(self, start=0.0):
         super().__init__(start, domain='manual')
+        self.fed = True
 
     def advance(self, dt):
         if dt < 0:
@@ -126,6 +132,10 @@ def is_fresh(stamp, clock, max_age):
 # Contract section 6.3: a pause longer than 1 s wall time counts as a stall (proposal, software
 # lead). A process-health bound (C5), not a device or firmware timeout (C3).
 STALL_BOUND_S = 1.0
+# A forward step of the fed time larger than this between two /clock messages is reported as a
+# jump (proposal, software lead; same value as the stall bound). Report only: no device decision
+# reads it, and no device timeout changes (C3).
+JUMP_BOUND_S = STALL_BOUND_S
 
 
 class ClockCoordinator:
@@ -136,32 +146,60 @@ class ClockCoordinator:
     ``steady`` time it declares a stall and returns the "simulation stalled" report. A stall is
     never a device fault: it is reported here, and the device models drop motion and permits
     through ``ClockWatch``. Before the first ``/clock`` nothing is declared.
+
+    A forward step larger than ``jump_bound_s`` is a jump: the device models see the elapsed
+    time, so their own timeouts expire as they would on the device (C3), and ``jump_report()``
+    gives the report that goes next to any fault they raise. A jump is never a new generation.
+    A duplicate time (the same time twice) is not an advance: it neither stalls nor resets.
     """
 
-    def __init__(self, clock=None, stall_bound_s=STALL_BOUND_S, steady=None):
+    def __init__(self, clock=None, stall_bound_s=STALL_BOUND_S, steady=None,
+                 jump_bound_s=JUMP_BOUND_S):
         self.clock = clock if clock is not None else FedClock()
         self.stall_bound_s = float(stall_bound_s)
+        self.jump_bound_s = float(jump_bound_s)
         self.steady = steady if steady is not None else SteadyClock()
         self.fed = False
         self.resets = 0
+        self.jumps = 0
+        self.last_jump = None     # (from_s, to_s) of the last jump
         self._last_advance = None
 
     def feed(self, t):
-        """Take one ``/clock`` time. Returns 'reset', 'resumed' or None."""
+        """Take one ``/clock`` time. Returns 'reset', 'resumed', 'jump' or None.
+
+        A jump that also ends a stall returns 'resumed'; ``jumps`` counts it either way."""
         clk = self.clock
         before_t, before_gen = clk.now(), clk.generation
         clk.update(t)
         event = None
+        jumped = False
         if clk.generation != before_gen:
             self.resets += 1
             event = 'reset'
+        elif self.fed and clk.now() - before_t > self.jump_bound_s:
+            self.jumps += 1
+            self.last_jump = (before_t, clk.now())
+            jumped = True
         if not self.fed or event or clk.now() > before_t:
             self.fed = True
             self._last_advance = self.steady.now()
             if clk.paused:
                 clk.declare_resume()
                 event = event or 'resumed'
+        if event is None and jumped:
+            event = 'jump'
         return event
+
+    def jump_report(self):
+        """Report of the last forward jump, or None. Not a device fault."""
+        if self.last_jump is None:
+            return None
+        before, after = self.last_jump
+        return ('simulation time jumped forward by %.3f s, from %.3f s to %.3f s (jump %d): '
+                'device timers see the elapsed time, a device timeout that expires in it is the '
+                'device behaviour; the jump itself is not a device fault' % (
+                    after - before, before, after, self.jumps))
 
     def check(self):
         """Health check on steady time. Returns the stall report once per stall, else None."""
@@ -179,7 +217,7 @@ class ClockCoordinator:
         clk = self.clock
         return {'domain': clk.domain, 'now': round(clk.now(), 3), 'fed': self.fed,
                 'generation': clk.generation, 'paused': clk.paused, 'stalls': clk.stalls,
-                'resets': self.resets, 'stall_bound_s': self.stall_bound_s}
+                'resets': self.resets, 'jumps': self.jumps, 'stall_bound_s': self.stall_bound_s}
 
 
 class ClockWatch:
