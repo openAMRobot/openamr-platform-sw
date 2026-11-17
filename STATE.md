@@ -37,6 +37,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
+| Clock contract (D2, Proposed): domains, rules C1 to C6, pause, reset and restart gates in docs/architecture/sil-topology.md section 6; config/clock_inventory.yaml and test_clock_inventory.py keep every clock read listed with its domain (16 Nov 2026) | ws1/clock-contract | draft | software lead accepts or changes the rules; then CTL-017 on Gazebo time through the `_now_ms` hook, node timers on ROS time; ZLAC8015D and canopen_common need an injectable clock in openamr-platform-fw first |
 
 ## Decisions this repository implements
 
@@ -60,6 +61,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
+- Clock contract (16 Nov 2026): every device and node timer in openamrobot_sil still runs on host monotonic time (clock_inventory.yaml, status to_change); lift scenarios depend on runner speed until C1 is implemented.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
   public-extract price findings, 3 unpinned actions; fixed or tracked in step (c).
 

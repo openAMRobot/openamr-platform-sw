@@ -103,7 +103,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 77, 'sil-gazebo.xml': 4}
+          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 87, 'sil-gazebo.xml': 4}
           for name, want in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')
