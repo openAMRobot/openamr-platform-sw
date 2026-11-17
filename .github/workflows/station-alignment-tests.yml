@@ -184,6 +184,10 @@ jobs:
         run: |
           { echo "### Station alignment trials (simulation only)"; echo "head $(cat head.txt 2>/dev/null)";
             cat out/station_alignment_trials.md 2>/dev/null || echo "no result table"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "--- per-trial message counts"
+          grep -o '"message_counts": {[^}]*}' out/station_alignment_trials.json 2>/dev/null || true
+          echo "--- station_marker_detector and apriltag lines"
+          grep -nE "station_marker_detector|apriltag" out/launch.log | tail -60 || true
           echo "--- launch.log: errors and the last 80 lines"
           grep -nE "ERROR|FATAL|exception|Traceback|died" out/launch.log | head -60 || true
           tail -80 out/launch.log || true

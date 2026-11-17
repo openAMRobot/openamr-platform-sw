@@ -18,13 +18,16 @@ import threading
 import time
 
 import rclpy
+from apriltag_msgs.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import CameraInfo, Image
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from std_msgs.msg import String
 
@@ -46,6 +49,11 @@ class Runner(Node):
         self.create_subscription(PoseWithCovarianceStamped, "/station_alignment/station_pose",
                                  self._store("marker"), 10)
         self.create_subscription(String, "/station_alignment/report", self._store("report"), 10)
+        self.counts = {}
+        for topic, kind in (("/base_camera/color/image_raw", Image),
+                            ("/base_camera/color/camera_info_synced", CameraInfo),
+                            ("/apriltag/detections", AprilTagDetectionArray)):
+            self.create_subscription(kind, topic, self._count(topic), qos_profile_sensor_data)
         self.nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self.align = ActionClient(self, NavigateToPose, "/station_alignment/navigate_to_station")
 
@@ -54,12 +62,28 @@ class Runner(Node):
             with self.lock:
                 self.latest[key] = msg
                 if key == "marker":
+                    self.counts["station_pose"] = self.counts.get("station_pose", 0) + 1
                     q = msg.pose.pose.orientation
                     self.markers.append((Time.from_msg(msg.header.stamp).nanoseconds,
                                          (msg.pose.pose.position.x, msg.pose.pose.position.y,
                                           geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))))
                     del self.markers[:-200]
         return cb
+
+    def _count(self, topic):
+        def cb(msg):
+            with self.lock:
+                self.counts[topic] = self.counts.get(topic, 0) + 1
+                if topic == "/apriltag/detections":
+                    ids = tuple(sorted(int(d.id) for d in msg.detections))
+                    key = f"detections {ids}"
+                    self.counts[key] = self.counts.get(key, 0) + 1
+        return cb
+
+    def take_counts(self):
+        with self.lock:
+            out, self.counts = self.counts, {}
+        return out
 
     def get(self, key):
         with self.lock:
@@ -182,6 +206,8 @@ def main(argv=None):
             start = START_POSES[index % len(START_POSES)]
             trial = {"trial": index + 1, "start": start}
             t0 = time.monotonic()
+            sim0 = node.get_clock().now().nanoseconds
+            node.take_counts()
             status, _ = node.send(node.nav, start, "", args.goal_timeout)
             trial["to_start"] = status
             status, wall = node.send(node.nav, station, tree, args.goal_timeout)
@@ -196,6 +222,8 @@ def main(argv=None):
                 aligned["corrections"] = sum(1 for s in aligned["report"]["iterations"] if "corrected_goal" in s)
             trial["aligned"] = aligned
             trial["trial_wall_s"] = time.monotonic() - t0
+            trial["trial_sim_s"] = (node.get_clock().now().nanoseconds - sim0) * 1e-9
+            trial["message_counts"] = node.take_counts()
             record["trials"].append(trial)
             print(json.dumps(trial, default=str), flush=True)
             with open(args.out, "w", encoding="utf-8") as f:

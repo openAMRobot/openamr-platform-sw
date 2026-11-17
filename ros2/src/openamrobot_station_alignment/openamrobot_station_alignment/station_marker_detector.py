@@ -55,6 +55,14 @@ class StationMarkerDetector(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
         self.pub = self.create_publisher(PoseWithCovarianceStamped, p("station_pose_topic").value, 10)
         self.create_subscription(AprilTagDetectionArray, p("detections_topic").value, self.on_detections, 10)
+        self.stats = collections.Counter()
+        self.create_timer(10.0, self.log_stats)
+
+    def log_stats(self):
+        """Counts of the last 10 s (node clock): detection messages, ids seen, TF failures, poses published."""
+        if self.stats:
+            self.get_logger().info("stats " + " ".join(f"{k}={v}" for k, v in sorted(self.stats.items())))
+        self.stats.clear()
 
     def _tag(self, frame, stamp):
         t = self.tf_buffer.lookup_transform(self.base_frame, frame, Time.from_msg(stamp),
@@ -64,7 +72,9 @@ class StationMarkerDetector(Node):
         return (v.x, v.y, v.z), geometry.rotation_matrix(q.x, q.y, q.z, q.w)
 
     def on_detections(self, msg):
+        self.stats["messages"] += 1
         seen = sorted({int(d.id) for d in msg.detections if int(d.id) in self.frames})
+        self.stats[f"seen_{len(seen)}"] += 1
         if not seen:
             return
         tags = {}
@@ -72,8 +82,11 @@ class StationMarkerDetector(Node):
             try:
                 tags[tag_id] = self._tag(self.frames[tag_id], msg.header.stamp)
             except TransformException as e:
-                self.get_logger().debug(f"tag {tag_id}: {e}")
+                self.stats["tf_failed"] += 1
+                if self.stats["tf_failed"] <= 2:
+                    self.get_logger().warn(f"tag {tag_id}: {e}")
         if len(tags) < int(self.get_parameter("min_tags").value):
+            self.stats["too_few_tags"] += 1
             return
         try:
             pose, mode = geometry.station_from_tags(self.layout, tags)
@@ -98,6 +111,7 @@ class StationMarkerDetector(Node):
         o.x, o.y, o.z, o.w = qx, qy, qz, qw
         out.pose.covariance = geometry.covariance(list(self.window), self.get_parameter("floor_xy").value, floor_yaw)
         self.pub.publish(out)
+        self.stats["published"] += 1
 
 
 def main(args=None):
