@@ -63,6 +63,18 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 - **Modification status:** unmodified, byte for byte. `SHA256SUMS` records the hashes and `test/test_vendor_integrity.py` checks them.
 - **Reason for inclusion:** the ZLAC8015D and CTL-017 CANopen emulators are reused by `openamrobot_sil` instead of being rewritten. Details: `vendor/can_sil/PROVENANCE.md`.
 
+#### SysTick hook for the Renode run of the platform-fw telemetry image
+
+- **Files:** `ros2/src/openamrobot_sil/renode/sil_renode_helpers.py`, function `mc_sil_follow_systick`.
+- **Source:** [openAMRobot/openamr-platform-fw](https://github.com/openAMRobot/openamr-platform-fw), `tools/ci/renode_drive_stub.py`, function `_calibrate_systick`, commit `fcf81f8e2fe2fa9000685ab233907adbfadeec2a`.
+- **Licence:** MIT, copyright OpenAMRobot (Botshare LTD).
+- **Modification status:** adapted: renamed, made a monitor command, the print removed. The throttle and time report in the same file are new.
+
+#### Not redistributed: firmware image and Renode
+
+`scripts/sil_renode_firmware.sh` fetches openamr-platform-fw at the pinned commit (MIT) and builds the firmware image, and
+downloads the Renode 1.16.1 portable release (MIT, Antmicro; SHA-256 checked) at run time. Neither is committed here.
+
 ## Trademarks and Project Names
 
 The names OpenAMRobot and OpenAMR are used to identify the project maintained by the OpenAMRobot organization.

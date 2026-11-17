@@ -19,11 +19,21 @@ A simulation that has not started has no powered device; no decision logic of th
 emulator changes.
 """
 import math
+import struct
 
 from openamrobot_sil.can_sil import zlac8015d_emulator
 from openamrobot_sil.sim_time import ClockWatch, Stamp, SteadyClock, is_fresh
 
 RPM_TO_RAD_S = 2.0 * math.pi / 60.0
+
+# SIL receive PDOs for stm32:=renode_readonly. SIL test values, not a proposal and not the
+# real drive's PDO mapping (no mapping is recorded for the ZLAC8015D in this project). They let
+# the host test client command the drive without any SDO, so the SDO channel of the drive is
+# the firmware's alone.
+#   RPDO1 200h + node, 8 bytes: 60FFh:01 int32, 60FFh:02 int32 (target velocity, r/min)
+#   RPDO2 300h + node, 2 bytes: 6040h controlword
+RPDO1_BASE = 0x200
+RPDO2_BASE = 0x300
 
 
 class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
@@ -34,7 +44,7 @@ class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
     """
 
     def __init__(self, bus, node_id=1, heartbeat_ms=100, left_sign=1, right_sign=1,
-                 feedback_timeout_s=0.5, clock=None):
+                 feedback_timeout_s=0.5, clock=None, rpdo=False, stored_link_loss_ms=None):
         self.clock = clock if clock is not None else SteadyClock()
         self._clock_watch = ClockWatch(self.clock)
         self.clock_resets = 0
@@ -46,6 +56,31 @@ class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
         self.feedback_timeout_s = feedback_timeout_s
         self._feedback_rad_s = None
         self._feedback_stamp = None
+        self.rpdo = bool(rpdo)
+        self.rpdo_frames = 0
+        self.rpdo_rejected = 0
+        if stored_link_loss_ms is not None:
+            # As if 2000h had been written and saved with 2010h before this run: the value is
+            # in the emulated EEPROM and active from power-up, with no SDO write in the run.
+            self.od.set(0x2000, 0, int(stored_link_loss_ms))
+            self.eeprom[(0x2000, 0)] = int(stored_link_loss_ms)
+
+    def on_rx_frame(self, msg):
+        super().on_rx_frame(msg)
+        if not self.rpdo or msg.is_extended_id or msg.is_remote_frame:
+            return
+        if self.nmt_state != zlac8015d_emulator.NMT_OPERATIONAL:
+            return  # CiA 301: PDOs only in OPERATIONAL
+        data = bytes(msg.data)
+        if msg.arbitration_id == RPDO1_BASE + self.node_id and len(data) == 8:
+            self.rpdo_frames += 1
+            for sub, value in zip((1, 2), struct.unpack('<ii', data)):
+                if self.on_write(0x60FF, sub, value):
+                    self.rpdo_rejected += 1
+        elif msg.arbitration_id == RPDO2_BASE + self.node_id and len(data) >= 2:
+            self.rpdo_frames += 1
+            if self.on_write(0x6040, 0, struct.unpack('<H', data[:2])[0]):
+                self.rpdo_rejected += 1
 
     def set_wheel_feedback(self, left_rad_s, right_rad_s):
         """Wheel joint speeds from Gazebo, rad/s, positive forward."""
@@ -129,6 +164,9 @@ class GazeboZlac8015d(zlac8015d_emulator.Zlac8015dEmulator):
                 'clock_stalls': self.clock_stalls,
                 'powered': self.powered,
                 'pre_clock_drops': self.pre_clock_drops,
+                'rpdo': self.rpdo,
+                'rpdo_frames': self.rpdo_frames,
+                'rpdo_rejected': self.rpdo_rejected,
             }
 
 

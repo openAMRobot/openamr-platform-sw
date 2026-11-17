@@ -31,6 +31,14 @@ This project follows a simple changelog structure:
 ### Documentation
 
 - Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
+### Simulation — Firmware in the loop for telemetry: platform-fw image in Renode on the drive bus (15 Nov 2026)
+
+- `sil.launch.py` `stm32:=renode` runs the openamr-platform-fw telemetry image (commit fcf81f8, preset RenodeTest) in
+  Renode 1.16.1 with FDCAN1 on `vcan_drive` through Renode's SocketCAN bridge, next to the ZLAC8015D emulator. New
+  `stm32:=renode_readonly`: the host test client commands the drive with SIL receive PDOs and sends no SDO frame.
+- New nodes `renode_firmware` (banner check, `/sil/fw/console`, `/sil/fw/wheel_speeds`, reset and fresh start) and
+  `drive_bus_audit` (candump capture and SDO audit of `vcan_drive`); `scripts/sil_renode_firmware.sh` builds the image.
+- Tests: host, Renode-only and Gazebo-integrated (`sil-tests`). Topology section 4.1. Development evidence only.
 
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 

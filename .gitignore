@@ -90,3 +90,6 @@ temp/
 
 # UI — lives in its own separate repo (openamrobot-ui)
 ui/
+
+# SIL firmware-in-the-loop build (scripts/sil_renode_firmware.sh)
+.sil-renode/

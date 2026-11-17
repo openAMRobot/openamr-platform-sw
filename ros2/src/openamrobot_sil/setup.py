@@ -21,6 +21,7 @@ setup(
         (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
         (os.path.join('share', package_name, 'worlds'), glob('worlds/*.sdf')),
         (os.path.join('share', package_name, 'scripts'), glob('scripts/*.sh')),
+        (os.path.join('share', package_name, 'renode'), glob('renode/*.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=False,
@@ -37,6 +38,8 @@ setup(
             'ctl017_emulator = openamrobot_sil.nodes.ctl017_node:main',
             'daly_bms_emulator = openamrobot_sil.nodes.daly_bms_node:main',
             'stm32_host_client = openamrobot_sil.nodes.stm32_host_client_node:main',
+            'renode_firmware = openamrobot_sil.nodes.renode_fw_node:main',
+            'drive_bus_audit = openamrobot_sil.nodes.drive_bus_audit_node:main',
         ],
     },
 )
