@@ -1,6 +1,6 @@
 # Base and lift software-in-the-loop topology
 
-Status: Proposed (14 Nov 2026). Implemented by the package `openamrobot_sil`. Topic names,
+Status: Proposed (14 Nov 2026; section 4.1 added 15 Nov 2026). Implemented by the package `openamrobot_sil`. Topic names,
 launch arguments and the configuration file in this document are new and stay Proposed until
 the software lead accepts them.
 
@@ -12,9 +12,10 @@ E-stop chain is not modelled and nothing here is evidence about it.
 
 The STM32 base controller talks to three devices over three CAN buses. This layer puts one
 emulated device on one Linux virtual CAN interface per real bus. The motion of the emulated
-drive and lift happens in Gazebo Harmonic, and their feedback comes from Gazebo. The firmware
-can then run in Renode and attach to the same interfaces through Renode's SocketCAN bridge.
-Until the firmware is ready, a host test client plays its CAN role.
+drive and lift happens in Gazebo Harmonic, and their feedback comes from Gazebo. A host test
+client plays the CAN role of the STM32, or the platform-fw telemetry image runs in Renode on
+`vcan_drive` through Renode's SocketCAN bridge (section 4.1: a firmware-in-the-loop milestone
+for telemetry only).
 
 ```
  /cmd_vel, /sil/lift/*            micro-ROS over UART pty or TAP (section 5)
@@ -98,33 +99,99 @@ what the firmware will send: drive bring-up and wheel targets on CAN1, Daly poll
 start, heartbeat, lift commands, keep-alive and permit frames on CAN3. It is a test stand-in.
 It copies no firmware logic, has no command timeout and takes no stop decision.
 
-`stm32:=renode`. Nothing takes the STM32 role. A Renode machine attaches to each interface
-with a SocketCAN bridge and a CAN hub. Sketch, not run in this repository:
+`stm32:=renode` and `stm32:=renode_readonly`: the firmware binary runs in Renode on
+`vcan_drive`. Section 4.1.
+
+### 4.1 Firmware in the loop: the telemetry image on the drive bus (Proposed, 15 Nov 2026)
+
+This is a **firmware-in-the-loop milestone for telemetry**. It is not the robot firmware and
+not the whole base controller: the image only reads the drive. It is development evidence
+only, like the rest of this layer.
+
+What is real:
+
+- The firmware binary: `boards/stm32/telemetry_image` of openamr-platform-fw at commit
+  `fcf81f8e2fe2fa9000685ab233907adbfadeec2a`, CMake preset `RenodeTest` [S8]. The commit and
+  the preset are recorded in `launch/sil.launch.py` and `openamrobot_sil/renode_fw.py`, and the
+  tests print them. `scripts/sil_renode_firmware.sh` fetches that commit, checks it, and builds
+  the ELF; nothing in openamr-platform-fw is changed. At start-up the node `renode_firmware`
+  checks the banner: `"params":"test"`, the pinned commit, no `-dirty`. Any other banner stops
+  the launch (test `test_image_without_test_parameters_is_refused` runs the Debug build, which
+  prints `"params":"default"`, and expects the node to fail).
+
+What is emulated:
+
+| Part | Here |
+|---|---|
+| MCU | Renode 1.16.1 (tarball and SHA-256 pinned in platform-fw `firmware-nightly.yml` at that commit, checked by the build script), `platforms/cpus/stm32h743.repl` plus platform-fw `tests/renode/stm32h723-additions.repl` and the PWR CSR1 tag, set up as platform-fw `tools/ci/renode_telemetry.py` does. Renode has no STM32H723 platform |
+| CAN1 | FDCAN1 on a Renode CAN hub, joined to `vcan_drive` by Renode's own SocketCAN bridge (`machine CreateSocketCANBridge "can1_bridge" "vcan_drive"`, then `connector Connect can1_bridge can1`). No relay process was written: Renode 1.16.1 has the bridge (its `scripts/complex/socketcan_bridge` example), and the tests show frames crossing both ways |
+| Drive | The SIL ZLAC8015D emulator on `vcan_drive`, wheels from Gazebo. It answers the image's SDO uploads and sends its heartbeat, as for the host client. The platform-fw Python drive stub is not used |
+| Console | USART3 to a file backend; the node publishes each line and the wheel speeds |
+| Drive commands (`renode_readonly` only) | The host test client, as SIL receive PDOs (below) |
+
+Read-only boundary. The image sends only SDO initiate-upload requests to node 1 (606Ch:01,
+606Ch:02, 6041h, 603Fh, 2026h:05), one at a time [S8]. With `stm32:=renode` nobody commands the
+drive, so the base does not move. With `stm32:=renode_readonly` the host test client sends the
+drive commands and **no SDO frame at all**, so the drive's SDO channel belongs to the firmware:
+
+- RPDO1 `200h + node`, 8 bytes: 60FFh:01 and 60FFh:02 as int32, every 20 ms.
+- RPDO2 `300h + node`, 2 bytes: 6040h, the enable sequence 06h, 07h, 0Fh once.
+- 2000h is not written in the run. The emulator starts with the configured link-loss time
+  stored, as if it had been saved with 2010h before.
+
+These PDO layouts are SIL test values, not a proposal and not the drive's mapping (none is
+recorded). The client's CAN1 handle refuses any frame to `600h + node`.
+
+The drive bus audit (`drive_bus_audit`) captures `vcan_drive` for the whole run to a candump
+file and checks every SDO frame of node 1. It starts before Renode and the host client, and both
+wait for it. A request that is not an upload, or a request while another is still outstanding
+(no answer for the same object and less than 20 ms of wall time since it), is a finding. Who
+sent an upload cannot be seen on the wire, so the test also compares the uploads on the bus with
+the image's own `tx` counter. The test fails on any finding, and a control test then sends one
+foreign SDO frame and checks that the audit sees it.
+
+What Renode does not model, so nothing here checks it:
+
+- Clock tree. Renode's RCC model does not keep the PLL and divider registers; the HAL derives a
+  SystemCoreClock that is not the board's. A Renode hook sets the SysTick model frequency to
+  every value written to SystemCoreClock, so the tick is self-consistent, not verified. Renode
+  drops that hook on a machine reset; the node pauses the machine, resets it and sets the hook
+  again before it runs (the platform-fw harness does not, so its boot after a reset runs with a
+  fast tick).
+- CAN bit timing and bit rate (500 kbit/s is not checked), acknowledge, arbitration, error
+  frames, error counters and bus-off. The hub and vcan deliver every frame whole.
+- UART inversion (RXINV), UART errors, baud rate and console wire time.
+- Pin levels and alternate functions, GPIO, the MPU set-up, RCC_RSR reset flags (the banner
+  reports `reset_cause` unknown).
+
+Reset and fresh start. `/sil/fw/command` `reset` resets the machine inside the same Renode
+instance: the sequence restarts at 0 and the boot id increases (RAM_D3 record kept). `restart`
+quits Renode and starts a new instance: the sequence starts at 0 and the boot id is 1. The tests
+assert the sequence and the boot id separately.
+
+Renode commands, as `renode_fw.resc()` writes them:
 
 ```
-emulation CreateSocketCANBridge "bridge_drive" "vcan_drive"
+mach create "openamr"
+machine LoadPlatformDescription @platforms/cpus/stm32h743.repl
+machine LoadPlatformDescription @<fw>/tests/renode/stm32h723-additions.repl
+sysbus Tag <0x58024804, 0x58024807> "CSR1" 0x2000
+macro reset ... sysbus LoadELF @<telemetry_image.elf> ... cpu VectorTableOffset 0x08000000
+runMacro $reset
+cpu PerformanceInMips 5
+sysbus.usart3 CreateFileBackend @<console> true
 emulation CreateCANHub "can1"
 connector Connect sysbus.fdcan1 can1
-connector Connect bridge_drive can1
-
-emulation CreateSocketCANBridge "bridge_bms" "vcan_bms"
-emulation CreateCANHub "can2"
-connector Connect sysbus.fdcan2 can2
-connector Connect bridge_bms can2
-
-emulation CreateSocketCANBridge "bridge_aux" "vcan_aux"
-emulation CreateCANHub "can3"
-connector Connect sysbus.fdcan3 can3
-connector Connect bridge_aux can3
+machine CreateSocketCANBridge "can1_bridge" "vcan_drive"
+connector Connect can1_bridge can1
+include @renode/sil_renode_helpers.py
+sil_follow_systick
+sil_throttle_start 5
+start
 ```
 
-Facts from the firmware repository [S8]: the telemetry image boots in Renode on the STM32H743
-platform description plus an additions file, because Renode has no STM32H723 platform. That
-additions file adds FDCAN3. The image already uses `emulation CreateCANHub "can1"` with
-`sysbus.fdcan1`. It is read-only on CAN1 today: it sends no targets and does not enable the
-drive. So with `stm32:=renode` the base will not move until the owner's drive code exists.
-The bridge command names above follow the Renode documentation and must be checked against the
-Renode version that the firmware CI pins.
+Not done: CAN2 and CAN3 stay with the host test client in `renode_readonly` (the image does not
+use FDCAN2 or FDCAN3), and there is no host link.
 
 ## 5. Host link
 
@@ -180,6 +247,25 @@ receiver's domain.
   simulation time.
 - **C6** Freshness is judged by receipt time in the receiver's own domain (I8 rev 4 [S2]: the base
   controller's header stamp is diagnostic only). No consumer needs two domains to agree.
+
+**C2 in practice: Renode and the telemetry image** (section 4.1, from #141, measured 15 Nov 2026).
+The image's idle task spins, so Renode's virtual time advances with the instructions it executes
+divided by the CPU's MIPS setting, not with the host clock. At the default setting it ran about 15
+times slower than wall time on the agent's 4-core machine. The harness sets
+`cpu PerformanceInMips 5` and a throttle: every 5 ms slice of virtual time takes at least 5 ms of
+wall time (`sil_throttle_start`). So virtual time never runs ahead of wall time by more than one
+slice. It may lag: the measured ratio was 0.31 to 0.35 in CI and 0.39 to 0.46 locally
+(`test_virtual_time_does_not_run_ahead_of_wall_time` prints it). The image's timeouts are in
+virtual time (SDO 40 ms, heartbeat consumer 300 ms, report period 100 ms in the RenodeTest
+build). The drive emulator answers within a few milliseconds of host time and its heartbeat
+producer still runs on host time (vendored node loop, openamr-platform-fw #57 and #58). A
+Renode that lags therefore sees fast answers and more frequent heartbeats, never late ones; a
+Renode that ran ahead would see answers late and the heartbeat as lost, which is why the
+throttle exists. In `renode_readonly` the drive's 2000h link-loss time is fed by the host
+client's receive PDOs, not by Renode. The audit's 20 ms rule rests on the throttle bound: a
+40 ms virtual SDO timeout takes at least 30 ms of wall time. The Renode-to-Gazebo skew is not
+reported yet (C2 asks for it). All timing checks of the Renode tests are plausibility checks on
+thread timing, not timing measurements.
 
 ### 6.3 Events and their gates (D3)
 
@@ -322,9 +408,16 @@ BMS. Static values with injection (pack defaults from [S10]). No link to Gazebo.
 | `/sil/stm32/can1_silent` | std_msgs/Bool | into the host test client | true: send nothing on CAN1 (link-loss test) |
 | `/sil/lift/command` | std_msgs/Int8 | into the host test client | 0, 1, 2: move to stop. -1 stop, -2 homing, -3 clear fault |
 | `/sil/lift/permit`, `/sil/lift/permit_silent` | std_msgs/Bool | into the host test client | Permit state, and "send no permit frames" |
+| `/sil/fw/console` | std_msgs/String | out of `renode_firmware` | One USART3 JSON line of the firmware image, unchanged |
+| `/sil/fw/wheel_speeds` | std_msgs/Float64MultiArray | out of `renode_firmware` | [ch1, ch2] rad/s from 606Ch:01 and :02 as the image reports them (0.1 r/min per unit, the emulator's scale). NaN when the image has no valid sample, never 0 |
+| `/sil/fw/status` | std_msgs/String (JSON) | out of `renode_firmware` | Pinned commit and preset, Renode starts, boots, banner, the image's tx total |
+| `/sil/fw/command` | std_msgs/String | into `renode_firmware` | `reset` (machine reset in the same Renode), `restart` (fresh Renode) |
+| `/sil/drive_bus/audit` | std_msgs/String (JSON) | out of `drive_bus_audit` | SDO audit counters of the `vcan_drive` capture |
 
-Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, renode),
-`create_vcan`, `gazebo`, `gui`, `config_file`, `model`, `world`.
+Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, renode,
+renode_readonly), `create_vcan`, `gazebo`, `gui`, `config_file`, `model`, `world`, and for the
+Renode modes `renode`, `fw_elf`, `fw_dir` (defaults `$SIL_RENODE`, `$SIL_FW_ELF`, `$SIL_FW_DIR`
+from `scripts/sil_renode_firmware.sh`), `renode_work_dir`, `capture_file`.
 
 ## 8. Not modelled and open
 
@@ -337,7 +430,8 @@ Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, r
 - CTL-017: the open permit choices of section 3.1, and the firmware alignment items of
   the emulator alignment note in [S4].
 - Daly: the protocol itself is unconfirmed [S7]. Cell voltage frames 0x95 to 0x97 get no answer.
-- Renode attachment and the host link are described, not run.
+- Renode runs only the read-only telemetry image, on CAN1 only (section 4.1). The host link is
+  described, not run. No firmware commands the drive, the lift or the BMS.
 - The combined robot model with the real lift and arms [S5] is not used in the tests.
 
 ## 9. Sources
@@ -354,4 +448,5 @@ Launch: `ros2 launch openamrobot_sil sil.launch.py`. Arguments: `stm32` (host, r
 | S8 | openamr-platform-fw PR #51 at fcf81f8, `tools/ci/renode_telemetry.py`, `tests/renode/stm32h723-additions.repl` |
 | S9 | Digital twin phase 0 conflict register, audits branch `audit/2026-09-28`, `digital-twin/phase0/conflict_register.md` (items M10, M11) |
 | S10 | E-01 Safety and Power Distribution Baseline rev1.8: 8S LiFePO4 pack, 25.6 V nominal bus, 84 Ah |
+| S12 | Renode 1.16.1 portable release, `scripts/complex/socketcan_bridge` (SocketCAN bridge example) and `platforms/cpus/stm32h743.repl` of that release |
 | S11 | Vendored emulators: openamr-platform-fw `tools/can_sil` at ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d (draft PR #53). PR #54 holds the same `tools/can_sil` files at that commit |

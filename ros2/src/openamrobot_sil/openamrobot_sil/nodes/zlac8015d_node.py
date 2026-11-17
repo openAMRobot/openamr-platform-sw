@@ -21,9 +21,13 @@ class ZlacNode(Node):
         self.cmd_pub = self.create_publisher(Twist, '/sil/drive/gz_cmd_vel', 10)
         # One simulation clock per process (clock contract C1): Gazebo time with use_sim_time.
         self.sim = NodeClock(self, on_stall=self.hold_plant)
+        # stm32:=renode_readonly: SIL receive PDOs on, 2000h stored before the run.
+        rpdo = self.declare_parameter('rpdo', False).value
+        stored = self.declare_parameter('stored_link_loss', False).value
         self.emu = GazeboZlac8015d(
             self.bus, cfg['buses']['drive']['zlac_node_id'], self.drive['heartbeat_ms'],
-            self.drive['left_sign'], self.drive['right_sign'], clock=self.sim.clock).start()
+            self.drive['left_sign'], self.drive['right_sign'], clock=self.sim.clock, rpdo=rpdo,
+            stored_link_loss_ms=self.drive['link_loss_ms'] if stored else None).start()
         self.sim.add_check(thread_check('ZLAC8015D emulator', self.emu))
         self.state_pub = self.create_publisher(String, '/sil/drive/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)

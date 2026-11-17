@@ -21,6 +21,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 |---|---|---|---|
 | Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
 | Base and lift SIL on virtual CAN: package `openamrobot_sil` (ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux`, `vcan_bms`, bridged to Gazebo; host test client; `sil.launch.py`), `docs/architecture/sil-topology.md`, workflow `sil-tests` (14 Nov 2026) | claude/optimistic-planck-frfht7 | draft | owner: adopt, adapt or reject; then Renode attach (platform-fw #51) and the combined model |
+| Firmware in the loop for telemetry: platform-fw telemetry image (fcf81f8, RenodeTest) in Renode 1.16.1 on `vcan_drive` via the SocketCAN bridge; `stm32:=renode`, `stm32:=renode_readonly`; drive bus audit (15 Nov 2026) | sil/renode-telemetry (draft, base claude/optimistic-planck-frfht7) | draft | owner: adopt, adapt or reject; CI evidence in the PR |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
@@ -38,6 +39,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
 | Clock contract (D2, Proposed): domains, rules C1 to C6, pause, reset and restart gates in docs/architecture/sil-topology.md section 6; config/clock_inventory.yaml and test_clock_inventory.py keep every clock read listed with its domain (16 Nov 2026) | ws1/clock-contract | draft | software lead accepts or changes the rules; then CTL-017 on Gazebo time through the `_now_ms` hook, node timers on ROS time; ZLAC8015D and canopen_common need an injectable clock in openamr-platform-fw first |
 | Clock contract implemented for the base and lift SIL (Gate B): one fed `/clock` clock per process with a steady stall check, CTL-017 on Gazebo time through `_now_ms`, ZLAC8015D feedback and the host stand-in on the fed clock, node timers on ROS time, gate tests for pause, reset, restart and delayed frames; W12 discontinuity tests (forward jump with a report-only jump notice, duplicate and delayed /clock, first clock, clock loss, frames across a reset, health callback hold only), `Stamp` takes time and generation in one `snapshot()` read (review finding), protocol suite 113 tests with 3 strict xfails (17 Nov 2026); #160 first-clock power-on of the ZLAC8015D wrapper, 114 tests with 2 strict xfails | ws1/time-injection (stacked on ws1/clock-contract) | draft | owner: adopt, adapt or reject; platform lead: #159, #160; platform-fw #57 (injectable clock for zlac8015d_emulator and canopen_common), then re-vendor |
+| Reconciliation of #141 (Renode telemetry, `stm32:=renode_readonly`) with the clock contract #151/#158 (Proposed): #141 launch API kept, every CAN node on the process clock, command-only stand-in follows the reset and stall gates (power cycle, enable sequence again, zero target, stored 2000h), #141 clock reads in the inventory, `test_reconcile_141.py` 3 tests; protocol suite 152 tests with 2 strict xfails (17 Nov 2026) | ws1/reconcile-141 (into ws1/time-injection) | draft, Proposed | Mohamed decides; Evans approves the firmware-facing parts (receive PDO enable order after a clock event, Renode C2 skew bound) |
 
 ## Decisions this repository implements
 
@@ -67,5 +69,6 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Not verified
 
-- SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
+- SIL layer (14 Nov 2026): emulators and Gazebo only. No real CAN bus, drive, lift or BMS. From 15 Nov 2026 the read-only
+  telemetry image runs in Renode on CAN1 (no clock tree, bit timing, bus-off, UART inversion or pin levels modelled).
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.

@@ -178,3 +178,19 @@ files:
         target: ros
         rule: C4
         status: conforms
+  openamrobot_sil/nodes/renode_fw_node.py:
+    counts: {time.monotonic: 2}
+    sites:
+      - what: boot banner timeout after a Renode start (the node fails and the launch stops when no banner arrives); a launch and process-health deadline, not a device timer. The firmware itself runs on Renode virtual time (C2)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+  openamrobot_sil/nodes/drive_bus_audit_node.py:
+    counts: {time.time: 1}
+    sites:
+      - what: receive timestamp of a captured vcan_drive frame when python-can gives none (host wall clock, epoch seconds, as candump writes); test evidence only, no timer and no device decision reads it
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms

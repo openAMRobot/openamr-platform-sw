@@ -1,7 +1,9 @@
 name: sil-tests
 
 # Base and lift software-in-the-loop on Linux virtual CAN (openamrobot_sil).
-# Development evidence only: emulators and Gazebo, no firmware, no hardware.
+# Development evidence only: emulators and Gazebo, no hardware. The Renode jobs run the
+# openamr-platform-fw telemetry image (pinned commit, preset RenodeTest) in Renode 1.16.1
+# (pinned tarball and SHA-256) on vcan_drive: firmware in the loop for telemetry only.
 #
 # The vcan kernel module is loaded on the runner. ROS 2 Jazzy and Gazebo Harmonic run in the
 # ros:jazzy-ros-base image with the host network, so the container sees the vcan interfaces.
@@ -27,11 +29,16 @@ permissions:
 env:
   SIL_IMAGE: ros:jazzy-ros-base
   SIL: docker exec sil bash -eo pipefail -c
+  # Same ARM toolchain pins as openamr-platform-fw firmware-nightly.yml (APT_ARM) at the
+  # pinned firmware commit, plus the build and Renode run-time packages.
+  APT_FW: >-
+    gcc-arm-none-eabi=15:13.2.rel1-2 binutils-arm-none-eabi=2.42-1ubuntu1+23
+    libnewlib-arm-none-eabi=4.4.0.20231231-2 ninja-build cmake git curl ca-certificates libicu74
 
 jobs:
   sil-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Check out this repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -54,11 +61,11 @@ jobs:
       - name: Start the ROS 2 Jazzy container on the host network
         run: |
           docker run -d --name sil --network host --cap-add NET_ADMIN \
-            -v "$PWD":/repo -w /repo "$SIL_IMAGE" sleep infinity
+            -e APT_FW="$APT_FW" -v "$PWD":/repo -w /repo "$SIL_IMAGE" sleep infinity
           $SIL 'apt-get update && apt-get install -y --no-install-recommends \
             python3-colcon-common-extensions python3-pytest python3-yaml python3-can iproute2 procps \
             ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-nav-msgs \
-            ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge'
+            ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge $APT_FW'
           $SIL 'ip -br link show type vcan && python3 -c "import can; print(\"python-can\", can.__version__)"'
 
       - name: Build openamrobot_description and openamrobot_sil
@@ -84,13 +91,60 @@ jobs:
         run: |
           $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
             SIL_LAUNCH_LOG=/repo/sil-launch.log python3 -m pytest -v -p no:cacheprovider \
-              --junitxml=/repo/sil-gazebo.xml ros2/src/openamrobot_sil/test_integration'
+              --junitxml=/repo/sil-gazebo.xml ros2/src/openamrobot_sil/test_integration/test_sil_gazebo.py'
 
-      - name: Show the launch log
+      # openamr-platform-fw is fetched at the pinned commit and built, nothing in it is changed.
+      - name: Build the firmware image (platform-fw pinned commit, RenodeTest and Debug) and fetch Renode
+        run: |
+          $SIL 'bash ros2/src/openamrobot_sil/scripts/sil_renode_firmware.sh --default-too /repo/.sil-renode'
+          {
+            echo "### Firmware in the loop (telemetry image)"
+            echo
+            echo '```'
+            cat .sil-renode/sil_renode.env
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Renode only: the image on a Renode CAN hub with nothing else on it. No vcan, no Gazebo.
+      - name: Renode tests of the firmware node (banner, reset, fresh start, refused default build)
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            set -a && . /repo/.sil-renode/sil_renode.env && set +a && \
+            cd ros2/src/openamrobot_sil/test_renode && \
+            python3 -m pytest -v -s -p no:cacheprovider --junitxml=/repo/sil-renode-node.xml \
+              test_renode_node.py'
+
+      # stm32:=renode_readonly: the image on vcan_drive through the Renode SocketCAN bridge.
+      - name: End-to-end tests with Gazebo and the firmware image in Renode
+        run: |
+          $SIL 'source /opt/ros/jazzy/setup.bash && source ros2/install/setup.bash && \
+            set -a && . /repo/.sil-renode/sil_renode.env && set +a && \
+            SIL_RENODE_LAUNCH_LOG=/repo/sil-renode-launch.log \
+            SIL_DRIVE_CAPTURE=/repo/sil-vcan_drive.log python3 -m pytest -v -s -p no:cacheprovider \
+              --junitxml=/repo/sil-renode.xml ros2/src/openamrobot_sil/test_integration/test_sil_renode.py'
+
+      - name: Show the launch logs
         if: always()
         run: |
           ip -br link show type vcan || true
           tail -n 300 sil-launch.log || true
+          echo "---- renode_readonly launch"
+          tail -n 300 sil-renode-launch.log || true
+          docker exec sil sh -c 'for f in /tmp/openamrobot_sil_renode*/renode-*.log; do
+            echo "---- $f"; tail -n 60 "$f"; done' || true
+
+      - name: Upload the drive bus capture and the Renode logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: sil-renode-evidence
+          path: |
+            sil-vcan_drive.log
+            sil-renode-launch.log
+            sil-*.xml
+            .sil-renode/sil_renode.env
+          retention-days: 30
+          if-no-files-found: warn
 
       # A missing, renamed or skipped test must not pass as a smaller suite. JUnit lists an xfail
       # as skipped: the expected xfails (strict, each naming its tracking issue: #159) are
@@ -99,7 +153,8 @@ jobs:
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (114, 2), 'sil-gazebo.xml': (6, 0)}
+          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (152, 2), 'sil-gazebo.xml': (6, 0),
+                      'sil-renode-node.xml': (8, 0), 'sil-renode.xml': (9, 0)}
           for name, (want, want_xfail) in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')
