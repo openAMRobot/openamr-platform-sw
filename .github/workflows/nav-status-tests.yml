@@ -32,6 +32,12 @@ jobs:
   producer-tests:
     runs-on: ubuntu-24.04
     container: ros:jazzy-ros-base
+    # Mohamed's #90 review on 0bb2e97: a hung test run (e.g. a dropped rclpy
+    # service response under runner load) held a runner for the full 6h
+    # default limit before this job even registered as failed. 30 minutes
+    # is generous for this suite's own usual ~6-7 min; a hang now fails
+    # fast instead of silently consuming hours.
+    timeout-minutes: 30
     steps:
       - name: Check out this repository
         uses: actions/checkout@v4
