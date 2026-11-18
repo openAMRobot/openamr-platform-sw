@@ -11,6 +11,8 @@ Rules, all on the node clock (simulation time with use_sim_time):
 - done: `samples` fresh samples arrived;
 - not seen: nothing at all arrived in `timeout_s` after `after` (the marker is not in view);
 - stale: samples arrive but none is fresh yet: keep waiting up to `timeout_s + max_latency_s` after `after`;
+- fewer than `samples` but at least `min_samples` fresh samples once `timeout_s` has passed: done with those (Fast
+  DDS delivered about 1 image in 7 to the detector in run 44261511618 rtf02, so 8 frames may not come in time);
 - the latency (receive time minus stamp) of every sample is recorded for the report.
 """
 import math
@@ -38,9 +40,10 @@ def without_marker(iteration, nominal_ok):
 
 
 class SampleWindow:
-    def __init__(self, after_ns, samples, timeout_s, max_latency_s):
+    def __init__(self, after_ns, samples, timeout_s, max_latency_s, min_samples=None):
         self.after_ns = int(after_ns)
         self.samples = int(samples)
+        self.min_samples = int(samples if min_samples is None else min_samples)
         self.timeout_ns = int(timeout_s * 1e9)
         self.max_latency_ns = int(max_latency_s * 1e9)
         self.fresh = []
@@ -58,6 +61,8 @@ class SampleWindow:
         if len(self.fresh) >= self.samples:
             return DONE
         elapsed = now_ns - self.after_ns
+        if elapsed > self.timeout_ns and len(self.fresh) >= self.min_samples:
+            return DONE
         if self.received == 0 and elapsed > self.timeout_ns:
             return NOT_SEEN
         if elapsed > self.timeout_ns + self.max_latency_ns:
@@ -65,7 +70,7 @@ class SampleWindow:
         return WAITING
 
     def result(self):
-        """(mean pose, spread) of the last `samples` fresh samples."""
+        """(mean pose, spread) of the last `samples` fresh samples (fewer when done on min_samples)."""
         fresh = self.fresh[-self.samples:]
         m = geometry.mean_pose(fresh)
         return m, max(math.hypot(p[0] - m[0], p[1] - m[1]) for p in fresh)

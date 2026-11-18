@@ -72,6 +72,7 @@ class StationAlignment(Node):
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("settle_s", 1.0)
         self.declare_parameter("samples", 8)
+        self.declare_parameter("min_samples", 4)
         self.declare_parameter("sample_timeout_s", 6.0)
         self.declare_parameter("max_latency_s", 15.0)
         self.declare_parameter("on_marker_not_seen", "succeed_unaligned")
@@ -150,7 +151,8 @@ class StationAlignment(Node):
         """Sample window on simulation time (sampling.SampleWindow): (status, window)."""
         window = sampling.SampleWindow(after.nanoseconds, int(self.get_parameter("samples").value),
                                        float(self.get_parameter("sample_timeout_s").value),
-                                       float(self.get_parameter("max_latency_s").value))
+                                       float(self.get_parameter("max_latency_s").value),
+                                       int(self.get_parameter("min_samples").value))
         seen = 0
         while rclpy.ok():
             with self.lock:

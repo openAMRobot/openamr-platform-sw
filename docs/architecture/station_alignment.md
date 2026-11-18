@@ -139,7 +139,9 @@ writer; no other parent of base_footprint was found in the scene). Baseline 1 ru
 processes at a real-time factor of about 0.1. The detector and the alignment now run in one process
 (`station_alignment_stack`) and the station pose is handed over in process; the topic is still published. The odom
 pose comes from /odom (the transform's own writer), and every TF lookup waits up to 5 s of simulation time
-(`sources.py`). A failure reports the parents in the buffer and the publishers the node sees.
+(`sources.py`). A failure reports the parents in the buffer and the publishers the node sees. Over Fast DDS the images reach the
+detector at a fraction of their rate (in this world 30 synced camera infos for 214 images), so after the 6 s window
+the alignment also accepts 4 fresh poses instead of 8 (`min_samples`); the acceptance limits do not change.
 
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be

@@ -35,6 +35,8 @@ station_alignment:
     base_frame: base_footprint
     settle_s: 1.0
     samples: 8
+    # Fewer once sample_timeout_s has passed: at least min_samples (low frame rates over Fast DDS).
+    min_samples: 4
     # Sample window, simulation time (sampling.py): `samples` station poses stamped after the robot settled. Not
     # seen: nothing at all in sample_timeout_s. Stale stamps (the camera to pose pipeline lags; more than 6 s of
     # simulation time at a real-time factor of 0.2 in Baseline 1): wait up to sample_timeout_s + max_latency_s.
