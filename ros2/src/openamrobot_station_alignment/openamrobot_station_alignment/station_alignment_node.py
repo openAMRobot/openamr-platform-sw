@@ -98,7 +98,7 @@ class StationAlignment(Node):
         self.declare_parameter("odom_history_tolerance_s", 0.5)
         self.declare_parameter("navigation_timeout_s", 300.0)
         self.declare_parameter("correction_timeout_s", 60.0)
-        self.declare_parameter("drive_lead", 0.025)
+        self.declare_parameter("drive_lead", 0.015)
         self.declare_parameter("stop_state_topic", "/safety/stop_state")
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("odom_topic", "/odom")
@@ -347,7 +347,7 @@ class StationAlignment(Node):
         yaw_since = geometry.wrap(now_odom[2] - start[2])
         plan = maneuver.Plan(maneuver.target_in_odom(start, residual),
                              maneuver.target_yaw_in_map(geometry.wrap(map_pose[2] - yaw_since), residual),
-                             residual, float(p("accept_lateral")))
+                             residual, float(p("accept_lateral")), float(p("accept_along")))
         step["mode"] = "turn_first" if plan.turn_first else "direct"
         step["target_odom"] = plan.target
         step["target_yaw_map"] = plan.target_yaw_map
@@ -361,7 +361,15 @@ class StationAlignment(Node):
             else:
                 ok, text = self._drive(goal_handle, primitive[1])
             step["moves"].append(text)
-            if not ok or goal_handle.is_cancel_requested:
+            if goal_handle.is_cancel_requested:
+                return False
+            if not ok:
+                if primitive[0] == maneuver.DRIVE and plan.turn_first:
+                    # turned away from the plate to face the target point: turn back to the target yaw, so the
+                    # next measurement sees the marker (run 44368551389, rtf02 trial 1: a failed drive left the base
+                    # 0.68 rad off and the marker unseen)
+                    _, back = self._rotate(goal_handle, plan.target_yaw_map)
+                    step["moves"].append(back)
                 return False
 
     # ------------------------------------------------------------------ action

@@ -127,7 +127,7 @@ def test_a_a_lateral_correction_sends_only_navigate_to_pose_goals_ahead_of_the_r
     assert drives and all(d > 0 for d in drives)
     # the drive goal lies ahead of the robot on its heading (the robot faces +x here), drive_lead beyond the point
     _, x, y = h.nav.goals[2]
-    assert x == pytest.approx(drives[0] + 0.025) and y == pytest.approx(0.0)
+    assert x == pytest.approx(drives[0] + 0.015) and y == pytest.approx(0.0)
 
 
 def _load_overlay():
@@ -164,11 +164,35 @@ def test_a_pr90_behaviour_set_leaves_every_action_the_alignment_and_its_trees_ne
     assert clients == ["NavigateToPose"]
 
 
-def test_a_drive_lead_matches_the_station_goal_checker():
+def test_a_every_planned_drive_reaches_past_the_station_goal_checker():
+    """A drive goal inside the checker's tolerance ends at once: every drive the plan can produce (direct: more than
+    accept_along; after a turn: more than accept_lateral or accept_along) plus drive_lead must lie beyond it."""
     params = yaml.safe_load(open(os.path.join(NAV2, "config", "nav2_params.yaml")))
     checker = params["controller_server"]["ros__parameters"]["station_goal_checker"]["xy_goal_tolerance"]
-    config = yaml.safe_load(open(os.path.join(PKG, "config", "station_alignment.yaml")))
-    assert config["station_alignment"]["ros__parameters"]["drive_lead"] == checker
+    config = yaml.safe_load(open(os.path.join(PKG, "config", "station_alignment.yaml")))["station_alignment"]
+    c = config["ros__parameters"]
+    assert 0.0 < c["drive_lead"] < checker
+    assert min(c["accept_along"], c["accept_lateral"]) + c["drive_lead"] > checker
+
+
+def test_a_direct_distance_within_accept_along_is_not_driven():
+    plan = maneuver.Plan((0.010, -0.012, 0.096), 0.096, (0.010, -0.012, 0.096), lateral_direct=0.02,
+                         along_direct=0.025)
+    assert not plan.turn_first
+    assert plan.next((0.0, 0.0, 0.0), 0.0)[0] == maneuver.ROTATE          # yaw only
+    behind = maneuver.Plan((-0.01, 0.0, 0.0), 0.0, (-0.01, 0.0, 0.0), lateral_direct=0.02, along_direct=0.025)
+    assert not behind.turn_first and behind.next((0.0, 0.0, 0.0), 0.0) is None    # no half turn for 1 cm
+
+
+def test_a_a_failed_drive_after_a_turn_turns_back_to_the_target_yaw(monkeypatch):
+    def script(i, nav):
+        return (1.0, 6 if i == 2 else san.STATUS_SUCCEEDED)        # goal 2: the forward drive, progress checker
+    h = real_nav_harness(monkeypatch, script)
+    h.camera = camera(5.0, 0.3, (0.04, 0.035, 0.0), start_s=100.0, stop_s=104.0)
+    gh, result, report = run(h)
+    moves = report["iterations"][1]["moves"]
+    assert [m.split()[0] for m in moves] == ["rotate", "drive", "rotate"] and "status 6" in moves[1]
+    assert moves[2].startswith("rotate to +0.0000")
 
 
 # ---------------------------------------------------------------- b. Stop

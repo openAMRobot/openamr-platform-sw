@@ -78,10 +78,13 @@ Together these explain run 44188740454 rtf1 trial 4 (lateral residual -0.036 to 
 with behavior_server's BackUp and DriveOnHeading. Forward only since the software lead's review of aa8fd11: D-19
 (8 Nov) allows no reverse in Build 1 (the rear sectors are masked), and platform-sw #90 removes backup,
 drive_on_heading and assisted_teleop from behavior_server and clamps min_vel_x to 0. The position target stays in
-odom; a translation is now a forward goal of #164's station tree on the current map heading, `drive_lead` (0.025 m,
-the station goal checker's xy tolerance) beyond the point, because the checker ends the goal at that distance from
-it. A target behind the robot or more than 0.02 m to the side is faced first (up to a half turn in place), driven
-to, and the target yaw turned to. The simulation workflow runs with #90's behaviour set put onto #164's Nav2
+odom; a translation is now a forward goal of #164's station tree on the current map heading, `drive_lead` (0.015 m)
+beyond the point: the station goal checker (xy 0.025 m) ends the goal before the goal pose, and the base runs on after
+it fires (0.009 and 0.018 m past the point with a 0.025 m lead, run 44368551389). A target more than `accept_along`
+behind the robot or more than 0.02 m to the side is faced first (up to a half turn in place), driven to, and the
+target yaw turned to; a distance residual within `accept_along` with the lateral one accepted is not driven. If the
+drive after such a turn fails, the base turns back to the target yaw before the next measurement, so the marker
+stays in view. The simulation workflow runs with #90's behaviour set put onto #164's Nav2
 (`scripts/apply_pr90_behaviour_set.py`, test only) and fails if a backup, drive_on_heading or assisted_teleop action
 exists. Turns are rotation-only
 goals of #164's station tree (the current map position, the AMCL heading turned), closed on the map heading.

@@ -27,12 +27,17 @@ ROTATE, DRIVE = "rotate", "drive"
 class Plan:
     """Stages towards an odom-frame target, forward motion only (module docstring)."""
 
-    def __init__(self, target_odom, target_yaw_map, residual, lateral_direct, min_move=0.003, min_turn=0.01,
-                 yaw_deadband=0.02):
+    def __init__(self, target_odom, target_yaw_map, residual, lateral_direct, along_direct=0.0, min_move=0.003,
+                 min_turn=0.01, yaw_deadband=0.02):
+        """along_direct (the node passes accept_along): a distance residual within it is not driven when the lateral
+        one is within lateral_direct, since that axis is accepted already; in run 44368551389 (rtf1 trial 1) a 0.010 m
+        drive overshot to -0.032 m and the next correction had to turn round. A target behind is turned to only when
+        it is more than along_direct behind."""
         self.target = target_odom
         self.target_yaw_map = target_yaw_map
+        self.along_direct = along_direct
         self.min_move, self.min_turn, self.yaw_deadband = min_move, min_turn, yaw_deadband
-        self.turn_first = abs(residual[1]) > lateral_direct or residual[0] < -min_move
+        self.turn_first = abs(residual[1]) > lateral_direct or residual[0] < -max(min_move, along_direct)
         self.stages = ["face", "approach", "align"] if self.turn_first else ["approach", "align"]
 
     def next(self, current_odom, current_yaw_map):
@@ -54,7 +59,8 @@ class Plan:
         if stage == "approach":
             # forward along the current heading only; never a reverse. A target behind or beside the robot was
             # faced first; a remainder is left to the next marker measurement.
-            return (DRIVE, rel[0]) if rel[0] >= self.min_move else None
+            floor = self.min_move if self.turn_first else max(self.min_move, self.along_direct)
+            return (DRIVE, rel[0]) if rel[0] >= floor else None
         if stage == "align":
             delta = geometry.wrap(self.target_yaw_map - yaw_map)
             return None if abs(delta) <= self.yaw_deadband else self._turn(delta, self.target_yaw_map)
@@ -68,7 +74,8 @@ def forward_goal(map_pose, distance, lead):
     """Map goal of a forward drive of `distance` from `map_pose`, on its heading. The goal lies `lead` beyond the
     point: #164's station_goal_checker ends the goal as soon as the base is within its xy tolerance (0.025 m), so a
     goal at the point itself would stop the base that much short of it, and a move shorter than the tolerance would
-    end at once. With `lead` equal to the tolerance the base stops at the point."""
+    end at once. The base also runs on after the checker fires: with a lead of 0.025 m it stopped 0.009 and 0.018 m
+    past the point on 0.087 and 0.076 m drives (run 44368551389, rtf1), so the lead is 0.015 m (drive_lead)."""
     if distance <= 0.0:
         raise ValueError(f"forward drive only, got {distance}")
     x, y, yaw = map_pose

@@ -57,7 +57,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 177 tests ran
+      - name: Check that all 179 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -65,7 +65,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 177 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 179 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -270,7 +270,7 @@ jobs:
           failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
           passed = sorted(c.get('name') for c in root.iter('testcase') if not list(c))
           print(f'reverted lead review fixes: {len(failed)} failed {failed}, {len(passed)} passed {passed}')
-          assert len(failed) == 12 and all(n.startswith(('test_a_', 'test_b_', 'test_c_', 'test_correction_'))
+          assert len(failed) == 14 and all(n.startswith(('test_a_', 'test_b_', 'test_c_', 'test_correction_'))
                                            for n in failed)
           assert passed == ['test_keep_running_stop_state_does_not_stop', 'test_keep_succeed_unaligned_is_opt_in']
           EOF

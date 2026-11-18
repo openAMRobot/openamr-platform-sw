@@ -66,11 +66,13 @@ station_alignment:
     # a NavigateToPose goal of #164's station tree: rotation-only goals at the current map position, and forward
     # drives on the current map heading. Lateral residual > accept_lateral, or the target behind the robot: turn to
     # the target point, drive forward, turn to the target yaw. Otherwise: drive forward, turn to the target yaw.
-    # drive_lead: a drive goal lies this far beyond its point, as station_goal_checker (xy 0.025 m) ends the goal at
-    # that distance from it. correction_timeout_s: simulation-time deadline of one correction goal, after which the
+    # drive_lead: a drive goal lies this far beyond its point, as station_goal_checker (xy 0.025 m) ends the goal
+    # before the point; the base runs on after the checker fires (0.009 and 0.018 m past the point with a 0.025 m lead,
+    # run 44368551389). A distance residual within accept_along is not driven when the lateral one is accepted; a
+    # failed forward drive after a turn to the target point turns back to the target yaw. correction_timeout_s: simulation-time deadline of one correction goal, after which the
     # node cancels it; stall detection inside the goal is Nav2's progress checker (0.05 m in 12 s).
     odom_frame: odom
-    drive_lead: 0.025
+    drive_lead: 0.015
     correction_timeout_s: 60.0
     # Stop (software lead's review of aa8fd11, item b): /safety/stop_state not RUNNING, or a sub-goal CANCELED by
     # another client (the gate cancels on Stop), ends the station goal and nothing more is sent (openamrobot-interfaces

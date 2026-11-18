@@ -60,7 +60,7 @@ def align(robot, iterations=3, rotation="map"):
         if it == iterations:
             return None
         plan = m.Plan(m.target_in_odom(robot.odom, residual), m.target_yaw_in_map(robot.map_yaw(), residual),
-                      residual, lateral_direct=ACCEPT[1])
+                      residual, lateral_direct=ACCEPT[1], along_direct=ACCEPT[0])
         while (step := plan.next(robot.odom, robot.map_yaw())) is not None:
             robot.steps.append(step)
             if step[0] == m.ROTATE:
