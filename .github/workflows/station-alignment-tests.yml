@@ -121,7 +121,9 @@ jobs:
           EOF
 
       # Revert run of the odom-frame correction only: station_alignment_node.py back to 7c3f7fb (corrections as
-      # map-frame NavigateToPose goals through #164's tree), maneuver.py removed. Its tests must fail.
+      # map-frame NavigateToPose goals through #164's tree), maneuver.py removed. Its tests must fail. (The
+      # nav2-actions-only check is not part of it any more: 7c3f7fb, like the forward-only head, had NavigateToPose
+      # clients only.)
       - name: Revert run of the odom-frame correction (7c3f7fb node)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -134,8 +136,7 @@ jobs:
           set +e
           PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
             --junitxml=$GITHUB_WORKSPACE/reverted_odom.xml test/test_maneuver.py \
-            test/test_command_authority.py::test_corrections_are_not_map_frame_position_goals \
-            test/test_command_authority.py::test_the_alignment_node_uses_nav2_actions_only
+            test/test_command_authority.py::test_corrections_are_not_map_frame_position_goals
           echo "pytest exit status $?"
           set -e
           python3 - <<'EOF'
@@ -146,7 +147,7 @@ jobs:
           passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
           tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
           print(f'reverted odom correction: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
-          assert not passed and failed == 2 and errors == 1
+          assert not passed and failed == 1 and errors == 1
           EOF
 
       # Revert run of the input fix only: the node, the detector and the launch file back to 3e6e203 (station pose
