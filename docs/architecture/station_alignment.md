@@ -54,14 +54,29 @@ launches it.
                                1. NavigateToPose(nominal station, navigate_to_station.xml) ──> Nav2
                                2. robot stopped: mean of 8 station poses <───────────┘
                                3. residual within 0.03 m to the shelf, 0.02 m along it, 0.06 rad: succeed
-                               4. else goal = (map <- base now) o (measured station): NavigateToPose ──> Nav2
-                                  lateral <= 0.02 m: distance and yaw only, in place
-                                  lateral  > 0.02 m: first a goal 0.30 m behind it, then the goal
-                                  (up to 3 corrections; residual above 0.15 m / 0.30 rad aborts)
+                               4. else target = (odom <- base now) o (measured station), fixed in odom:
+                                  behavior_server BackUp / Spin / DriveOnHeading ──> Nav2 (odom frame)
+                                  lateral <= 0.02 m: drive along the heading, then turn
+                                  lateral  > 0.02 m: back up 0.15 m, turn to the target, drive, turn
+                                  (then measure again; up to 3 corrections; above 0.15 m / 0.30 rad aborts)
 
  Nav2 (unchanged): bt_navigator -> controller_server (StationApproach, station_goal_checker) -> cmd_vel_nav
-                   -> velocity_smoother -> collision_monitor -> /cmd_vel
+                   behavior_server (BackUp, Spin, DriveOnHeading, local frame odom)     -> cmd_vel_nav
+                   cmd_vel_nav -> velocity_smoother -> collision_monitor -> /cmd_vel
 ```
+
+Correction in odom (Proposed, 18 Nov 2026). The earlier correction was a map-frame NavigateToPose goal through #164's
+station tree, and it failed in three ways. First, every AMCL update during the move (every 0.05 m or 0.05 rad since
+#164) shifted the target, because the controller follows the path through the current map -> odom. Second, #164's
+StationApproach controller cannot reverse: with `initial_rotation` true, nav2_graceful_controller switches
+`allow_backward` off ("setting allow backward to false"), so a goal 0.30 m behind the robot was driven as a turn
+around, out and back. Third, the progress checker (0.05 m in 12 s) aborts short moves that are mostly rotation.
+Together these explain run 44188740454 rtf1 trial 4 (lateral residual -0.036 to +0.040 m in turn, 0.0485 m after
+3 corrections). The correction now fixes the target in odom when the marker is measured and runs behavior_server's
+BackUp, Spin and DriveOnHeading, which work in odom, publish on cmd_vel_nav and use no progress checker. Each step is
+planned from the current odom pose. The overshoot of each Spin (measured from odom) shortens the next one. The
+marker is then measured again (`maneuver.py`, `test_maneuver.py`). The arithmetic below for the map-frame goal still
+explains why measuring relative to the robot removes the AMCL error.
 
 Why the corrected goal removes the AMCL error: AMCL's error is a map-frame offset E (a wrong map -> odom), so the map
 pose it reports is E o truth. The camera measures the station relative to the robot, S_b = truth^-1 o station, with

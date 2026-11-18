@@ -49,11 +49,13 @@ def test_publishers_are_only_the_station_pose_and_the_report():
     assert sorted(published) == ["Image", "PoseWithCovarianceStamped", "String"]
 
 
-def test_the_alignment_node_is_a_navigate_to_pose_client_and_server_only():
+def test_the_alignment_node_uses_nav2_actions_only():
     t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
-    clients = [ast.unparse(c.args[1]) for c in ast.walk(t)
-               if isinstance(c, ast.Call) and ast.unparse(c.func) in ("ActionClient", "ActionServer")]
-    assert clients == ["NavigateToPose", "NavigateToPose"]
+    clients = sorted(ast.unparse(c.args[1]) for c in ast.walk(t)
+                     if isinstance(c, ast.Call) and ast.unparse(c.func) in ("ActionClient", "ActionServer"))
+    # Nav2's navigate_to_pose (the #164 approach, and this node's own server) and behavior_server's BackUp, Spin
+    # and DriveOnHeading (the correction, odom frame): all on cmd_vel_nav through the smoother and collision monitor
+    assert clients == ["BackUp", "DriveOnHeading", "NavigateToPose", "NavigateToPose", "Spin"]
     strings = {n.value for n in ast.walk(t) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
     assert "navigate_to_station.xml" in strings and "navigate_to_pose" in strings
 
@@ -104,3 +106,22 @@ def test_the_image_relay_publishes_reliable():
     t = tree(os.path.join(PKG, "openamrobot_station_alignment", "image_delay_relay.py"))
     calls = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "create_publisher"]
     assert len(calls) == 1 and ast.unparse(calls[0].args[2]) != "qos_profile_sensor_data"
+
+
+def test_corrections_are_not_map_frame_navigate_to_pose_goals():
+    """Only the nominal #164 approach is a NavigateToPose goal; a corrected goal in map moved with every AMCL update
+    and #164's controller cannot reverse (allow_backward is switched off with initial_rotation)."""
+    t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
+    calls = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_navigate"]
+    assert len(calls) == 1
+    behaviors = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_behavior"]
+    assert len(behaviors) == 1
+
+
+def test_station_approach_controller_cannot_reverse():
+    """Why the correction does not reverse through StationApproach: nav2_graceful_controller turns allow_backward
+    off when initial_rotation is on (log: "setting allow backward to false")."""
+    import yaml
+    with open(os.path.join(NAV2, "config", "nav2_params.yaml"), encoding="utf-8") as f:
+        params = yaml.safe_load(f)["controller_server"]["ros__parameters"]["StationApproach"]
+    assert params["initial_rotation"] is True and params["allow_backward"] is True

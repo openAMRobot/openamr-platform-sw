@@ -48,11 +48,21 @@ station_alignment:
     # (platform-sw #164, 0.025 m, 0.05 rad) plus the marker error, because a smaller correction would not move the
     # robot: the goal checker accepts it at once. Worst accepted pose: hypot(0.03, 0.02) = 0.036 m and 0.06 rad,
     # inside the 0.04 m / 0.08 rad reach budget. A lateral residual up to accept_lateral is not driven (a
-    # differential base cannot step sideways); a larger one is corrected from a goal `backoff` behind the station.
+    # differential base cannot step sideways); a larger one through a short reverse (below).
     accept_along: 0.03
     accept_lateral: 0.02
     accept_yaw: 0.06
-    backoff: 0.30
+    # Corrections (Proposed, 18 Nov 2026): planned in odom at the measurement and run with behavior_server's
+    # BackUp, Spin and DriveOnHeading (maneuver.py): not a map-frame NavigateToPose goal, which AMCL updates moved,
+    # and not #164's StationApproach, which cannot reverse. Lateral residual > accept_lateral: back up `backoff`,
+    # turn to the target point, drive, turn to the target yaw.
+    backoff: 0.15
+    odom_frame: odom
+    behavior_speed: 0.05
+    behavior_time_allowance_s: 30.0
+    spin_action: spin
+    backup_action: backup
+    drive_on_heading_action: drive_on_heading
     # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
     max_correction_xy: 0.15
     max_correction_yaw: 0.30

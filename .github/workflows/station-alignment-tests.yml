@@ -54,7 +54,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 75 tests ran
+      - name: Check that all 118 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -62,7 +62,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 75 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 118 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the one that checks #164's station tree, which this PR does not own.
@@ -113,6 +113,35 @@ jobs:
           tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
           print(f'reverted window fix: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
           assert not passed and failed == 1 and errors == 1
+          EOF
+
+      # Revert run of the odom-frame correction only: station_alignment_node.py back to 7c3f7fb (corrections as
+      # map-frame NavigateToPose goals through #164's tree), maneuver.py removed. Its tests must fail.
+      - name: Revert run of the odom-frame correction (7c3f7fb node)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin 7c3f7fb2be999aab693be5c4e15176590b5db783
+          cd "$PKG_DIR"
+          git show 7c3f7fb2be999aab693be5c4e15176590b5db783:$PKG_DIR/openamrobot_station_alignment/station_alignment_node.py \
+            > openamrobot_station_alignment/station_alignment_node.py
+          rm openamrobot_station_alignment/maneuver.py
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
+            --junitxml=$GITHUB_WORKSPACE/reverted_odom.xml test/test_maneuver.py \
+            test/test_command_authority.py::test_corrections_are_not_map_frame_navigate_to_pose_goals \
+            test/test_command_authority.py::test_the_alignment_node_uses_nav2_actions_only
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_odom.xml')).getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
+          print(f'reverted odom correction: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
+          assert not passed and failed == 2 and errors == 1
           EOF
 
   # rtf1: the five-trial comparison at full speed. rtf02: target real-time factor 0.2 (Baseline 1's runner) and image
