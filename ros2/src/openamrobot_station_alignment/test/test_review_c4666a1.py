@@ -87,7 +87,7 @@ class Harness(san.StationAlignment):
         for _, stamp, pose in sorted(due):
             self.ingest(stamp, BASE, pose)
 
-    def _navigate(self, goal_handle, pose, frame):
+    def _navigate(self, goal_handle, pose, frame, timeout_s=None):
         self.nav_calls.append(pose)
         return True, "Nav2 status 4"
 
@@ -225,7 +225,7 @@ def test_2d_FINDING_odom_pose_is_taken_at_the_image_stamps_not_later():
 
     def stop(*a):
         return False, "stop"
-    h._behavior = stop
+    h._drive = stop   # adapted on the branch: forward drives replaced behavior_server translations (aa8fd11 review a)
     h._rotate = stop
     h.window_stamp_ns = 100 * S   # adapted on the branch: what _collect records, the mean image stamp of the window
     h.clock.ns = 101 * S
@@ -302,7 +302,8 @@ def test_4a_no_samples_reports_not_aligned_9900_within_a_bounded_time():
     gh, result, report = run(h)
     elapsed = (h.clock.ns - 100 * S) / S
     assert result.error_code == san.NOT_ALIGNED and report["outcome"].startswith("not aligned")
-    assert gh.state == "succeeded" and report["iterations"][1]["window_attempts"] == 3
+    # adapted on the branch: ABORTED with 9900 is the default (software lead's review of aa8fd11, item c)
+    assert gh.state == "aborted" and report["iterations"][1]["window_attempts"] == 3
     assert elapsed <= 1.0 + 3 * 6.0 + 0.1, elapsed
 
 
@@ -370,7 +371,7 @@ def test_5b_alignment_callbacks_are_reentrant_and_tf_and_clock_are_not_behind_ex
     src = ast.parse(inspect.getsource(san.StationAlignment.__init__).strip().replace("\n    ", "\n"))
     calls = [c for c in ast.walk(src) if isinstance(c, ast.Call)
              and ast.unparse(c.func) in ("ActionClient", "ActionServer", "self.create_subscription")]
-    assert len(calls) == 6
+    assert len(calls) == 5   # adapted on the branch: no behavior_server clients, a /safety/stop_state subscription
     for c in calls:
         assert any(k.arg == "callback_group" and ast.unparse(k.value) == "self.group" for k in c.keywords), \
             ast.unparse(c)

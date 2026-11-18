@@ -6,7 +6,6 @@ import ast
 import inspect
 import json
 import os
-import types
 
 import pytest
 
@@ -68,98 +67,28 @@ def test_k2_a_second_goal_is_rejected_in_goal_callback_and_accepted_after_the_fi
     assert goal_cb(object()) == rosstub.GoalResponse.ACCEPT
 
 
-# ---------------------------------------------------------------- 3 and 5. behaviour bounds
-class FakeFuture:
-    def __init__(self, value=None, done=False, clock=None, give_up_s=None):
-        self.value, self._done = value, done
-        self.clock, self.give_up_s = clock, give_up_s
-
-    def done(self):
-        if self.clock is not None and self.clock.ns > self.give_up_s * S:   # a node without a deadline waits forever
-            raise AssertionError("still waiting for the behaviour result after 60 s of simulation time")
-        return self._done
-
-    def result(self):
-        return self.value
+# ---------------------------------------------------------------- 3 and 5. bounds of a correction goal
+# Adapted after the software lead's review of aa8fd11 (item a): corrections are NavigateToPose goals of the station
+# tree, no behavior_server action is called any more. Point 3 is the correction deadline on simulation time
+# (correction_timeout_s), after which the node cancels the goal; point 5, stall detection inside the goal, is Nav2's
+# progress checker of #164's controller_server.
+def test_k3_a_correction_goal_without_result_is_cancelled_on_simulation_time(monkeypatch):
+    from test_review_aa8fd11_lead import real_nav_harness
+    h = real_nav_harness(monkeypatch, lambda i, nav: None)       # accepted, never answers
+    ok, text = h._rotate(GoalHandle(), 0.3)
+    assert not ok and "timed out after 60 s" in text and h.nav.cancels == [0]
+    assert 60.0 <= (h.clock.ns - 100 * S) / S < 60.2
 
 
-class FakeHandle:
-    def __init__(self, result_future):
-        self.accepted = True
-        self.cancelled = 0
-        self.result_future = result_future
-
-    def get_result_async(self):
-        return self.result_future
-
-    def cancel_goal_async(self):
-        self.cancelled += 1
-
-
-class FakeClient:
-    def __init__(self, result_future):
-        self.handle = FakeHandle(result_future)
-        self.goals = []
-
-    def wait_for_server(self, timeout_sec):
-        return True
-
-    def send_goal_async(self, goal):
-        self.goals.append(goal)
-        return FakeFuture(self.handle, done=True)
-
-
-class Goal:
-    def __init__(self):
-        self.target = types.SimpleNamespace(x=None)
-        self.speed = None
-        self.time_allowance = None
-
-
-def _behavior_harness(odom, monkeypatch, overrides=None):
-    h = Harness(start_s=100.0, rtf=1.0, overrides=overrides)
-    client = FakeClient(FakeFuture(done=False, clock=h.clock, give_up_s=160.0))   # accepted, never answers
-    h.behaviors = {maneuver.BACKUP: client, maneuver.DRIVE: client}
-    monkeypatch.setattr(san, "BackUp", types.SimpleNamespace(Goal=Goal))
-    monkeypatch.setattr(san, "DriveOnHeading", types.SimpleNamespace(Goal=Goal))
-    monkeypatch.setattr(san, "DurationMsg", lambda sec, nanosec: (sec, nanosec))
-    h._odom_from_base = lambda: odom(h.clock.ns)
-    return h, client
-
-
-def test_k3_a_behaviour_without_result_is_cancelled_on_simulation_time(monkeypatch):
-    # the base moves 0.05 m/s (no stall), but behavior_server never returns a result
-    h, client = _behavior_harness(lambda ns: (0.05 * (ns - 100 * S) / S, 0.0, 0.0), monkeypatch)
-    ok, text = h._behavior(GoalHandle(), maneuver.DRIVE, 0.15)
-    assert not ok and "timed out" in text
-    assert client.handle.cancelled >= 1
-    allowance = maneuver.behavior_allowance(0.15, 0.05)
-    elapsed = (h.clock.ns - 100 * S) / S
-    assert allowance + 5.0 <= elapsed < allowance + 5.0 + 0.1
-
-
-def test_k5_a_held_base_is_cancelled_as_stalled(monkeypatch):
-    h, client = _behavior_harness(lambda ns: (0.001, 0.0, 0.0), monkeypatch)
-    ok, text = h._behavior(GoalHandle(), maneuver.BACKUP, 0.15)
-    assert not ok and "stalled" in text and client.handle.cancelled >= 1
-    assert (h.clock.ns - 100 * S) / S < 4.5
-
-
-def test_k5_time_allowance_follows_the_move_length(monkeypatch):
-    h, client = _behavior_harness(lambda ns: (0.001, 0.0, 0.0), monkeypatch)
-    h._behavior(GoalHandle(), maneuver.BACKUP, 0.15)
-    sec, nanosec = client.goals[0].time_allowance
-    assert sec + nanosec / 1e9 == pytest.approx(2 * 0.15 / 0.05 + 5.0)
-    assert maneuver.behavior_allowance(0.01, 0.05) == pytest.approx(5.4)
-    assert maneuver.behavior_allowance(10.0, 0.05) > 30.0     # the node caps it at behavior_time_allowance_s
-
-
-def test_k5_progress_watch():
-    w = maneuver.ProgressWatch((0.0, 0.0, 0.0), 0, window_s=4.0, min_move=0.005)
-    assert not w.update((0.004, 0.0, 0.0), 3 * S)
-    assert not w.update((0.006, 0.0, 0.0), 3.9 * S)       # progress resets the window
-    assert not w.update((0.007, 0.0, 0.0), 7.8 * S)
-    assert w.update((0.008, 0.0, 0.0), 8.0 * S)
+def test_k5_correction_goals_have_their_own_deadline_and_nav2_checks_progress(monkeypatch):
+    import yaml
+    from test_review_aa8fd11_lead import NAV2, real_nav_harness
+    h = real_nav_harness(monkeypatch, lambda i, nav: None, overrides={"correction_timeout_s": 7.0})
+    ok, text = h._drive(GoalHandle(), 0.05)
+    assert not ok and "timed out after 7 s" in text
+    params = yaml.safe_load(open(os.path.join(NAV2, "config", "nav2_params.yaml")))["controller_server"]
+    checker = params["ros__parameters"]["progress_checker"]
+    assert checker["required_movement_radius"] == 0.05 and checker["movement_time_allowance"] == 12.0
 
 
 # ---------------------------------------------------------------- 4. absolute rotation target
@@ -167,7 +96,7 @@ def test_k4_an_amcl_update_between_plan_and_goal_does_not_move_the_target_yaw():
     h = Harness()
     reads = iter([(1.0, 2.0, 0.20), (1.0, 2.0, 0.25)])     # plan reads 0.20, AMCL moves the heading to 0.25
     h._map_from_base = lambda: next(reads)
-    plan = maneuver.Plan((0.0, 0.0, 0.0), 0.30, (0.0, 0.0, 0.1), lateral_direct=0.02, backoff=0.15)
+    plan = maneuver.Plan((0.0, 0.0, 0.0), 0.30, (0.0, 0.0, 0.1), lateral_direct=0.02)
     primitive = plan.next((0.0, 0.0, 0.0), h._map_from_base()[2])
     assert primitive[0] == maneuver.ROTATE
     h._rotate(GoalHandle(), primitive[2])
@@ -175,7 +104,7 @@ def test_k4_an_amcl_update_between_plan_and_goal_does_not_move_the_target_yaw():
 
 
 def test_k4_face_turn_carries_its_absolute_target():
-    plan = maneuver.Plan((0.0, 0.1, 0.0), 0.0, (0.0, 0.1, 0.0), lateral_direct=0.02, backoff=0.15)
+    plan = maneuver.Plan((0.0, 0.1, 0.0), 0.0, (0.0, 0.1, 0.0), lateral_direct=0.02)
     plan.stages = ["face", "approach", "align"]      # after the back-off
     kind, delta, target = plan.next((0.0, 0.0, 0.0), 0.5)
     assert kind == maneuver.ROTATE and target == pytest.approx(geometry.wrap(0.5 + delta))

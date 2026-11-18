@@ -47,6 +47,10 @@ class Result:
         self.error_msg = ""
 
 
+class StopState:
+    STATE_LOCKED, STATE_RELEASE_REFUSED, STATE_RUNNING = 0, 1, 2
+
+
 class NavigateToPose:
     Result = Result
     Goal = _Any
@@ -59,6 +63,7 @@ def install():
     _mod("rclpy.callback_groups", ReentrantCallbackGroup=_Any)
     _mod("rclpy.executors", MultiThreadedExecutor=_Any)
     _mod("rclpy.node", Node=Node)
+    _mod("rclpy.qos", DurabilityPolicy=_Any(), QoSProfile=_Any, ReliabilityPolicy=_Any())
     _mod("rclpy.time", Time=_Any)
     _mod("rclpy.parameter", Parameter=_Any)
     _mod("ament_index_python")
@@ -69,6 +74,8 @@ def install():
     _mod("nav_msgs.msg", Odometry=_Any)
     _mod("nav2_msgs")
     _mod("nav2_msgs.action", BackUp=_Any, DriveOnHeading=_Any, NavigateToPose=NavigateToPose)
+    _mod("openamr_nav_msgs")
+    _mod("openamr_nav_msgs.msg", StopState=StopState)
     _mod("std_msgs")
     _mod("std_msgs.msg", String=lambda data="": types.SimpleNamespace(data=data))
     _mod("tf2_ros", Buffer=_Any, TransformException=TransformException, TransformListener=_Any)

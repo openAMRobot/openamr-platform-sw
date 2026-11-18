@@ -44,42 +44,38 @@ station_alignment:
     # simulation time at a real-time factor of 0.2 in Baseline 1): wait up to sample_timeout_s + max_latency_s.
     sample_timeout_s: 6.0
     max_latency_s: 15.0
-    # No usable marker after the #164 approach: succeed_unaligned (SUCCEEDED, error_code 9900, outcome
-    # "not aligned: ...", the base stays where #164 stopped it) or abort.
-    on_marker_not_seen: succeed_unaligned
+    # No usable marker after the #164 approach: error_code 9900 and outcome "not aligned: ...", the base stays where
+    # #164 stopped it. abort (default): status ABORTED. succeed_unaligned (opt-in): status SUCCEEDED. Abort is the
+    # default because most clients read only the status (software lead's review of aa8fd11, item c). Proposed.
+    on_marker_not_seen: abort
     max_iterations: 3
     # Acceptance per axis of the measured residual (the station in the robot frame), Proposed 18 Nov 2026.
     # The budget counts the marker error: in 20 CI trials it was +4.1 to +5.4 mm along the heading (a bias, constant
     # sign) and -2.7 to +1.3 mm to the side (noise, follows the yaw error). Worst true error:
     # hypot(accept_along + 0.0054, accept_lateral + 0.0027) = hypot(0.0304, 0.0227) = 0.0379 m, inside 0.04 m.
-    # accept_along was 0.03 (hypot(0.03, 0.02) + 0.0052 = 0.0413 m, over; review of c4666a1, 3d). Distance
-    # corrections are DriveOnHeading moves (about 3 mm accurate, no goal checker), so 0.025 m is reachable. The bias
-    # is not subtracted: its cause is not found, and a simulation correction must not reach the robot.
+    # accept_along was 0.03 (hypot(0.03, 0.02) + 0.0052 = 0.0413 m, over; review of c4666a1, 3d). The bias is not
+    # subtracted: its cause is not found, and a simulation correction must not reach the robot.
     # A lateral residual up to accept_lateral is not driven (a differential base cannot step sideways); a larger one
-    # through a short reverse (below).
+    # by turning to the target point first (below).
     accept_along: 0.025
     accept_lateral: 0.02
     accept_yaw: 0.06
-    # Corrections (Proposed, 18 Nov 2026, maneuver.py): position target fixed in odom at the measurement, reached
-    # with behavior_server's BackUp and DriveOnHeading (odom, no progress checker); heading target in map, reached
-    # with rotation-only goals of #164's station tree (closed on the AMCL heading; behavior_server's Spin stops on
-    # odometry, which missed about half of the turn in simulation). Not a map-frame position goal, which AMCL updates
-    # moved, and not a reverse through StationApproach, which cannot reverse. Lateral residual > accept_lateral:
-    # back up `backoff`, turn to the target point, drive, turn to the target yaw.
-    backoff: 0.15
+    # Corrections (Proposed, maneuver.py), forward only: D-19 (8 Nov) allows no reverse in Build 1 and platform-sw
+    # #90 removes backup, drive_on_heading and assisted_teleop from behavior_server (software lead's review of
+    # aa8fd11, item a). Position target fixed in odom at the measurement, heading target in map (AMCL). Every move is
+    # a NavigateToPose goal of #164's station tree: rotation-only goals at the current map position, and forward
+    # drives on the current map heading. Lateral residual > accept_lateral, or the target behind the robot: turn to
+    # the target point, drive forward, turn to the target yaw. Otherwise: drive forward, turn to the target yaw.
+    # drive_lead: a drive goal lies this far beyond its point, as station_goal_checker (xy 0.025 m) ends the goal at
+    # that distance from it. correction_timeout_s: simulation-time deadline of one correction goal, after which the
+    # node cancels it; stall detection inside the goal is Nav2's progress checker (0.05 m in 12 s).
     odom_frame: odom
-    behavior_speed: 0.05
-    # behavior_server time_allowance: 2 x |move| / speed + 5 s (0.15 m: 11 s), capped at behavior_time_allowance_s.
-    # The node also cancels the behaviour itself on simulation time: past the allowance plus
-    # behavior_timeout_margin_s without a result, or under stall_min_move of odometry progress in stall_window_s
-    # (at 0.05 m/s the base covers 0.2 m in 4 s). Proposed, Kunal's review of aa8fd11, points 3 and 5.
-    behavior_time_allowance_s: 30.0
-    behavior_timeout_margin_s: 5.0
-    stall_window_s: 4.0
-    stall_min_move: 0.005
-    spin_action: spin
-    backup_action: backup
-    drive_on_heading_action: drive_on_heading
+    drive_lead: 0.025
+    correction_timeout_s: 60.0
+    # Stop (software lead's review of aa8fd11, item b): /safety/stop_state not RUNNING, or a sub-goal CANCELED by
+    # another client (the gate cancels on Stop), ends the station goal and nothing more is sent (openamrobot-interfaces
+    # #40, item 3). No message (no gate on the stack) counts as running. Functional behaviour, not safety evidence.
+    stop_state_topic: /safety/stop_state
     # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
     max_correction_xy: 0.15
     max_correction_yaw: 0.30
