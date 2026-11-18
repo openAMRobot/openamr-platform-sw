@@ -110,3 +110,9 @@ def test_a_slow_marker_stream_is_used_with_min_samples_after_the_timeout():
         if 31.3 * S <= received <= 37.4 * S:
             strict.add(stamp, received, POSE)
     assert strict.poll(int(37.4 * S)) == sampling.WAITING
+
+
+def test_a_window_with_nothing_received_is_reopened_a_limited_number_of_times():
+    assert sampling.reopen(sampling.NOT_SEEN, 0, 2) and sampling.reopen(sampling.NOT_SEEN, 1, 2)
+    assert not sampling.reopen(sampling.NOT_SEEN, 2, 2)
+    assert not sampling.reopen(sampling.STALE, 0, 2) and not sampling.reopen(sampling.DONE, 0, 2)

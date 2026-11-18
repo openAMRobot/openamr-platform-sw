@@ -29,6 +29,12 @@ def pending_expired(received_ns, now_ns, timeout_s):
     return now_ns - received_ns > int(timeout_s * 1e9)
 
 
+def reopen(status, attempt, retries):
+    """Open the window once more after `status`? Only when nothing at all arrived (images come in bursts over Fast
+    DDS: run 44265339608 rtf02 trial 1, 0 poses in the 6 s after a correction, then the base was 0.012 m away)."""
+    return status == NOT_SEEN and attempt < retries
+
+
 def without_marker(iteration, nominal_ok):
     """What the alignment does when the window ends without a usable marker pose.
 

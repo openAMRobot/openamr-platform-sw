@@ -73,6 +73,7 @@ class StationAlignment(Node):
         self.declare_parameter("settle_s", 1.0)
         self.declare_parameter("samples", 8)
         self.declare_parameter("min_samples", 4)
+        self.declare_parameter("not_seen_retries", 2)
         self.declare_parameter("sample_timeout_s", 6.0)
         self.declare_parameter("max_latency_s", 15.0)
         self.declare_parameter("on_marker_not_seen", "succeed_unaligned")
@@ -340,10 +341,16 @@ class StationAlignment(Node):
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
-            opened = self.get_clock().now()
-            status, window = self._collect(opened)
+            attempt = 0
+            while True:
+                opened = self.get_clock().now()
+                status, window = self._collect(opened)
+                if not sampling.reopen(status, attempt, int(p("not_seen_retries"))):
+                    break
+                attempt += 1
             step = {"iteration": iteration, "stopped_s": stopped.nanoseconds * 1e-9,
-                    "window_opened_s": opened.nanoseconds * 1e-9, "window_status": status, **window.summary()}
+                    "window_opened_s": opened.nanoseconds * 1e-9, "window_status": status,
+                    "window_attempts": attempt + 1, **window.summary()}
             report["iterations"].append(step)
             if status != sampling.DONE:
                 why = ("marker not seen" if status == sampling.NOT_SEEN else "no fresh marker sample") + \
