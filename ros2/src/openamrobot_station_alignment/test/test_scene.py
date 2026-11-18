@@ -145,3 +145,15 @@ def test_station_and_trial_start_poses_are_clear(pose):
     # 0.47 m: the circumscribed radius of the nav2_params.yaml footprint plus a margin
     nearest = min(math.hypot(x - pose[0], y - pose[1]) for x, y in _occupied())
     assert nearest > 0.47 or pose == scene.station() and nearest > 0.40
+
+
+def test_tag_textures_have_notice_and_licence():
+    notice = os.path.join(PKG, "..", "..", "..", "NOTICE.md")
+    with open(notice, encoding="utf-8") as f:
+        text = f.read()
+    textures = os.path.join(PKG, "models", "station_marker", "materials", "textures")
+    for tag in scene.MARKER_IDS:
+        assert f"apriltag_36h11_id{tag}.png" in text
+    with open(os.path.join(textures, "LICENSE.apriltag-imgs"), encoding="utf-8") as f:
+        licence = f.read()
+    assert "BSD 2-Clause License" in licence and "The Regents of The University of Michigan" in licence

@@ -35,17 +35,36 @@ station_alignment:
     base_frame: base_footprint
     settle_s: 1.0
     samples: 8
+    # Sample window, simulation time (sampling.py): `samples` station poses stamped after the robot settled. Not
+    # seen: nothing at all in sample_timeout_s. Stale stamps (the camera to pose pipeline lags; more than 6 s of
+    # simulation time at a real-time factor of 0.2 in Baseline 1): wait up to sample_timeout_s + max_latency_s.
     sample_timeout_s: 6.0
+    max_latency_s: 15.0
+    # No usable marker after the #164 approach: succeed_unaligned (SUCCEEDED, error_code 9900, outcome
+    # "not aligned: ...", the base stays where #164 stopped it) or abort.
+    on_marker_not_seen: succeed_unaligned
     max_iterations: 3
     # Acceptance per axis of the measured residual (the station in the robot frame). Not below station_goal_checker
     # (platform-sw #164, 0.025 m, 0.05 rad) plus the marker error, because a smaller correction would not move the
     # robot: the goal checker accepts it at once. Worst accepted pose: hypot(0.03, 0.02) = 0.036 m and 0.06 rad,
     # inside the 0.04 m / 0.08 rad reach budget. A lateral residual up to accept_lateral is not driven (a
-    # differential base cannot step sideways); a larger one is corrected from a goal `backoff` behind the station.
+    # differential base cannot step sideways); a larger one through a short reverse (below).
     accept_along: 0.03
     accept_lateral: 0.02
     accept_yaw: 0.06
-    backoff: 0.30
+    # Corrections (Proposed, 18 Nov 2026, maneuver.py): position target fixed in odom at the measurement, reached
+    # with behavior_server's BackUp and DriveOnHeading (odom, no progress checker); heading target in map, reached
+    # with rotation-only goals of #164's station tree (closed on the AMCL heading; behavior_server's Spin stops on
+    # odometry, which missed about half of the turn in simulation). Not a map-frame position goal, which AMCL updates
+    # moved, and not a reverse through StationApproach, which cannot reverse. Lateral residual > accept_lateral:
+    # back up `backoff`, turn to the target point, drive, turn to the target yaw.
+    backoff: 0.15
+    odom_frame: odom
+    behavior_speed: 0.05
+    behavior_time_allowance_s: 30.0
+    spin_action: spin
+    backup_action: backup
+    drive_on_heading_action: drive_on_heading
     # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
     max_correction_xy: 0.15
     max_correction_yaw: 0.30

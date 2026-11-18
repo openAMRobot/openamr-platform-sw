@@ -54,14 +54,33 @@ launches it.
                                1. NavigateToPose(nominal station, navigate_to_station.xml) ──> Nav2
                                2. robot stopped: mean of 8 station poses <───────────┘
                                3. residual within 0.03 m to the shelf, 0.02 m along it, 0.06 rad: succeed
-                               4. else goal = (map <- base now) o (measured station): NavigateToPose ──> Nav2
-                                  lateral <= 0.02 m: distance and yaw only, in place
-                                  lateral  > 0.02 m: first a goal 0.30 m behind it, then the goal
-                                  (up to 3 corrections; residual above 0.15 m / 0.30 rad aborts)
+                               4. else target = (odom <- base now) o (measured station), fixed in odom:
+                                  BackUp / DriveOnHeading (behavior_server, odom) for translations,
+                                  rotation-only goals of the station tree (map heading) for turns
+                                  lateral <= 0.02 m: drive along the heading, then turn
+                                  lateral  > 0.02 m: back up 0.15 m, turn to the target, drive, turn
+                                  (then measure again; up to 3 corrections; above 0.15 m / 0.30 rad aborts)
 
  Nav2 (unchanged): bt_navigator -> controller_server (StationApproach, station_goal_checker) -> cmd_vel_nav
-                   -> velocity_smoother -> collision_monitor -> /cmd_vel
+                   behavior_server (BackUp, DriveOnHeading, local frame odom)           -> cmd_vel_nav
+                   cmd_vel_nav -> velocity_smoother -> collision_monitor -> /cmd_vel
 ```
+
+Correction in odom (Proposed, 18 Nov 2026). The earlier correction was a map-frame NavigateToPose goal through #164's
+station tree, and it failed in three ways. First, every AMCL update during the move (every 0.05 m or 0.05 rad since
+#164) shifted the target, because the controller follows the path through the current map -> odom. Second, #164's
+StationApproach controller cannot reverse: with `initial_rotation` true, nav2_graceful_controller switches
+`allow_backward` off ("setting allow backward to false"), so a goal 0.30 m behind the robot was driven as a turn
+around, out and back. Third, the progress checker (0.05 m in 12 s) aborts short moves that are mostly rotation.
+Together these explain run 44188740454 rtf1 trial 4 (lateral residual -0.036 to +0.040 m in turn, 0.0485 m after
+3 corrections). The correction now fixes the position target in odom when the marker is measured and translates with
+behavior_server's BackUp and DriveOnHeading, which work in odom and use no progress checker. Turns are rotation-only
+goals of #164's station tree (the current map position, the AMCL heading turned), closed on the map heading.
+behavior_server's Spin was tried first (run 44225167178) and dropped: it stops on odometry, and the simulated base
+keeps turning after the wheels stop (Spin +0.082 rad: odom +0.110, ground truth and marker about +0.23; frictionless
+castors of #135). Two trials ended at 0.105 and 0.098 rad, with every position within 0.021 m. Each step is planned
+from the current pose. The marker is then measured again (`maneuver.py`, `test_maneuver.py`). The arithmetic below for the map-frame goal still
+explains why measuring relative to the robot removes the AMCL error.
 
 Why the corrected goal removes the AMCL error: AMCL's error is a map-frame offset E (a wrong map -> odom), so the map
 pose it reports is E o truth. The camera measures the station relative to the robot, S_b = truth^-1 o station, with
@@ -85,6 +104,34 @@ Limits, from the first simulation runs:
   the goal. The next measurement sees it; a station tree in the odom frame, or no filter update during the final
   move, would remove it (owner decision, section 8).
 
+Sample window, on simulation time only (`sampling.py`, 18 Nov 2026). Integrated in Baseline 1 at a real-time
+factor of about 0.2 (openamr-upperbody-sw runs 44155397328, 44155429472, 44155442866), the alignment aborted in 3 of 6
+runs with no sample in its 6 s window although the detector published at 5 Hz during it. The alignment's clock was
+right (30.34 s at the stop, as the runner's real-time factor monitor), so the station poses arrived with image stamps
+more than 6 s of simulation time old, and the fixed window that started when the robot had settled never saw a fresh
+one. The window now counts only poses whose image was taken after the robot settled, as before, but waits for them:
+done after 8 such poses; "marker not seen" when nothing at all arrives in 6 s; "no fresh sample" when poses arrive but
+all are older, after 6 s plus a 15 s latency allowance. Every deadline (window, Nav2 goals) is on the node clock; no
+wall clock is used. The detector had the same fault on its side: it dropped a detection whose tag transforms were
+not yet in the buffer once its image stamp was 1 s old, so stamps delayed by the pipeline were lost; it now counts
+that 1 s from when the detection arrived (`sampling.pending_expired`).
+
+Reproduced in this world (run 44188740454): target real-time factor 0.2 and image stamps 7 s of simulation time old
+on arrival (test-only `image_delay_relay`). With the alignment node of 353e3d6 the detector published 91 station
+poses (stats 50 of 50) and the alignment ended "marker not seen: 0 samples in 6.0 s", the Baseline 1 signature.
+With this node every trial ended aligned (3 of 3, 0.021 to 0.024 m, 30 to 44 poses received per window, latency
+7.05 s). Which stage of the Baseline 1 pipeline lags is not identified: its log has no per-stage stamps. The
+detector now logs `age_ms_max` and the report the received count and latency per window, so the next Baseline 1
+run shows it. The report records the received count and the latency (arrival minus stamp) of the poses.
+
+Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
+which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,
+outside Nav2's codes) and the report outcome `not aligned: ...`; a caller that needs the alignment checks the code.
+`on_marker_not_seen: abort` restores an abort. After a correction has moved the robot, or when Nav2 reported the #164
+goal failed, a missing marker aborts. A failed #164 goal is measured before it is reported: Nav2 aborted a resent
+station goal on the progress checker with the base about 3 cm away (run 44163882664); the marker then decides.
+Accuracy limits are unchanged.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.
@@ -95,7 +142,8 @@ known relative to it.
 |---|---|---|---|
 | `/station_alignment/station_pose` | geometry_msgs/PoseWithCovarianceStamped, frame base_footprint, image stamp | station_marker_detector | station_alignment |
 | `/station_alignment/navigate_to_station` | action nav2_msgs/action/NavigateToPose (goal: nominal station in map; behavior_tree ignored) | station_alignment | mission layer |
-| `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, outcome) | station_alignment | diagnostics, trial runner |
+| `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, sample window, outcome `aligned`, `not aligned: ...` or `aborted: ...`) | station_alignment | diagnostics, trial runner |
+| `NavigateToPose.Result.error_code` 9900 NOT_ALIGNED | result code with status SUCCEEDED: #164 reached the station, no marker correction | station_alignment | mission layer |
 | `station_marker_3`, `station_marker_4` | TF frames of apriltag_ros | apriltag_ros | station_marker_detector |
 | `station_alignment.launch.py` arguments `use_sim_time`, `image_topic`, `camera_info_topic`, `tags_file`, `params_file` | launch arguments | | bringup |
 | `config/station_alignment.yaml` | parameters (tag ids, offsets, standoff, accept and correction limits) | | both nodes |
