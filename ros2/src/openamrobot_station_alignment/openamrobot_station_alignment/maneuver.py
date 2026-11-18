@@ -42,7 +42,9 @@ class Plan:
         self.stages = ["backoff", "face", "approach", "align"] if self.lateral else ["approach", "align"]
 
     def next(self, current_odom, current_yaw_map):
-        """(primitive, magnitude) to run now, or None when the plan is done. Positions from odom, yaw from map."""
+        """(primitive, magnitude) to run now, or None when the plan is done. Positions from odom, yaw from map.
+        A rotation is (ROTATE, delta, absolute target yaw in map): the goal sent is the absolute yaw, so an AMCL update
+        between this read and the goal does not move the target (Kunal's review of aa8fd11, point 4)."""
         while self.stages:
             stage = self.stages.pop(0)
             step = self._step(stage, current_odom, current_yaw_map)
@@ -55,7 +57,8 @@ class Plan:
         if stage == "backoff":
             return (BACKUP, self.backoff)
         if stage == "face":
-            return self._turn(math.atan2(rel[1], rel[0]) if math.hypot(rel[0], rel[1]) > self.min_move else 0.0)
+            angle = math.atan2(rel[1], rel[0]) if math.hypot(rel[0], rel[1]) > self.min_move else 0.0
+            return self._turn(angle, geometry.wrap(yaw_map + angle))
         if stage == "approach":
             # along the current heading only; a lateral remainder is left to the next marker measurement
             if abs(rel[0]) < self.min_move:
@@ -63,11 +66,33 @@ class Plan:
             return (DRIVE, rel[0]) if rel[0] > 0 else (BACKUP, -rel[0])
         if stage == "align":
             delta = geometry.wrap(self.target_yaw_map - yaw_map)
-            return None if abs(delta) <= self.yaw_deadband else self._turn(delta)
+            return None if abs(delta) <= self.yaw_deadband else self._turn(delta, self.target_yaw_map)
         raise ValueError(stage)
 
-    def _turn(self, angle):
-        return None if abs(angle) < self.min_turn else (ROTATE, angle)
+    def _turn(self, angle, target_yaw_map):
+        return None if abs(angle) < self.min_turn else (ROTATE, angle, target_yaw_map)
+
+
+def behavior_allowance(distance, speed, factor=2.0, margin_s=5.0):
+    """Time allowance of a BackUp or DriveOnHeading of `distance` at `speed`: twice the nominal time plus a margin
+    (0.15 m at 0.05 m/s: 11 s), instead of a fixed 30 s (Kunal's review of aa8fd11, point 5)."""
+    return factor * abs(distance) / max(abs(speed), 1e-6) + margin_s
+
+
+class ProgressWatch:
+    """Stall detection of a translation on odometry, on simulation time: stalled when the base has moved less than
+    `min_move` in the last `window_s`. Defaults 0.005 m in 4 s: at 0.05 m/s the base covers 0.2 m in 4 s, so this
+    only fires when it is held; the approach's progress checker allows 12 s for 0.05 m."""
+
+    def __init__(self, start_pose, start_ns, window_s=4.0, min_move=0.005):
+        self.ref, self.ref_ns = start_pose, start_ns
+        self.window_ns, self.min_move = int(window_s * 1e9), min_move
+
+    def update(self, pose, now_ns):
+        if math.hypot(pose[0] - self.ref[0], pose[1] - self.ref[1]) >= self.min_move:
+            self.ref, self.ref_ns = pose, now_ns
+            return False
+        return now_ns - self.ref_ns > self.window_ns
 
 
 def target_in_odom(odom_from_base, residual):

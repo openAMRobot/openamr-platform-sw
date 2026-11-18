@@ -121,13 +121,13 @@ def test_small_lateral_residual_drives_along_the_heading_only():
     residual = (0.025, 0.01, 0.04)
     plan = m.Plan(residual, 0.04, residual, lateral_direct=0.02, backoff=0.15)
     assert plan.next((0.0, 0.0, 0.0), 0.0) == (m.DRIVE, pytest.approx(0.025))
-    assert plan.next((0.025, 0.0, 0.0), 0.0) == (m.ROTATE, pytest.approx(0.04))
+    assert plan.next((0.025, 0.0, 0.0), 0.0) == (m.ROTATE, pytest.approx(0.04), pytest.approx(0.04))
 
 
 def test_the_yaw_target_is_taken_from_map_not_odom():
     plan = m.Plan((0.0, 0.0, 0.0), 0.3, (0.0, 0.0, 0.3), lateral_direct=0.02, backoff=0.15)
     # odometry says the yaw is reached, the map heading says 0.1 rad are still missing
-    assert plan.next((0.0, 0.0, 0.3), 0.2) == (m.ROTATE, pytest.approx(0.1))
+    assert plan.next((0.0, 0.0, 0.3), 0.2) == (m.ROTATE, pytest.approx(0.1), pytest.approx(0.3))
 
 
 def test_an_amcl_update_moves_a_map_goal_but_not_an_odom_target():

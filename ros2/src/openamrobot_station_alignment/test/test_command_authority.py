@@ -117,7 +117,7 @@ def test_corrections_are_not_map_frame_position_goals():
     assert len(calls) == 2
     rotate = next(f for f in ast.walk(t) if isinstance(f, ast.FunctionDef) and f.name == "_rotate")
     source = ast.unparse(rotate)
-    assert "x, y, yaw = self._map_from_base()" in source and "(x, y, geometry.wrap(yaw + delta))" in source
+    assert "x, y, _ = self._map_from_base()" in source and "(x, y, geometry.wrap(target_yaw))" in source
     translations = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_behavior"]
     assert len(translations) == 1
 

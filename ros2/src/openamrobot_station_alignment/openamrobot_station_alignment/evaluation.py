@@ -57,3 +57,10 @@ def summary(trials):
               f"marker estimate - ground truth: {stats('baseline', 'marker_error_xy')}; yaw "
               f"{stats('baseline', 'marker_error_yaw')}"]
     return "\n".join(lines)
+
+
+def count_corrections(report):
+    """Corrections the alignment ran: iterations that planned a correction (they carry "target_odom" and
+    "moves", written by station_alignment_node._correct). Was counted on a "corrected_goal" key the node no
+    longer writes, so every trial reported 0 (Kunal's review of aa8fd11, point 1)."""
+    return sum(1 for step in (report or {}).get("iterations", []) if "target_odom" in step)

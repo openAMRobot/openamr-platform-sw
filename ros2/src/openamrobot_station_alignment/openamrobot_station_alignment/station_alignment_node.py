@@ -96,6 +96,9 @@ class StationAlignment(Node):
         self.declare_parameter("station_pose_source", "topic")
         self.declare_parameter("behavior_speed", 0.05)
         self.declare_parameter("behavior_time_allowance_s", 30.0)
+        self.declare_parameter("behavior_timeout_margin_s", 5.0)
+        self.declare_parameter("stall_window_s", 4.0)
+        self.declare_parameter("stall_min_move", 0.005)
         self.declare_parameter("backup_action", "backup")
         self.declare_parameter("drive_on_heading_action", "drive_on_heading")
         samples, minimum = int(self.get_parameter("samples").value), int(self.get_parameter("min_samples").value)
@@ -137,7 +140,8 @@ class StationAlignment(Node):
     def ingest(self, stamp_ns, frame, pose):
         """A station pose, from the topic or handed over in process by station_alignment_stack."""
         if frame != self.get_parameter("base_frame").value:
-            self.frame_rejected += 1
+            with self.lock:
+                self.frame_rejected += 1
             return
         received = self.get_clock().now().nanoseconds
         with self.lock:
@@ -279,9 +283,13 @@ class StationAlignment(Node):
         return self._tf_pose(self.get_parameter("odom_frame").value, float(self.get_parameter("odom_max_age_s").value))
 
     def _behavior(self, goal_handle, kind, value):
-        """Run one behavior_server action; (ok, text)."""
-        allowance = float(self.get_parameter("behavior_time_allowance_s").value)
-        speed = float(self.get_parameter("behavior_speed").value)
+        """Run one behavior_server BackUp or DriveOnHeading; (ok, text). Bounded on simulation time from both sides
+        (Kunal's review of aa8fd11, points 3 and 5): behavior_server's time_allowance is set from the move length,
+        and the node cancels the behaviour when it passes that allowance plus behavior_timeout_margin_s without a
+        result, or when odometry shows no progress (maneuver.ProgressWatch)."""
+        p = lambda name: self.get_parameter(name).value  # noqa: E731
+        speed = float(p("behavior_speed"))
+        allowance = min(maneuver.behavior_allowance(value, speed), float(p("behavior_time_allowance_s")))
         goal = (DriveOnHeading if kind == maneuver.DRIVE else BackUp).Goal()
         goal.target.x = float(abs(value)) if kind == maneuver.DRIVE else -float(abs(value))
         goal.speed = speed if kind == maneuver.DRIVE else -speed
@@ -289,27 +297,48 @@ class StationAlignment(Node):
         client = self.behaviors[kind]
         if not client.wait_for_server(timeout_sec=30.0):
             return False, f"{kind} action not available"
+        now = lambda: self.get_clock().now().nanoseconds  # noqa: E731
+        deadline = now() + int((allowance + float(p("behavior_timeout_margin_s"))) * 1e9)
         sent = client.send_goal_async(goal)
         while rclpy.ok() and not sent.done():
+            if now() > deadline:
+                return False, f"{kind} {value:+.4f} not accepted in time"
             time.sleep(0.02)
         handle = sent.result()
         if handle is None or not handle.accepted:
             return False, f"{kind} rejected"
         result = handle.get_result_async()
+        watch = None   # started on the first odometry pose of the move; no pose at all ends at the deadline
         while rclpy.ok() and not result.done():
             if goal_handle.is_cancel_requested:
                 handle.cancel_goal_async()
+            if now() > deadline:
+                handle.cancel_goal_async()
+                return False, f"{kind} {value:+.4f} timed out after {allowance:.1f} s + margin (simulation time)"
+            try:
+                pose = self._odom_from_base()
+            except TransformException:
+                pose = None
+            stalled = False
+            if pose is not None and watch is None:
+                watch = maneuver.ProgressWatch(pose, now(), float(p("stall_window_s")), float(p("stall_min_move")))
+            elif pose is not None:
+                stalled = watch.update(pose, now())
+            if stalled:
+                handle.cancel_goal_async()
+                return False, f"{kind} {value:+.4f} stalled: under {p('stall_min_move')} m in {p('stall_window_s')} s"
             time.sleep(0.02)
         status = result.result().status
         return status == STATUS_SUCCEEDED, f"{kind} {value:+.4f} status {status}"
 
-    def _rotate(self, goal_handle, delta):
-        """Rotation-only goal of #164's station tree: the current map position, the map heading turned by `delta`.
-        Closed on the AMCL heading, which sees the turn the base makes after the wheels stop (odometry does not)."""
-        x, y, yaw = self._map_from_base()
+    def _rotate(self, goal_handle, target_yaw):
+        """Rotation-only goal of #164's station tree: the current map position and the absolute map heading
+        `target_yaw` (from the plan's own read; Kunal's review of aa8fd11, point 4). Closed on the AMCL heading,
+        which sees the turn the base makes after the wheels stop (odometry does not)."""
+        x, y, _ = self._map_from_base()
         frame = self.get_parameter("global_frame").value
-        ok, why = self._navigate(goal_handle, (x, y, geometry.wrap(yaw + delta)), frame)
-        return ok, f"rotate {delta:+.4f} {why}"
+        ok, why = self._navigate(goal_handle, (x, y, geometry.wrap(target_yaw)), frame)
+        return ok, f"rotate to {target_yaw:+.4f} {why}"
 
     def _correct(self, goal_handle, residual, step):
         """Reach the measured station: position target fixed in odom, yaw target in map, see maneuver.py."""
@@ -338,7 +367,7 @@ class StationAlignment(Node):
             if primitive is None:
                 return True
             if primitive[0] == maneuver.ROTATE:
-                ok, text = self._rotate(goal_handle, primitive[1])
+                ok, text = self._rotate(goal_handle, primitive[2])
             else:
                 ok, text = self._behavior(goal_handle, *primitive)
             step["moves"].append(text)
@@ -412,7 +441,8 @@ class StationAlignment(Node):
                 why = ("marker not seen" if status == sampling.NOT_SEEN else "no fresh marker sample") + \
                     f": {window.received} received, {len(window.fresh)} fresh, simulation time"
                 step["station_pose_source"] = p("station_pose_source")
-                step["frame_rejected"] = self.frame_rejected
+                with self.lock:
+                    step["frame_rejected"] = self.frame_rejected
                 step["station_pose_publishers"] = sorted(
                     {i.node_name for i in self.get_publishers_info_by_topic(p("station_pose_topic"))})
                 if sampling.without_marker(iteration, nominal_ok) == "not_aligned":

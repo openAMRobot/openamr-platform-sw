@@ -69,7 +69,14 @@ station_alignment:
     backoff: 0.15
     odom_frame: odom
     behavior_speed: 0.05
+    # behavior_server time_allowance: 2 x |move| / speed + 5 s (0.15 m: 11 s), capped at behavior_time_allowance_s.
+    # The node also cancels the behaviour itself on simulation time: past the allowance plus
+    # behavior_timeout_margin_s without a result, or under stall_min_move of odometry progress in stall_window_s
+    # (at 0.05 m/s the base covers 0.2 m in 4 s). Proposed, Kunal's review of aa8fd11, points 3 and 5.
     behavior_time_allowance_s: 30.0
+    behavior_timeout_margin_s: 5.0
+    stall_window_s: 4.0
+    stall_min_move: 0.005
     spin_action: spin
     backup_action: backup
     drive_on_heading_action: drive_on_heading

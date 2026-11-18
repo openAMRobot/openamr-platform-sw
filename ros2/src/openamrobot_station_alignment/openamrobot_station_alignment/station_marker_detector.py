@@ -14,7 +14,7 @@ from apriltag_msgs.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from openamrobot_station_alignment import geometry, sampling
 
@@ -86,13 +86,18 @@ class StationMarkerDetector(Node):
         timeout = float(self.get_parameter("tf_timeout").value)
         while self.pending:
             received, stamp, stamp_msg, seen = self.pending.popleft()
-            ready = [i for i in seen if self.tf_buffer.can_transform(self.base_frame, self.frames[i], stamp)]
-            if len(ready) == len(seen):
-                self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
+            tags = {}
+            for i in seen:   # one lookup per tag, no can_transform first (Kunal's review of aa8fd11)
+                try:
+                    tags[i] = self._tag(self.frames[i], stamp)
+                except TransformException:
+                    pass
+            if len(tags) == len(seen):
+                self.estimate(stamp_msg, tags)
             elif sampling.pending_expired(received, now, timeout):
                 self.stats["tf_failed"] += 1
-                if len(ready) >= int(self.get_parameter("min_tags").value):
-                    self.estimate(stamp_msg, {i: self._tag(self.frames[i], stamp) for i in ready})
+                if len(tags) >= int(self.get_parameter("min_tags").value):
+                    self.estimate(stamp_msg, tags)
             else:
                 keep.append((received, stamp, stamp_msg, seen))
         self.pending = keep

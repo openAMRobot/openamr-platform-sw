@@ -156,6 +156,14 @@ Independent review of c4666a1 (comment 6979742457, Proposed changes, 18 Nov 2026
 - **Concurrent goals:** a second goal while one runs is rejected.
 - **Known limit:** no wall-clock bound. If /clock stops, the node waits; nothing commands motion while it waits.
 
+Review of aa8fd11 (Proposed changes, 18 Nov 2026):
+- **Correction count:** the trial runner counted a `corrected_goal` key the node no longer wrote, so the corrections column read 0. It now counts iterations that planned a correction (`evaluation.count_corrections`, key `target_odom`).
+- **Overlapping goals:** rejected in the action server's goal callback while one runs (unchanged since c4666a1; now also tested to be accepted again after the first ends).
+- **Behaviour timeout:** a BackUp or DriveOnHeading without a result is cancelled by the node once its time allowance plus `behavior_timeout_margin_s` (5 s) of simulation time has passed.
+- **Rotation target:** a rotation carries its absolute map heading from the plan's read; the rotation-only goal takes only x and y from a second read, so an AMCL update between the two reads does not move the heading.
+- **Stall detection:** the node cancels a translation when odometry moved under `stall_min_move` (0.005 m) in `stall_window_s` (4 s) of simulation time. behavior_server's `time_allowance` is 2 x |move| / speed + 5 s (0.15 m at 0.05 m/s: 11 s), capped at `behavior_time_allowance_s` (30 s). At 0.05 m/s the base covers 0.2 m in 4 s, so the window only fires when the base is held; both bounds stop motion and never start it.
+- **Detector:** one TF lookup per tag inside try/except instead of can_transform then lookup; the rejected-frame counter is changed and read under the node's lock.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.

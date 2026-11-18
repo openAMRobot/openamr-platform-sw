@@ -54,7 +54,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 150 tests ran
+      - name: Check that all 162 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -62,7 +62,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 150 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 162 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -201,6 +201,36 @@ jobs:
           passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
           print(f'reverted review fixes: {len(failed)} failed {failed}, {len(passed)} passed')
           assert len(failed) == 8 and all('_FINDING_' in n for n in failed) and len(passed) == 14
+          EOF
+
+      # Revert run of the fixes for the review of aa8fd11 (skunal3318): package code and configuration back to
+      # aa8fd11, tests kept. All ten point tests must fail; the two that document behaviour aa8fd11 already had
+      # (goal_callback rejection, _correct writing target_odom) pass.
+      - name: Revert run of the aa8fd11 review fixes (aa8fd11 code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin aa8fd11dcddbc2c1ef55a0ea261665521fb86eef
+          for f in $(git ls-tree -r --name-only aa8fd11dcddbc2c1ef55a0ea261665521fb86eef \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config); do
+            git show aa8fd11dcddbc2c1ef55a0ea261665521fb86eef:$f > $f
+          done
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=.:test timeout 300 python3 -m pytest -q -p no:cacheprovider \
+            --junitxml=$GITHUB_WORKSPACE/reverted_aa8fd11.xml test/test_review_aa8fd11.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_aa8fd11.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
+          passed = sorted(c.get('name') for c in root.iter('testcase') if not list(c))
+          print(f'reverted aa8fd11 review fixes: {len(failed)} failed {failed}, {len(passed)} passed {passed}')
+          assert len(failed) == 10 and passed == [
+              'test_k1_count_from_the_real_correct_step',
+              'test_k2_a_second_goal_is_rejected_in_goal_callback_and_accepted_after_the_first_ends']
           EOF
 
   # rtf1: the five-trial comparison at full speed. rtf02: target real-time factor 0.2 (Baseline 1's runner) and image
