@@ -51,6 +51,7 @@ class StationMarkerDetector(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.pending = collections.deque()
+        self.local_sink = None   # set by station_alignment_stack: in-process hand-over to the alignment
         self.pub = self.create_publisher(PoseWithCovarianceStamped, p("station_pose_topic").value, 10)
         self.create_subscription(AprilTagDetectionArray, p("detections_topic").value, self.on_detections, 10)
         self.stats = collections.Counter()
@@ -121,6 +122,8 @@ class StationMarkerDetector(Node):
         out.pose.covariance = geometry.covariance(list(self.window), self.get_parameter("floor_xy").value, floor_yaw)
         self.pub.publish(out)
         self.stats["published"] += 1
+        if self.local_sink is not None:
+            self.local_sink(Time.from_msg(stamp_msg).nanoseconds, self.base_frame, pose)
         # stamp age at publication on this node's clock, ms (simulation time with use_sim_time)
         age_ms = int((self.get_clock().now() - Time.from_msg(stamp_msg)).nanoseconds * 1e-6)
         self.stats["age_ms_max"] = max(self.stats["age_ms_max"], age_ms)

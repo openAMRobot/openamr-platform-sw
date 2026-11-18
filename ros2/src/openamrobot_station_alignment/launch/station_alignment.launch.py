@@ -47,8 +47,8 @@ def generate_launch_description():
                               description="apriltag_ros parameters: family, black-square size, ids, frames"),
         DeclareLaunchArgument("params_file", default_value=os.path.join(share, "config", "station_alignment.yaml")),
         OpaqueFunction(function=_apriltag),
-        Node(package="openamrobot_station_alignment", executable="station_marker_detector",
-             name="station_marker_detector", output="screen", parameters=[params, sim_time]),
-        Node(package="openamrobot_station_alignment", executable="station_alignment", name="station_alignment",
-             output="screen", parameters=[params, sim_time]),
+        # station_marker_detector and station_alignment in one process: in-process hand-over of the station pose
+        # (stack.py). No name= here: it would rename both nodes of the process.
+        Node(package="openamrobot_station_alignment", executable="station_alignment_stack", output="screen",
+             parameters=[params, sim_time]),
     ])
