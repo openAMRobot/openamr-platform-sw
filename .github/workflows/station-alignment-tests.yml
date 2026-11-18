@@ -247,8 +247,9 @@ jobs:
         working-directory: ws/src/openamr-platform-sw
         run: |
           git fetch --no-tags --depth=1 origin 353e3d650a79f470c42f507faa7683054e101832
-          git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/openamrobot_station_alignment/station_alignment_node.py \
-            > $PKG_DIR/openamrobot_station_alignment/station_alignment_node.py
+          for f in openamrobot_station_alignment/station_alignment_node.py launch/station_alignment.launch.py; do
+            git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/$f > $PKG_DIR/$f
+          done
           git diff --stat
 
       - name: "BUILD: colcon build"
