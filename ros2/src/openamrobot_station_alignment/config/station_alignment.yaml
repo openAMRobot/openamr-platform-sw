@@ -52,10 +52,12 @@ station_alignment:
     accept_along: 0.03
     accept_lateral: 0.02
     accept_yaw: 0.06
-    # Corrections (Proposed, 18 Nov 2026): planned in odom at the measurement and run with behavior_server's
-    # BackUp, Spin and DriveOnHeading (maneuver.py): not a map-frame NavigateToPose goal, which AMCL updates moved,
-    # and not #164's StationApproach, which cannot reverse. Lateral residual > accept_lateral: back up `backoff`,
-    # turn to the target point, drive, turn to the target yaw.
+    # Corrections (Proposed, 18 Nov 2026, maneuver.py): position target fixed in odom at the measurement, reached
+    # with behavior_server's BackUp and DriveOnHeading (odom, no progress checker); heading target in map, reached
+    # with rotation-only goals of #164's station tree (closed on the AMCL heading; behavior_server's Spin stops on
+    # odometry, which missed about half of the turn in simulation). Not a map-frame position goal, which AMCL updates
+    # moved, and not a reverse through StationApproach, which cannot reverse. Lateral residual > accept_lateral:
+    # back up `backoff`, turn to the target point, drive, turn to the target yaw.
     backoff: 0.15
     odom_frame: odom
     behavior_speed: 0.05

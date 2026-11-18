@@ -8,8 +8,8 @@ the nominal station pose in the map. The node:
 2. after the robot has stopped, averages `samples` station poses from /station_alignment/station_pose (base frame,
    independent of AMCL);
 3. if the measured residual is within accept_along, accept_lateral and accept_yaw it succeeds; otherwise it fixes
-   the measured station in odom (odom <- base at the measurement, composed with the measurement) and reaches it with
-   Nav2 behavior_server actions planned in odom (maneuver.py): DriveOnHeading or BackUp along the heading and Spin;
+   the measured station's position in odom and its heading in map and reaches them (maneuver.py): translations
+   with behavior_server's DriveOnHeading or BackUp in odom, rotations as rotation-only goals of the station tree;
    a lateral residual above accept_lateral first backs up `backoff`. Then it measures again, up to `max_iterations`
    corrections. A behavior that fails is measured again like any correction.
 
@@ -26,7 +26,7 @@ import time
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from nav2_msgs.action import BackUp, DriveOnHeading, NavigateToPose, Spin
+from nav2_msgs.action import BackUp, DriveOnHeading, NavigateToPose
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -85,7 +85,6 @@ class StationAlignment(Node):
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("behavior_speed", 0.05)
         self.declare_parameter("behavior_time_allowance_s", 30.0)
-        self.declare_parameter("spin_action", "spin")
         self.declare_parameter("backup_action", "backup")
         self.declare_parameter("drive_on_heading_action", "drive_on_heading")
         self.group = ReentrantCallbackGroup()
@@ -96,9 +95,8 @@ class StationAlignment(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.nav = ActionClient(self, NavigateToPose, self.get_parameter("navigate_action").value,
                                 callback_group=self.group)
-        # Nav2 behavior_server actions (odom frame, cmd_vel_nav, velocity smoother, collision monitor)
+        # Nav2 behavior_server translations (odom frame, through the velocity smoother and collision monitor)
         self.behaviors = {
-            maneuver.SPIN: ActionClient(self, Spin, self.get_parameter("spin_action").value, callback_group=self.group),
             maneuver.BACKUP: ActionClient(self, BackUp, self.get_parameter("backup_action").value,
                                           callback_group=self.group),
             maneuver.DRIVE: ActionClient(self, DriveOnHeading, self.get_parameter("drive_on_heading_action").value,
@@ -194,13 +192,9 @@ class StationAlignment(Node):
         """Run one behavior_server action; (ok, text)."""
         allowance = float(self.get_parameter("behavior_time_allowance_s").value)
         speed = float(self.get_parameter("behavior_speed").value)
-        if kind == maneuver.SPIN:
-            goal = Spin.Goal()
-            goal.target_yaw = float(value)
-        else:
-            goal = (DriveOnHeading if kind == maneuver.DRIVE else BackUp).Goal()
-            goal.target.x = float(abs(value)) if kind == maneuver.DRIVE else -float(abs(value))
-            goal.speed = speed if kind == maneuver.DRIVE else -speed
+        goal = (DriveOnHeading if kind == maneuver.DRIVE else BackUp).Goal()
+        goal.target.x = float(abs(value)) if kind == maneuver.DRIVE else -float(abs(value))
+        goal.speed = speed if kind == maneuver.DRIVE else -speed
         goal.time_allowance = DurationMsg(sec=int(allowance), nanosec=int((allowance % 1.0) * 1e9))
         client = self.behaviors[kind]
         if not client.wait_for_server(timeout_sec=30.0):
@@ -219,30 +213,36 @@ class StationAlignment(Node):
         status = result.result().status
         return status == STATUS_SUCCEEDED, f"{kind} {value:+.4f} status {status}"
 
-    def _correct(self, goal_handle, residual, overshoot, step):
-        """Reach the measured station with Nav2 behaviors, planned in odom from the pose at the measurement."""
+    def _rotate(self, goal_handle, delta):
+        """Rotation-only goal of #164's station tree: the current map position, the map heading turned by `delta`.
+        Closed on the AMCL heading, which sees the turn the base makes after the wheels stop (odometry does not)."""
+        x, y, yaw = self._map_from_base()
+        frame = self.get_parameter("global_frame").value
+        ok, why = self._navigate(goal_handle, (x, y, geometry.wrap(yaw + delta)), frame)
+        return ok, f"rotate {delta:+.4f} {why}"
+
+    def _correct(self, goal_handle, residual, step):
+        """Reach the measured station: position target fixed in odom, yaw target in map, see maneuver.py."""
         p = lambda name: self.get_parameter(name).value  # noqa: E731
-        start = self._odom_from_base()
-        plan = maneuver.Plan(maneuver.target_in_odom(start, residual), residual, float(p("accept_lateral")),
-                             float(p("backoff")), spin_overshoot=overshoot)
+        start, map_pose = self._odom_from_base(), self._map_from_base()
+        plan = maneuver.Plan(maneuver.target_in_odom(start, residual),
+                             maneuver.target_yaw_in_map(map_pose[2], residual),
+                             residual, float(p("accept_lateral")), float(p("backoff")))
         step["mode"] = "lateral" if plan.lateral else "direct"
         step["target_odom"] = plan.target
-        step["behaviors"] = []
+        step["target_yaw_map"] = plan.target_yaw_map
+        step["moves"] = []
         while True:
-            current = self._odom_from_base()
-            primitive = plan.next(current)
+            primitive = plan.next(self._odom_from_base(), self._map_from_base()[2])
             if primitive is None:
-                return True, plan.spin_overshoot
-            ok, text = self._behavior(goal_handle, *primitive)
-            after = self._odom_from_base()
-            record = {"step": text}
-            if primitive[0] == maneuver.SPIN:
-                achieved = geometry.wrap(after[2] - current[2])
-                plan.observe_spin(primitive[1], achieved)
-                record["achieved"] = achieved
-            step["behaviors"].append(record)
+                return True
+            if primitive[0] == maneuver.ROTATE:
+                ok, text = self._rotate(goal_handle, primitive[1])
+            else:
+                ok, text = self._behavior(goal_handle, *primitive)
+            step["moves"].append(text)
             if not ok or goal_handle.is_cancel_requested:
-                return False, plan.spin_overshoot
+                return False
 
     # ------------------------------------------------------------------ action
     def execute(self, goal_handle):
@@ -286,7 +286,6 @@ class StationAlignment(Node):
         # A failed #164 goal is not the end: the base may stop a few centimetres off (for example the progress
         # checker on a goal it already almost reached). The marker decides; without a marker the failure stands.
         nominal_why = why
-        overshoot = 0.0
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
@@ -313,12 +312,11 @@ class StationAlignment(Node):
             if iteration == int(p("max_iterations")):
                 return finish(False, f"residual {residual} after {iteration} corrections")
             try:
-                step["behaviors_ok"], overshoot = self._correct(goal_handle, residual, overshoot, step)
+                step["moves_ok"] = self._correct(goal_handle, residual, step)
             except TransformException as e:
                 return finish(False, f"no {p('odom_frame')} pose: {e}")
             if goal_handle.is_cancel_requested:
                 return finish(False, "canceled")
-            step["spin_overshoot"] = overshoot
         return finish(False, "unreachable")
 
 

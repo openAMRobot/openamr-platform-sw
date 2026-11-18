@@ -9,17 +9,22 @@ Why (Proposed, 18 Nov 2026):
   driven as a turn-around, out and back (run 44164871954 / 44188740454 rtf1 trial 4: 3 corrections, 0.0485 m).
 - The progress checker (0.05 m in 12 s) aborts short moves that are mostly rotation.
 
-The target is fixed in odom when the marker is measured (robot stopped): odom <- base at that time composed with
-the measured station. It is then reached with behavior_server's BackUp, Spin and DriveOnHeading, which run in its
-local frame (odom), publish on cmd_vel_nav like every Nav2 command, and use no progress checker. Each step is
-planned from the current odom pose, so an overshoot of one step is taken up by the next. The marker is measured
-again afterwards; nothing here decides acceptance.
+- behavior_server's Spin stops on the odom heading, and the base keeps turning after the wheels stop: in run
+  44225167178 (rtf1) a Spin of +0.082 rad gave +0.110 rad in odom and about +0.23 rad by ground truth and marker.
+
+The position target is fixed in odom when the marker is measured (robot stopped): odom <- base at that time composed
+with the measured station. Translations go along the heading with behavior_server's DriveOnHeading and BackUp
+(local frame odom, no progress checker). Rotations are closed on the map heading, which AMCL takes from the scan and
+which therefore sees the turn odometry misses: the yaw target is the AMCL yaw plus the measured yaw residual, and a
+rotation is a rotation-only goal (position = the current one) of #164's station tree. Each step is planned from the
+current pose, so an error of one step is taken up by the next. The marker is measured again afterwards; nothing here
+decides acceptance.
 """
 import math
 
 from openamrobot_station_alignment import geometry
 
-BACKUP, SPIN, DRIVE = "backup", "spin", "drive"
+BACKUP, ROTATE, DRIVE = "backup", "rotate", "drive"
 
 
 class Plan:
@@ -27,56 +32,49 @@ class Plan:
     back up `backoff`, turn to face the target point, drive to it, turn to the target yaw. Otherwise: drive along
     the heading to the target's distance, turn to the target yaw."""
 
-    def __init__(self, target_odom, residual, lateral_direct, backoff, min_move=0.003, min_turn=0.01,
-                 yaw_deadband=0.02, spin_overshoot=0.0):
+    def __init__(self, target_odom, target_yaw_map, residual, lateral_direct, backoff, min_move=0.003, min_turn=0.01,
+                 yaw_deadband=0.02):
         self.target = target_odom
+        self.target_yaw_map = target_yaw_map
         self.backoff = backoff
         self.min_move, self.min_turn, self.yaw_deadband = min_move, min_turn, yaw_deadband
         self.lateral = abs(residual[1]) > lateral_direct
         self.stages = ["backoff", "face", "approach", "align"] if self.lateral else ["approach", "align"]
-        self.spin_overshoot = spin_overshoot
-        self.spins = []
 
-    def next(self, current_odom):
-        """(primitive, magnitude) to run now from `current_odom`, or None when the plan is done."""
+    def next(self, current_odom, current_yaw_map):
+        """(primitive, magnitude) to run now, or None when the plan is done. Positions from odom, yaw from map."""
         while self.stages:
             stage = self.stages.pop(0)
-            step = self._step(stage, current_odom)
+            step = self._step(stage, current_odom, current_yaw_map)
             if step is not None:
                 return step
         return None
 
-    def _step(self, stage, current):
+    def _step(self, stage, current, yaw_map):
         rel = geometry.between(current, self.target)
         if stage == "backoff":
             return (BACKUP, self.backoff)
         if stage == "face":
-            return self._spin(math.atan2(rel[1], rel[0]) if math.hypot(rel[0], rel[1]) > self.min_move else 0.0)
+            return self._turn(math.atan2(rel[1], rel[0]) if math.hypot(rel[0], rel[1]) > self.min_move else 0.0)
         if stage == "approach":
             # along the current heading only; a lateral remainder is left to the next marker measurement
             if abs(rel[0]) < self.min_move:
                 return None
             return (DRIVE, rel[0]) if rel[0] > 0 else (BACKUP, -rel[0])
         if stage == "align":
-            if abs(rel[2]) <= self.yaw_deadband:
-                return None
-            return self._spin(rel[2])
+            delta = geometry.wrap(self.target_yaw_map - yaw_map)
+            return None if abs(delta) <= self.yaw_deadband else self._turn(delta)
         raise ValueError(stage)
 
-    def _spin(self, angle):
-        """Spin by `angle`, shortened by the overshoot observed so far in this plan."""
-        command = math.copysign(max(abs(angle) - self.spin_overshoot, 0.0), angle)
-        if abs(command) < self.min_turn:
-            return None
-        return (SPIN, command)
-
-    def observe_spin(self, commanded, achieved):
-        """Record a spin: the overshoot (achieved beyond commanded, in its direction) shortens the next ones."""
-        self.spins.append((commanded, achieved))
-        over = [math.copysign(1.0, c) * a - abs(c) for c, a in self.spins]
-        self.spin_overshoot = max(sum(over) / len(over), 0.0)
+    def _turn(self, angle):
+        return None if abs(angle) < self.min_turn else (ROTATE, angle)
 
 
 def target_in_odom(odom_from_base, residual):
     """The station in odom: where the robot is in odom at the measurement, composed with the measured station."""
     return geometry.compose(odom_from_base, residual)
+
+
+def target_yaw_in_map(map_yaw, residual):
+    """The station heading in map: the AMCL heading at the measurement plus the measured yaw residual."""
+    return geometry.wrap(map_yaw + residual[2])

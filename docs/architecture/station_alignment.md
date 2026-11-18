@@ -55,13 +55,14 @@ launches it.
                                2. robot stopped: mean of 8 station poses <───────────┘
                                3. residual within 0.03 m to the shelf, 0.02 m along it, 0.06 rad: succeed
                                4. else target = (odom <- base now) o (measured station), fixed in odom:
-                                  behavior_server BackUp / Spin / DriveOnHeading ──> Nav2 (odom frame)
+                                  BackUp / DriveOnHeading (behavior_server, odom) for translations,
+                                  rotation-only goals of the station tree (map heading) for turns
                                   lateral <= 0.02 m: drive along the heading, then turn
                                   lateral  > 0.02 m: back up 0.15 m, turn to the target, drive, turn
                                   (then measure again; up to 3 corrections; above 0.15 m / 0.30 rad aborts)
 
  Nav2 (unchanged): bt_navigator -> controller_server (StationApproach, station_goal_checker) -> cmd_vel_nav
-                   behavior_server (BackUp, Spin, DriveOnHeading, local frame odom)     -> cmd_vel_nav
+                   behavior_server (BackUp, DriveOnHeading, local frame odom)           -> cmd_vel_nav
                    cmd_vel_nav -> velocity_smoother -> collision_monitor -> /cmd_vel
 ```
 
@@ -72,10 +73,13 @@ StationApproach controller cannot reverse: with `initial_rotation` true, nav2_gr
 `allow_backward` off ("setting allow backward to false"), so a goal 0.30 m behind the robot was driven as a turn
 around, out and back. Third, the progress checker (0.05 m in 12 s) aborts short moves that are mostly rotation.
 Together these explain run 44188740454 rtf1 trial 4 (lateral residual -0.036 to +0.040 m in turn, 0.0485 m after
-3 corrections). The correction now fixes the target in odom when the marker is measured and runs behavior_server's
-BackUp, Spin and DriveOnHeading, which work in odom, publish on cmd_vel_nav and use no progress checker. Each step is
-planned from the current odom pose. The overshoot of each Spin (measured from odom) shortens the next one. The
-marker is then measured again (`maneuver.py`, `test_maneuver.py`). The arithmetic below for the map-frame goal still
+3 corrections). The correction now fixes the position target in odom when the marker is measured and translates with
+behavior_server's BackUp and DriveOnHeading, which work in odom and use no progress checker. Turns are rotation-only
+goals of #164's station tree (the current map position, the AMCL heading turned), closed on the map heading.
+behavior_server's Spin was tried first (run 44225167178) and dropped: it stops on odometry, and the simulated base
+keeps turning after the wheels stop (Spin +0.082 rad: odom +0.110, ground truth and marker about +0.23; frictionless
+castors of #135). Two trials ended at 0.105 and 0.098 rad, with every position within 0.021 m. Each step is planned
+from the current pose. The marker is then measured again (`maneuver.py`, `test_maneuver.py`). The arithmetic below for the map-frame goal still
 explains why measuring relative to the robot removes the AMCL error.
 
 Why the corrected goal removes the AMCL error: AMCL's error is a map-frame offset E (a wrong map -> odom), so the map
