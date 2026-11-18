@@ -65,7 +65,7 @@ jobs:
           assert tests == 118 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
-      # stay. Every test must fail or error except the one that checks #164's station tree, which this PR does not own.
+      # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
       - name: Revert run (the tests fail without the change)
         run: |
           cd "$PKG_DIR"
@@ -83,7 +83,9 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
           print(f'reverted: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
-          assert passed == ['test_the_station_tree_of_platform_sw_164_is_present'], passed
+          # the two checks of #164's own files (its tree, its controller parameters) do not depend on this change
+          assert sorted(passed) == ['test_station_approach_controller_cannot_reverse',
+                                    'test_the_station_tree_of_platform_sw_164_is_present'], passed
           assert errors >= 3 and failed >= 1
           EOF
       # Revert run of the low real-time factor fix only: station_alignment_node.py back to 353e3d6 (window and Nav2
