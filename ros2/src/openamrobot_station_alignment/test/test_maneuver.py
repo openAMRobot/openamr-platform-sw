@@ -18,7 +18,7 @@ import pytest
 from openamrobot_station_alignment import geometry as g
 from openamrobot_station_alignment import maneuver as m
 
-ACCEPT = (0.03, 0.02, 0.06)            # config/station_alignment.yaml, unchanged
+ACCEPT = (0.025, 0.02, 0.06)           # config/station_alignment.yaml
 STATION = (0.0, -2.085, -math.pi / 2)
 
 

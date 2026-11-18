@@ -13,16 +13,44 @@ So:
 """
 
 
+MAX_FUTURE_S = 0.1   # a stamp further ahead of the clock than this is from another /clock generation
+
+
+def within_age(stamp_ns, now_ns, max_age_s):
+    """A stamp at most max_age_s old and not from the future (a /clock reset leaves old stamps ahead of now)."""
+    age = now_ns - stamp_ns
+    return -int(MAX_FUTURE_S * 1e9) <= age <= int(max_age_s * 1e9)
+
+
 def fresh_odom(latest, now_ns, max_age_s, odom_frame, base_frame):
-    """(x, y, yaw) of the latest /odom message if it is odom_frame -> base_frame and at most max_age_s old."""
+    """(x, y, yaw) of the latest /odom message if it is odom_frame -> base_frame, at most max_age_s old and not
+    stamped in the future."""
     if latest is None:
         return None
     stamp_ns, frame, child, pose = latest
     if frame != odom_frame or child != base_frame:
         return None
-    if now_ns - stamp_ns > int(max_age_s * 1e9):
+    if not within_age(stamp_ns, now_ns, max_age_s):
         return None
     return pose
+
+
+def drop_other_generation(samples, now_ns):
+    """Station poses stamped or received after `now`: after a /clock reset (Gazebo reset or restart while the stack
+    runs) the poses of the old generation are ahead of the new clock and would look fresh. Keeps the others."""
+    limit = now_ns + int(MAX_FUTURE_S * 1e9)
+    return [s for s in samples if s[1] <= limit and s[2] <= limit]
+
+
+def odom_at(history, stamp_ns, tolerance_s):
+    """The odom pose at the image stamp: the /odom pose nearest to `stamp_ns` within tolerance_s, else None.
+    history: (stamp_ns, pose) in arrival order."""
+    best = None
+    for stamp, pose in history:
+        gap = abs(stamp - stamp_ns)
+        if gap <= int(tolerance_s * 1e9) and (best is None or gap < best[0]):
+            best = (gap, pose)
+    return None if best is None else best[1]
 
 
 def wait_for(get, now_ns, timeout_s, sleep):

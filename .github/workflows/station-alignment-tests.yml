@@ -54,7 +54,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 128 tests ran
+      - name: Check that all 150 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -62,7 +62,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 128 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 150 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -174,6 +174,33 @@ jobs:
           tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
           print(f'reverted inputs: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
           assert not passed and failed == 1 and errors == 1
+          EOF
+
+      # Revert run of the review fixes: the package code and configuration back to c4666a1, tests kept. Exactly the
+      # eight *_FINDING tests of the independent review (comment 6979742457) must fail, the other fourteen pass.
+      - name: Revert run of the review fixes (c4666a1 code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin c4666a14edfe088518bbe4daf8d09efed74e79b0
+          for f in $(git ls-tree -r --name-only c4666a14edfe088518bbe4daf8d09efed74e79b0 \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config); do
+            git show c4666a14edfe088518bbe4daf8d09efed74e79b0:$f > $f
+          done
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/reverted_review.xml \
+            test/test_review_c4666a1.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_review.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          print(f'reverted review fixes: {len(failed)} failed {failed}, {len(passed)} passed')
+          assert len(failed) == 8 and all('_FINDING_' in n for n in failed) and len(passed) == 14
           EOF
 
   # rtf1: the five-trial comparison at full speed. rtf02: target real-time factor 0.2 (Baseline 1's runner) and image

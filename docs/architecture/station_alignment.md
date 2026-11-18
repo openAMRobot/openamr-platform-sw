@@ -145,6 +145,17 @@ the alignment also accepts 4 fresh poses instead of 8 (`min_samples`); the accep
 also come in bursts there: a window in which nothing at all arrived is opened again up to twice
 (`not_seen_retries`) before the result is "not seen".
 
+Independent review of c4666a1 (comment 6979742457, Proposed changes, 18 Nov 2026):
+- **Old poses after a /clock reset:** poses stamped or received after the current clock are dropped before each window (`sources.drop_other_generation`).
+- **TF fallback for the odom pose:** used only if at most `odom_max_age_s` old and not stamped in the future; otherwise the lookup fails after `tf_wait_s`.
+- **Future-stamped /odom:** not used.
+- **Pose the correction starts from:** the odom pose at the mean image stamp of the window (`odom_history`), not a later one; the map heading is moved back by the odom turn since then.
+- **Acceptance budget:** `accept_along` 0.03 -> 0.025 m. In 20 CI trials the marker error was +4.1 to +5.4 mm along the heading (a bias, constant sign) and -2.7 to +1.3 mm to the side, so the worst true error is hypot(0.025 + 0.0054, 0.02 + 0.0027) = 37.9 mm, inside 40 mm. It was 41.3 mm with 0.03. Distance corrections are DriveOnHeading moves, so 0.025 m is reachable. The bias is not subtracted: its cause is not found, and a simulation correction must not reach the robot.
+- **Sample consistency:** yaw spread checked (`max_sample_spread_yaw` 0.01 rad); xy spread 0.01 -> 0.003 m (simulation noise below 3e-5 m; 0.003 m allows a real camera's millimetre noise and caps one bad frame of 4 at 1 mm).
+- **`min_samples`:** must be 1 to `samples` (checked at start-up; the window never ends done with no sample).
+- **Concurrent goals:** a second goal while one runs is rejected.
+- **Known limit:** no wall-clock bound. If /clock stops, the node waits; nothing commands motion while it waits.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.

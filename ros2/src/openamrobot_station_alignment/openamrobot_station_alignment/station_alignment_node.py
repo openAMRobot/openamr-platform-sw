@@ -18,6 +18,7 @@ controller_server's StationApproach controller and station_goal_checker for the 
 the correction, both through Nav2's velocity smoother and collision monitor. A residual larger than
 max_correction_* aborts instead of moving. A diagnostic JSON line per goal goes to /station_alignment/report (Proposed).
 """
+import collections
 import json
 import os
 import threading
@@ -78,12 +79,14 @@ class StationAlignment(Node):
         self.declare_parameter("max_latency_s", 15.0)
         self.declare_parameter("on_marker_not_seen", "succeed_unaligned")
         self.declare_parameter("max_iterations", 3)
-        self.declare_parameter("accept_along", 0.03)
+        self.declare_parameter("accept_along", 0.025)
         self.declare_parameter("accept_lateral", 0.02)
         self.declare_parameter("accept_yaw", 0.06)
         self.declare_parameter("max_correction_xy", 0.15)
         self.declare_parameter("max_correction_yaw", 0.30)
-        self.declare_parameter("max_sample_spread_xy", 0.01)
+        self.declare_parameter("max_sample_spread_xy", 0.003)
+        self.declare_parameter("max_sample_spread_yaw", 0.01)
+        self.declare_parameter("odom_history_tolerance_s", 0.5)
         self.declare_parameter("navigation_timeout_s", 300.0)
         self.declare_parameter("backoff", 0.15)
         self.declare_parameter("odom_frame", "odom")
@@ -95,10 +98,14 @@ class StationAlignment(Node):
         self.declare_parameter("behavior_time_allowance_s", 30.0)
         self.declare_parameter("backup_action", "backup")
         self.declare_parameter("drive_on_heading_action", "drive_on_heading")
+        samples, minimum = int(self.get_parameter("samples").value), int(self.get_parameter("min_samples").value)
+        if not 1 <= minimum <= samples:
+            raise ValueError(f"min_samples {minimum} must be between 1 and samples {samples}")
         self.group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
         self.samples = []
         self.sequence = 0
+        self.window_stamp_ns = None
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.nav = ActionClient(self, NavigateToPose, self.get_parameter("navigate_action").value,
@@ -111,6 +118,8 @@ class StationAlignment(Node):
                                          callback_group=self.group)}
         self.report = self.create_publisher(String, self.get_parameter("report_topic").value, 10)
         self.frame_rejected = 0
+        self.odom_history = collections.deque(maxlen=400)
+        self.active = False
         self.latest_odom = None
         if self.get_parameter("station_pose_source").value == "topic":
             self.create_subscription(PoseWithCovarianceStamped, self.get_parameter("station_pose_topic").value,
@@ -118,7 +127,7 @@ class StationAlignment(Node):
         self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self.on_odom, 20,
                                  callback_group=self.group)
         self.server = ActionServer(self, NavigateToPose, self.get_parameter("action_name").value,
-                                   execute_callback=self.execute, goal_callback=lambda _: GoalResponse.ACCEPT,
+                                   execute_callback=self.execute, goal_callback=self._goal,
                                    cancel_callback=lambda _: CancelResponse.ACCEPT, callback_group=self.group)
 
     # ------------------------------------------------------------------ inputs
@@ -135,6 +144,25 @@ class StationAlignment(Node):
             self.sequence += 1
             self.samples.append((self.sequence, stamp_ns, received, pose))
             del self.samples[:-200]
+
+    @property
+    def latest_odom(self):
+        return self._latest_odom
+
+    @latest_odom.setter
+    def latest_odom(self, value):
+        """The latest /odom (stamp_ns, frame, child, pose); every value is also kept in odom_history."""
+        self._latest_odom = value
+        if value is not None:
+            self.odom_history.append((value[0], value[3]))
+
+    def _goal(self, _request):
+        """One goal at a time: a second goal while one runs is rejected (review of c4666a1, 5a)."""
+        with self.lock:
+            if self.active:
+                return GoalResponse.REJECT
+            self.active = True
+            return GoalResponse.ACCEPT
 
     def on_odom(self, msg):
         q = msg.pose.pose.orientation
@@ -156,7 +184,9 @@ class StationAlignment(Node):
                                        int(self.get_parameter("min_samples").value))
         seen = 0
         while rclpy.ok():
+            now = self.get_clock().now().nanoseconds
             with self.lock:
+                self.samples = sources.drop_other_generation(self.samples, now)
                 new = [s for s in self.samples if s[0] > seen]
                 seen = self.sequence
             for _, stamp_ns, received_ns, pose in new:
@@ -199,8 +229,9 @@ class StationAlignment(Node):
         status = result.result().status
         return status == STATUS_SUCCEEDED, f"Nav2 status {status}"
 
-    def _tf_pose(self, target):
-        """(x, y, yaw) of base_frame in `target` from /tf, waiting up to tf_wait_s of simulation time."""
+    def _tf_pose(self, target, max_age_s=None):
+        """(x, y, yaw) of base_frame in `target` from /tf, waiting up to tf_wait_s of simulation time. With
+        max_age_s, a transform older than that (or stamped in the future) is not used (review of c4666a1, 2c)."""
         base = self.get_parameter("base_frame").value
 
         def get():
@@ -208,13 +239,18 @@ class StationAlignment(Node):
                 t = self.tf_buffer.lookup_transform(target, base, Time())
             except TransformException:
                 return None
+            if max_age_s is not None:
+                stamp = t.header.stamp.sec * 1_000_000_000 + t.header.stamp.nanosec
+                if not sources.within_age(stamp, self.get_clock().now().nanoseconds, max_age_s):
+                    return None
             q = t.transform.rotation
             return (t.transform.translation.x, t.transform.translation.y,
                     geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
         pose, waited = sources.wait_for(get, lambda: self.get_clock().now().nanoseconds,
                                         float(self.get_parameter("tf_wait_s").value), lambda: time.sleep(0.02))
         if pose is None:
-            raise TransformException(f"no {target} -> {base} after {waited:.1f} s of simulation time; "
+            age = f" not older than {max_age_s} s" if max_age_s is not None else ""
+            raise TransformException(f"no {target} -> {base}{age} after {waited:.1f} s of simulation time; "
                                      f"{self._tf_diagnosis(target, base)}")
         return pose
 
@@ -238,7 +274,9 @@ class StationAlignment(Node):
         pose = sources.fresh_odom(latest, self.get_clock().now().nanoseconds,
                                   float(self.get_parameter("odom_max_age_s").value),
                                   self.get_parameter("odom_frame").value, self.get_parameter("base_frame").value)
-        return pose if pose is not None else self._tf_pose(self.get_parameter("odom_frame").value)
+        if pose is not None:
+            return pose
+        return self._tf_pose(self.get_parameter("odom_frame").value, float(self.get_parameter("odom_max_age_s").value))
 
     def _behavior(self, goal_handle, kind, value):
         """Run one behavior_server action; (ok, text)."""
@@ -276,9 +314,20 @@ class StationAlignment(Node):
     def _correct(self, goal_handle, residual, step):
         """Reach the measured station: position target fixed in odom, yaw target in map, see maneuver.py."""
         p = lambda name: self.get_parameter(name).value  # noqa: E731
-        start, map_pose = self._odom_from_base(), self._map_from_base()
+        now_odom, map_pose = self._odom_from_base(), self._map_from_base()
+        # The marker measured the station relative to the robot at the image stamps: compose with the odom pose
+        # at those stamps, not with a later one (review of c4666a1, 2d). The map heading is taken now and moved
+        # back by the odom turn since the images.
+        with self.lock:
+            history = list(self.odom_history)
+        at_images = None
+        if self.window_stamp_ns is not None:
+            at_images = sources.odom_at(history, self.window_stamp_ns, float(p("odom_history_tolerance_s")))
+        start = at_images if at_images is not None else now_odom
+        step["odom_at_images"] = at_images is not None
+        yaw_since = geometry.wrap(now_odom[2] - start[2])
         plan = maneuver.Plan(maneuver.target_in_odom(start, residual),
-                             maneuver.target_yaw_in_map(map_pose[2], residual),
+                             maneuver.target_yaw_in_map(geometry.wrap(map_pose[2] - yaw_since), residual),
                              residual, float(p("accept_lateral")), float(p("backoff")))
         step["mode"] = "lateral" if plan.lateral else "direct"
         step["target_odom"] = plan.target
@@ -298,6 +347,13 @@ class StationAlignment(Node):
 
     # ------------------------------------------------------------------ action
     def execute(self, goal_handle):
+        try:
+            return self._execute(goal_handle)
+        finally:
+            with self.lock:
+                self.active = False
+
+    def _execute(self, goal_handle):
         request = goal_handle.request
         frame = request.pose.header.frame_id or self.get_parameter("global_frame").value
         target = _pose_of(request.pose.pose)
@@ -363,9 +419,12 @@ class StationAlignment(Node):
                     return not_aligned(why)
                 return finish(False, why if nominal_ok or iteration else f"{nominal_why}; {why}")
             residual, spread = window.result()
-            step.update({"residual": residual, "spread_xy": spread})
+            self.window_stamp_ns = window.stamp_ns
+            step.update({"residual": residual, "spread_xy": spread, "spread_yaw": window.spread_yaw})
             if spread > float(p("max_sample_spread_xy")):
                 return finish(False, f"marker samples spread {spread:.4f} m")
+            if window.spread_yaw > float(p("max_sample_spread_yaw")):
+                return finish(False, f"marker samples yaw spread {window.spread_yaw:.4f} rad")
             limits = (float(p("accept_along")), float(p("accept_lateral")), float(p("accept_yaw")))
             if geometry.accepted(residual, *limits):
                 return finish(True, "")
