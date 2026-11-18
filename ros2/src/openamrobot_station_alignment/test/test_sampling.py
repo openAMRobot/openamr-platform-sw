@@ -93,3 +93,26 @@ def test_the_detector_does_not_drop_a_detection_for_its_old_stamp():
     received = 40 * S
     assert not sampling.pending_expired(received, received + int(0.5 * S), 1.0)
     assert sampling.pending_expired(received, received + int(1.5 * S), 1.0)
+
+
+def test_a_slow_marker_stream_is_used_with_min_samples_after_the_timeout():
+    # about 1 pose per simulation second (run 44261511618 rtf02 on Fast DDS: 30 synced images of 214)
+    samples = pipeline(after_s=31.3, latency_s=0.05, rate_hz=1.0)
+    w = sampling.SampleWindow(int(31.3 * S), 8, 6.0, 15.0, min_samples=4)
+    for stamp, received in samples:
+        if received >= 31.3 * S:
+            w.add(stamp, received, POSE)
+            if received > 37.4 * S:
+                break
+    assert w.poll(int(37.4 * S)) == sampling.DONE and 4 <= len(w.fresh) < 8
+    strict = sampling.SampleWindow(int(31.3 * S), 8, 6.0, 15.0)
+    for stamp, received in samples:
+        if 31.3 * S <= received <= 37.4 * S:
+            strict.add(stamp, received, POSE)
+    assert strict.poll(int(37.4 * S)) == sampling.WAITING
+
+
+def test_a_window_with_nothing_received_is_reopened_a_limited_number_of_times():
+    assert sampling.reopen(sampling.NOT_SEEN, 0, 2) and sampling.reopen(sampling.NOT_SEEN, 1, 2)
+    assert not sampling.reopen(sampling.NOT_SEEN, 2, 2)
+    assert not sampling.reopen(sampling.STALE, 0, 2) and not sampling.reopen(sampling.DONE, 0, 2)

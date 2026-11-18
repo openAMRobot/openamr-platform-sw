@@ -25,7 +25,9 @@ import time
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+import yaml
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav_msgs.msg import Odometry
 from nav2_msgs.action import BackUp, DriveOnHeading, NavigateToPose
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -37,7 +39,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from builtin_interfaces.msg import Duration as DurationMsg
 
-from openamrobot_station_alignment import geometry, maneuver, sampling
+from openamrobot_station_alignment import geometry, maneuver, sampling, sources
 
 STATUS_SUCCEEDED = 4
 # Proposed result code (NavigateToPose.Result.error_code, outside Nav2's 9000 to 9011): the station goal of #164
@@ -59,8 +61,8 @@ def default_station_tree():
 
 
 class StationAlignment(Node):
-    def __init__(self):
-        super().__init__("station_alignment")
+    def __init__(self, parameter_overrides=None):
+        super().__init__("station_alignment", parameter_overrides=parameter_overrides or [])
         self.declare_parameter("navigate_action", "navigate_to_pose")
         self.declare_parameter("action_name", "/station_alignment/navigate_to_station")
         self.declare_parameter("behavior_tree", default_station_tree())
@@ -70,6 +72,8 @@ class StationAlignment(Node):
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("settle_s", 1.0)
         self.declare_parameter("samples", 8)
+        self.declare_parameter("min_samples", 4)
+        self.declare_parameter("not_seen_retries", 2)
         self.declare_parameter("sample_timeout_s", 6.0)
         self.declare_parameter("max_latency_s", 15.0)
         self.declare_parameter("on_marker_not_seen", "succeed_unaligned")
@@ -83,6 +87,10 @@ class StationAlignment(Node):
         self.declare_parameter("navigation_timeout_s", 300.0)
         self.declare_parameter("backoff", 0.15)
         self.declare_parameter("odom_frame", "odom")
+        self.declare_parameter("odom_topic", "/odom")
+        self.declare_parameter("odom_max_age_s", 0.5)
+        self.declare_parameter("tf_wait_s", 5.0)
+        self.declare_parameter("station_pose_source", "topic")
         self.declare_parameter("behavior_speed", 0.05)
         self.declare_parameter("behavior_time_allowance_s", 30.0)
         self.declare_parameter("backup_action", "backup")
@@ -102,22 +110,38 @@ class StationAlignment(Node):
             maneuver.DRIVE: ActionClient(self, DriveOnHeading, self.get_parameter("drive_on_heading_action").value,
                                          callback_group=self.group)}
         self.report = self.create_publisher(String, self.get_parameter("report_topic").value, 10)
-        self.create_subscription(PoseWithCovarianceStamped, self.get_parameter("station_pose_topic").value,
-                                 self.on_station_pose, 20, callback_group=self.group)
+        self.frame_rejected = 0
+        self.latest_odom = None
+        if self.get_parameter("station_pose_source").value == "topic":
+            self.create_subscription(PoseWithCovarianceStamped, self.get_parameter("station_pose_topic").value,
+                                     self.on_station_pose, 20, callback_group=self.group)
+        self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self.on_odom, 20,
+                                 callback_group=self.group)
         self.server = ActionServer(self, NavigateToPose, self.get_parameter("action_name").value,
                                    execute_callback=self.execute, goal_callback=lambda _: GoalResponse.ACCEPT,
                                    cancel_callback=lambda _: CancelResponse.ACCEPT, callback_group=self.group)
 
     # ------------------------------------------------------------------ inputs
     def on_station_pose(self, msg):
-        if msg.header.frame_id != self.get_parameter("base_frame").value:
+        self.ingest(Time.from_msg(msg.header.stamp).nanoseconds, msg.header.frame_id, _pose_of(msg.pose.pose))
+
+    def ingest(self, stamp_ns, frame, pose):
+        """A station pose, from the topic or handed over in process by station_alignment_stack."""
+        if frame != self.get_parameter("base_frame").value:
+            self.frame_rejected += 1
             return
         received = self.get_clock().now().nanoseconds
         with self.lock:
             self.sequence += 1
-            self.samples.append((self.sequence, Time.from_msg(msg.header.stamp).nanoseconds, received,
-                                 _pose_of(msg.pose.pose)))
+            self.samples.append((self.sequence, stamp_ns, received, pose))
             del self.samples[:-200]
+
+    def on_odom(self, msg):
+        q = msg.pose.pose.orientation
+        pose = (msg.pose.pose.position.x, msg.pose.pose.position.y, geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        with self.lock:
+            self.latest_odom = (Time.from_msg(msg.header.stamp).nanoseconds, msg.header.frame_id, msg.child_frame_id,
+                                pose)
 
     def _sleep_sim(self, seconds):
         end = self.get_clock().now().nanoseconds + int(seconds * 1e9)
@@ -128,7 +152,8 @@ class StationAlignment(Node):
         """Sample window on simulation time (sampling.SampleWindow): (status, window)."""
         window = sampling.SampleWindow(after.nanoseconds, int(self.get_parameter("samples").value),
                                        float(self.get_parameter("sample_timeout_s").value),
-                                       float(self.get_parameter("max_latency_s").value))
+                                       float(self.get_parameter("max_latency_s").value),
+                                       int(self.get_parameter("min_samples").value))
         seen = 0
         while rclpy.ok():
             with self.lock:
@@ -174,19 +199,46 @@ class StationAlignment(Node):
         status = result.result().status
         return status == STATUS_SUCCEEDED, f"Nav2 status {status}"
 
+    def _tf_pose(self, target):
+        """(x, y, yaw) of base_frame in `target` from /tf, waiting up to tf_wait_s of simulation time."""
+        base = self.get_parameter("base_frame").value
+
+        def get():
+            try:
+                t = self.tf_buffer.lookup_transform(target, base, Time())
+            except TransformException:
+                return None
+            q = t.transform.rotation
+            return (t.transform.translation.x, t.transform.translation.y,
+                    geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        pose, waited = sources.wait_for(get, lambda: self.get_clock().now().nanoseconds,
+                                        float(self.get_parameter("tf_wait_s").value), lambda: time.sleep(0.02))
+        if pose is None:
+            raise TransformException(f"no {target} -> {base} after {waited:.1f} s of simulation time; "
+                                     f"{self._tf_diagnosis(target, base)}")
+        return pose
+
+    def _tf_diagnosis(self, *frames):
+        """The parent of each frame in this node's buffer and the /tf publishers this node sees."""
+        try:
+            tree = yaml.safe_load(self.tf_buffer.all_frames_as_yaml()) or {}
+        except Exception:  # noqa: BLE001 - diagnosis only
+            tree = {}
+        parents = {f: (tree.get(f) or {}).get("parent", "absent") for f in frames}
+        writers = sorted({i.node_name for i in self.get_publishers_info_by_topic("/tf")})
+        return f"parents in buffer {parents}, /tf publishers seen {writers}"
+
     def _map_from_base(self):
-        t = self.tf_buffer.lookup_transform(self.get_parameter("global_frame").value,
-                                            self.get_parameter("base_frame").value, Time())
-        q = t.transform.rotation
-        return (t.transform.translation.x, t.transform.translation.y,
-                geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        return self._tf_pose(self.get_parameter("global_frame").value)
 
     def _odom_from_base(self):
-        t = self.tf_buffer.lookup_transform(self.get_parameter("odom_frame").value,
-                                            self.get_parameter("base_frame").value, Time())
-        q = t.transform.rotation
-        return (t.transform.translation.x, t.transform.translation.y,
-                geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        """From the latest /odom message (the transform's own writer) if fresh, else from /tf."""
+        with self.lock:
+            latest = self.latest_odom
+        pose = sources.fresh_odom(latest, self.get_clock().now().nanoseconds,
+                                  float(self.get_parameter("odom_max_age_s").value),
+                                  self.get_parameter("odom_frame").value, self.get_parameter("base_frame").value)
+        return pose if pose is not None else self._tf_pose(self.get_parameter("odom_frame").value)
 
     def _behavior(self, goal_handle, kind, value):
         """Run one behavior_server action; (ok, text)."""
@@ -289,14 +341,24 @@ class StationAlignment(Node):
         for iteration in range(int(p("max_iterations")) + 1):
             stopped = self.get_clock().now()
             self._sleep_sim(float(p("settle_s")))
-            opened = self.get_clock().now()
-            status, window = self._collect(opened)
+            attempt = 0
+            while True:
+                opened = self.get_clock().now()
+                status, window = self._collect(opened)
+                if not sampling.reopen(status, attempt, int(p("not_seen_retries"))):
+                    break
+                attempt += 1
             step = {"iteration": iteration, "stopped_s": stopped.nanoseconds * 1e-9,
-                    "window_opened_s": opened.nanoseconds * 1e-9, "window_status": status, **window.summary()}
+                    "window_opened_s": opened.nanoseconds * 1e-9, "window_status": status,
+                    "window_attempts": attempt + 1, **window.summary()}
             report["iterations"].append(step)
             if status != sampling.DONE:
                 why = ("marker not seen" if status == sampling.NOT_SEEN else "no fresh marker sample") + \
                     f": {window.received} received, {len(window.fresh)} fresh, simulation time"
+                step["station_pose_source"] = p("station_pose_source")
+                step["frame_rejected"] = self.frame_rejected
+                step["station_pose_publishers"] = sorted(
+                    {i.node_name for i in self.get_publishers_info_by_topic(p("station_pose_topic"))})
                 if sampling.without_marker(iteration, nominal_ok) == "not_aligned":
                     return not_aligned(why)
                 return finish(False, why if nominal_ok or iteration else f"{nominal_why}; {why}")

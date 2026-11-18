@@ -43,6 +43,7 @@ setup(
             'station_alignment = openamrobot_station_alignment.station_alignment_node:main',
             'station_alignment_trials = openamrobot_station_alignment.trials:main',
             'image_delay_relay = openamrobot_station_alignment.image_delay_relay:main',
+            'station_alignment_stack = openamrobot_station_alignment.stack:main',
         ],
     },
 )

@@ -72,9 +72,9 @@ def _launch_nodes(path):
 
 def test_robot_launch_starts_the_detector_the_alignment_and_apriltag_only():
     nodes = _launch_nodes(os.path.join(PKG, "launch", "station_alignment.launch.py"))
+    # station_marker_detector and station_alignment run in one process, station_alignment_stack (stack.py)
     assert sorted(nodes) == sorted([("apriltag_ros", "apriltag_node"),
-                                    ("openamrobot_station_alignment", "station_marker_detector"),
-                                    ("openamrobot_station_alignment", "station_alignment")])
+                                    ("openamrobot_station_alignment", "station_alignment_stack")])
 
 
 def test_sim_launch_has_one_nav2_and_no_other_motion_source():

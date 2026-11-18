@@ -132,6 +132,19 @@ goal failed, a missing marker aborts. A failed #164 goal is measured before it i
 station goal on the progress checker with the base about 3 cm away (run 44163882664); the marker then decides.
 Accuracy limits are unchanged.
 
+Inputs in Baseline 1 (Proposed, 18 Nov 2026). In two of three Baseline 1 runs on 3e6e203 the alignment node lost one
+input while its publisher ran: no station pose at all in 44247729473 (the detector published 30 and 50 per 10 s,
+and the node's clock advanced), and no odom -> base_footprint edge in 44247720886 (base_state_adapter is its only
+writer; no other parent of base_footprint was found in the scene). Baseline 1 runs Fast DDS with about 84
+processes at a real-time factor of about 0.1. The detector and the alignment now run in one process
+(`station_alignment_stack`) and the station pose is handed over in process; the topic is still published. The odom
+pose comes from /odom (the transform's own writer), and every TF lookup waits up to 5 s of simulation time
+(`sources.py`). A failure reports the parents in the buffer and the publishers the node sees. Over Fast DDS the images reach the
+detector at a fraction of their rate (in this world 30 synced camera infos for 214 images), so after the 6 s window
+the alignment also accepts 4 fresh poses instead of 8 (`min_samples`); the acceptance limits do not change. Images
+also come in bursts there: a window in which nothing at all arrived is opened again up to twice
+(`not_seen_retries`) before the result is "not seen".
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.
