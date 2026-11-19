@@ -148,7 +148,10 @@ def test_a_pr90_behaviour_set_leaves_every_action_the_alignment_and_its_trees_ne
     assert behaviors["behavior_plugins"] == ["spin", "wait"] and "backup" not in behaviors
     assert params["velocity_smoother"]["ros__parameters"]["min_velocity"][0] == 0.0
     assert params["controller_server"]["ros__parameters"]["FollowPath"]["min_vel_x"] == 0.0
-    assert any("navigate_to_station.xml: 1 BackUp removed" == c for c in changes), changes
+    # #164 removed BackUp from its trees at 09f9a85 (Alex, 19 Nov 2026); before that the overlay removed it here.
+    # Either way no tree may name BackUp once #90's behaviour set is applied.
+    for tree in glob.glob(str(nav2 / "behavior_trees" / "*.xml")):
+        assert "<BackUp " not in open(tree).read(), (tree, changes)
     # the BT nodes that call behavior_server must name a registered behaviour
     calls = {"Spin": "spin", "Wait": "wait", "BackUp": "backup", "DriveOnHeading": "drive_on_heading",
              "AssistedTeleop": "assisted_teleop"}
