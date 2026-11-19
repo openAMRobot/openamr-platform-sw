@@ -23,12 +23,11 @@ def vcan():
         for cmd in ("modprobe vcan", "ip link add dev %s type vcan" % IFACE):
             r = _sh(prefix + cmd)
             if r.returncode != 0:
-                reason = "cannot create %s (%s): %s" % (IFACE, cmd, r.stderr.strip())
-                pytest.skip(reason)  # issues/102
+                pytest.skip("cannot create %s (%s): %s" % (IFACE, cmd, r.stderr.strip()))
     r = _sh(("" if os.geteuid() == 0 else "sudo -n ") + "ip link set up %s" % IFACE)
     state = _sh("ip -br link show %s" % IFACE).stdout
     if r.returncode != 0 and "UP" not in state and "UNKNOWN" not in state:
-        pytest.skip("cannot bring up %s" % IFACE)  # issues/102
+        pytest.skip("cannot bring up %s" % IFACE)
     return IFACE
 
 
