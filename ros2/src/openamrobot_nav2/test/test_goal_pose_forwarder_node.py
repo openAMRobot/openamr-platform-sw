@@ -10,6 +10,7 @@ property tested here depends on a real bt_navigator, TF or the gate's own stop_s
 import threading
 import time
 import unittest
+import uuid
 
 from geometry_msgs.msg import PoseStamped
 
@@ -77,7 +78,19 @@ class GoalPoseForwarderNodeTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        rclpy.init(args=[])
+        # Hosted CI runs every test file in one pytest process, and
+        # test_goal_pose_forwarder_full_chain.py (immediately before this file in
+        # nav-status-tests.yml's own list) spins up a REAL navigate_to_pose_goal_proxy_node
+        # subprocess on the literal 'navigate_to_pose' name - SIGINT/SIGKILL on its own
+        # tearDownClass does not guarantee the DDS participant is gone by the instant this
+        # class's setUpClass runs. Without this remap, test_goal_pose_before_the_server_is_
+        # ready_is_rejected_not_lost (which asserts NO navigate_to_pose server exists
+        # anywhere) can observe that dying subprocess's own server as still "ready" and
+        # fail - seen for real on hosted CI (298 passed, this one flaked), never locally. A
+        # private namespace per test run makes this collision structurally impossible
+        # instead of racing teardown timing.
+        private_ns = f'/goal_pose_forwarder_node_test_{uuid.uuid4().hex[:8]}'
+        rclpy.init(args=['--ros-args', '-r', f'__ns:={private_ns}'])
 
     @classmethod
     def tearDownClass(cls):
