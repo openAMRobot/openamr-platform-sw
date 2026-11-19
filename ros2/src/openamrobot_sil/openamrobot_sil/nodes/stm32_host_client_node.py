@@ -60,6 +60,7 @@ class HostClientNode(Node):
             self.sim.add_check(thread_check(name, worker))
 
         self.odom_pub = self.create_publisher(Odometry, '/sil/base/odom', 10)
+        self._odom_samples = 0
         self.drive_pub = self.create_publisher(String, '/sil/drive/status', 10)
         self.lift_pub = self.create_publisher(String, '/sil/lift/status', 10)
         self.bms_pub = self.create_publisher(String, '/sil/bms/status', 10)
@@ -109,9 +110,10 @@ class HostClientNode(Node):
         self.lift.permit_silent = bool(msg.data)
 
     def on_odom(self):
-        s = self.drive.state()
-        if s['samples'] == 0:
-            return
+        s = self.drive.new_sample(self._odom_samples)
+        if s is None:
+            return  # no new 606Ch sample: publish nothing rather than the last twist again
+        self._odom_samples = s['samples']
         msg = Odometry()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'odom'

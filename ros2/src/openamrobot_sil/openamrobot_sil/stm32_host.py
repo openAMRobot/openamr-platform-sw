@@ -55,6 +55,56 @@ class _CommandOnlyBus:
         self.sent += 1
 
 
+class MatchedSdoClient(canopen_common.SdoClient):
+    """The vendored blocking SDO client, with the answer matched to the request.
+
+    The vendored client takes the first frame from 580h + node as the answer. A reply that comes
+    after its timeout is then read as the answer to the next request: on a slow runner a write
+    confirmation (60h) arrived as the answer of a 606Ch read, the size lookup raised KeyError 96
+    and the drive thread ended (Baseline 1 DDS benchmark run 44346730235). Here an answer counts
+    only when it carries the index and subindex of the request and a command specifier of an
+    upload answer (read), a download confirmation (write) or an abort. Any other frame from the
+    SDO server is dropped and counted in ``stale_replies``. The vendored file stays unchanged
+    (PROVENANCE.md)."""
+
+    UPLOAD_SIZE = {0x4F: 1, 0x4B: 2, 0x43: 4}
+    ABORT = 0x80
+
+    def __init__(self, bus, node_id, timeout=0.5):
+        super().__init__(bus, node_id, timeout)
+        self.stale_replies = 0
+
+    def _exchange(self, payload, answers):
+        self.bus.send(can.Message(arbitration_id=canopen_common.SDO_RX_BASE + self.node_id,
+                                  data=payload, is_extended_id=False))
+        reply_id = canopen_common.SDO_TX_BASE + self.node_id
+        end = time.monotonic() + self.timeout
+        while time.monotonic() < end:
+            msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
+            if msg is None or msg.is_extended_id or msg.arbitration_id != reply_id:
+                continue
+            data = bytes(msg.data)
+            if (len(data) == 8 and data[1:4] == payload[1:4]
+                    and (data[0] == self.ABORT or data[0] in answers)):
+                return data
+            self.stale_replies += 1
+        raise TimeoutError('no SDO response from node %d' % self.node_id)
+
+    def read(self, index, sub, signed=False):
+        resp = self._exchange(struct.pack('<BHB4x', 0x40, index, sub), self.UPLOAD_SIZE)
+        if resp[0] == self.ABORT:
+            raise canopen_common.SdoAbort(struct.unpack('<I', resp[4:8])[0], index, sub)
+        size = self.UPLOAD_SIZE[resp[0]]
+        return canopen_common.unpack_value(resp[4:4 + size], signed)
+
+    def write(self, index, sub, value, size, signed=False):
+        payload = bytes([canopen_common.SIZE_CS[size]]) + struct.pack('<HB', index, sub) + \
+            canopen_common.pack_value(value, size, signed).ljust(4, b'\x00')
+        resp = self._exchange(payload, (0x60,))
+        if resp[0] == self.ABORT:
+            raise canopen_common.SdoAbort(struct.unpack('<I', resp[4:8])[0], index, sub)
+
+
 # Longest single host sleep while waiting for the worker clock (C5: an upper bound of waiting).
 WAIT_POLL_S = 0.002
 
@@ -149,7 +199,7 @@ class DriveHost(_Worker):
             self.cmd_bus = _CommandOnlyBus(bus, node_id)
             self.sdo = None
         else:
-            self.sdo = canopen_common.SdoClient(bus, node_id, timeout=sdo_timeout_s)
+            self.sdo = MatchedSdoClient(bus, node_id, timeout=sdo_timeout_s)
         self.link_loss_ms = int(link_loss_ms)
         self.wheel_radius = wheel_radius
         self.wheel_separation = wheel_separation
@@ -256,12 +306,25 @@ class DriveHost(_Worker):
             self._last_sample = now
             self.samples += 1
 
+    def new_sample(self, last_samples):
+        """state() when a 606Ch sample came after the `last_samples`-th one, else None.
+
+        The last twist stays in state() when the drive stops answering or the drive thread ends.
+        A consumer that publishes it again on every timer tick turns a stopped base into a
+        constant twist: in run 44346730235 /odom kept turning at 0.05 rad/s for 100 s of Gazebo
+        time after the drive thread ended, while the base stood still. Publishing only new
+        samples lets the consumer's own staleness rule (base_state_adapter stale_s) apply."""
+        state = self.state()
+        return state if state['samples'] > last_samples else None
+
     def state(self):
         with self.lock:
             return {'mode': self.mode, 'configured': self.configured, 'silent': self.silent,
                     'pdo_frames_sent': self.cmd_bus.sent if self.cmd_bus else 0,
                     'sdo_frames_refused': self.cmd_bus.refused if self.cmd_bus else 0,
-                    'sdo_errors': self.sdo_errors, 'statusword': self.statusword,
+                    'sdo_errors': self.sdo_errors,
+                    'sdo_stale_replies': self.sdo.stale_replies if self.sdo else 0,
+                    'statusword': self.statusword,
                     'fault_code': self.fault_code, 'target_rpm': list(self.target_rpm()),
                     'wheel_rad_s': list(self.wheel_rad_s), 'samples': self.samples,
                     'x': self.x, 'y': self.y, 'yaw': self.yaw, 'v': self.v, 'w': self.w,

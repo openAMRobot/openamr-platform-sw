@@ -153,7 +153,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (152, 2), 'sil-gazebo.xml': (6, 0),
+          expected = {'sil-vendored.xml': (36, 0), 'sil-protocol.xml': (165, 2), 'sil-gazebo.xml': (6, 0),
                       'sil-renode-node.xml': (8, 0), 'sil-renode.xml': (9, 0)}
           for name, (want, want_xfail) in expected.items():
               root = ET.parse(name).getroot()
