@@ -17,8 +17,11 @@ electrical or safety acceptance. No emulator holds a safety function.
 | Host test client | `openamrobot_sil/stm32_host.py`, node `stm32_host_client` | Plays the STM32 CAN role until the firmware runs in Renode. Test stand-in, no safety function |
 | Vendored code | `openamrobot_sil/vendor/can_sil/` | openamr-platform-fw `tools/can_sil`, unmodified, pinned. See `PROVENANCE.md` there |
 
-Every node opens its interface through `openamrobot_sil/canbus.py`, which refuses any
-interface whose name does not start with `vcan`.
+Every node opens its interface through `openamrobot_sil/canbus.py`. It accepts an interface
+only if its name starts with `vcan`, its device is under `/sys/devices/virtual/net/` and its
+link type is CAN. A hardware adapter renamed to `vcan_drive` is refused. `scripts/sil_vcan.sh`
+applies the same three checks and sets the frame size explicitly: MTU 16 for a classic CAN bus
+(`IFACE`), MTU 72 for a CAN FD bus (`IFACE:fd`). The three base buses are classic CAN.
 
 ## Run
 
