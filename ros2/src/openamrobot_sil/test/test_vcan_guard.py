@@ -31,11 +31,24 @@ def sysfs(tmp_path, monkeypatch):
     return tmp_path
 
 
+SYSFS_LINE = 'SYSFS=/sys\n'
+
+
 def run_script(sysfs, *args, path=None):
-    env = dict(os.environ, SIL_VCAN_SYSFS_ROOT=str(sysfs))
+    """Run a copy of the script whose sysfs root line points at the fake tree.
+
+    The script itself takes its sysfs root from no environment variable, so the copy is the
+    only way a test moves it.
+    """
+    with open(SCRIPT, encoding='ascii') as f:
+        text = f.read()
+    assert text.count(SYSFS_LINE) == 1, 'sil_vcan.sh must set SYSFS=/sys on one line'
+    copy = sysfs.parent / ('sil_vcan_%s.sh' % sysfs.name)
+    copy.write_text(text.replace(SYSFS_LINE, 'SYSFS=%s\n' % sysfs))
+    env = dict(os.environ)
     if path is not None:
         env['PATH'] = path
-    return subprocess.run(['sh', SCRIPT] + list(args), capture_output=True, text=True, env=env)
+    return subprocess.run(['sh', str(copy)] + list(args), capture_output=True, text=True, env=env)
 
 
 def test_virtual_can_interface_is_accepted(sysfs):
@@ -82,6 +95,20 @@ def test_sysfs_root_is_not_taken_from_the_environment(sysfs, monkeypatch):
     for name in ('SIL_VCAN_SYSFS_ROOT', 'SYSFS_ROOT', 'SYSFS_PATH'):
         monkeypatch.setenv(name, str(other))
     assert canbus.virtual_can_reason('vcan_drive') is not None
+
+
+def test_script_sysfs_root_is_not_taken_from_the_environment(sysfs):
+    """The unpatched script ignores SIL_VCAN_SYSFS_ROOT: a fake tree cannot make it accept an
+    interface that the real /sys does not show as virtual CAN (review of #149)."""
+    if os.path.exists('/sys/class/net/vcan_envtest'):
+        pytest.skip('vcan_envtest exists on this host; test needs it absent (#149)')
+    add_iface(sysfs, 'vcan_envtest', VIRTUAL, mtu=16)
+    env = dict(os.environ, SIL_VCAN_SYSFS_ROOT=str(sysfs), SYSFS_ROOT=str(sysfs))
+    r = subprocess.run(['sh', SCRIPT, 'check', 'vcan_envtest'],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode != 0, r.stdout
+    assert 'vcan_envtest present' not in r.stdout
+    assert run_script(sysfs, 'check', 'vcan_envtest').returncode == 0   # the fake tree is valid
 
 
 @pytest.mark.parametrize('action', ['up', 'check', 'down'])

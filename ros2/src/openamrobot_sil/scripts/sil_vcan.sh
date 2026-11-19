@@ -8,9 +8,9 @@
 # vcan name is refused (exit 2).
 # Needs root or passwordless sudo for up and down. Exit 3 with a line starting "BLOCKED:" when
 # vcan is not available. A blocked run is not a pass.
-# SIL_VCAN_SYSFS_ROOT replaces /sys. For the tests of this script only.
+# The sysfs root is fixed. No environment variable moves it; the tests run a patched copy.
 set -u
-SYSFS="${SIL_VCAN_SYSFS_ROOT:-/sys}"
+SYSFS=/sys
 CAN_MTU=16
 CANFD_MTU=72
 ARPHRD_CAN=280

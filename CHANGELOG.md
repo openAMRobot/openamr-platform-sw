@@ -19,6 +19,8 @@ This project follows a simple changelog structure:
   `/sys/devices/virtual/net/` and the link type to be CAN, in `canbus.py` and in `scripts/sil_vcan.sh`. A hardware adapter
   renamed to `vcan_drive` is refused (review note on #139). `sil_vcan.sh` sets the MTU explicitly: 16 for classic CAN,
   72 for `IFACE:fd`. The `sil-tests` workflow creates its test bus through the script.
+- `sil_vcan.sh` no longer reads `SIL_VCAN_SYSFS_ROOT`: its sysfs root is fixed to `/sys`, as in `canbus.py`, and the tests
+  run a patched copy (review of #149 at e7f242e).
 
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
