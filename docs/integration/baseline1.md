@@ -55,6 +55,21 @@ with #151 and #158.
   `description-tests` run 44076631476 passed (221 description tests; 14 friction tests on gz-sim 8.15.0 and sdformat
   14.9.0 with #152's vendor pins; 13 of 14 fail with the fix reverted, as intended); `Repository quality` passed.
 
+## Station approach and station alignment (19 Nov 2026)
+
+#164 and #167 were merged earlier at 030a47d, 194e208 (#164) and 353e3d6, 3e6e203, c4666a1 (#167). Repinned on
+19 Nov 2026, each head verified on GitHub immediately before the merge, `--no-ff`, no conflicts:
+
+| PR | Branch | Head SHA | Note |
+|---|---|---|---|
+| #167 | nav/station-marker-alignment | `99ec17f` | Mohamed's three conditions (forward only, Stop ends the goal, 9900 aborts by default) |
+| #164 | nav/station-approach | `09f9a85` | BackUp removed from the three trees (Alex, 19 Nov 2026: no general reversing recovery) |
+| #167 | nav/station-marker-alignment | `dccd5e0` | 99ec17f plus #164 09f9a85 plus the #90-overlay test adapted to that removal; no node change |
+
+Not in this branch: #90 (stop gate and behaviour set {spin, wait}). The Baseline 1 retreat (one straight 0.30 m
+backup, the mission's last phase, simulation only) still calls behavior_server's `backup` action directly; it is a
+declared station departure, not a recovery, and needs a decision before #90 joins this branch.
+
 ## Branch gate status
 
 "branch gate" in the table means: the merged tree passes the platform workflows above. It is not Baseline 1.
