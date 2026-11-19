@@ -66,9 +66,31 @@ jobs:
           cd ws
           colcon build --packages-select openamrobot_drivers openamrobot_bringup
 
+      # test_bringup_sim_scan_filter.py (issue #74 / #97 / #99) reads these
+      # real openamrobot_nav2 files by a path relative to its own location in
+      # the checkout - not from the ws/src copy above, and not resolved
+      # through get_package_share_directory (that call is faked in the test
+      # itself). They are not colcon-built or copied anywhere; this just
+      # fails loudly, before the test run, if a future change to this
+      # workflow's checkout (e.g. a sparse checkout) stops providing them,
+      # instead of letting that surface as a confusing failure deep inside
+      # the test.
+      - name: Verify the Nav2 config/map inputs the new sim scan-filter test needs
+        shell: bash
+        run: |
+          for f in \
+              ros2/src/openamrobot_nav2/config/nav2_params.yaml \
+              ros2/src/openamrobot_nav2/config/scan_body_filter_sim.yaml \
+              ros2/src/openamrobot_nav2/maps/my_map.yaml; do
+            test -f "$f" || { echo "missing: $f"; exit 1; }
+          done
+
       # Seven driver tests (default a1, s3, invalid-model rejection, one
-      # sllidar_node per model, port default) and two bringup tests (lidar_model
-      # declared with default a1, passed through to the drivers).
+      # sllidar_node per model, port default), two bringup tests (lidar_model
+      # declared with default a1, passed through to the drivers), and two sim
+      # scan-filter tests (issue #74 / #97 / #99: bringup.launch.py's sim
+      # branch uses the shared openamrobot_perception node and a config file
+      # that actually exists, not the laser_filters config #97 deleted).
       - name: Run the driver and bringup launch tests
         shell: bash
         run: |
@@ -77,10 +99,11 @@ jobs:
           source ws/install/setup.bash
           python3 -m pytest -v -p no:cacheprovider --junitxml=launch-tests.xml \
             ros2/src/openamrobot_drivers/test/test_drivers_launch.py \
-            ros2/src/openamrobot_bringup/test/test_real_bringup_launch.py
+            ros2/src/openamrobot_bringup/test/test_real_bringup_launch.py \
+            ros2/src/openamrobot_bringup/test/test_bringup_sim_scan_filter.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all nine launch tests ran
+      - name: Check that all eleven launch tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -88,7 +111,7 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 9 and skipped == 0, 'expected 9 launch tests, none skipped'
+          assert tests == 11 and skipped == 0, 'expected 11 launch tests, none skipped'
           EOF
 
   # Existing ament lint results for the same two packages, reported in their

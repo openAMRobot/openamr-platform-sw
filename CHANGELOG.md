@@ -13,6 +13,34 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
+
+- New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
+  to Gazebo Harmonic, a host test client that plays the STM32 CAN role, and `sil.launch.py` (`stm32:=host` or `stm32:=renode`).
+  The ZLAC8015D and CTL-017 emulators are the openamr-platform-fw `tools/can_sil` files, vendored unmodified at ad4b023.
+  Topology and sources: `docs/architecture/sil-topology.md`. CI: workflow `sil-tests`. Development evidence only.
+
+### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
+
+- Owner decisions of 8 Nov 2026 (P-03 rev20.5 item 29, rev20.6 item 30 A6): every base link with mass reads its inertial from
+  `config/roadmap_mass_export.yaml`, a verbatim copy of the openamrobot-docs mass export, pinned by commit and SHA-256 in
+  `config/roadmap_mass_export.source.yaml`. Each BOM part is counted once, quantity x datasheet mass (custom parts from
+  dimensions and material), on the link where it sits: base_link 49.2 kg (chassis, battery cells, trays, power and compute
+  electronics, base camera, rigid parts), the ZLLG80 hub motors on `left_wheel_link` and `right_wheel_link` (3.45 kg each),
+  each LPA-VSTH 35K castor on its caster and castor-wheel link (0.3 kg), the RPLIDAR S3 on `lidar_link` (0.115 kg). Base total
+  57.4 kg. The legacy `camera_link` is massless (its 0.05 kg was no 2.0 part). The masses were the SolidWorks shell values
+  (base_link 4.175 kg, wheels 1.061 kg). `test/test_base_mass.py` checks every link and the expanded total and centre of mass
+  against the export (35 description tests). Design values, not weighed.
+
+### Fixed — Robot model: legacy camera_link box no longer drawn on the 2.0 base (1 Nov 2026)
+
+- The legacy Gate A IMX708 `camera_link` placeholder box (0.04 x 0.08 x 0.04 m at xyz
+  0.35 0 0.20 from `base_link`) stood above the 2.0 base top cover (top 0.318 m from the
+  floor) in RViz and the combined model. Its visual and collision are removed; the link keeps
+  its inertial, and `camera_joint`, `camera_optical_frame`, `camera_optical_joint` and the
+  Gazebo `/rgb_image` sensor are unchanged. New description test: no base visual or collision
+  above z 0.296 m except the lift interface (29 description tests).
+
 ### Changed — Robot model: 2.0 sensor frames and simplified collision (#49)
 
 - Sensor links and joints moved to `openamrobot_description/urdf/sensors.xacro`, included by

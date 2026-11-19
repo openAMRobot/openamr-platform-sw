@@ -1,0 +1,59 @@
+# Simulation LiDAR body filter — parameters for the openamrobot_perception
+# scan_body_filter node, reused here for sim (issue #74 / platform-sw#35, Gate A).
+# Angles are in DEGREES, in the LiDAR frame.
+#
+# Replaces the laser_filters-based scan_body_filter.yaml angular-bounds chain,
+# which was a TRUNCATION filter (laser_filters::LaserScanAngularBoundsFilter):
+# it keeps exactly one contiguous [lower_angle, upper_angle] window and resizes
+# the scan to it - it cannot mask an interior sector while keeping both
+# wraparound ends. That shape was fine for the body footprint this was
+# originally calibrated against (rear-centered, straddling +/-180 deg, 10 June
+# 2026, pre-mount-rotation), but not for where the footprint actually is now.
+#
+# On 12 Oct 2026 (Alex decision, commit 935efc7) the LiDAR mount was rotated
+# 180 deg (lidar_joint rpy 0 0 0 -> 0 0 pi). That moves the body's own
+# self-reflections to the OPPOSITE side of scan-angle space: instead of
+# straddling +/-180 deg, they now sit near 0 deg (dead ahead) - exactly where
+# the truncation filter above never masked, and exactly why the sim robot saw
+# its own body and refused to move (S1: 0/3 goals, issue #74 / platform-sw#90
+# nikgolobo's Gate A read).
+#
+# Re-measured for real (issue #74, 26 Oct 2026) on the current sim geometry:
+# recorded /scan with the robot stationary via `ros2 topic echo /scan --field
+# ranges`, parsed out the close-return cluster. Result: ONE contiguous band,
+# index 155-200 of 360, angle -24.57 to +20.56 deg, range 0.4067-0.4806 m -
+# matches the sensor's own range_min (0.40 m) plus noise. No close returns
+# (<0.6 m) anywhere else in the scan, in any of the 86 recorded messages -
+# confirms this is a single stale-calibration angular issue, not a geometric
+# overlap between the LiDAR origin and the chassis collision box (a separate
+# concern raised and checked on #74, but not reproduced in this recording).
+#
+# Mask with the same 10 deg safety margin the original (now-superseded)
+# 10 June 2026 calibration used: -24.57 - 10 = -34.57 -> -35, 20.56 + 10 =
+# 30.56 -> 31. Re-measure if the LiDAR mount, chassis, or URDF changes again.
+scan_body_filter:
+  ros__parameters:
+    scan_in: /scan
+    scan_out: /scan_filtered
+    reliable_qos: true
+    # No close-range (side-post style) returns were observed anywhere outside
+    # the full-mask band in the recording above, so sim needs no
+    # close_mask_sectors_deg override. close_max still needs a value even
+    # when unused.
+    #
+    # close_mask_sectors_deg is deliberately NOT set here (not even to `[]`):
+    # a ROS 2 parameter-file override of an array to an empty list has no
+    # element type to infer, so rclpy loads it as Type.NOT_SET rather than an
+    # empty DOUBLE_ARRAY - the node's own declare_parameter() default then
+    # never takes effect, and the very next get_parameter() call raises
+    # ParameterUninitializedException (confirmed: this crashed scan_body_filter
+    # on startup in sim, issue #74 testing, 26 Oct 2026 - full_mask_sectors_deg
+    # above is fine since it's non-empty). Leaving the key out entirely falls
+    # back to scan_body_filter.py's own default (the real unit's side-post
+    # angles, [-96,-73] and [73,96] deg) - confirmed inert in sim: close_max
+    # is 0.40 m and the recording above found zero points under 0.6 m anywhere
+    # outside the full-mask band, in any of the 86 messages, so that default
+    # never actually matches anything here. It is NOT meaningful sim geometry,
+    # just an unavoidable borrowed placeholder - don't read anything into it.
+    close_max: 0.40
+    full_mask_sectors_deg: [-35.0, 31.0]

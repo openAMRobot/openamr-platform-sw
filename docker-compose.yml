@@ -20,6 +20,8 @@ services:
       # Persist colcon build & install across container restarts
       - openamr_build:/ros2_ws/build
       - openamr_install:/ros2_ws/install
+      # Persist saved maps across container restarts
+      - openamrobot_maps:/data/maps:rw
 
     network_mode: host           # simplest option for ROS 2 DDS discovery
     ipc: host                    # shared memory transport (CycloneDDS / FastDDS)
@@ -47,3 +49,5 @@ services:
 volumes:
   openamr_build:
   openamr_install:
+  openamrobot_maps:
+    name: openamrobot_maps

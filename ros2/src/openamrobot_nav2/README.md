@@ -39,7 +39,7 @@ openamrobot_nav2/
 ├── config/
 │   ├── slam.yaml               # SLAM Toolbox parameters
 │   ├── nav2_params.yaml        # Nav2 stack parameters
-│   └── scan_body_filter.yaml   # Angular filter — clips rear 90° from /scan
+│   └── scan_body_filter_sim.yaml  # Sim mask bounds for openamrobot_perception/scan_body_filter (issue #74)
 ├── launch/
 │   ├── online_async_launch.py  # SLAM mapping (async mode)
 │   ├── localization_launch.py  # AMCL localization on a saved map

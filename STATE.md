@@ -9,20 +9,34 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 - Type and lifecycle: software, active
 - Readiness: not yet assessed (17 Oct 2026, rollout step a)
 - Owner role: software-lead (maintainers.yaml)
-- Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests` and
-  `repository-quality`; no `tools/verify.sh` yet. `repository-quality` PASS on main at
+- Verification: CI workflows `nav-status-tests`, `drivers-bringup-tests`,
+  `description-tests` (added 24 Oct 2026; 29 tests from 1 Nov 2026; job `description-gazebo-tests`
+  with pinned gz-sim 8.15.0 runs the friction test, #135, 14 Nov 2026), `sil-tests` (14 Nov 2026) and `repository-quality`; no
+  `tools/verify.sh` yet. `repository-quality` PASS on main at
   dfd44a5 (16 Oct 2026).
 
 ## Current work
 
 | Work package | Branch or PR | Status | Next step |
 |---|---|---|---|
+| Base mass from the roadmap model (P-03 rev20.5 item 29, one source: config/roadmap_mass_export.yaml, pinned at openamrobot-docs ff8ca57) | description/2026-11-08-base-mass | draft (10 Nov 2026) | base_link mass 49.948 kg, complete base mass 58.163 kg (hub motors 2 x 3.45 kg on the wheel links, provisional: not for dynamics acceptance; castors 4 x 0.3 kg; RPLIDAR S3 0.115 kg), whole-robot mass 87.11 kg; test_base_mass.py checks the expanded URDF and that nothing is counted twice; next: rebase on main, mass review, hub motor rotor/stator split, rerun Gazebo and Nav2, replace with weighed values |
+| Base and lift SIL on virtual CAN: package `openamrobot_sil` (ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux`, `vcan_bms`, bridged to Gazebo; host test client; `sil.launch.py`), `docs/architecture/sil-topology.md`, workflow `sil-tests` (14 Nov 2026) | claude/optimistic-planck-frfht7 | draft | owner: adopt, adapt or reject; then Renode attach (platform-fw #51) and the combined model |
 | Shared agent rules v2 (rollout step a) | #72 | in review | merge, then step (b) pin the harness |
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
-| SiteConfigStatus producer (platform-sw#36) | #73 | changes requested (panthera-momagdii) - this push answers both open findings. P1 (7 Nov): MapLoaderNode's boot timer cancelled itself unconditionally on its first tick even if map_server was not yet discoverable, permanently losing the boot load with no retry - fixed, timer now stays periodic until the service is ready; new test_a_late_starting_map_server_is_still_loaded_at_boot, RED-verified against the pre-fix node. First-live-map identity (final pass, previously xfail, strict=True): navigation_status_node.py trusted a live /map message's content on first observation alone, with nothing to compare it against - an unverified map B, first-observed before map_yaml_path was ever updated, or surviving this node's own restart, both read as MATCHED. Fixed by wiring navigation_status_node.py to map_loader_node.py's own /map_identity (transient-local) as the only trust anchor - content is matched against the loader's own genuinely-recorded grid_fingerprint from a real ~/load_map response, never a self-referential "last trusted" guess; a restart still confirms immediately once a real identity is retained, since that persistence is of a verified fact, not an unverified one. The xfail test is now a real passing regression (renamed, strict mode removed), plus a new restart-with-a-genuine-identity test for the other half of the fix. 211 passed across the touched test files; zero new flake8/pep257 findings (confirmed by diffing against the pre-fix lint output line for line). | owner re-review; interfaces#28 remains a required, not-yet-merged dependency (DCO/merge-conflict/compatibility-snapshot fixes prepared separately) |
+| SiteConfigStatus producer (platform-sw#36) | #73 | changes requested (panthera-momagdii) - this push answers both open findings. P1 (7 Nov): MapLoaderNode's boot timer cancelled itself unconditionally on its first tick even if map_server was not yet discoverable, permanently losing the boot load with no retry - fixed, timer now stays periodic until the service is ready; new test_a_late_starting_map_server_is_still_loaded_at_boot, RED-verified against the pre-fix node. First-live-map identity (final pass, previously xfail, strict=True): navigation_status_node.py trusted a live /map message's content on first observation alone, with nothing to compare it against - an unverified map B, first-observed before map_yaml_path was ever updated, or surviving this node's own restart, both read as MATCHED. Fixed by wiring navigation_status_node.py to map_loader_node.py's own /map_identity (transient-local) as the only trust anchor - content is matched against the loader's own genuinely-recorded grid_fingerprint from a real ~/load_map response, never a self-referential "last trusted" guess; a restart still confirms immediately once a real identity is retained, since that persistence is of a verified fact, not an unverified one. The xfail test is now a real passing regression (renamed, strict mode removed), plus a new restart-with-a-genuine-identity test for the other half of the fix. 211 passed across the touched test files; zero new flake8/pep257 findings (confirmed by diffing against the pre-fix lint output line for line). Merged upstream/main (19 Nov 2026) to pick up #115's map_saver_launch.py include; navigation_launch.py's own map_yaml launch arg kept alongside it. | owner re-review; interfaces#28 remains a required, not-yet-merged dependency (DCO/merge-conflict/compatibility-snapshot fixes prepared separately) |
+| Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
+| Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
+| Wheel and caster friction reach the SDF (mu1, mu2, fdir1 instead of a raw surface); caster mu 0 is a frictionless slider on fixed joints, not a rolling caster | #135 | draft, changes requested (panthera-momagdii, 10 Nov 2026); hosted Gazebo job added 14 Nov 2026 | re-review; owner writes adopt, adapt or reject |
+| ToF cliff pitch 10 deg down in URDF, SDF and docs (NEAR-FIELD-FRAMES, 20 Oct 2026) | #93 | ready | Cuma: floor-return check at the 23 to 27 Nov bench |
+| 2.0 base visual meshes from CAD v0.2; GLB one node per part, battery envelope (24-25 Oct 2026) | #94, #95 | merged 25 Oct 2026 (1fc2a23, 4185a0a) | none |
+| Recognisable base envelopes: LF105 cells, J401, NUCLEO-144, driver, sensors (25 Oct 2026) | #96 | merged (9a58e0b) | none |
+| Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
+| BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
+| Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
+| Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
 
 ## Decisions this repository implements
 
@@ -31,6 +45,19 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Known gaps
 
+- Visual meshes are generated by `tools/cad/step_to_description_meshes.py` (24 Oct 2026);
+  the B2 hub motor STEP it reads is only on platform-hw PR #28. Open CAD drift: TF-Luna
+  pitch and height, IMU height, ToF openings (build/cad_checks.md).
+- Battery cell-group envelope (314 x 140 x 210 mm, provisional; project-lead decision 25 Oct
+  2026) behind the centre bracket fits CAD v0.2 with at least 2 mm (build/cad_checks.md); BMS,
+  power distribution, fuse and wiring are not modelled (free space reported). Register BOM-ISSUE-IN-FORCE
+  still names BOM Issue 7.10; the sources here cite BOM Issue 7.14 with its 1 Nov changes (1 Nov 2026).
+- IMU board envelope (1 Nov 2026) is still the MIKROE-4237 outline from the STEP; the TDK
+  EV_ICM-42688-P outline is not modelled; imu_link pose and yaw unchanged (P-03 rev20.2 item 26).
+- Base E-stop and RESET (27 Oct 2026) are placeholders from datasheet dimensions in the
+  release 001 button holes (22.5 mm in CAD v0.2); the Schneider STEP models and the XB4 hole
+  tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
+- Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15
@@ -38,4 +65,5 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 
 ## Not verified
 
+- SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.
