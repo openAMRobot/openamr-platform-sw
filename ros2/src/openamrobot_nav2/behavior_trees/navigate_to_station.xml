@@ -1,0 +1,70 @@
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Stage 1 is navigate_to_pose.xml: ros-navigation/navigation2 tag 1.3.14,
+  nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml, Apache-2.0, copyright the Nav2
+  authors, with goal_checker_id="general_goal_checker" on FollowPath and BackUp removed from RecoveryActions (Alex,
+  19 Nov 2026: no general reversing recovery; D-19). Modifications: those two, the Sequence around it and stage 2.
+  Station approach (Proposed, 17 Nov 2026): navigate_to_pose for a goal where the robot must stop within the reach of
+  its arms, selected per goal through NavigateToPose.behavior_tree. Not the default tree.
+
+  1. NavigateRecovery: the default navigation (navigate_to_pose.xml, the stock Nav2 1.3.14 tree), unchanged, with the
+     general goal checker. It ends when the robot is within the global tolerance (0.35 m, 0.35 rad).
+  2. StationApproach: one fresh plan from where the robot stopped to the goal with StationPlanner (NavFn, whose last
+     pose is the goal pose itself; Smac2D with downsampling ends on a 0.10 m cell centre), then FollowPath with the
+     StationApproach controller (nav2_graceful_controller) and station_goal_checker. Retried twice after a 1 s wait.
+
+  Every command still leaves controller_server on cmd_vel_nav and passes the velocity smoother and the collision
+  monitor. No other node publishes a velocity. The tolerances and their derivation are in nav2_params.yaml.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="NavigateToStation">
+      <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+        <PipelineSequence name="NavigateWithReplanning">
+          <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+          <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+          <RateController hz="1.0">
+            <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+              <Sequence>
+                <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+                <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+              </Sequence>
+            </RecoveryNode>
+          </RateController>
+          <RecoveryNode number_of_retries="1" name="FollowPath">
+            <FollowPath path="{path}" controller_id="{selected_controller}" goal_checker_id="general_goal_checker" error_code_id="{follow_path_error_code}"/>
+            <Sequence>
+              <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+              <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+            </Sequence>
+          </RecoveryNode>
+        </PipelineSequence>
+        <Sequence>
+          <Fallback>
+            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+            <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+          </Fallback>
+          <ReactiveFallback name="RecoveryFallback">
+            <GoalUpdated/>
+            <RoundRobin name="RecoveryActions">
+              <Sequence name="ClearingActions">
+                <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+                <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+              </Sequence>
+              <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
+              <Wait wait_duration="5.0"/>
+            </RoundRobin>
+          </ReactiveFallback>
+        </Sequence>
+      </RecoveryNode>
+      <RecoveryNode number_of_retries="2" name="StationApproach">
+        <Sequence name="StationApproachOnce">
+          <ComputePathToPose goal="{goal}" path="{station_path}" planner_id="StationPlanner" error_code_id="{compute_path_error_code}"/>
+          <FollowPath path="{station_path}" controller_id="StationApproach" goal_checker_id="station_goal_checker" error_code_id="{follow_path_error_code}"/>
+        </Sequence>
+        <Wait wait_duration="1.0"/>
+      </RecoveryNode>
+    </Sequence>
+  </BehaviorTree>
+</root>

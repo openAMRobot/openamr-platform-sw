@@ -13,12 +13,43 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Fixed — SIL: vcan guard checks the device, setup script sets the CAN frame size (15 Nov 2026)
+
+- `openamrobot_sil` accepted any interface whose name started with `vcan`. It now also requires the device to be under
+  `/sys/devices/virtual/net/` and the link type to be CAN, in `canbus.py` and in `scripts/sil_vcan.sh`. A hardware adapter
+  renamed to `vcan_drive` is refused (review note on #139). `sil_vcan.sh` sets the MTU explicitly: 16 for classic CAN,
+  72 for `IFACE:fd`. The `sil-tests` workflow creates its test bus through the script.
+
+### Simulation — Clock discontinuity gate tests (17 Nov 2026)
+
+- Tests for a forward `/clock` jump, duplicate and delayed `/clock`, first-clock startup, clock loss and recovery, frames queued across a reset, and the health callback (its only effect is the simulation-only zero hold of the Gazebo plant, not a second command authority). `ClockCoordinator` reports a forward jump above 1 s simulation time (proposal, report only); the host stand-in sends nothing before the first `/clock`. No emulator decision logic and no timeout or permit value changed. Gaps found are tracked as strict xfails: #159, #160.
+
+### Simulation — Clock contract implemented for the base and lift SIL (17 Nov 2026)
+
+- One fed `/clock` clock per SIL process (`ClockCoordinator`, `NodeClock`): a stall longer than 1 s wall time (proposal) is reported as "simulation stalled" on a steady health timer, never as a device fault. CTL-017 runs every timer on Gazebo time through the vendored `_now_ms()` hook (no vendored change, no timeout value changed); a time reset is a power cycle and a stall drops motion and the permit. ZLAC8015D wheel feedback and the host stand-in (pacing, keep-alive, heartbeat, permit, BMS timeout) use the fed clock; node timers run on ROS time. Gate tests for pause, reset, restart, delayed frames and runner speed. ZLAC8015D and `canopen_common` still read host time until openamr-platform-fw #57.
+
+### Documentation
+
+- Clock contract for the base and lift SIL (D2, Proposed): `docs/architecture/sil-topology.md` section 6 with domains, rules C1 to C6 and the pause, reset and restart gates; `openamrobot_sil/config/clock_inventory.yaml` lists every clock read with its current and target domain; `test_clock_inventory.py` keeps source and inventory in step. No timer changed.
+### Simulation — Firmware in the loop for telemetry: platform-fw image in Renode on the drive bus (15 Nov 2026)
+
+- `sil.launch.py` `stm32:=renode` runs the openamr-platform-fw telemetry image (commit fcf81f8, preset RenodeTest) in
+  Renode 1.16.1 with FDCAN1 on `vcan_drive` through Renode's SocketCAN bridge, next to the ZLAC8015D emulator. New
+  `stm32:=renode_readonly`: the host test client commands the drive with SIL receive PDOs and sends no SDO frame.
+- New nodes `renode_firmware` (banner check, `/sil/fw/console`, `/sil/fw/wheel_speeds`, reset and fresh start) and
+  `drive_bus_audit` (candump capture and SDO audit of `vcan_drive`); `scripts/sil_renode_firmware.sh` builds the image.
+- Tests: host, Renode-only and Gazebo-integrated (`sil-tests`). Topology section 4.1. Development evidence only.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
   to Gazebo Harmonic, a host test client that plays the STM32 CAN role, and `sil.launch.py` (`stm32:=host` or `stm32:=renode`).
   The ZLAC8015D and CTL-017 emulators are the openamr-platform-fw `tools/can_sil` files, vendored unmodified at ad4b023.
   Topology and sources: `docs/architecture/sil-topology.md`. CI: workflow `sil-tests`. Development evidence only.
+### Changed (15 Nov 2026; loaded wheel radius)
+
+- Drive wheel collision radius and DiffDrive `wheel_radius` are now the loaded radius 0.098 m (was 0.100). Owner decision 15 Nov 2026: the 200 mm tyre is mounted 2 mm below the castor plane on purpose and compresses about 2 mm under the robot weight, so at rest wheels and castors share one plane and the base is level. With the unloaded 0.100 radius the wheels sat 2 mm inside the floor and a MuJoCo drop test pitched the base 0.59 degrees onto the castors (upperbody-sw #69). The loaded radius is an estimate until the bench measures it.
+- New `test_ground_contact.py`: both drive wheels touch the floor plane, the four castor contact spheres are within 0.5 mm of it (0.42 mm today), and the DiffDrive radius equals the collision radius.
 
 ### Changed — Robot model: base masses from the roadmap model, every part once (8 Nov 2026)
 
