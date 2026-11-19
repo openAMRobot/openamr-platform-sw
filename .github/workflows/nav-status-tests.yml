@@ -22,7 +22,7 @@ env:
   # so producer CI can validate against SiteConfigStatus before that PR merges.
   # Revert this to upstream main's merge commit once #28 lands.
   INTERFACES_REPO: openAMRobot/openamrobot-interfaces
-  INTERFACES_REF: 1f46b295ccfc99901072a263769c97adf87e18c5
+  INTERFACES_REF: dc5094a3104416b0bb832c8d0c91ef35e610f8a2
 
 jobs:
   producer-tests:
