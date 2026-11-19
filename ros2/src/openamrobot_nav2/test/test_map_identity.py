@@ -1,9 +1,9 @@
 """
 Pure tests for map_identity_hash/load_map_identity_source.
 
-Both the live node (NavigationStatusNode._compute_map_hash) and the offline
-tool (tools/compute_map_identity.py) call these same two functions, so a
-real match or mismatch can never come from the two computing it differently
+Both the live loader (MapLoaderNode._on_load_response) and the offline tool
+(tools/compute_map_identity.py) call these same two functions, so a real
+match or mismatch can never come from the two computing it differently
 - see map_identity.py's docstring. These tests cover the hash function on
 its inputs directly (no files needed) and load_map_identity_source reading
 real temporary map.yaml + image files on disk.

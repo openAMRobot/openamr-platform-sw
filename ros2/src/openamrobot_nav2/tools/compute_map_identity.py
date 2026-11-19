@@ -3,11 +3,14 @@
 Offline map-identity hash, for declaring site_config.yaml's map_version.
 
 interfaces#28's SiteConfigStatus.map_version is "SHA-256 over canonicalized
-map YAML fields + raw image bytes" - NavigationStatusNode._compute_map_hash
-reads a map.yaml + image file off disk and hashes exactly that, to decide
-whether the robot is actually running the map an operator declared in
-site_config.yaml. This is the same computation, offline, from the map.yaml +
-image pair an operator has in hand before the robot ever loads it.
+map YAML fields + raw image bytes" - MapLoaderNode._on_load_response reads
+a map.yaml + image file off disk after a successful ~/load_map call and
+hashes exactly that, publishing the result on /map_identity for
+NavigationStatusNode to compare against the operator's own declared value,
+to decide whether the robot is actually running the map an operator
+declared in site_config.yaml. This is the same computation, offline, from
+the map.yaml + image pair an operator has in hand before the robot ever
+loads it.
 
 It calls load_map_identity_source() to read the file the same way the live
 node does, then map_identity_hash() - the exact same two functions the live

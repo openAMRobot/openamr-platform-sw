@@ -98,6 +98,16 @@ class MapLoaderNode(Node):
         self._boot_timer = self.create_timer(max(delay_s, 0.001), self._on_boot_timer)
 
     def _on_boot_timer(self):
+        # Mohamed's #73 review, P1: this used to cancel unconditionally on its very
+        # first tick, so a map_server that was not yet discoverable at that exact
+        # instant meant no boot load, no /map_identity and no retry ever - not even
+        # ~/reload helps an operator who does not know that happened. create_timer
+        # is periodic by construction; only stop re-arming once the service is
+        # actually ready and a load has been dispatched, so a late-starting
+        # map_server is still eventually loaded at this same bounded period instead
+        # of the boot load being silently and permanently lost.
+        if not self._load_client.service_is_ready():
+            return
         self._boot_timer.cancel()
         self._load()
 

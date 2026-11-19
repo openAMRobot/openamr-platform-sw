@@ -18,7 +18,6 @@ adapter yet, so navigation stays NOT_READY with BASE_LINK_LOST), and a
 localization, recovery, protection are not mirrored there yet).
 """
 
-import hashlib
 import math
 import os
 
@@ -33,6 +32,7 @@ from nav2_msgs.msg import BehaviorTreeLog, CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid, Odometry
 from openamr_nav_msgs.msg import (
     LocalizationStatus,
+    MapIdentity,
     MotionSourceCoverage,
     NavigationStatus,
     NavStackStatus,
@@ -44,7 +44,7 @@ from openamr_nav_msgs.msg import (
 )
 from openamrobot_nav2.config_identity import (
     config_identity_hash, parse_identity_fields, parse_zone_list)
-from openamrobot_nav2.map_identity import load_map_identity_source, map_identity_hash
+from openamrobot_nav2.map_identity import grid_fingerprint, load_map_identity_source
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
     evaluate_site_config,
@@ -173,36 +173,6 @@ class NavigationStatusNode(Node):
         self.get_logger().info(f'loaded site config from {path}')
         return site_config
 
-    def _compute_map_hash(self):
-        """
-        Hash of the map this node is configured to run against, read
-        straight from the map.yaml + image file on disk - the same files
-        nav2_map_server itself loads - in the shared canonical form every
-        caller uses (see map_identity.map_identity_hash).
-
-        This never decodes the image into occupancy values: interfaces#28
-        defines SiteConfigStatus.map_version as a hash over the declared
-        YAML fields plus the image file's raw bytes, not over any pixel
-        interpretation of them, so there is nothing here that needs to
-        agree with Nav2's own conversion (Mohamed Sayed's platform-sw#73
-        review). The matching 'declared' value in site_config.yaml is
-        produced by tools/compute_map_identity.py, which reads a map.yaml +
-        image file the same way (via the same load_map_identity_source) and
-        calls this exact same hash function, so the two can never silently
-        compute different things for the same map.
-
-        Returns None if map_yaml_path can't be read - a missing file or a
-        typo'd path - rather than raising; that correctly reports
-        MAP_ID_MISMATCH the same way a blank declared map_version does, not
-        a crash.
-        """
-        try:
-            source = load_map_identity_source(self._map_yaml_path)
-        except Exception as exc:
-            self.get_logger().error(f'failed to read map at {self._map_yaml_path}: {exc}')
-            return None
-        return map_identity_hash(**source)
-
     def __init__(self):
         super().__init__('navigation_status_node')
 
@@ -265,17 +235,22 @@ class NavigationStatusNode(Node):
         self._required_zones = required_zones or frozenset()
         self._optional_zones = optional_zones or frozenset()
 
-        # map identity: NOT read from disk up front any more. It used to be
-        # (so a match could be confirmed on the very first tick), but that
-        # let the producer report MATCHED before any live /map message had
-        # ever been checked - a disk-only hash trivially equals
-        # declared_map_version, since both come from hashing the same file
-        # (Mohamed Sayed's platform-sw#73 review, fourth pass: "the producer
-        # also reports MATCHED before any live map is received"). self._map_hash
-        # now only ever gets a value through _on_map, once a live message's
-        # geometry has actually been checked against map_yaml_path - see
-        # _on_map / _map_source_matches. Until the first /map arrives, it stays
-        # None, which _site_config_status already treats as not-matched.
+        # map identity: trust anchor is MapLoaderNode's own /map_identity, never a
+        # locally-cached "first observation" (Mohamed Sayed's platform-sw#73 review,
+        # final pass: trusting the first geometry-matched /map message - whatever its
+        # content - let an unverified map B, received before anyone pointed
+        # map_yaml_path at it, read as MATCHED purely because nothing had been
+        # trusted yet to compare against; the same false MATCHED then survived this
+        # node's own restart, since the only state that mattered was "has /map_identity
+        # ever been received" was never actually checked). self._loader_identity is
+        # None until a genuine MapIdentity message arrives - published only by
+        # map_loader_node.py's own successful ~/load_map call, with a grid_fingerprint
+        # computed from THAT call's own response, not inferred from this node's own
+        # /map observation. /map_identity is transient-local (map_loader_node.py's own
+        # publisher QoS, matched by the subscription below), so a restarting consumer
+        # gets the retained, already-verified fact immediately - persistence of a
+        # genuinely verified identity, not of an unverified guess, which is the
+        # distinction the previous design got wrong.
         default_map_yaml_path = os.path.join(
             get_package_share_directory('openamrobot_nav2'), 'maps', 'my_map.yaml')
         self.declare_parameter('map_yaml_path', default_map_yaml_path)
@@ -283,12 +258,9 @@ class NavigationStatusNode(Node):
         self._map_hash = None  # set only once a live message is confirmed - see above
         self._map_hash_confirmed = None   # hash the last published result ran against
         self._map_reload_pending = False  # True for exactly one tick after a change
-        self._live_content_fp = None  # content fingerprint last trusted - see _on_map
+        self._loader_identity = None  # last MapIdentity received - see above
+        self.create_subscription(MapIdentity, '/map_identity', self._on_map_identity, qos)
         # map_server publishes transient-local, same as our own status topic.
-        # The OccupancyGrid payload's cell data isn't used for map identity
-        # itself - see _compute_map_hash's docstring - only as a content
-        # fingerprint confirming a geometry match still names real content,
-        # see _on_map / _map_content_fingerprint.
         self.create_subscription(OccupancyGrid, '/map', self._on_map, qos)
 
         # sensors from the profile; the stale limits come from its thresholds
@@ -555,53 +527,44 @@ class NavigationStatusNode(Node):
         return (resolution_matches and origin_x_matches
                 and origin_y_matches and origin_yaw_matches)
 
-    def _map_content_fingerprint(self, msg: OccupancyGrid) -> str:
-        """
-        Opaque fingerprint of a live OccupancyGrid's cell data.
-
-        This never interprets a cell value as free/occupied/unknown - it
-        exists only to notice that the SAME geometry (resolution/origin,
-        see _map_source_matches) is carrying DIFFERENT cell content, which
-        geometry agreement alone cannot catch (Mohamed Sayed's
-        platform-sw#73 review, third pass: a replacement map with identical
-        dimensions/resolution/origin but changed occupancy content was
-        still accepted as the original, since nothing compared content at
-        all - his reproduction used two valid 2x2 maps with one changed
-        pixel). Hashing the raw int8 cell array needs no agreement with
-        nav2_map_server's own occupied/negate/threshold semantics - that
-        disagreement is exactly why the original OccupancyGrid-based hash
-        was removed (see map_identity.py's docstring) - this only has to
-        change when the content changes, never decide what it means.
-        """
-        # int8 values are signed (-128..127); masking to a byte keeps the
-        # hash stable and well-defined regardless of that signedness.
-        return hashlib.sha256(bytes(cell & 0xFF for cell in msg.data)).hexdigest()
+    def _on_map_identity(self, msg: MapIdentity) -> None:
+        # The only trust anchor for map content identity - see __init__'s own
+        # comment and _on_map below. Simply records the latest genuinely-verified
+        # fact; _on_map decides what to do with it against the next live /map.
+        self._loader_identity = msg
 
     def _on_map(self, msg: OccupancyGrid):
         # map_server republishes (transient-local) whenever it loads a new map,
         # e.g. via its ~/load_map service - that's the only way this node finds
         # out a live reload happened, since it isn't the one calling that
-        # service. There is no path/URL in that message either, so
-        # map_yaml_path - read from disk by _compute_map_hash - is the only
-        # identity source this node has; _map_source_matches and
-        # _map_content_fingerprint are the two checks that it is still the
-        # right one to trust (platform-sw#73 review, both passes - see their
-        # docstrings): resolution/origin agreement alone does not establish
-        # content identity, so a geometry match is only trusted the first
-        # time it is seen, or for as long as the live content fingerprint it
-        # was first trusted with stays unchanged. A changed hash holds
-        # STATE_STALE for exactly one tick while the next
-        # _site_config_status() re-runs the comparison; a hash this node can
-        # no longer verify never reports MATCHED at all, held there until
-        # map_yaml_path is corrected (or the live content reverts to the
-        # fingerprint last trusted).
+        # service. There is no path/URL in that message either, so geometry
+        # (resolution/origin, from map_yaml_path - _map_source_matches) and
+        # content (_on_map_identity's own loader-recorded fingerprint) are the
+        # two checks that this live map is both configured AND genuinely
+        # known-loaded (Mohamed Sayed's platform-sw#73 review, final pass):
+        # trusting WHATEVER content a first-ever /map message carried, merely
+        # because nothing had been trusted yet to compare it against, let an
+        # unverified map read as MATCHED on both a first observation before
+        # map_yaml_path was ever updated, and again after this node's own
+        # restart while that same unverified map stayed active throughout.
+        # Requiring a genuine match against map_loader_node.py's own recorded
+        # grid_fingerprint - the one thing actually tied to a real ~/load_map
+        # result, not inferred here - removes that gap: nothing is ever
+        # trusted before map_loader_node.py has said so at least once, restart
+        # included, since /map_identity's own transient-local retention
+        # redelivers that already-verified fact instead of asking this node
+        # to re-derive it from an unverifiable first guess. A newly-untrusted
+        # content holds STATE_STALE for exactly one tick while the next
+        # _site_config_status() re-runs the comparison; a map this node can no
+        # longer verify never reports MATCHED at all, held there until the
+        # loader's own record and the live map agree again.
         geometry_matches = self._map_source_matches(msg)
-        content_fp = self._map_content_fingerprint(msg)
-        trusted = geometry_matches and (
-            self._live_content_fp is None or content_fp == self._live_content_fp)
-        new_hash = self._compute_map_hash() if trusted else None
-        if trusted:
-            self._live_content_fp = content_fp
+        content_fp = grid_fingerprint(msg.data)
+        trusted = bool(
+            geometry_matches
+            and self._loader_identity is not None
+            and content_fp == self._loader_identity.grid_fingerprint)
+        new_hash = self._loader_identity.artifact_hash if trusted else None
         if self._map_hash is not None and new_hash != self._map_hash:
             self._map_reload_pending = True
         self._map_hash = new_hash
@@ -609,13 +572,15 @@ class NavigationStatusNode(Node):
     def _site_config_status(self, now_s) -> SiteConfigStatus:
         """
         Build this tick's SiteConfigStatus from the declared site_config.yaml
-        and the map this node is configured to run against (see
-        _compute_map_hash).
+        and the map this node is configured to run against (see _on_map and
+        _on_map_identity).
 
         map identity and config identity are both real content comparisons
         (declared hash == actual hash), not stand-ins:
-          - map identity: declared map_version is compared against the hash
-            of the map.yaml + image file on disk (_compute_map_hash).
+          - map identity: declared map_version is compared against the
+            artifact_hash map_loader_node.py's own ~/load_map call recorded
+            for the live map this node has verified against /map_identity
+            (see _on_map).
           - config identity: declared config_version is compared against
             config_identity_hash() of this file's own declared identity/zone
             fields - see config_identity.py's docstring for why that is the

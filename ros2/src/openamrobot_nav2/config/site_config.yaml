@@ -8,9 +8,9 @@ map_id: "sim-floor-1"
 # SHA-256 over this map's canonicalized YAML fields (resolution/origin/
 # negate/occupied_thresh/free_thresh/mode) plus its image file's raw bytes -
 # the interfaces#28 SiteConfigStatus.map_version contract - computed the
-# same way navigation_status_node hashes the map.yaml it is configured to
-# run against (see NavigationStatusNode._compute_map_hash). Generate this
-# value with:
+# same way map_loader_node's own ~/load_map call hashes the map.yaml it
+# actually loaded, and published on /map_identity (see
+# NavigationStatusNode._on_map_identity). Generate this value with:
 #   python3 tools/compute_map_identity.py path/to/map.yaml --write \
 #     ros2/src/openamrobot_nav2/config/site_config.yaml
 # A blank or stale value here reports MAP_ID_MISMATCH (never a silent

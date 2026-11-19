@@ -173,6 +173,37 @@ class TestBootLoad(NodeTestCase):
             'a failed load must never publish an identity - there is nothing to report')
 
 
+class TestBootLoadRetriesUntilTheServiceIsReady(NodeTestCase):
+
+    def test_a_late_starting_map_server_is_still_loaded_at_boot(self):
+        # Mohamed's #73 review, P1: reproduces the exact race he described - the
+        # loader's own boot timer can tick before map_server's ~/load_map service
+        # is discoverable, and the old code cancelled that timer unconditionally
+        # on its very first tick regardless, so a late-starting map_server meant
+        # no boot load, no /map_identity and no retry ever. Destroy the fake
+        # service setUp already registered, spin long enough for the node's own
+        # client to notice it is gone and for several of the periodic boot
+        # timer's own ticks to pass with nothing to load against, then bring the
+        # service back and confirm the boot load still eventually happens.
+        self._load_map_service.destroy()
+        self._spin_both(timeout_s=0.5)
+        self.assertEqual(
+            self._load_requests, [],
+            'no load_map call should have happened while the service was unreachable')
+        self.assertEqual(self._identities, [], 'no /map_identity should have been published yet')
+
+        self._load_map_service = self.probe.create_service(
+            LoadMap, _FAKE_LOAD_MAP_SERVICE, self._on_load_map)
+        self._spin_both(timeout_s=1.5)
+
+        self.assertEqual(
+            len(self._load_requests), 1,
+            'the boot load must still happen once the late-starting service becomes ready - '
+            'it must not have been permanently lost to the first, premature timer tick')
+        self.assertTrue(self._identities, 'no /map_identity was ever published')
+        self.assertEqual(self._identities[-1].load_generation, 1)
+
+
 class TestReload(NodeTestCase):
 
     def test_reload_calls_load_map_again_and_increments_generation(self):

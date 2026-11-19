@@ -1,12 +1,21 @@
 """
 Shared, dependency-free map-identity hashing (interfaces#27/#28, platform-sw#36).
 
-One function, used by two callers that must never be allowed to drift apart:
-  - NavigationStatusNode._compute_map_hash, reading the map.yaml + image file
-    this node is configured to run against.
+map_identity_hash, used by two callers that must never be allowed to drift
+apart:
+  - MapLoaderNode._on_load_response, hashing the map.yaml + image file it
+    just told nav2_map_server's own ~/load_map to load, and publishing the
+    result on /map_identity - the single source NavigationStatusNode trusts
+    for map content identity (platform-sw#73 review, final pass).
   - tools/compute_map_identity.py, reading the same kind of map.yaml + image
     pair offline to produce the site_config.yaml map_version an operator
     declares.
+
+grid_fingerprint, used by two different callers that must also never drift
+apart - MapLoaderNode (fingerprinting the grid its own load_map call
+returned) and NavigationStatusNode (fingerprinting the live /map message,
+to confirm it still matches what the loader last recorded) - see
+grid_fingerprint's own docstring.
 
 Neither caller does its own hashing; both call this, and both read the map
 file the same way through load_map_identity_source. If they computed the

@@ -25,11 +25,14 @@ rclpy = pytest.importorskip('rclpy')
 
 from nav_msgs.msg import OccupancyGrid  # noqa: E402
 from openamr_nav_msgs.msg import (  # noqa: E402,I100
+    MapIdentity,
     NavigationStatus,
     NavStackStatus,
     SiteConfigStatus,
 )
 from openamrobot_nav2.config_identity import config_identity_hash  # noqa: E402
+from openamrobot_nav2.map_identity import (  # noqa: E402
+    grid_fingerprint, load_map_identity_source, map_identity_hash)
 from openamrobot_nav2.navigation_status_node import (  # noqa: E402
     LIFECYCLE_ACTIVE,
     MANAGED_NAV_NODES,
@@ -543,15 +546,19 @@ def _occupancy_grid(*, resolution, origin_x, origin_y, origin_yaw=0.0, data=(0, 
 
 class TestLiveMapReloadDetection(NodeTestCase):
     """
-    Mohamed Sayed's platform-sw#73 review: live-loading map B through Nav2's
-    LoadMap service while map_yaml_path still names file A left this node
-    rereading A's unchanged content and reporting it MATCHED/FULL forever -
-    the exact callback/producer-method reproduction his review describes.
+    Mohamed Sayed's platform-sw#73 review, final pass: the trust anchor for
+    live map content is now map_loader_node.py's own /map_identity (its
+    grid_fingerprint, recorded from a real ~/load_map response), never a
+    locally-cached "first observation" - see navigation_status_node.py's
+    __init__ and _on_map for the full reasoning. self.node._loader_identity
+    stands in for a received /map_identity message in these tests, the same
+    way the rest of this file sets other subscribed-topic state directly.
 
     These write two real map.yaml + image fixtures (A, B) to disk and drive
-    _on_map with a real OccupancyGrid built from B's own declared fields,
-    with the node's map_yaml_path left pointed at A throughout - exactly the
-    "A-to-B live reload regression with A unchanged" his review asked for.
+    _on_map with a real OccupancyGrid, with the node's map_yaml_path left
+    pointed at A throughout - the "A-to-B live reload regression with A
+    unchanged" Mohamed's review asked for, plus the first-message/restart
+    cases his later passes added.
     """
 
     def setUp(self):
@@ -572,11 +579,21 @@ class TestLiveMapReloadDetection(NodeTestCase):
             f.write('negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\nmode: "trinary"\n')
         return path
 
+    def _hash_of(self, map_yaml_path):
+        return map_identity_hash(**load_map_identity_source(map_yaml_path))
+
+    def _set_loader_identity(self, map_yaml_path, data, generation=1):
+        """Stand in for a /map_identity message - see class docstring."""
+        artifact_hash = self._hash_of(map_yaml_path)
+        self.node._loader_identity = MapIdentity(
+            artifact_hash=artifact_hash, load_generation=generation,
+            grid_fingerprint=grid_fingerprint(data))
+        return artifact_hash
+
     def test_a_to_b_reload_with_a_unchanged_stops_reporting_a_as_matched(self):
+        hash_a = self._hash_of(self.map_a_path)
         self.node._map_yaml_path = self.map_a_path
-        self.node._map_hash = self.node._compute_map_hash()
-        hash_a = self.node._map_hash
-        self.assertIsNotNone(hash_a)  # sanity: A itself is readable
+        self.node._map_hash = hash_a  # precondition: A was already matched
         self.node._site_config = {
             'site_id': 's', 'map_id': 'm', 'map_version': hash_a,
             'config_id': 'c', 'config_version': ''}
@@ -587,7 +604,10 @@ class TestLiveMapReloadDetection(NodeTestCase):
 
         # Nav2 LoadMap is told to load B; map_yaml_path (launch-time only,
         # never updated by a live reload) still names A. map_server
-        # republishes on /map with B's own declared resolution/origin.
+        # republishes on /map with B's own declared resolution/origin -
+        # geometry disagreement with map_yaml_path's own file (A) alone is
+        # enough to invalidate the old match, independent of any loader
+        # identity, same as before this fix.
         self.node._on_map(_occupancy_grid(resolution=0.1, origin_x=3.0, origin_y=4.0))
 
         self.assertIsNone(self.node._map_hash)
@@ -599,7 +619,7 @@ class TestLiveMapReloadDetection(NodeTestCase):
 
         # map_server keeps the active map (B) on /map; map_yaml_path is
         # still unrevised, still naming A. The bug reported MATCHED again
-        # here, since rereading A's unchanged file always reproduces hash_a.
+        # here, since rereading A's unchanged file always reproduced hash_a.
         self.node._on_map(_occupancy_grid(resolution=0.1, origin_x=3.0, origin_y=4.0))
         out = self.node._site_config_status(self.node._now_s())
         self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
@@ -615,9 +635,8 @@ class TestLiveMapReloadDetection(NodeTestCase):
         # same file). declared_map_version here is deliberately set to the
         # real disk hash of map_a, to show this isn't fixed by it merely
         # being wrong; the point is that NO live message has been checked.
+        hash_a = self._hash_of(self.map_a_path)
         self.node._map_yaml_path = self.map_a_path
-        hash_a = self.node._compute_map_hash()
-        self.assertIsNotNone(hash_a)  # sanity: A itself is readable
         self.node._site_config = {
             'site_id': 's', 'map_id': 'm', 'map_version': hash_a,
             'config_id': 'c', 'config_version': ''}
@@ -632,15 +651,18 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.assertNotEqual(out.state, SiteConfigStatus.STATE_MATCHED)
         self.assertEqual(out.reason, NavigationStatus.MAP_ID_MISMATCH)
 
-    def test_live_map_matching_the_declared_file_still_confirms_normally(self):
-        # the positive case: no reload has happened, the live message's own
-        # resolution/origin agree with map_yaml_path's file, so the existing
-        # match behavior is unaffected by this check.
+    def test_live_map_matching_a_genuine_loader_identity_confirms_normally(self):
+        # the positive case: a real /map_identity for this exact content was
+        # received (map_loader_node.py actually loaded it), and the live
+        # message's own resolution/origin agree with map_yaml_path's file -
+        # the match behavior is unaffected by requiring that genuine record.
         self.node._map_yaml_path = self.map_a_path
         self.node._map_hash = None
         self.node._map_reload_pending = False
-        self.node._on_map(_occupancy_grid(resolution=0.05, origin_x=-1.0, origin_y=-2.0))
-        self.assertEqual(self.node._map_hash, self.node._compute_map_hash())
+        grid = _occupancy_grid(resolution=0.05, origin_x=-1.0, origin_y=-2.0)
+        hash_a = self._set_loader_identity(self.map_a_path, grid.data)
+        self.node._on_map(grid)
+        self.assertEqual(self.node._map_hash, hash_a)
 
     def test_a_simple_repeated_publish_of_the_same_map_stays_matched(self):
         # map_server republishes transient-local on every new subscriber,
@@ -650,6 +672,7 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.node._map_hash = None
         self.node._map_reload_pending = False
         same_data = (5, 10, 15, 20)
+        self._set_loader_identity(self.map_a_path, same_data)
         self.node._on_map(_occupancy_grid(
             resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=same_data))
         hash_after_first = self.node._map_hash
@@ -665,11 +688,11 @@ class TestLiveMapReloadDetection(NodeTestCase):
         # resolution/origin and one changed pixel - resolution/origin
         # agreement alone let this through before, since nothing compared
         # content. map_yaml_path still names A throughout; only the live
-        # message's own cell data changes.
+        # message's own cell data changes, drifting away from what the
+        # loader's own record (fixed throughout - no new load happened)
+        # says was actually loaded.
+        hash_a = self._set_loader_identity(self.map_a_path, (0, 0, 0, 0))
         self.node._map_yaml_path = self.map_a_path
-        self.node._map_hash = self.node._compute_map_hash()
-        hash_a = self.node._map_hash
-        self.assertIsNotNone(hash_a)
         # a real computed config_version, not '' - an empty one would mismatch
         # on config identity alone regardless of the map, which would make
         # the MATCHED check below meaningless (config_identity_matches would
@@ -685,8 +708,8 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.node._zones_schema_valid = True
         self.node._map_reload_pending = False
 
-        # first message: same geometry as A, and this is the first live
-        # confirmation, so its content is the one trusted/recorded
+        # first message: same geometry as A, content matches the loader's
+        # own genuine record
         self.node._on_map(_occupancy_grid(
             resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=(0, 0, 0, 0)))
         self.assertEqual(self.node._map_hash, hash_a)
@@ -694,12 +717,13 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.assertEqual(out.state, SiteConfigStatus.STATE_MATCHED)
 
         # second message: same geometry, but different cell content - a
-        # same-dimensions replacement map, exactly Mohamed's reproduction.
-        # map_yaml_path is unrevised and still reads as A either way, so
-        # only the content fingerprint can catch this. Invalidating the hash
-        # here holds STATE_STALE for exactly one tick (the reload_pending
-        # pulse, same as any other map change) before the mismatch itself is
-        # what the next evaluation reports.
+        # same-dimensions replacement map that bypassed the loader entirely,
+        # exactly Mohamed's reproduction. The loader's own record is
+        # unchanged (no new load happened), so only the content fingerprint
+        # can catch this. Invalidating the hash here holds STATE_STALE for
+        # exactly one tick (the reload_pending pulse, same as any other map
+        # change) before the mismatch itself is what the next evaluation
+        # reports.
         self.node._on_map(_occupancy_grid(
             resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=(100, 0, 0, 0)))
         self.assertIsNone(self.node._map_hash)
@@ -714,45 +738,28 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.assertEqual(out.state, SiteConfigStatus.STATE_MISMATCHED)
         self.assertNotEqual(out.map_version, hash_a)
 
-    @pytest.mark.xfail(
-        reason='platform-sw#73: first-message/restart map identity is unresolved - '
-               'no available signal distinguishes the right map observed for the '
-               'first time from a wrong, same-geometry map already active. '
-               'Fix direction (block cold start vs watch map_server lifecycle) '
-               'is pending Mohamed/Alex\'s decision.',
-        strict=True)
-    def test_b_first_on_a_restart_falsely_reports_a_as_matched(self):
-        # Mohamed Sayed's platform-sw#73 review, fifth pass (inline comment on
-        # _on_map): the test above only covers A observed FIRST, then a later
-        # change to B - the content fingerprint then has a real baseline to
-        # compare against. This covers the other ordering his review flagged:
-        # Nav2 already has same-geometry map B active (e.g. this node
-        # restarted while map_server, launched earlier, was never restarted
-        # itself) and B is the very FIRST live message this node's own
-        # lifetime ever sees. map_yaml_path still names A on disk throughout.
+    def test_b_first_on_a_restart_does_not_report_a_as_matched(self):
+        # Mohamed Sayed's platform-sw#73 review, fifth and final pass - now
+        # fixed, no longer xfail. Nav2 already has same-geometry map B
+        # active (e.g. this node restarted while map_server, launched
+        # earlier, was never restarted itself) and B is the very FIRST live
+        # message this node's own lifetime ever sees. map_yaml_path still
+        # names A on disk throughout, and - the point of this test -
+        # self.node._loader_identity is None: no genuine /map_identity for
+        # B (or anything else) has ever been received, exactly as it would
+        # be if B's load never went through map_loader_node.py at all.
         #
-        # _on_map has no way to tell "B" and "A" apart by content (no pixel
-        # decoding, and the live OccupancyGrid never carries a file path) -
-        # it only has geometry agreement and content-stability-since-this-
-        # node-started. Both of those are satisfied by B alone, with no
-        # prior observation to compare against, so trusted becomes True on
-        # message 1 and _compute_map_hash() then rereads disk (A) and
-        # reports it MATCHED - for a map this node never actually confirmed.
-        #
-        # This test is RED on purpose: it demonstrates the gap his review
-        # still calls blocking ("Establish a verified association... before
-        # accepting the initial fingerprint"), not yet fixed. It must turn
-        # green only once that association is actually established, not by
-        # relaxing this assertion.
+        # Before this fix, geometry agreement plus "nothing to compare
+        # against yet" was enough to trust B's content on message 1, and
+        # the old _compute_map_hash() then reread disk (A) and reported it
+        # MATCHED - for a map this node never actually confirmed. Requiring
+        # a genuine _loader_identity removes that: with it still None,
+        # trusted is False regardless of geometry or content, on this or
+        # any later message, until a real /map_identity actually arrives.
         self.node._map_yaml_path = self.map_a_path
         self.node._map_hash = None
-        self.node._live_content_fp = None
         self.node._map_reload_pending = False
-        hash_a = self.node._compute_map_hash()
-        self.assertIsNotNone(hash_a)
-        # a real computed config_version, same reasoning as the test above:
-        # an empty/wrong one would mismatch regardless of the map, which
-        # would make the MATCHED assertion below meaningless either way.
+        hash_a = self._hash_of(self.map_a_path)
         config_version = config_identity_hash(
             site_id='s', map_id='m', config_id='c',
             required_zones=frozenset(), optional_zones=frozenset())
@@ -764,16 +771,36 @@ class TestLiveMapReloadDetection(NodeTestCase):
         self.node._zones_schema_valid = True
 
         # B, same geometry as A, different content - and the FIRST message
-        # this node's own lifetime has ever seen. No prior baseline exists.
+        # this node's own lifetime has ever seen. No prior baseline, and no
+        # /map_identity, exists.
         self.node._on_map(_occupancy_grid(
             resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=(99, 99, 99, 99)))
         out = self.node._site_config_status(self.node._now_s())
         self.assertNotEqual(
             out.state, SiteConfigStatus.STATE_MATCHED,
-            'B was the first live message this node ever saw, and its '
-            'content was never actually confirmed against the declared '
-            'file - reporting MATCHED here is exactly the unverified '
-            'first-message association platform-sw#73 review flags.')
+            'B was the first live message this node ever saw, with no genuine '
+            '/map_identity received either - reporting MATCHED here would be '
+            'exactly the unverified first-message association platform-sw#73 '
+            'review flagged.')
+
+    def test_restart_with_a_genuinely_verified_identity_still_retained_confirms(self):
+        # The other half of Mohamed's ask, alongside the test above:
+        # persistence of a GENUINELY verified identity must still work
+        # across a restart - this is not the same bug as trusting an
+        # unverified first guess. /map_identity's own transient-local QoS
+        # redelivers map_loader_node.py's last-published, already-verified
+        # record immediately to a freshly constructed node; simulated here
+        # by self.node._loader_identity already being set before this fresh
+        # node's own very first /map message, same as it would be after a
+        # real restart that received the retained message before /map.
+        self.node._map_yaml_path = self.map_a_path
+        hash_a = self._set_loader_identity(self.map_a_path, (7, 7, 7, 7), generation=3)
+        self.node._map_hash = None
+        self.node._map_reload_pending = False
+
+        self.node._on_map(_occupancy_grid(
+            resolution=0.05, origin_x=-1.0, origin_y=-2.0, data=(7, 7, 7, 7)))
+        self.assertEqual(self.node._map_hash, hash_a)
 
 
 class TestSiteConfigOutputSanitization(NodeTestCase):
