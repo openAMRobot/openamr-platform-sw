@@ -47,7 +47,8 @@ def sdf_root(urdf_xml, tmp_path_factory):
     if shutil.which('gz') is None:
         if os.environ.get('OPENAMR_REQUIRE_GZ') == '1':
             pytest.fail('gz (Gazebo) is not installed and OPENAMR_REQUIRE_GZ=1')
-        pytest.skip('gz (Gazebo) is not installed; set OPENAMR_REQUIRE_GZ=1 to fail instead')
+        reason = 'gz (Gazebo) is not installed; set OPENAMR_REQUIRE_GZ=1 to fail instead'
+        pytest.skip(reason)  # issues/102
     path = tmp_path_factory.mktemp('friction') / 'robot.urdf'
     path.write_text(urdf_xml)
     result = subprocess.run(['gz', 'sdf', '-p', str(path)], capture_output=True,
