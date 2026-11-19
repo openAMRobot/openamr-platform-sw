@@ -29,9 +29,10 @@ from lifecycle_msgs.msg import TransitionEvent
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import BehaviorTreeLog, CollisionMonitorState
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from openamr_nav_msgs.msg import (
     LocalizationStatus,
+    MapIdentity,
     MotionSourceCoverage,
     NavigationStatus,
     NavStackStatus,
@@ -39,9 +40,14 @@ from openamr_nav_msgs.msg import (
     ProtectionStatus,
     RecoveryStatus,
     SensorStatus,
+    SiteConfigStatus,
 )
+from openamrobot_nav2.config_identity import (
+    config_identity_hash, parse_identity_fields, parse_zone_list)
+from openamrobot_nav2.map_identity import grid_fingerprint, load_map_identity_source
 from openamrobot_nav2.status_rules import (
     evaluate_localization,
+    evaluate_site_config,
     health_to_diagnostic_level,
     motion_source_reason,
     PublishGate,
@@ -146,6 +152,27 @@ class NavigationStatusNode(Node):
             profile = {}
         return profile, problems
 
+    def _load_site_config(self, path: str):
+        """
+        Load the declared site/map identity and zone list (interfaces#27 /
+        platform-sw#36).
+
+        Mirrors _load_profile(): a missing or broken file does not crash the
+        node - site_config.state simply reports STATE_MISSING (which already
+        blocks readiness on its own) until a real file is available.
+        """
+        try:
+            with open(path, 'r') as f:
+                site_config = yaml.safe_load(f)
+        except Exception as exc:
+            self.get_logger().error(f'failed to load site config at {path}: {exc}')
+            return None
+        if not isinstance(site_config, dict):
+            self.get_logger().error(f'site config at {path} is not a mapping')
+            return None
+        self.get_logger().info(f'loaded site config from {path}')
+        return site_config
+
     def __init__(self):
         super().__init__('navigation_status_node')
 
@@ -186,6 +213,55 @@ class NavigationStatusNode(Node):
         # published every tick regardless of the gate above - a monitoring tool
         # watching /diagnostics should never have to wait for something to change.
         self._diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+
+        # site/map configuration (interfaces#27, platform-sw#36)
+        default_site_config_path = os.path.join(
+            get_package_share_directory('openamrobot_nav2'),
+            'config', 'site_config.yaml')
+        self.declare_parameter('site_config_path', default_site_config_path)
+        site_config_path = self.get_parameter('site_config_path').value
+        self._site_config = self._load_site_config(site_config_path)
+
+        # required_zones/optional_zones: see parse_zone_list's docstring for
+        # why "absent/null" and "explicitly declared empty" must not collapse
+        # into the same thing (Mohamed Sayed's platform-sw#73 review) - a
+        # missing or malformed declaration has to block (zones_schema_valid),
+        # not silently read as "no zones required".
+        zones_ok_required, required_zones = parse_zone_list(
+            (self._site_config or {}).get('required_zones'))
+        zones_ok_optional, optional_zones = parse_zone_list(
+            (self._site_config or {}).get('optional_zones'))
+        self._zones_schema_valid = bool(zones_ok_required and zones_ok_optional)
+        self._required_zones = required_zones or frozenset()
+        self._optional_zones = optional_zones or frozenset()
+
+        # map identity: trust anchor is MapLoaderNode's own /map_identity, never a
+        # locally-cached "first observation" (Mohamed Sayed's platform-sw#73 review,
+        # final pass: trusting the first geometry-matched /map message - whatever its
+        # content - let an unverified map B, received before anyone pointed
+        # map_yaml_path at it, read as MATCHED purely because nothing had been
+        # trusted yet to compare against; the same false MATCHED then survived this
+        # node's own restart, since the only state that mattered was "has /map_identity
+        # ever been received" was never actually checked). self._loader_identity is
+        # None until a genuine MapIdentity message arrives - published only by
+        # map_loader_node.py's own successful ~/load_map call, with a grid_fingerprint
+        # computed from THAT call's own response, not inferred from this node's own
+        # /map observation. /map_identity is transient-local (map_loader_node.py's own
+        # publisher QoS, matched by the subscription below), so a restarting consumer
+        # gets the retained, already-verified fact immediately - persistence of a
+        # genuinely verified identity, not of an unverified guess, which is the
+        # distinction the previous design got wrong.
+        default_map_yaml_path = os.path.join(
+            get_package_share_directory('openamrobot_nav2'), 'maps', 'my_map.yaml')
+        self.declare_parameter('map_yaml_path', default_map_yaml_path)
+        self._map_yaml_path = self.get_parameter('map_yaml_path').value
+        self._map_hash = None  # set only once a live message is confirmed - see above
+        self._map_hash_confirmed = None   # hash the last published result ran against
+        self._map_reload_pending = False  # True for exactly one tick after a change
+        self._loader_identity = None  # last MapIdentity received - see above
+        self.create_subscription(MapIdentity, '/map_identity', self._on_map_identity, qos)
+        # map_server publishes transient-local, same as our own status topic.
+        self.create_subscription(OccupancyGrid, '/map', self._on_map, qos)
 
         # sensors from the profile; the stale limits come from its thresholds
         self._sensors = {}
@@ -411,6 +487,212 @@ class NavigationStatusNode(Node):
         # dock_trigger pauses AMCL correction while docking; we only read the status
         self._correction_paused = msg.data in ('docking', 'undocking')
 
+    def _map_source_matches(self, msg: OccupancyGrid) -> bool:
+        """
+        Return True only when map_yaml_path's own declared resolution and
+        origin agree with the live OccupancyGrid just received on /map.
+
+        This node never calls map_server's ~/load_map service and never
+        sees the request, so a live reload to a different file is only
+        visible here as a new message on /map - there is no path/URL in
+        that message either (see _on_map). Re-reading map_yaml_path alone
+        cannot tell the two cases apart: map B freshly loaded while
+        map_yaml_path still names file A re-reads A again and reports it
+        MATCHED, since A's own content never changed (Mohamed Sayed's
+        platform-sw#73 review - the exact callback/producer-method
+        reproduction stays MATCHED/FULL/NONE after the incoming map
+        actually changes).
+
+        Comparing the file's declared resolution/origin against the live
+        message's is the one cross-check available without decoding any
+        pixel data (map_identity_hash's "no pixel decoding" guarantee is
+        unaffected - resolution/origin are declared YAML fields, already
+        part of what gets hashed, not a pixel interpretation): when they
+        disagree, map_yaml_path can no longer be trusted as this map's
+        identity source, so _on_map stops treating it as one until an
+        operator points map_yaml_path at the file actually being served
+        (or restarts with it) - never silently re-associated on its own.
+        """
+        try:
+            declared = load_map_identity_source(self._map_yaml_path)
+        except Exception:
+            return False
+        origin = msg.info.origin
+        live_yaw = 2.0 * math.atan2(origin.orientation.z, origin.orientation.w)
+        resolution_matches = math.isclose(
+            declared['resolution'], msg.info.resolution, rel_tol=1e-6, abs_tol=1e-9)
+        origin_x_matches = math.isclose(declared['origin_x'], origin.position.x, abs_tol=1e-6)
+        origin_y_matches = math.isclose(declared['origin_y'], origin.position.y, abs_tol=1e-6)
+        origin_yaw_matches = math.isclose(declared['origin_yaw'], live_yaw, abs_tol=1e-6)
+        return (resolution_matches and origin_x_matches
+                and origin_y_matches and origin_yaw_matches)
+
+    def _on_map_identity(self, msg: MapIdentity) -> None:
+        # The only trust anchor for map content identity - see __init__'s own
+        # comment and _on_map below. Simply records the latest genuinely-verified
+        # fact; _on_map decides what to do with it against the next live /map.
+        self._loader_identity = msg
+
+    def _on_map(self, msg: OccupancyGrid):
+        # map_server republishes (transient-local) whenever it loads a new map,
+        # e.g. via its ~/load_map service - that's the only way this node finds
+        # out a live reload happened, since it isn't the one calling that
+        # service. There is no path/URL in that message either, so geometry
+        # (resolution/origin, from map_yaml_path - _map_source_matches) and
+        # content (_on_map_identity's own loader-recorded fingerprint) are the
+        # two checks that this live map is both configured AND genuinely
+        # known-loaded (Mohamed Sayed's platform-sw#73 review, final pass):
+        # trusting WHATEVER content a first-ever /map message carried, merely
+        # because nothing had been trusted yet to compare it against, let an
+        # unverified map read as MATCHED on both a first observation before
+        # map_yaml_path was ever updated, and again after this node's own
+        # restart while that same unverified map stayed active throughout.
+        # Requiring a genuine match against map_loader_node.py's own recorded
+        # grid_fingerprint - the one thing actually tied to a real ~/load_map
+        # result, not inferred here - removes that gap: nothing is ever
+        # trusted before map_loader_node.py has said so at least once, restart
+        # included, since /map_identity's own transient-local retention
+        # redelivers that already-verified fact instead of asking this node
+        # to re-derive it from an unverifiable first guess. A newly-untrusted
+        # content holds STATE_STALE for exactly one tick while the next
+        # _site_config_status() re-runs the comparison; a map this node can no
+        # longer verify never reports MATCHED at all, held there until the
+        # loader's own record and the live map agree again.
+        geometry_matches = self._map_source_matches(msg)
+        content_fp = grid_fingerprint(msg.data)
+        trusted = bool(
+            geometry_matches
+            and self._loader_identity is not None
+            and content_fp == self._loader_identity.grid_fingerprint)
+        new_hash = self._loader_identity.artifact_hash if trusted else None
+        if self._map_hash is not None and new_hash != self._map_hash:
+            self._map_reload_pending = True
+        self._map_hash = new_hash
+
+    def _site_config_status(self, now_s) -> SiteConfigStatus:
+        """
+        Build this tick's SiteConfigStatus from the declared site_config.yaml
+        and the map this node is configured to run against (see _on_map and
+        _on_map_identity).
+
+        map identity and config identity are both real content comparisons
+        (declared hash == actual hash), not stand-ins:
+          - map identity: declared map_version is compared against the
+            artifact_hash map_loader_node.py's own ~/load_map call recorded
+            for the live map this node has verified against /map_identity
+            (see _on_map).
+          - config identity: declared config_version is compared against
+            config_identity_hash() of this file's own declared identity/zone
+            fields - see config_identity.py's docstring for why that is the
+            right "canonical site-config file content" to hash given that
+            there is no separate fleet/approval-manifest source yet
+            (platform-sw#36's OPEN ITEM). A blank or merely-nonempty-but-
+            unverified declared value is never treated as a match (Mohamed
+            Sayed's platform-sw#73 review - a profile with config_version:
+            anything must not read as MATCHED).
+
+        One piece is still not wired to a real live signal, and is not faked
+        as a pass: zone presence. required_zones/optional_zones are declared
+        here but nothing in this node yet checks that those zones actually
+        exist in the active costmap/geofence layer, so a declared zone can
+        not actually be confirmed present yet. An empty, schema-valid list
+        has nothing to confirm and passes vacuously; a non-empty one reports
+        as not present until that live check is wired up, tracked as a
+        follow-up on interfaces#27, same as the map-identity offline tool
+        used to be. A missing, null or malformed zone declaration is a
+        different thing from an explicitly-declared-empty one - see
+        parse_zone_list's docstring - and reports SITE_CONFIG_UNKNOWN rather
+        than silently defaulting to "no zones required".
+        """
+        out = SiteConfigStatus()
+        declared = self._site_config
+        reload_pending = self._map_reload_pending
+        self._map_reload_pending = False  # one-tick pulse, consumed either way
+
+        if declared is None:
+            map_identity_matches = False
+            config_identity_matches = False
+            zones_schema_valid = False
+            identity_fields_valid = False
+            required_zones_present = False
+            optional_zones_present = False
+            map_id = config_id = None
+            declared_config_version = ''
+        else:
+            declared_map_version = declared.get('map_version') or ''
+            map_identity_matches = bool(
+                self._map_hash is not None and self._map_hash == declared_map_version)
+
+            zones_schema_valid = self._zones_schema_valid
+            # config_version must be a real string before it is compared or
+            # output, same reasoning as identity_fields_valid below: `or ''`
+            # alone only replaces a falsy value, so a truthy non-string (an
+            # int) passed through unchanged before this check (Mohamed
+            # Sayed's platform-sw#73 review, third pass).
+            raw_config_version = declared.get('config_version')
+            declared_config_version = (
+                raw_config_version if isinstance(raw_config_version, str) else '')
+            # site_id/map_id/config_id must be confirmed non-empty strings
+            # before they are hashed or compared - an absent/null/wrong-type
+            # field must never read as MATCHED just because it stringifies
+            # or defaults cleanly (Mohamed Sayed's platform-sw#73 review; see
+            # parse_identity_fields's docstring, same reasoning parse_zone_list
+            # already applies to required_zones/optional_zones above).
+            identity_fields_valid, site_id, map_id, config_id = parse_identity_fields(
+                declared.get('site_id'), declared.get('map_id'), declared.get('config_id'))
+            if identity_fields_valid:
+                actual_config_hash = config_identity_hash(
+                    site_id=site_id, map_id=map_id, config_id=config_id,
+                    required_zones=self._required_zones,
+                    optional_zones=self._optional_zones)
+            else:
+                actual_config_hash = None
+            config_identity_matches = bool(
+                zones_schema_valid
+                and identity_fields_valid
+                and declared_config_version
+                and actual_config_hash == declared_config_version)
+
+            # see docstring: not wired to a live check yet, so a declared zone
+            # can not be confirmed present - an empty, schema-valid list is
+            # vacuously true
+            required_zones_present = not self._required_zones
+            optional_zones_present = not self._optional_zones
+            self._map_hash_confirmed = self._map_hash
+
+        state, floor_coverage, reason = evaluate_site_config(
+            profile_loaded=declared is not None,
+            reload_pending=reload_pending,
+            map_identity_matches=map_identity_matches,
+            config_identity_matches=config_identity_matches,
+            zones_schema_valid=zones_schema_valid,
+            identity_fields_valid=identity_fields_valid,
+            required_zones_present=required_zones_present,
+            optional_zones_present=optional_zones_present)
+
+        out.state = state
+        out.floor_coverage = floor_coverage
+        out.reason = reason
+        if state in (SiteConfigStatus.STATE_UNKNOWN, SiteConfigStatus.STATE_MISSING):
+            out.map_id = ''
+            out.map_version = ''
+            out.config_id = ''
+            out.config_version = ''
+        else:
+            # Use only the already-validated map_id/config_id/
+            # declared_config_version, never the raw declared dict again -
+            # reload_pending and map_identity_matches take precedence over
+            # identity_fields_valid above (STALE/MISMATCHED can report
+            # before an invalid identifier is even checked), so a malformed
+            # map_id/config_id must still never reach these string fields
+            # just because some other fault reported first (Mohamed Sayed's
+            # platform-sw#73 review, third pass).
+            out.map_id = map_id if identity_fields_valid else ''
+            out.map_version = self._map_hash or ''
+            out.config_id = config_id if identity_fields_valid else ''
+            out.config_version = declared_config_version
+        return out
+
     def _localization_status(self, now: Time) -> LocalizationStatus:
         out = LocalizationStatus()
         try:
@@ -595,6 +877,8 @@ class NavigationStatusNode(Node):
 
         msg.protection = self._protection_status(now_s)
 
+        msg.site_config = self._site_config_status(now_s)
+
         msg.sensor_gaps = sum(
             1 for s in msg.sensors
             if s.state in (SensorStatus.STATE_ABSENT, SensorStatus.STATE_UNKNOWN)
@@ -610,7 +894,10 @@ class NavigationStatusNode(Node):
                 [task.reason, recovery.reason, msg.protection.collision_monitor_reason]
                 + [m.reason for m in msg.protection.motion_sources]
                 + [msg.protection.rear_coverage_reason]),
-            base_reasons=self._base_reasons())
+            base_reasons=self._base_reasons(),
+            site_config_state=msg.site_config.state,
+            site_config_floor_coverage=msg.site_config.floor_coverage,
+            site_config_reason=msg.site_config.reason)
         msg.health = result.health
         msg.navigation_readiness = result.readiness
         msg.not_ready_reasons = result.not_ready_reasons

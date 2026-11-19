@@ -30,6 +30,11 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': 'true',
+            # Same file map_server loads above, so navigation_status_node's
+            # site-config map-identity hash (platform-sw#36/#73) is always
+            # computed from the map actually running in this sim, not a
+            # path that could silently drift out of sync with it.
+            'map_yaml': map_file,
         }.items(),
     )
 
