@@ -35,7 +35,7 @@ Experimental.
 
 ```
 openamrobot_nav2/
-├── behavior_trees/             # navigate_to_pose.xml, navigate_through_poses.xml (stock Nav2 1.3.14 + goal checker id), navigate_to_station.xml
+├── behavior_trees/             # navigate_to_pose.xml, navigate_through_poses.xml (stock Nav2 1.3.14 + goal checker id, no BackUp), navigate_to_station.xml
 ├── config/
 │   ├── slam.yaml               # SLAM Toolbox parameters
 │   ├── nav2_params.yaml        # Nav2 stack parameters

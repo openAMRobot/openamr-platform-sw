@@ -2,7 +2,8 @@
   SPDX-License-Identifier: Apache-2.0
   Stage 1 is navigate_to_pose.xml: ros-navigation/navigation2 tag 1.3.14,
   nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml, Apache-2.0, copyright the Nav2
-  authors, with goal_checker_id="general_goal_checker" on FollowPath. Modifications: the Sequence around it and stage 2.
+  authors, with goal_checker_id="general_goal_checker" on FollowPath and BackUp removed from RecoveryActions (Alex,
+  19 Nov 2026: no general reversing recovery; D-19). Modifications: those two, the Sequence around it and stage 2.
   Station approach (Proposed, 17 Nov 2026): navigate_to_pose for a goal where the robot must stop within the reach of
   its arms, selected per goal through NavigateToPose.behavior_tree. Not the default tree.
 
@@ -53,7 +54,6 @@
               </Sequence>
               <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
               <Wait wait_duration="5.0"/>
-              <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_error_code}"/>
             </RoundRobin>
           </ReactiveFallback>
         </Sequence>
