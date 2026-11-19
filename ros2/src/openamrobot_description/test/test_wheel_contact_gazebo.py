@@ -119,7 +119,12 @@ def _parse_text(text):
                 v = float(v)
             except ValueError:
                 pass
-            stack[-1][k.strip()] = v
+            k, node = k.strip(), stack[-1]
+            if k in node:
+                node[k] = node[k] if isinstance(node[k], list) else [node[k]]
+                node[k].append(v)
+            else:
+                node[k] = v
     return stack[0]
 
 
@@ -219,10 +224,13 @@ class Sim:
             timeout=30,
         )
         m = _parse_text(r.stdout)
-        st = m.get('sim_time', {})
+        # `-n 1` can print more than one message; then every field is a list: take the last.
+        st, paused = m.get('sim_time', {}), m.get('paused')
+        st = st[-1] if isinstance(st, list) else st
+        paused = paused[-1] if isinstance(paused, list) else paused
         return (
             st.get('sec', 0.0) + st.get('nsec', 0.0) * 1e-9,
-            m.get('paused') == 'true' or m.get('paused') is True,
+            paused == 'true' or paused is True,
         )
 
     def command(self, v, w):
