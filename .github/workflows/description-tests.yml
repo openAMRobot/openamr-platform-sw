@@ -55,10 +55,11 @@ jobs:
             ros2/src/openamrobot_description/test/test_description_meshes.py \
             ros2/src/openamrobot_description/test/test_base_mass.py \
             ros2/src/openamrobot_description/test/test_sensor_profiles.py \
-            ros2/src/openamrobot_description/test/test_ground_contact.py
+            ros2/src/openamrobot_description/test/test_ground_contact.py \
+            ros2/src/openamrobot_description/test/test_wheel_contact.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all 221 description tests ran
+      - name: Check that all 233 description tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -66,7 +67,7 @@ jobs:
           suite = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
           print(f'{tests} tests, {skipped} skipped')
-          assert tests == 221 and skipped == 0, 'expected 221 description tests (35 + 183 sensor profile + 3 ground contact), none skipped'
+          assert tests == 233 and skipped == 0, 'expected 233 description tests (35 + 183 sensor profile + 3 ground contact + 12 wheel contact), none skipped'
           EOF
 
   # Gazebo Harmonic job for test_gazebo_friction.py: the friction must survive the
@@ -162,3 +163,93 @@ jobs:
           assert sys.argv[1] == '1' and tests == 14 and failed == 13
           assert errors == 0 and skipped == 0
           PY
+
+  # Drive wheel contact shapes (wheel_contact:=cylinder, sphere, narrow_cylinder) in Gazebo:
+  # a straight run and an in-place spin of the base alone, odometry against ground truth. A
+  # component comparison for the robot-description owner and the software lead, not a mission
+  # and not an acceptance test: it asserts that each run happened and records the numbers.
+  # Gazebo comes from ros-jazzy-ros-gz-sim at the current sync (as sil-tests); the version is
+  # printed and written into the result. A missing gz fails as BLOCKED.
+  wheel-contact-gazebo:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    timeout-minutes: 40
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install test tools and Gazebo Harmonic
+        run: |
+          apt-get update
+          apt-get install -y python3-colcon-common-extensions python3-pytest python3-yaml \
+            python3-numpy ros-jazzy-xacro ros-jazzy-ros-gz-sim coreutils
+          dpkg-query -W -f='${Package} ${Version}\n' 'ros-jazzy-gz-*' | tee gz-versions.txt
+
+      - name: Build openamrobot_description
+        shell: bash
+        working-directory: ros2
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --packages-select openamrobot_description
+
+      - name: Static wheel contact tests and the Gazebo comparison
+        shell: bash
+        env:
+          WHEEL_CONTACT_EVIDENCE_DIR: ${{ github.workspace }}/wheel-contact
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ros2/install/setup.bash
+          gz sim --versions
+          python3 -m pytest -v -s -p no:cacheprovider --junitxml=wheel-contact.xml \
+            ros2/src/openamrobot_description/test/test_wheel_contact.py \
+            ros2/src/openamrobot_description/test/test_wheel_contact_gazebo.py
+          cat wheel-contact/wheel_contact.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check that all eighteen wheel contact tests ran
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('wheel-contact.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped = int(suite.get('tests')), int(suite.get('skipped'))
+          print(f'{tests} tests, {skipped} skipped')
+          assert tests == 18 and skipped == 0, 'expected 18 wheel contact tests (12 + 6), none skipped'
+          PY
+
+      # The argument reverted to its parent (68642a8, #146): the sphere, narrow-cylinder and
+      # unknown-shape tests must fail; the default ones still pass.
+      - name: Check that the static tests fail with the argument reverted
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          xacro_file=ros2/src/openamrobot_description/urdf/robo_urdf.urdf.xacro
+          git show 68642a8:${xacro_file} > ${xacro_file}
+          source /opt/ros/jazzy/setup.bash
+          set +e
+          python3 -m pytest -q -p no:cacheprovider --junitxml=reverted.xml \
+            ros2/src/openamrobot_description/test/test_wheel_contact.py
+          code=$?
+          set -e
+          git checkout -- ${xacro_file}
+          python3 - "$code" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse('reverted.xml').getroot()
+          suite = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, failed = int(suite.get('tests')), int(suite.get('failures'))
+          print(f'reverted: exit {sys.argv[1]}, {tests} tests, {failed} failed')
+          assert sys.argv[1] == '1' and tests == 12 and failed >= 3
+          PY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: wheel-contact-gazebo
+          path: |
+            wheel-contact/
+            wheel-contact.xml
+            gz-versions.txt
+          if-no-files-found: warn

@@ -13,6 +13,15 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation: drive wheel contact shape option (19 Nov 2026, Proposed)
+
+- `robo_urdf.urdf.xacro`: xacro argument `wheel_contact` selects the drive wheel collision:
+  `cylinder` (default, the 46 mm cylinder of #146, expansion unchanged), `sphere` (r 0.098 m) or
+  `narrow_cylinder` (r 0.098 m, 4 mm). All rest on the floor plane; DiffDrive unchanged.
+- `test/test_wheel_contact.py` (12 tests) and CI job `wheel-contact-gazebo`
+  (`test/test_wheel_contact_gazebo.py`): straight run and in-place spin per shape in Gazebo,
+  odometry against ground truth. Numbers for the owners' decision; no acceptance limit.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged

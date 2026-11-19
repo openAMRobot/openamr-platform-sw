@@ -362,6 +362,46 @@ Stephen Brawner (brawner@gmail.com)
       xyz="0 1 0" />
     <dynamics damping="0.001" friction="0.001" />
   </joint>
+  <!-- Drive wheel contact shape (Proposed, platform-sw#168 finding F1; the robot-description owner
+       and the software lead decide). Argument wheel_contact:
+         cylinder        (default) the 46 mm wide cylinder, unchanged
+         sphere          a sphere of the loaded radius on the axle: one contact point on the floor
+         narrow_cylinder a 4 mm wide cylinder of the loaded radius
+       All three have the loaded radius 0.098 m and touch the floor plane at the same height, so
+       base_footprint, DiffDrive and the castors are unchanged. A simulation choice, not a tyre
+       model: the tyre is 49.4 +/- 1 mm wide (B2 V1.01 drawing); its contact patch is not modelled.
+       Test: test/test_wheel_contact.py; Gazebo comparison: test/test_wheel_contact_gazebo.py. -->
+  <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
+       STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
+       robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
+       rest wheels and castors share one plane and the base is level. The collision radius
+       models that loaded state and equals the axle height above base_footprint (0.098).
+       Estimate until the bench measures the loaded radius (measurement plan, audits
+       digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
+  <xacro:arg name="wheel_contact" default="cylinder"/>
+  <xacro:property name="wheel_contact_shape" lazy_eval="false"
+                  value="${dict(cylinder='cylinder', sphere='sphere', narrow_cylinder='narrow_cylinder')['$(arg wheel_contact)']}"/>
+  <xacro:macro name="drive_wheel_collision">
+    <collision>
+      <xacro:if value="${wheel_contact_shape == 'sphere'}">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </xacro:if>
+      <xacro:unless value="${wheel_contact_shape == 'sphere'}">
+        <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
+      </xacro:unless>
+      <geometry>
+        <xacro:if value="${wheel_contact_shape == 'cylinder'}">
+          <cylinder radius="0.098" length="0.046"/>
+        </xacro:if>
+        <xacro:if value="${wheel_contact_shape == 'narrow_cylinder'}">
+          <cylinder radius="0.098" length="0.004"/>
+        </xacro:if>
+        <xacro:if value="${wheel_contact_shape == 'sphere'}">
+          <sphere radius="0.098"/>
+        </xacro:if>
+      </geometry>
+    </collision>
+  </xacro:macro>
   <link
     name="left_wheel_link">
     <xacro:roadmap_inertial link="left_wheel_link"/>
@@ -374,19 +414,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="hub_motor_dark"/>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
-      <geometry>
-        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
-             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
-             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
-             rest wheels and castors share one plane and the base is level. The collision radius
-             models that loaded state and equals the axle height above base_footprint (0.098).
-             Estimate until the bench measures the loaded radius (measurement plan, audits
-             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
-        <cylinder radius="0.098" length="0.046"/>
-      </geometry>
-    </collision>
+    <xacro:drive_wheel_collision/>
   </link>
   <joint
     name="left_wheel_joint"
@@ -417,19 +445,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
       <material name="hub_motor_dark"/>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
-      <geometry>
-        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
-             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
-             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
-             rest wheels and castors share one plane and the base is level. The collision radius
-             models that loaded state and equals the axle height above base_footprint (0.098).
-             Estimate until the bench measures the loaded radius (measurement plan, audits
-             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
-        <cylinder radius="0.098" length="0.046"/>
-      </geometry>
-    </collision>
+    <xacro:drive_wheel_collision/>
   </link>
   <joint
     name="right_wheel_joint"
