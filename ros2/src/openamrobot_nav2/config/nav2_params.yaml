@@ -38,8 +38,12 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.2
-    update_min_d: 0.25
+    # 0.25 m / 0.2 rad -> 0.05 m / 0.05 rad (Proposed, 17 Nov 2026, station approach). With 0.25 / 0.2 AMCL updated 16
+    # times in a 130 s Baseline 1 mission and not during the last 0.3 m of the station approach; at the station its map
+    # pose was 0.035 to 0.050 m from ground truth (runs 44100053272, 44100120091), against the 0.015 m the station
+    # tolerance leaves to localization. More filter updates cost CPU on the robot computer: owner to confirm.
+    update_min_a: 0.05
+    update_min_d: 0.05
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5
@@ -59,8 +63,16 @@ bt_navigator:
     odom_topic: /odom
     bt_loop_duration: 10
     default_server_timeout: 20
-    wait_for_service_timeout: 1000
+    # 1000 -> 30000 ms (Alex, 17 Nov 2026; platform-sw #165, OpenRAL review audits #88): how long each BT action node
+    # waits for its server when a tree is loaded. OpenRAL measured that 1000 ms aborts Nav2 on a loaded machine;
+    # hosted CI runners run Gazebo at a real-time factor of 0.13 to 0.25.
+    wait_for_service_timeout: 30000
     action_server_result_timeout: 900.0
+    # The stock Nav2 1.3.14 trees with goal_checker_id="general_goal_checker" on FollowPath (behavior_trees/), needed
+    # because controller_server has two goal checkers. navigate_to_station.xml is chosen per goal (NavigateToPose
+    # behavior_tree field) for a manipulation station; it is not a default.
+    default_nav_to_pose_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_to_pose.xml"
+    default_nav_through_poses_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_through_poses.xml"
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
@@ -79,8 +91,8 @@ controller_server:
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.5
     progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["general_goal_checker"]
-    controller_plugins: ["FollowPath"]
+    goal_checker_plugins: ["general_goal_checker", "station_goal_checker"]
+    controller_plugins: ["FollowPath", "StationApproach"]
     use_realtime_priority: false
 
     progress_checker:
@@ -99,6 +111,39 @@ controller_server:
       # nav tolerance, so a loose nav goal does not compromise the dock approach.
       xy_goal_tolerance: 0.35
       yaw_goal_tolerance: 0.35
+    # Station approach (Proposed, 17 Nov 2026), used only by behavior_trees/navigate_to_station.xml after the coarse
+    # navigation above has ended. Derivation (openamr-upperbody-sw docs/integration/station_approach.md): for the Build 1
+    # work-shelf grasp the left arm reaches the approach, grasp and lift poses for every base pose error up to 0.04 m and
+    # 0.08 rad (inverse kinematics on the expanded URDF, 48 of 48 combinations); at 0.05 m and 0.10 rad it does not.
+    # 0.025 m and 0.05 rad leave 0.015 m and 0.03 rad of that budget to localization (AMCL against ground truth).
+    # Simulation-derived working values, not a site or robot acceptance tolerance.
+    station_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.025
+      yaw_goal_tolerance: 0.05
+    StationApproach:
+      # The control law of the docking approach (nav2_graceful_controller), on a short NavFn path that ends at the goal.
+      # Speeds stay within the commissioning limits below (max_vel_x 0.20, max_vel_theta 0.5).
+      plugin: "nav2_graceful_controller::GracefulController"
+      transform_tolerance: 0.6
+      min_lookahead: 0.10
+      max_lookahead: 0.40
+      k_phi: 2.0
+      k_delta: 1.0
+      beta: 0.4
+      lambda: 2.0
+      v_linear_min: 0.03
+      v_linear_max: 0.10
+      v_angular_max: 0.5
+      v_angular_min_in_place: 0.25
+      slowdown_radius: 0.25
+      initial_rotation: true
+      initial_rotation_tolerance: 0.25
+      prefer_final_rotation: true
+      rotation_scaling_factor: 0.5
+      allow_backward: true
+      in_place_collision_resolution: 0.1
     FollowPath:
       # RotationShimController: makes the robot ROTATE toward the path before driving (DWB alone
       # struggles to turn in place to set off in another direction). DWB remains the sub-controller.
@@ -257,7 +302,7 @@ map_saver:
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
-    planner_plugins: ["GridBased"]
+    planner_plugins: ["GridBased", "StationPlanner"]
     costmap_update_timeout: 1.0
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
@@ -283,6 +328,15 @@ planner_server:
         tolerance: 1.0e-10
         do_refinement: true
         refinement_num: 2
+
+    # Station approach only (navigate_to_station.xml): NavFn ends its path at the goal pose itself, so the station goal
+    # checker compares the robot with the goal and not with a cell centre of the downsampled Smac2D grid.
+    StationPlanner:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.0
+      use_astar: false
+      allow_unknown: true
+      use_final_approach_orientation: false
 
 smoother_server:
   ros__parameters:
