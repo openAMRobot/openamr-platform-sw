@@ -118,6 +118,13 @@ jobs:
           fi
 
       - name: Compute min / median / max
+        # Mohamed's review on 2812c59: the previous step exits 1 when any run's own
+        # bound_s is over 0.5s - exactly the case Alex wants to see reported, not the
+        # one case where this step would otherwise be skipped. The raw per-run values
+        # are still in bounds.txt (committed to the job log by the previous step's own
+        # "cat bounds.txt"), but min/median/max over all 20 is the number Alex actually
+        # asked to see, including when one of them is over.
+        if: always()
         shell: bash
         run: |
           python3 - << 'PYEOF'
