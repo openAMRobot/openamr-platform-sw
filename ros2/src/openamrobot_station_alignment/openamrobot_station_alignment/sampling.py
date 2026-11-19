@@ -49,10 +49,12 @@ class SampleWindow:
     def __init__(self, after_ns, samples, timeout_s, max_latency_s, min_samples=None):
         self.after_ns = int(after_ns)
         self.samples = int(samples)
-        self.min_samples = int(samples if min_samples is None else min_samples)
+        # never fewer than one: min_samples 0 would end "done" with no sample (review of c4666a1, 4f)
+        self.min_samples = max(1, min(int(samples if min_samples is None else min_samples), self.samples))
         self.timeout_ns = int(timeout_s * 1e9)
         self.max_latency_ns = int(max_latency_s * 1e9)
         self.fresh = []
+        self.fresh_stamps = []
         self.received = 0
         self.latencies = []
 
@@ -62,6 +64,7 @@ class SampleWindow:
         self.latencies.append((received_ns - stamp_ns) * 1e-9)
         if stamp_ns > self.after_ns:
             self.fresh.append(pose)
+            self.fresh_stamps.append(stamp_ns)
 
     def poll(self, now_ns):
         if len(self.fresh) >= self.samples:
@@ -76,9 +79,13 @@ class SampleWindow:
         return WAITING
 
     def result(self):
-        """(mean pose, spread) of the last `samples` fresh samples (fewer when done on min_samples)."""
+        """(mean pose, xy spread) of the last `samples` fresh samples (fewer when done on min_samples). Also sets
+        `spread_yaw`, the largest yaw deviation from the circular mean, and `stamp_ns`, the mean image stamp."""
         fresh = self.fresh[-self.samples:]
         m = geometry.mean_pose(fresh)
+        self.spread_yaw = max(abs(geometry.wrap(p[2] - m[2])) for p in fresh)
+        stamps = self.fresh_stamps[-self.samples:]
+        self.stamp_ns = sum(stamps) // len(stamps)
         return m, max(math.hypot(p[0] - m[0], p[1] - m[1]) for p in fresh)
 
     def summary(self):

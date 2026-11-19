@@ -32,7 +32,7 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from std_msgs.msg import String
 
-from openamrobot_station_alignment import geometry, scene
+from openamrobot_station_alignment import evaluation, geometry, scene
 from openamrobot_station_alignment.evaluation import (COMMAND_PUBLISHERS, REACH_XY, REACH_YAW, START_POSES,
                                                       command_publishers_ok, evaluate, summary)
 from openamrobot_station_alignment.station_alignment_node import default_station_tree
@@ -220,7 +220,7 @@ def main(argv=None):
             report = node.get("report")
             if report is not None:
                 aligned["report"] = json.loads(report.data)
-                aligned["corrections"] = sum(1 for s in aligned["report"]["iterations"] if "corrected_goal" in s)
+                aligned["corrections"] = evaluation.count_corrections(aligned["report"])
             trial["aligned"] = aligned
             trial["trial_wall_s"] = time.monotonic() - t0
             trial["trial_sim_s"] = (node.get_clock().now().nanoseconds - sim0) * 1e-9

@@ -47,6 +47,8 @@ def test_alignment_acceptance_is_inside_the_reach_budget_and_not_below_the_goal_
     assert math.hypot(params["accept_along"], params["accept_lateral"]) < evaluation.REACH_XY
     assert params["accept_yaw"] < evaluation.REACH_YAW
     assert params["accept_along"] >= evaluation.CHECKER_XY and params["accept_yaw"] >= evaluation.CHECKER_YAW
+    # with the marker error of the CI trials: bias +5.4 mm along, noise 2.7 mm to the side (config comment)
+    assert math.hypot(params["accept_along"] + 0.0054, params["accept_lateral"] + 0.0027) <= evaluation.REACH_XY
 
 
 def test_marker_model_places_the_tags_of_the_scene():

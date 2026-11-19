@@ -53,10 +53,10 @@ def test_the_alignment_node_uses_nav2_actions_only():
     t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
     clients = sorted(ast.unparse(c.args[1]) for c in ast.walk(t)
                      if isinstance(c, ast.Call) and ast.unparse(c.func) in ("ActionClient", "ActionServer"))
-    # Nav2's navigate_to_pose (the #164 approach and rotation-only goals; and this node's own server) and
-    # behavior_server's BackUp and DriveOnHeading (odom-frame translations): all through Nav2's smoother and
-    # collision monitor. No Spin: it stops on odometry, which misses part of the turn.
-    assert clients == ["BackUp", "DriveOnHeading", "NavigateToPose", "NavigateToPose"]
+    # Nav2's navigate_to_pose only (the #164 approach, rotation-only goals and forward drives; and this node's own
+    # server), through Nav2's smoother and collision monitor. No behavior_server action: platform-sw #90 removes
+    # backup, drive_on_heading and assisted_teleop (D-19), and Spin stops on odometry, which misses part of a turn.
+    assert clients == ["NavigateToPose", "NavigateToPose"]
     strings = {n.value for n in ast.walk(t) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
     assert "navigate_to_station.xml" in strings and "navigate_to_pose" in strings
 
@@ -110,16 +110,18 @@ def test_the_image_relay_publishes_reliable():
 
 
 def test_corrections_are_not_map_frame_position_goals():
-    """NavigateToPose is sent for the nominal #164 approach and for rotation-only goals at the current map position;
-    a corrected position goal in map moved with every AMCL update, and #164's controller cannot reverse."""
+    """NavigateToPose is sent for the nominal #164 approach, for rotation-only goals at the current map position and
+    for forward drives on the current heading. A corrected station pose is never a map goal: it moved with every
+    AMCL update. The position target stays in odom; each drive is planned from the current pose."""
     t = tree(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py"))
     calls = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_navigate"]
-    assert len(calls) == 2
+    assert len(calls) == 3
     rotate = next(f for f in ast.walk(t) if isinstance(f, ast.FunctionDef) and f.name == "_rotate")
     source = ast.unparse(rotate)
-    assert "x, y, yaw = self._map_from_base()" in source and "(x, y, geometry.wrap(yaw + delta))" in source
-    translations = [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_behavior"]
-    assert len(translations) == 1
+    assert "x, y, _ = self._map_from_base()" in source and "(x, y, geometry.wrap(target_yaw))" in source
+    drive = ast.unparse(next(f for f in ast.walk(t) if isinstance(f, ast.FunctionDef) and f.name == "_drive"))
+    assert "maneuver.forward_goal(self._map_from_base(), distance" in drive
+    assert not [c for c in ast.walk(t) if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "_behavior"]
 
 
 def test_station_approach_controller_cannot_reverse():

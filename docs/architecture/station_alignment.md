@@ -55,14 +55,15 @@ launches it.
                                2. robot stopped: mean of 8 station poses <───────────┘
                                3. residual within 0.03 m to the shelf, 0.02 m along it, 0.06 rad: succeed
                                4. else target = (odom <- base now) o (measured station), fixed in odom:
-                                  BackUp / DriveOnHeading (behavior_server, odom) for translations,
-                                  rotation-only goals of the station tree (map heading) for turns
-                                  lateral <= 0.02 m: drive along the heading, then turn
-                                  lateral  > 0.02 m: back up 0.15 m, turn to the target, drive, turn
+                                  forward only (D-19), every move a goal of the station tree:
+                                  rotation-only goals (map heading) and forward drives on the heading
+                                  target ahead, lateral <= 0.02 m: drive forward, then turn
+                                  lateral > 0.02 m or target behind: turn to the target, drive forward, turn
                                   (then measure again; up to 3 corrections; above 0.15 m / 0.30 rad aborts)
+                               Stop (/safety/stop_state not RUNNING, or a sub-goal CANCELED by the gate):
+                                  the station goal aborts, nothing more is sent
 
  Nav2 (unchanged): bt_navigator -> controller_server (StationApproach, station_goal_checker) -> cmd_vel_nav
-                   behavior_server (BackUp, DriveOnHeading, local frame odom)           -> cmd_vel_nav
                    cmd_vel_nav -> velocity_smoother -> collision_monitor -> /cmd_vel
 ```
 
@@ -73,8 +74,19 @@ StationApproach controller cannot reverse: with `initial_rotation` true, nav2_gr
 `allow_backward` off ("setting allow backward to false"), so a goal 0.30 m behind the robot was driven as a turn
 around, out and back. Third, the progress checker (0.05 m in 12 s) aborts short moves that are mostly rotation.
 Together these explain run 44188740454 rtf1 trial 4 (lateral residual -0.036 to +0.040 m in turn, 0.0485 m after
-3 corrections). The correction now fixes the position target in odom when the marker is measured and translates with
-behavior_server's BackUp and DriveOnHeading, which work in odom and use no progress checker. Turns are rotation-only
+3 corrections). The correction then fixed the position target in odom when the marker was measured and translated
+with behavior_server's BackUp and DriveOnHeading. Forward only since the software lead's review of aa8fd11: D-19
+(8 Nov) allows no reverse in Build 1 (the rear sectors are masked), and platform-sw #90 removes backup,
+drive_on_heading and assisted_teleop from behavior_server and clamps min_vel_x to 0. The position target stays in
+odom; a translation is now a forward goal of #164's station tree on the current map heading, `drive_lead` (0.015 m)
+beyond the point: the station goal checker (xy 0.025 m) ends the goal before the goal pose, and the base runs on after
+it fires (0.009 and 0.018 m past the point with a 0.025 m lead, run 44368551389). A target more than `accept_along`
+behind the robot or more than 0.02 m to the side is faced first (up to a half turn in place), driven to, and the
+target yaw turned to; a distance residual within `accept_along` with the lateral one accepted is not driven. If the
+drive after such a turn fails, the base turns back to the target yaw before the next measurement, so the marker
+stays in view. The simulation workflow runs with #90's behaviour set put onto #164's Nav2
+(`scripts/apply_pr90_behaviour_set.py`, test only) and fails if a backup, drive_on_heading or assisted_teleop action
+exists. Turns are rotation-only
 goals of #164's station tree (the current map position, the AMCL heading turned), closed on the map heading.
 behavior_server's Spin was tried first (run 44225167178) and dropped: it stops on odometry, and the simulated base
 keeps turning after the wheels stop (Spin +0.082 rad: odom +0.110, ground truth and marker about +0.23; frictionless
@@ -124,10 +136,11 @@ With this node every trial ended aligned (3 of 3, 0.021 to 0.024 m, 30 to 44 pos
 detector now logs `age_ms_max` and the report the received count and latency per window, so the next Baseline 1
 run shows it. The report records the received count and the latency (arrival minus stamp) of the poses.
 
-Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it,
-which is the Baseline 1 behaviour without this layer, so the action SUCCEEDS with `error_code` 9900 (NOT_ALIGNED,
-outside Nav2's codes) and the report outcome `not aligned: ...`; a caller that needs the alignment checks the code.
-`on_marker_not_seen: abort` restores an abort. After a correction has moved the robot, or when Nav2 reported the #164
+Result when the marker gives no usable pose after the #164 approach (Proposed): the base is where #164 stopped it.
+The action is ABORTED with `error_code` 9900 (NOT_ALIGNED, outside Nav2's codes) and the report outcome
+`not aligned: ...`, because most clients read only the status and a manipulation task must not start from an
+unaligned base (software lead's review of aa8fd11). `on_marker_not_seen: succeed_unaligned` (opt-in) returns
+SUCCEEDED with the same code. After a correction has moved the robot, or when Nav2 reported the #164
 goal failed, a missing marker aborts. A failed #164 goal is measured before it is reported: Nav2 aborted a resent
 station goal on the progress checker with the base about 3 cm away (run 44163882664); the marker then decides.
 Accuracy limits are unchanged.
@@ -145,6 +158,30 @@ the alignment also accepts 4 fresh poses instead of 8 (`min_samples`); the accep
 also come in bursts there: a window in which nothing at all arrived is opened again up to twice
 (`not_seen_retries`) before the result is "not seen".
 
+Independent review of c4666a1 (comment 6979742457, Proposed changes, 18 Nov 2026):
+- **Old poses after a /clock reset:** poses stamped or received after the current clock are dropped before each window (`sources.drop_other_generation`).
+- **TF fallback for the odom pose:** used only if at most `odom_max_age_s` old and not stamped in the future; otherwise the lookup fails after `tf_wait_s`.
+- **Future-stamped /odom:** not used.
+- **Pose the correction starts from:** the odom pose at the mean image stamp of the window (`odom_history`), not a later one; the map heading is moved back by the odom turn since then.
+- **Acceptance budget:** `accept_along` 0.03 -> 0.025 m. In 20 CI trials the marker error was +4.1 to +5.4 mm along the heading (a bias, constant sign) and -2.7 to +1.3 mm to the side, so the worst true error is hypot(0.025 + 0.0054, 0.02 + 0.0027) = 37.9 mm, inside 40 mm. It was 41.3 mm with 0.03. Distance corrections are DriveOnHeading moves, so 0.025 m is reachable. The bias is not subtracted: its cause is not found, and a simulation correction must not reach the robot.
+- **Sample consistency:** yaw spread checked (`max_sample_spread_yaw` 0.01 rad); xy spread 0.01 -> 0.003 m (simulation noise below 3e-5 m; 0.003 m allows a real camera's millimetre noise and caps one bad frame of 4 at 1 mm).
+- **`min_samples`:** must be 1 to `samples` (checked at start-up; the window never ends done with no sample).
+- **Concurrent goals:** a second goal while one runs is rejected.
+- **Known limit:** no wall-clock bound. If /clock stops, the node waits; nothing commands motion while it waits.
+
+Review of aa8fd11 (Proposed changes, 18 Nov 2026):
+- **Correction count:** the trial runner counted a `corrected_goal` key the node no longer wrote, so the corrections column read 0. It now counts iterations that planned a correction (`evaluation.count_corrections`, key `target_odom`).
+- **Overlapping goals:** rejected in the action server's goal callback while one runs (unchanged since c4666a1; now also tested to be accepted again after the first ends).
+- **Correction timeout:** a correction goal without a result is cancelled by the node after `correction_timeout_s` (60 s) of simulation time. (First a behaviour timeout on BackUp and DriveOnHeading; those calls were removed with item a of the software lead's review.)
+- **Rotation target:** a rotation carries its absolute map heading from the plan's read; the rotation-only goal takes only x and y from a second read, so an AMCL update between the two reads does not move the heading.
+- **Stall detection:** inside a correction goal it is Nav2's progress checker of #164's controller_server (0.05 m in 12 s); the node's deadline above bounds the goal from outside. (First an odometry progress watch on behavior_server translations, removed with them.)
+- **Detector:** one TF lookup per tag inside try/except instead of can_transform then lookup; the rejected-frame counter is changed and read under the node's lock.
+
+Software lead's review of aa8fd11 (Proposed changes, 18 Nov 2026):
+- **a. Forward only:** no BackUp or DriveOnHeading; corrections are rotation-only goals and forward drives of the station tree (above). Tested against #90's behaviour set (unit test with #90's values, simulation with #90's file at 4fad3d8). Conflict reported, not changed here: `navigate_to_station.xml` (#164) has the recovery BackUp 0.30 m, and so do #164's copied `navigate_to_pose.xml` and `navigate_through_poses.xml`. With #90's behaviour set a tree that names BackUp has no backup server; the simulation removes those lines on its own checkout only.
+- **b. Stop:** `/safety/stop_state` (openamr_nav_msgs/StopState, published by #90's gate) not RUNNING, or a Nav2 sub-goal CANCELED that this node did not cancel, ends the station goal (ABORTED, outcome `aborted: stopped: ...`); nothing more is sent, also after release (openamrobot-interfaces #40, item 3). No stop_state message (no gate on the stack) counts as running. This is client behaviour, not safety evidence.
+- **c. 9900:** ABORTED with 9900 by default; `succeed_unaligned` is opt-in.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.
@@ -156,7 +193,8 @@ known relative to it.
 | `/station_alignment/station_pose` | geometry_msgs/PoseWithCovarianceStamped, frame base_footprint, image stamp | station_marker_detector | station_alignment |
 | `/station_alignment/navigate_to_station` | action nav2_msgs/action/NavigateToPose (goal: nominal station in map; behavior_tree ignored) | station_alignment | mission layer |
 | `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, sample window, outcome `aligned`, `not aligned: ...` or `aborted: ...`) | station_alignment | diagnostics, trial runner |
-| `NavigateToPose.Result.error_code` 9900 NOT_ALIGNED | result code with status SUCCEEDED: #164 reached the station, no marker correction | station_alignment | mission layer |
+| `NavigateToPose.Result.error_code` 9900 NOT_ALIGNED | result code with status ABORTED (SUCCEEDED with `on_marker_not_seen: succeed_unaligned`): #164 reached the station, no marker correction | station_alignment | mission layer |
+| `/safety/stop_state` | openamr_nav_msgs/StopState, subscribed (reliable, transient local) | safety_stop_gate_node (platform-sw #90) | station_alignment |
 | `station_marker_3`, `station_marker_4` | TF frames of apriltag_ros | apriltag_ros | station_marker_detector |
 | `station_alignment.launch.py` arguments `use_sim_time`, `image_topic`, `camera_info_topic`, `tags_file`, `params_file` | launch arguments | | bringup |
 | `config/station_alignment.yaml` | parameters (tag ids, offsets, standoff, accept and correction limits) | | both nodes |
@@ -253,7 +291,9 @@ the progress checker).
 | Marker plate per station: ids, size, height, placement on site shelves; whether markers are allowed at Use_Case_1 sites | software lead with the site owner |
 | A tighter station goal checker for corrected goals (for example 0.01 m / 0.02 rad as a third goal checker selected by the tree), so the alignment can drive below 0.025 m; a #164 change | navigation owner |
 | AMCL updates during the final correction move: keep, or run the final move in the odom frame or without filter updates | navigation owner |
-| A progress checker for short station corrections (0.05 m in 12 s rejects a 2 cm move with turns); the backoff goal is the workaround here | navigation owner |
+| A progress checker for short station corrections (0.05 m in 12 s rejects a 2 cm move with turns); separate rotation-only and forward goals are the workaround here | navigation owner |
+| The recovery BackUp 0.30 m in #164's `navigate_to_station.xml`, `navigate_to_pose.xml` and `navigate_through_poses.xml` against D-19 and #90's behaviour set; one owner and one merge order for #164, #90, #91 and #92's trees | navigation owner with the software lead |
+| Half turns in place next to the shelf for a target behind the robot (forward only): clearance of the footprint at the station | navigation owner |
 | Whether opennav_docking's docking_server may ever be a command source (option C) | software lead |
 | Shelf-geometry source (option B2, depth plane fit) as a fallback behind the same topic | perception owner |
 | Base camera extrinsic calibration procedure and the description's base camera sensor (dependency of section 7) | perception owner |

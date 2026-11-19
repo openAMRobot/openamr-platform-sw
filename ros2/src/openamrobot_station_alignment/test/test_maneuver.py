@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Station correction: positions in odom with Nav2 translations, rotations closed on the map heading
+"""Station correction: positions in odom, forward-only drives, rotations closed on the map heading
 (openamrobot_station_alignment.maneuver).
 
 Robot model from the CI runs:
@@ -18,7 +18,7 @@ import pytest
 from openamrobot_station_alignment import geometry as g
 from openamrobot_station_alignment import maneuver as m
 
-ACCEPT = (0.03, 0.02, 0.06)            # config/station_alignment.yaml, unchanged
+ACCEPT = (0.025, 0.02, 0.06)           # config/station_alignment.yaml
 STATION = (0.0, -2.085, -math.pi / 2)
 
 
@@ -28,6 +28,7 @@ class Robot:
         self.odom = truth             # odom starts on truth; only its heading drifts
         self.coast, self.map_error, self.drive_over = coast, map_rotation_error, drive_over
         self.amcl_yaw_error = amcl_yaw_error
+        self.steps = []
 
     def map_yaw(self):
         return g.wrap(self.truth[2] + self.amcl_yaw_error)
@@ -59,14 +60,14 @@ def align(robot, iterations=3, rotation="map"):
         if it == iterations:
             return None
         plan = m.Plan(m.target_in_odom(robot.odom, residual), m.target_yaw_in_map(robot.map_yaw(), residual),
-                      residual, lateral_direct=ACCEPT[1], backoff=0.15)
+                      residual, lateral_direct=ACCEPT[1], along_direct=ACCEPT[0])
         while (step := plan.next(robot.odom, robot.map_yaw())) is not None:
+            robot.steps.append(step)
             if step[0] == m.ROTATE:
                 (robot.rotate_closed_on_map if rotation == "map" else robot.spin_on_odom)(step[1])
-            elif step[0] == m.DRIVE:
-                robot.translate(step[1])
             else:
-                robot.translate(-step[1])
+                assert step[0] == m.DRIVE and step[1] > 0, step      # forward only (D-19)
+                robot.translate(step[1])
     return None
 
 
@@ -101,33 +102,61 @@ def test_every_start_within_the_errors_seen_converges(dx, dy, dyaw):
     assert align(robot) is not None, g.between(robot.truth, STATION)
 
 
-def test_lateral_residual_uses_a_short_reverse_and_small_turns():
+def test_lateral_residual_turns_drives_forward_and_turns_back():
     residual = (0.01, 0.035, 0.0)
     robot = Robot((0.0, 0.0, 0.0), coast=0.0, map_rotation_error=0.0, drive_over=0.0, amcl_yaw_error=0.0)
-    plan = m.Plan(m.target_in_odom(robot.odom, residual), m.target_yaw_in_map(0.0, residual), residual, 0.02, 0.15)
+    plan = m.Plan(m.target_in_odom(robot.odom, residual), m.target_yaw_in_map(0.0, residual), residual, 0.02)
     steps = []
     while (step := plan.next(robot.odom, robot.map_yaw())) is not None:
         steps.append(step)
         if step[0] == m.ROTATE:
             robot.rotate_closed_on_map(step[1])
         else:
-            robot.translate(step[1] if step[0] == m.DRIVE else -step[1])
-    assert [s[0] for s in steps] == [m.BACKUP, m.ROTATE, m.DRIVE, m.ROTATE]
-    assert steps[0][1] == 0.15 and all(abs(s[1]) < 0.3 for s in steps if s[0] == m.ROTATE)
+            robot.translate(step[1])
+    assert [s[0] for s in steps] == [m.ROTATE, m.DRIVE, m.ROTATE]
+    assert steps[1][1] == pytest.approx(math.hypot(0.01, 0.035))
     assert g.pose_error(robot.truth, residual)[0] < 1e-9
+
+
+def test_a_target_behind_is_reached_by_turning_round_not_by_reversing():
+    residual = (-0.03, 0.0, 0.0)
+    robot = Robot((0.0, 0.0, 0.0), coast=0.0, map_rotation_error=0.0, drive_over=0.0, amcl_yaw_error=0.0)
+    plan = m.Plan(m.target_in_odom(robot.odom, residual), m.target_yaw_in_map(0.0, residual), residual, 0.02)
+    steps = []
+    while (step := plan.next(robot.odom, robot.map_yaw())) is not None:
+        steps.append(step)
+        robot.rotate_closed_on_map(step[1]) if step[0] == m.ROTATE else robot.translate(step[1])
+    assert [s[0] for s in steps] == [m.ROTATE, m.DRIVE, m.ROTATE]
+    assert abs(steps[0][1]) == pytest.approx(math.pi) and steps[1][1] == pytest.approx(0.03)
+    assert g.pose_error(robot.truth, residual)[0] < 1e-9
+
+
+def test_no_primitive_is_a_reverse_or_a_behavior_server_action():
+    assert not hasattr(m, "BACKUP")
+    for dx, dy, dyaw in GRID:
+        robot = Robot(g.compose(STATION, (dx, dy, dyaw)))
+        align(robot)
+        assert all(s[0] == m.ROTATE or (s[0] == m.DRIVE and s[1] > 0) for s in robot.steps), robot.steps
+
+
+def test_forward_goal_lies_the_checker_tolerance_beyond_the_point():
+    x, y, yaw = m.forward_goal((1.0, 2.0, math.pi / 2), 0.04, 0.025)
+    assert (x, y, yaw) == (pytest.approx(1.0), pytest.approx(2.065), math.pi / 2)
+    with pytest.raises(ValueError):
+        m.forward_goal((0.0, 0.0, 0.0), -0.01, 0.025)
 
 
 def test_small_lateral_residual_drives_along_the_heading_only():
     residual = (0.025, 0.01, 0.04)
-    plan = m.Plan(residual, 0.04, residual, lateral_direct=0.02, backoff=0.15)
+    plan = m.Plan(residual, 0.04, residual, lateral_direct=0.02)
     assert plan.next((0.0, 0.0, 0.0), 0.0) == (m.DRIVE, pytest.approx(0.025))
-    assert plan.next((0.025, 0.0, 0.0), 0.0) == (m.ROTATE, pytest.approx(0.04))
+    assert plan.next((0.025, 0.0, 0.0), 0.0) == (m.ROTATE, pytest.approx(0.04), pytest.approx(0.04))
 
 
 def test_the_yaw_target_is_taken_from_map_not_odom():
-    plan = m.Plan((0.0, 0.0, 0.0), 0.3, (0.0, 0.0, 0.3), lateral_direct=0.02, backoff=0.15)
+    plan = m.Plan((0.0, 0.0, 0.0), 0.3, (0.0, 0.0, 0.3), lateral_direct=0.02)
     # odometry says the yaw is reached, the map heading says 0.1 rad are still missing
-    assert plan.next((0.0, 0.0, 0.3), 0.2) == (m.ROTATE, pytest.approx(0.1))
+    assert plan.next((0.0, 0.0, 0.3), 0.2) == (m.ROTATE, pytest.approx(0.1), pytest.approx(0.3))
 
 
 def test_an_amcl_update_moves_a_map_goal_but_not_an_odom_target():
@@ -136,5 +165,5 @@ def test_an_amcl_update_moves_a_map_goal_but_not_an_odom_target():
     jump = (0.02, -0.015, 0.0)  # map -> odom changes by this during the move (AMCL update)
     map_goal_in_odom_after_jump = g.compose(g.inverse(jump), target)
     assert g.pose_error(map_goal_in_odom_after_jump, target)[0] == pytest.approx(math.hypot(0.02, 0.015))
-    plan = m.Plan(target, 0.0, residual, lateral_direct=0.02, backoff=0.15)
+    plan = m.Plan(target, 0.0, residual, lateral_direct=0.02)
     assert plan.target == target
