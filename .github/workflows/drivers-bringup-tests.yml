@@ -104,7 +104,7 @@ jobs:
             ros2/src/openamrobot_bringup/test/test_bringup_derives_enabled_producers.py
 
       # A missing or renamed test must not pass as an empty suite.
-      - name: Check that all twenty-one launch tests ran
+      - name: Check that all twenty-two launch tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -117,8 +117,12 @@ jobs:
           # producers, test_real_default_use_docking_excludes_both_dock_
           # producers_by_name, test_real_default_use_docking_launches_no_
           # docking_server - prove use_docking's own empty default resolves
-          # correctly per profile).
-          assert tests == 21 and skipped == 0, 'expected 21 launch tests, none skipped'
+          # correctly per profile) + 1 (Alex's 19 Nov owner decision: docking
+          # off by default on BOTH profiles - the renamed test_sim_default_
+          # use_docking_excludes_both_dock_producers_by_name keeps the count
+          # the same, but the new test_sim_default_use_docking_launches_no_
+          # docking_server does not).
+          assert tests == 22 and skipped == 0, 'expected 22 launch tests, none skipped'
           EOF
 
   # Existing ament lint results for the same two packages, reported in their
