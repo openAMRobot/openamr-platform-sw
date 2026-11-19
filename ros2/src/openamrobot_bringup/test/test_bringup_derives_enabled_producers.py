@@ -119,17 +119,18 @@ def test_real_nav_only_excludes_both_dock_producers_by_name(tmp_path):
         f'use_docking:=false must exclude dock_robot and undock_robot by name, got {enabled!r}')
 
 
-def test_sim_default_use_docking_enables_all_four_producers(tmp_path):
-    # D-19 (Alex, 11 Nov owner decision; carried over from #125's
-    # fix/123-start-docking-server at 3713a428, panthera-momagdii's #90
-    # review, P1): use_docking's own default_value is now '' (empty), not
-    # 'true' - launch_setup must still resolve the EMPTY default to ON in
-    # simulation, not accidentally treat '' as falsy and silently disable
-    # docking for every caller that omits the argument.
+def test_sim_default_use_docking_excludes_both_dock_producers_by_name(tmp_path):
+    # D-19 (Alex, 19 Nov owner decision on #90's item 1, superseding the 11 Nov
+    # sim-on/real-off split): the empty default must now resolve to OFF in
+    # simulation too - #124's dock_robot server does not exist on main, so the
+    # old "ON in sim" default had nothing real behind it. This replaces
+    # test_sim_default_use_docking_enables_all_four_producers, which asserted
+    # the now-superseded behaviour; it would fail outright against this head
+    # if the sim default silently turned docking back on.
     include = _navigation_launch_include(_actions_for(_module(tmp_path), 'true', ''))
     enabled = _enabled_producers_arg(include)
-    assert enabled == 'navigate_to_pose,navigate_through_poses,dock_robot,undock_robot', (
-        f"use_docking's own empty default must resolve to ON in simulation, got {enabled!r}")
+    assert enabled == 'navigate_to_pose,navigate_through_poses', (
+        f"use_docking's own empty default must resolve to OFF in simulation, got {enabled!r}")
 
 
 def test_real_default_use_docking_excludes_both_dock_producers_by_name(tmp_path):
@@ -146,6 +147,18 @@ def test_real_default_use_docking_excludes_both_dock_producers_by_name(tmp_path)
     assert enabled == 'navigate_to_pose,navigate_through_poses', (
         f"use_docking's own empty default must resolve to OFF on the real profile, "
         f'got {enabled!r}')
+
+
+def test_sim_default_use_docking_launches_no_docking_server(tmp_path):
+    # Mirrors test_real_default_use_docking_launches_no_docking_server below -
+    # the empty default must not launch the sim docking server either (D-19,
+    # 19 Nov). Fails if the simulation default turns docking back on.
+    actions = _actions_for(_module(tmp_path), 'true', '')
+    assert _includes(actions, 'openamrobot_docking.launch.py') == [], (
+        "use_docking's own empty default must not launch the docking server in "
+        'simulation - enabled_producers already excludes dock_robot/undock_robot by name')
+    assert len(_includes(actions, 'goal_relay.launch.py')) == 1, (
+        "use_docking's own empty default (sim) must launch exactly one goal_relay forwarder")
 
 
 def test_real_default_use_docking_launches_no_docking_server(tmp_path):

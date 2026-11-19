@@ -11,21 +11,21 @@ cases; only the data source and the clock differ.
   navigate_to_pose action, platform-sw#90). No Gazebo window; RViz only if ``use_rviz:=true``.
   Needs the real hardware and a real map.
 * ``sim:=true`` — simulation: openamrobot_gazebo (Gazebo + gz_bridge + robot_state_publisher)
-  publishes the same topics, then localization + Nav2 with ``use_sim_time:=true``, plus the docking
-  layer (ON by default in sim; see D-19 below for why the real profile differs). Opens the Gazebo
-  window; no hardware needed. This makes
+  publishes the same topics, then localization + Nav2 with ``use_sim_time:=true``; docking is
+  OFF by default here too (see D-19 below — #124's dock_robot server does not exist yet, on
+  either profile). Opens the Gazebo window; no hardware needed. This makes
   ``sim:=true`` the single command for the whole simulation (it replaces the legacy
   ``openamrobot_docking/bringup_sim.launch.py``, which still works for backwards compatibility).
 
-Docking is ON by default in simulation, OFF by default on the real robot (D-19, Alex's 11 Nov
-owner decision - the real profile must not start opennav_docking's direct ``/undock_robot`` until
-D-19's three conditions are met, see the ``use_docking`` DeclareLaunchArgument below). When on,
-``dock_trigger`` owns ``/goal_pose`` and forwards it to ``/goal_pose_nav`` (it IS the goal
-forwarder, though bt_navigator no longer listens there - #124's own scope, not this PR's); when
-off, ``goal_pose_forwarder_node`` takes over that forwarding onto the public navigate_to_pose
-action instead (platform-sw#90). Exactly one forwarder runs — never both. Pass
-``use_docking:=true`` explicitly to override the real profile's default once those conditions
-hold.
+Docking is OFF by default on BOTH profiles (D-19, Alex's 19 Nov owner decision, superseding the
+11 Nov sim-on/real-off split once the goal-proxy question was settled — #124's dock_robot server
+does not exist yet, so there is nothing for either profile to start). ``goal_pose_forwarder_node``
+is therefore the sole ``/goal_pose`` forwarder by default in both profiles, sending every pose as
+a real NavigateToPose goal on the public navigate_to_pose action (platform-sw#90). Pass
+``use_docking:=true`` explicitly to opt into testing #124 once the dock_robot server lands on
+that branch — it is not a supported configuration otherwise, and remains off on the real robot
+until D-19's three conditions (see the ``use_docking`` DeclareLaunchArgument below) are also met
+there.
 
   # real, everything
   ros2 launch openamrobot_bringup bringup.launch.py
@@ -100,18 +100,16 @@ def launch_setup(context, *args, **kwargs):
     map_file = LaunchConfiguration('map').perform(context)
     is_sim = _truthy(sim)
 
-    # D-19 (Alex, 11 Nov owner decision; carried over from #125's
-    # fix/123-start-docking-server at 3713a428, panthera-momagdii's #90
-    # review, P1): the real launch keeps docking OFF by default; simulation
-    # keeps it ON. Resolved here rather than in the declaration so that an
-    # explicit use_docking:=true still works on real hardware once the
-    # three conditions in the DeclareLaunchArgument description below are
-    # met.
+    # D-19 (Alex, 19 Nov owner decision on platform-sw#90's item 1, superseding the
+    # 11 Nov sim-on/real-off split): docking is OFF by default on BOTH profiles now -
+    # #124's dock_robot server does not exist on main, so there is nothing for the
+    # simulation default to start either. Resolved here rather than in the
+    # declaration so that an explicit use_docking:=true still works once #124 lands
+    # (sim, to test it) or D-19's three real-profile conditions are met (real).
     if use_docking == '':
-        use_docking = 'true' if is_sim else 'false'
-        if not is_sim:
-            print('[bringup] D-19: docking is off on the real profile by default '
-                  '(pass use_docking:=true only once #124 conditions are met)')
+        use_docking = 'false'
+        print('[bringup] D-19 (19 Nov): docking is off by default on both profiles '
+              '(pass use_docking:=true only once #124 conditions are met)')
 
     # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled
     # sim map.
@@ -249,15 +247,19 @@ def generate_launch_description():
             description='Real only: launch the IMX708 camera (false = lighter load).'),
         DeclareLaunchArgument(
             'use_docking', default_value='',
-            description='Empty (default) means: ON in simulation, OFF on the real robot. D-19 '
-                        '(Alex, 11 Nov) keeps reverse and automatic undock disabled in Build 1, '
-                        'and the opennav_docking server exposes a direct /undock_robot that the '
-                        '#90 constant cannot gate, so the real profile must not start it until '
-                        '(1) release no longer needs a dock_robot server, (2) a direct '
-                        '/undock_robot produces no motion, and (3) the real-profile runtime test '
-                        'runs. Dock_trigger owns /goal_pose and IS the goal forwarder when on; '
-                        'when off goal_pose_forwarder_node takes over, sending every /goal_pose '
-                        'as a real NavigateToPose goal on the public navigate_to_pose action '
+            description='Empty (default) means OFF on BOTH profiles (D-19, Alex, 19 Nov owner '
+                        "decision on #90's item 1 - #124's dock_robot server does not exist "
+                        'on main yet, so the simulation default has nothing to start either). '
+                        'D-19 (Alex, 11 Nov) separately keeps reverse and automatic undock '
+                        'disabled in Build 1, and the opennav_docking server exposes a direct '
+                        '/undock_robot that the #90 constant cannot gate, so the real profile '
+                        'must not start it until (1) release no longer needs a dock_robot '
+                        'server, (2) a direct /undock_robot produces no motion, and (3) the '
+                        'real-profile runtime test runs - those three stay the real-robot bar '
+                        'even once #124 lands for simulation. Dock_trigger owns /goal_pose and '
+                        'IS the goal forwarder when on; when off (the default) '
+                        'goal_pose_forwarder_node takes over, sending every /goal_pose as a '
+                        'real NavigateToPose goal on the public navigate_to_pose action '
                         '(platform-sw#90). Exactly one forwarder runs in either case.'),
         DeclareLaunchArgument(
             'map', default_value='',
