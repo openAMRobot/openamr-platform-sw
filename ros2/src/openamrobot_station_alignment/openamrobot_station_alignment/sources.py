@@ -42,6 +42,26 @@ def drop_other_generation(samples, now_ns):
     return [s for s in samples if s[1] <= limit and s[2] <= limit]
 
 
+def history_horizon_s(sample_timeout_s, max_latency_s, tolerance_s, margin_s=2.0):
+    """How far back the /odom history must reach when a correction starts: a fresh image is stamped after its window
+    opened and the window closes at most sample_timeout_s + max_latency_s later (sampling.py); the pose may lie
+    tolerance_s before the stamp; margin_s covers the time from the window's end to the lookup. Sized from the
+    longest documented latency instead of a fixed count (400 entries held 8 s at 50 Hz; Kunal's review of ea8ed13,
+    point 4)."""
+    return float(sample_timeout_s) + float(max_latency_s) + float(tolerance_s) + float(margin_s)
+
+
+def append_odom(history, stamp_ns, pose, horizon_s):
+    """Add one /odom pose to `history` (a deque of (stamp_ns, pose)) and drop what lies more than horizon_s behind
+    it. A stamp more than MAX_FUTURE_S behind the newest one is a new /clock generation: the old history is cleared."""
+    if history and stamp_ns < history[-1][0] - int(MAX_FUTURE_S * 1e9):
+        history.clear()
+    history.append((stamp_ns, pose))
+    oldest = stamp_ns - int(horizon_s * 1e9)
+    while history and history[0][0] < oldest:
+        history.popleft()
+
+
 def odom_at(history, stamp_ns, tolerance_s):
     """The odom pose at the image stamp: the /odom pose nearest to `stamp_ns` within tolerance_s, else None.
     history: (stamp_ns, pose) in arrival order."""

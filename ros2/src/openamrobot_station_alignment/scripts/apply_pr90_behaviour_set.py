@@ -46,6 +46,10 @@ def apply(pr90_params, nav2_dir):
         with open(tree, encoding="utf-8") as f:
             text = f.read()
         stripped, n = BACKUP.subn("", text)
+        if re.search(r"<BackUp\b", stripped):
+            # a form the pattern does not remove (an element with a body, or on a line with other XML): fail, never
+            # leave a BackUp that #90's behaviour set cannot serve
+            raise ValueError(f"{tree}: BackUp left after stripping; remove it by hand")
         if n:
             with open(tree, "w", encoding="utf-8") as f:
                 f.write(stripped)

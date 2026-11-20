@@ -37,7 +37,8 @@ station_alignment:
     samples: 8
     # Fewer once sample_timeout_s has passed: at least min_samples (low frame rates over Fast DDS).
     min_samples: 4
-    # A window in which nothing at all arrived is opened again up to not_seen_retries times before "not seen".
+    # A window in which nothing at all arrived (not seen), or in which too few fresh samples arrived (stale), is opened
+    # again up to not_seen_retries times, one budget for both (Kunal's review of ea8ed13, point 3).
     not_seen_retries: 2
     # Sample window, simulation time (sampling.py): `samples` station poses stamped after the robot settled. Not
     # seen: nothing at all in sample_timeout_s. Stale stamps (the camera to pose pipeline lags; more than 6 s of
@@ -86,5 +87,15 @@ station_alignment:
     # 1 mm (it lies 3/4 of its offset from the mean). 0.01 rad rejects a PnP flip (one frame 0.2 rad off).
     max_sample_spread_xy: 0.003
     max_sample_spread_yaw: 0.01
+    # The correction starts from the /odom pose within odom_history_tolerance_s of the mean image stamp; the history
+    # keeps sample_timeout_s + max_latency_s + odom_history_tolerance_s + 2 s. Without that pose: a warning, the
+    # measurement again up to odom_miss_retries times, then ABORTED 9904 (Kunal's review of ea8ed13, point 4).
     odom_history_tolerance_s: 0.5
+    odom_miss_retries: 1
+    # A failed turn of a correction: at most rotate_recovery_attempts rotation-only goals back to the heading of the
+    # measurement (after a failed forward drive: to the target yaw), then ABORTED 9903. Forward only (D-19).
+    rotate_recovery_attempts: 2
+    # After a timed-out goal: wait up to cancel_timeout_s (simulation time) for the cancel response and the goal's end
+    # before the next goal, so bt_navigator does not reject it (Kunal's review of ea8ed13, point 5).
+    cancel_timeout_s: 10.0
     navigation_timeout_s: 300.0

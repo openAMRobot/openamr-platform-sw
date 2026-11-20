@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Minimal stand-ins for the ROS modules station_alignment_node imports, so that its methods can be driven
 # without ROS. Only what the reviewed methods touch is real; everything else is a placeholder.
+import os
 import sys
 import types
+
+# ros2/src: the source of openamrobot_nav2 stands in for its installed share directory (behavior_trees/, config/).
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class _Any:
@@ -26,6 +30,17 @@ def _mod(name, **attrs):
 
 class TransformException(Exception):
     pass
+
+
+class PackageNotFoundError(KeyError):
+    pass
+
+
+def get_package_share_directory(name):
+    """openamrobot_nav2 from the source tree; any other package as before ("/nonexistent")."""
+    if name == "openamrobot_nav2":
+        return os.path.join(SRC, name)
+    return "/nonexistent"
 
 
 class Node:
@@ -67,7 +82,8 @@ def install():
     _mod("rclpy.time", Time=_Any)
     _mod("rclpy.parameter", Parameter=_Any)
     _mod("ament_index_python")
-    _mod("ament_index_python.packages", get_package_share_directory=lambda n: "/nonexistent")
+    _mod("ament_index_python.packages", get_package_share_directory=get_package_share_directory,
+         PackageNotFoundError=PackageNotFoundError)
     _mod("geometry_msgs")
     _mod("geometry_msgs.msg", PoseWithCovarianceStamped=_Any)
     _mod("nav_msgs")

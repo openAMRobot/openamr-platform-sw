@@ -77,6 +77,7 @@ class FakeNav:
             def cancel_goal_async(self):
                 nav.cancels.append(index)
                 state["end"], state["status"] = nav.h.clock.ns, san.STATUS_CANCELED
+                return Future()          # the cancel response, at once (rclpy returns a future)
         return Future(value=Handle())
 
 
@@ -88,6 +89,7 @@ def real_nav_harness(monkeypatch, script, start_s=100.0, overrides=None):
     h.clock.now = lambda: types.SimpleNamespace(nanoseconds=clock.ns, to_msg=lambda: None)
     h._map_from_base = lambda: (0.0, 0.0, 0.0)
     h._odom_from_base = lambda: (0.0, 0.0, 0.0)
+    h.odom_pose, h.odom_rate_hz = h._odom_from_base, 50.0     # /odom at 50 Hz on the fake clock
     h.nav = FakeNav(h, script)
     return h
 
