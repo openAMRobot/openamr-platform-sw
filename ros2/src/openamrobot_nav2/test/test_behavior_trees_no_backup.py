@@ -62,6 +62,70 @@ def test_recovery_actions_still_has_spin_and_wait():
         assert recovery_actions.find('Wait') is not None, f'{filename} lost its Wait recovery'
 
 
+def test_neither_file_contains_a_clear_entire_costmap_node():
+    # Alex's 19/20 Nov decision: these files now carry #91/#92's bounded-
+    # clear fix (adopted here instead of #90's own simpler BackUp-only
+    # removal, which still wiped the WHOLE costmap on every recovery -
+    # erasing real, currently-correct obstacle data anywhere else on the
+    # map, not just near whatever triggered the failure).
+    for filename in _FILES:
+        tree = _tree(filename)
+        unbounded = tree.getroot().findall('.//ClearEntireCostmap')
+        assert unbounded == [], (
+            f'{filename} still contains a <ClearEntireCostmap .../> node - '
+            'this must be ClearCostmapAroundRobot (bounded) everywhere, '
+            "per #91/#92's fix adopted into this file")
+
+
+def test_every_clear_is_bounded_with_the_expected_reset_distance():
+    expected = {
+        'global_costmap/clear_around_global_costmap': '3.0',
+        'local_costmap/clear_around_local_costmap': '1.5',
+    }
+    for filename in _FILES:
+        tree = _tree(filename)
+        clears = tree.getroot().findall('.//ClearCostmapAroundRobot')
+        assert len(clears) == 4, (
+            f'{filename} has {len(clears)} ClearCostmapAroundRobot nodes, expected 4 '
+            '(global/local context clear + global/local subtree clear)')
+        for clear in clears:
+            service_name = clear.get('service_name')
+            assert service_name in expected, (
+                f'{filename}: unexpected service_name {service_name!r} on a '
+                'ClearCostmapAroundRobot node')
+            assert clear.get('reset_distance') == expected[service_name], (
+                f'{filename}: {service_name} reset_distance is '
+                f"{clear.get('reset_distance')!r}, expected {expected[service_name]!r}")
+
+
+def test_each_inline_clear_is_preceded_by_a_named_wait():
+    # RecoveryTracker matches the bare node name "Wait" to count a recovery
+    # attempt (same name the outer round-robin's genuine Wait(5.0) uses) -
+    # these inline waits must stay named so they are never mistaken for one.
+    for filename in _FILES:
+        tree = _tree(filename)
+        waits = {w.get('name') for w in tree.getroot().findall('.//Wait') if w.get('name')}
+        assert {'WaitBeforeClear-GlobalContext', 'WaitBeforeClear-LocalContext'} <= waits, (
+            f'{filename} is missing one of the named inline waits - an unnamed inline '
+            'Wait would be miscounted as a RecoveryTracker recovery action')
+
+
+def test_follow_path_names_the_general_goal_checker():
+    # Platform-sw#164 adds a second goal checker (station_goal_checker);
+    # controller_server refuses an empty goal_checker_id once more than one
+    # is configured. These are the default trees (nav2_params.yaml's
+    # default_nav_to_pose_bt_xml/default_nav_through_poses_bt_xml), so they
+    # must name the general one explicitly rather than leave it empty.
+    for filename in _FILES:
+        tree = _tree(filename)
+        follow_path = tree.getroot().find('.//FollowPath')
+        assert follow_path is not None, f'{filename} has no FollowPath node'
+        assert follow_path.get('goal_checker_id') == 'general_goal_checker', (
+            f'{filename}: FollowPath goal_checker_id is '
+            f"{follow_path.get('goal_checker_id')!r}, expected 'general_goal_checker' - "
+            "required once #164's station_goal_checker is also configured")
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-v']))

@@ -41,6 +41,12 @@ navigation_launch.py would catch any such client if one existed.
 
 dock_robot is NOT yet covered by this pattern - same architecture, tracked
 as a further fast-follow (needs #125's docking_server work first).
+
+Alex's 19 Nov P1 review (same finding/fix as navigate_to_pose_goal_proxy_
+node.py): this public server also rejects a goal outright while Stop is
+engaged (subscribes to /safety/stop_lock itself; see _goal_callback) -
+previously it had no goal_callback at all, so rclpy's own default (accept
+everything) applied and a direct client got ACCEPTED regardless of Stop.
 """
 import threading
 import uuid
@@ -50,12 +56,13 @@ from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateThroughPoses
 
 import rclpy
-from rclpy.action import ActionClient, ActionServer, CancelResponse
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 _REAL_ACTION_NAME = 'navigate_through_poses_real'
 _PUBLIC_ACTION_NAME = 'navigate_through_poses'
@@ -69,6 +76,19 @@ class NavigateThroughPosesGoalProxy(Node):
     def __init__(self):
         """Stand up the public action server and the real-server client."""
         super().__init__('navigate_through_poses_goal_proxy')
+        # Alex's 19 Nov P1 review on #90: fail closed (reject) until a real
+        # /safety/stop_lock sample arrives - same convention as
+        # navigate_to_pose_goal_proxy_node.py's own default, which mirrors
+        # safety_stop_gate_node.py's own "locked before anything else" and
+        # twist_mux.yaml's own comment on why its lock topic defaults to
+        # expired/locked rather than unlocked. _goal_callback (below) is the
+        # only reader.
+        self._stop_locked = True
+        stop_lock_qos = QoSProfile(
+            depth=1, reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(
+            Bool, '/safety/stop_lock', self._on_stop_lock, stop_lock_qos)
         self._instance_id = uuid.uuid4().hex
         self._outstanding = 0
         # panthera-momagdii's #90 seventh review, P1 (same race as
@@ -108,6 +128,7 @@ class NavigateThroughPosesGoalProxy(Node):
         self._server = ActionServer(
             self, NavigateThroughPoses, _PUBLIC_ACTION_NAME,
             execute_callback=self._execute,
+            goal_callback=self._goal_callback,
             handle_accepted_callback=self._handle_accepted,
             cancel_callback=self._handle_cancel,
             callback_group=cb_group)
@@ -128,6 +149,24 @@ class NavigateThroughPosesGoalProxy(Node):
         # self-cancels once it has.
         self._server_ready_poll_timer = self.create_timer(
             0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
+
+    def _on_stop_lock(self, msg: Bool) -> None:
+        self._stop_locked = msg.data
+
+    def _goal_callback(self, goal_request) -> GoalResponse:
+        # Alex's 19 Nov P1 review on #90 (same finding/fix as
+        # navigate_to_pose_goal_proxy_node.py): without a goal_callback
+        # here, rclpy's ActionServer default (accept everything) applied,
+        # so a direct navigate_through_poses client was ACCEPTED even while
+        # Stop was engaged. Reject-only: an already-accepted goal in flight
+        # when Stop engages is still handled by safety_stop_gate_node.py's
+        # own cancellation path, unchanged by this.
+        del goal_request
+        if self._stop_locked:
+            self.get_logger().warning(
+                f'{_PUBLIC_ACTION_NAME} goal rejected: Stop is engaged')
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
 
     def _poll_for_first_heartbeat(self) -> None:
         # panthera-momagdii's #90 review on d29dfc0 - see
