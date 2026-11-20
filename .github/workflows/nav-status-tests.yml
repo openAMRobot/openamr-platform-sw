@@ -73,4 +73,5 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_navigation_launch_cmd_vel_routing.py \
             ros2/src/openamrobot_nav2/test/test_station_approach_config.py \
             ros2/src/openamrobot_nav2/test/test_nav2_startup_timeouts.py \
-            ros2/src/openamrobot_nav2/test/test_behavior_trees_no_reverse.py
+            ros2/src/openamrobot_nav2/test/test_behavior_trees_no_reverse.py \
+            ros2/src/openamrobot_nav2/test/test_baseline1_no_reverse_paths.py
