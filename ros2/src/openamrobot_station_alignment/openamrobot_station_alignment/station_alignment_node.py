@@ -86,6 +86,8 @@ class StationAlignment(Node):
         self.declare_parameter("not_seen_retries", 2)
         self.declare_parameter("sample_timeout_s", 6.0)
         self.declare_parameter("max_latency_s", 15.0)
+        self.declare_parameter("period_margin", 0.0)
+        self.declare_parameter("max_extension_s", 0.0)
         self.declare_parameter("on_marker_not_seen", "abort")
         self.declare_parameter("max_iterations", 3)
         self.declare_parameter("accept_along", 0.025)
@@ -201,7 +203,9 @@ class StationAlignment(Node):
         window = sampling.SampleWindow(after.nanoseconds, int(self.get_parameter("samples").value),
                                        float(self.get_parameter("sample_timeout_s").value),
                                        float(self.get_parameter("max_latency_s").value),
-                                       int(self.get_parameter("min_samples").value))
+                                       int(self.get_parameter("min_samples").value),
+                                       float(self.get_parameter("period_margin").value),
+                                       float(self.get_parameter("max_extension_s").value))
         seen = 0
         while rclpy.ok():
             self._check_stop()

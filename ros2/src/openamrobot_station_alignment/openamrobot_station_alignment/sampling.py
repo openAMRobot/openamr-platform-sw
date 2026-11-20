@@ -13,6 +13,11 @@ Rules, all on the node clock (simulation time with use_sim_time):
 - stale: samples arrive but none is fresh yet: keep waiting up to `timeout_s + max_latency_s` after `after`;
 - fewer than `samples` but at least `min_samples` fresh samples once `timeout_s` has passed: done with those (Fast
   DDS delivered about 1 image in 7 to the detector in run 44261511618 rtf02, so 8 frames may not come in time);
+- fresh samples still arriving at the measured rate keep the window open past `timeout_s + max_latency_s` while
+  fewer than `min_samples` are fresh: until the last fresh arrival plus `period_margin` times the mean receive
+  period of the window, at most `max_extension_s` more (Fast DDS rtf02, runs 44464798587, 44464850846,
+  44588689142: windows closed at 21 s with 3 fresh samples, the 4th due about one period later). Off by default;
+  freshness (stamp after `after`) and `min_samples` are unchanged;
 - the latency (receive time minus stamp) of every sample is recorded for the report.
 """
 import math
@@ -46,7 +51,8 @@ def without_marker(iteration, nominal_ok):
 
 
 class SampleWindow:
-    def __init__(self, after_ns, samples, timeout_s, max_latency_s, min_samples=None):
+    def __init__(self, after_ns, samples, timeout_s, max_latency_s, min_samples=None, period_margin=0.0,
+                 max_extension_s=0.0):
         self.after_ns = int(after_ns)
         self.samples = int(samples)
         # never fewer than one: min_samples 0 would end "done" with no sample (review of c4666a1, 4f)
@@ -57,14 +63,39 @@ class SampleWindow:
         self.fresh_stamps = []
         self.received = 0
         self.latencies = []
+        self.period_margin = float(period_margin)
+        self.max_extension_ns = int(max(0.0, float(max_extension_s)) * 1e9)
+        self.first_received_ns = None
+        self.last_received_ns = None
+        self.last_fresh_received_ns = None
 
     def add(self, stamp_ns, received_ns, pose):
         """A sample received at `received_ns`; only samples received after the window opened are given here."""
         self.received += 1
         self.latencies.append((received_ns - stamp_ns) * 1e-9)
+        if self.first_received_ns is None:
+            self.first_received_ns = received_ns
+        self.last_received_ns = received_ns
         if stamp_ns > self.after_ns:
             self.fresh.append(pose)
             self.fresh_stamps.append(stamp_ns)
+            self.last_fresh_received_ns = received_ns
+
+    def period_ns(self):
+        """Mean receive period of the samples in this window (node clock), or None below two samples."""
+        if self.received < 2 or self.last_received_ns <= self.first_received_ns:
+            return None
+        return (self.last_received_ns - self.first_received_ns) / (self.received - 1)
+
+    def _extended(self, now_ns):
+        """Fresh samples are still arriving at the window's rate and fewer than min_samples are fresh."""
+        period = self.period_ns()
+        if self.period_margin <= 0.0 or self.max_extension_ns <= 0 or not self.fresh or period is None:
+            return False
+        if len(self.fresh) >= self.min_samples:
+            return False
+        cap = self.after_ns + self.timeout_ns + self.max_latency_ns + self.max_extension_ns
+        return now_ns <= min(cap, self.last_fresh_received_ns + self.period_margin * period)
 
     def poll(self, now_ns):
         if len(self.fresh) >= self.samples:
@@ -74,7 +105,7 @@ class SampleWindow:
             return DONE
         if self.received == 0 and elapsed > self.timeout_ns:
             return NOT_SEEN
-        if elapsed > self.timeout_ns + self.max_latency_ns:
+        if elapsed > self.timeout_ns + self.max_latency_ns and not self._extended(now_ns):
             return STALE
         return WAITING
 
@@ -90,5 +121,7 @@ class SampleWindow:
 
     def summary(self):
         lat = self.latencies
+        period = self.period_ns()
         return {"received": self.received, "fresh": len(self.fresh),
+                "period_s": period * 1e-9 if period else None,
                 "latency_s_min": min(lat) if lat else None, "latency_s_max": max(lat) if lat else None}

@@ -44,6 +44,11 @@ station_alignment:
     # simulation time at a real-time factor of 0.2 in Baseline 1): wait up to sample_timeout_s + max_latency_s.
     sample_timeout_s: 6.0
     max_latency_s: 15.0
+    # Proposed (20 Nov 2026): while fewer than min_samples are fresh but fresh ones still arrive, keep the window open
+    # until the last fresh arrival plus period_margin mean receive periods of this window, at most max_extension_s
+    # past sample_timeout_s + max_latency_s (sampling.py). Freshness and min_samples are unchanged. 0 turns it off.
+    period_margin: 1.5
+    max_extension_s: 15.0
     # No usable marker after the #164 approach: error_code 9900 and outcome "not aligned: ...", the base stays where
     # #164 stopped it. abort (default): status ABORTED. succeed_unaligned (opt-in): status SUCCEEDED. Abort is the
     # default because most clients read only the status (software lead's review of aa8fd11, item c). Proposed.
