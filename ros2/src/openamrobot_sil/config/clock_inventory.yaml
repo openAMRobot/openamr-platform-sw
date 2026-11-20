@@ -43,8 +43,14 @@ files:
         rule: C6
         status: conforms
   openamrobot_sil/stm32_host.py:
-    counts: {time.sleep: 1, clock.now: 12, Stamp: 1}
+    counts: {time.monotonic: 3, time.sleep: 1, clock.now: 12, Stamp: 1}
     sites:
+      - what: SDO answer timeout of MatchedSdoClient, the drive client (the vendored client's timeout, with the answer matched to the request)
+        current: steady
+        target: gazebo
+        rule: C1
+        status: to_change
+        needs: the same change as the vendored SDO client timeout; issue openAMRobot/openamr-platform-fw#57
       - what: 20 ms control loop pacing (_run, _wait_until on the worker clock); before the first /clock time no step runs (first-clock startup)
         current: gazebo
         target: gazebo
