@@ -94,3 +94,17 @@ def test_the_alignment_acceptance_corner_is_inside_the_proposed_region():
     assert proposed(along, left, yaw)
     assert along - boundary(left, yaw) > MARGIN
     assert math.hypot(along, left) > 0.034
+
+
+def test_the_margin_at_every_corner_of_the_lateral_heading_box():
+    """Review of the coupled rule (Kunal's review of ea8ed13): margin = depth of the reach boundary minus the depth the
+    rule allows, at the four corners of |left| <= 0.04 m x |yaw| <= 0.08 rad, both lateral signs, and its minimum
+    over the whole box (0.5 mm x 0.5 mrad grid; bilinear in the probed table). Proposed only: no threshold changes."""
+    allowed = lambda yaw: 0.0459 - MARGIN - 0.19 * max(yaw, 0.0)    # noqa: E731
+    corners = {(lat, y): round(-boundary(lat, y) - allowed(y), 4) for lat in (-0.04, 0.04) for y in (-0.08, 0.08)}
+    assert corners == {(-0.04, -0.08): 0.0119, (-0.04, 0.08): 0.0069, (0.04, -0.08): 0.0168, (0.04, 0.08): 0.0031}
+    box = [(-boundary(lat / 2e4, y / 1e4) - allowed(y / 1e4), lat / 2e4, y / 1e4)
+           for lat in range(-800, 801, 10) for y in range(-800, 801, 5)]
+    worst = min(box)
+    assert round(worst[0], 4) == 0.0030 and worst[1:] == (-0.04, 0.0)       # an edge, not a corner
+    assert (e.REACH_XY, e.REACH_YAW) == (0.04, 0.08)                          # thresholds in code unchanged
