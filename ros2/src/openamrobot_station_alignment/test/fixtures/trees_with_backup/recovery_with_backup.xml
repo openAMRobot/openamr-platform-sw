@@ -1,0 +1,20 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Test fixture (review of #167 at ea8ed13, point 8): a recovery subtree in the shape of Nav2's default trees, with
+     a one-line and a multi-line BackUp. apply_pr90_behaviour_set.py must remove both and keep every other node. -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
+          <Wait wait_duration="5.0"/>
+          <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+          <BackUp backup_dist="0.10"
+                  backup_speed="0.05"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

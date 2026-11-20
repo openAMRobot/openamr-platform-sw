@@ -72,6 +72,15 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 - **Modifications:** each file has a header naming its source and its changes. In both copies, `FollowPath` names `goal_checker_id="general_goal_checker"`, because `controller_server` has a second goal checker (`station_goal_checker`). Every other line is the upstream tree. `navigate_to_station.xml` wraps the `navigate_to_pose.xml` tree in a `Sequence` and adds a second stage (station approach).
 - **Reason for inclusion:** with two goal checkers, the stock trees in the apt package are refused by `controller_server`, so `bt_navigator` loads these copies instead.
 
+#### AprilTag station marker textures (tag36h11 IDs 3 and 4)
+
+- **Files:** `ros2/src/openamrobot_station_alignment/models/station_marker/materials/textures/apriltag_36h11_id3.png` and `apriltag_36h11_id4.png`.
+- **Source:** AprilRobotics `apriltag-imgs` repository ([github.com/AprilRobotics/apriltag-imgs](https://github.com/AprilRobotics/apriltag-imgs)), branch `master`, files `tag36h11/tag36_11_00003.png` (sha256 `1faf4f5388680a6f9f54f2c67d47570dd043aad67f206ca2f429d3a21d77ff94`) and `tag36h11/tag36_11_00004.png` (sha256 `1031c40f2c885e8646fae72bb147a12ba328b66d02c2dd59c7ee2a727d217c1c`), downloaded 17 Nov 2026.
+- **Family:** tag36h11, IDs 3 and 4 (IDs 0 to 2 stay the charging dock's).
+- **License:** BSD-2-Clause, Copyright (c) 2013-2016, The Regents of The University of Michigan. The licence text is kept next to the files (`materials/textures/LICENSE.apriltag-imgs`, installed with them) and in [`LICENSES/BSD-2-Clause.txt`](LICENSES/BSD-2-Clause.txt).
+- **Modification status:** modified: converted to greyscale and upscaled from 10 x 10 to 200 x 200 px, nearest neighbour (the same treatment as the docking textures). The pattern is unchanged.
+- **Reason for inclusion:** render the station marker plate in the station alignment simulation (`openamrobot_station_alignment`, Proposed). Installed by its `setup.py` into `share/openamrobot_station_alignment/models/station_marker/materials/textures/`. Details: `models/station_marker/PROVENANCE.md`.
+
 ## Trademarks and Project Names
 
 The names OpenAMRobot and OpenAMR are used to identify the project maintained by the OpenAMRobot organization.
