@@ -15,8 +15,14 @@
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
+  <test_depend>builtin_interfaces</test_depend>
+  <test_depend>rosgraph_msgs</test_depend>
+  <test_depend>gz_transport_vendor</test_depend>
+  <test_depend>gz_msgs_vendor</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>

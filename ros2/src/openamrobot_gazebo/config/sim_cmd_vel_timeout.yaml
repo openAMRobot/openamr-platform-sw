@@ -1,0 +1,8 @@
+# Simulation-only command timeout for the Gazebo base (#79), node sim_cmd_vel_timeout.
+# 0.2 s matches the real base controllers: the Teensy firmware stops after 200 ms without a fresh
+# /cmd_vel, and the Build 1 STM32 replaces a /cmd_vel older than 200 ms with zero, non-latching
+# (platform-fw docs/safety/motion-safety.md; platform-fw #17, T11). Not a safety function.
+sim_cmd_vel_timeout:
+  ros__parameters:
+    timeout_s: 0.2
+    tick_period_s: 0.02

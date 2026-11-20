@@ -1,0 +1,89 @@
+# Copyright 2026 OpenAMRobot contributors
+#
+# Licensed under the MIT License (see LICENSE).
+
+"""
+Simulation-only command timeout between /cmd_vel and Gazebo's DiffDrive (#79).
+
+Subscribes to /cmd_vel, forwards every command to /sim/base_cmd_vel (bridged to the gz /cmd_vel
+topic the DiffDrive system reads, config/gz_bridge.yaml) and, once no command has arrived for
+`timeout_s` of the node clock, sends zero on every tick until the next command. It runs on
+simulation time (use_sim_time), so it behaves the same at any real-time factor.
+
+/sim/base_cmd_vel is internal to openamrobot_gazebo: only this node publishes it and only the
+bridge reads it. Nothing else may use it; it is not an interface of the platform.
+
+It makes the simulated base stop when its commands stop, as the real base controller does. It is
+not the firmware watchdog and not safety evidence. Every timeout is logged with its age so a test
+or a trace can tell "the chain sent its own zero" apart from "the timeout had to stop the base".
+"""
+
+from geometry_msgs.msg import Twist
+from openamrobot_gazebo.cmd_vel_timeout import CommandTimeout, DEFAULT_TIMEOUT_S
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+INPUT_TOPIC = '/cmd_vel'
+OUTPUT_TOPIC = '/sim/base_cmd_vel'
+
+
+class SimCmdVelTimeout(Node):
+    """Forward /cmd_vel to the simulated base; hold zero after the command timeout."""
+
+    def __init__(self, **kwargs):
+        super().__init__('sim_cmd_vel_timeout', **kwargs)
+        self.declare_parameter('timeout_s', DEFAULT_TIMEOUT_S)
+        self.declare_parameter('tick_period_s', 0.02)
+        timeout_s = float(self.get_parameter('timeout_s').value)
+        tick_period_s = float(self.get_parameter('tick_period_s').value)
+        if not 0.0 < tick_period_s <= timeout_s:
+            raise ValueError(f'tick_period_s must be in (0, timeout_s], got {tick_period_s}')
+        self.timeout = CommandTimeout(timeout_s)
+        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        self.pub = self.create_publisher(Twist, OUTPUT_TOPIC, qos)
+        self.create_subscription(Twist, INPUT_TOPIC, self._on_cmd_vel, qos)
+        # The timer runs on the node clock: simulation time when use_sim_time is true.
+        self.create_timer(tick_period_s, self._on_tick)
+        self.get_logger().info(
+            f'{INPUT_TOPIC} -> {OUTPUT_TOPIC}, zero after {timeout_s:.3f} s without a command '
+            f'(tick {tick_period_s:.3f} s, use_sim_time '
+            f'{self.get_parameter("use_sim_time").value}); simulation only')
+
+    def _now_s(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_cmd_vel(self, msg):
+        if self.timeout.on_command(self._now_s()):
+            self.get_logger().info('command resumed after a timeout')
+        self.pub.publish(msg)
+
+    def _on_tick(self):
+        now = self._now_s()
+        hold_zero, newly = self.timeout.on_tick(now)
+        if not hold_zero:
+            return
+        if newly:
+            age = self.timeout.age(now)
+            self.get_logger().warning(
+                f'no {INPUT_TOPIC} for {age:.3f} s of node time (timeout '
+                f'{self.timeout.timeout_s:.3f} s): holding the simulated base at zero '
+                f'(timeout {self.timeout.timeouts})')
+        self.pub.publish(Twist())
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SimCmdVelTimeout()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
