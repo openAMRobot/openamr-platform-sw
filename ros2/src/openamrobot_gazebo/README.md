@@ -47,11 +47,42 @@ This starts Gazebo Harmonic, spawns the robot, and brings up `robot_state_publis
 | `/clock` | `rosgraph_msgs/msg/Clock` | GZ → ROS |
 | `/odom` | `nav_msgs/msg/Odometry` | GZ → ROS |
 | `/tf` | `tf2_msgs/msg/TFMessage` | GZ → ROS |
-| `/cmd_vel` | `geometry_msgs/msg/Twist` | ROS → GZ |
+| `/sim/base_cmd_vel` → gz `/cmd_vel` | `geometry_msgs/msg/Twist` | ROS → GZ (from `sim_cmd_vel_timeout`, see below) |
 | `/scan` | `sensor_msgs/msg/LaserScan` | GZ → ROS |
 | `/imu` | `sensor_msgs/msg/Imu` | GZ → ROS |
 | `/rgb_image` | `sensor_msgs/msg/Image` | GZ → ROS |
 | `/camera/camera_info` | `sensor_msgs/msg/CameraInfo` | GZ → ROS |
+
+## Command timeout of the simulated base (#79)
+
+Gazebo's DiffDrive system keeps the last velocity command forever, so a dead `/cmd_vel` publisher
+used to leave the simulated base driving. The real base controllers stop instead: the Teensy
+firmware after 200 ms without a fresh `/cmd_vel`, the Build 1 STM32 by replacing a `/cmd_vel` older
+than 200 ms with zero, non-latching (platform-fw `docs/safety/motion-safety.md`, platform-fw #17).
+
+`gz_simulator.launch.py` therefore starts `sim_cmd_vel_timeout` between `/cmd_vel` and the bridge:
+
+```
+/cmd_vel -> sim_cmd_vel_timeout -> /sim/base_cmd_vel -> ros_gz_bridge -> gz /cmd_vel -> DiffDrive
+```
+
+- It forwards every command unchanged and, once no command has arrived for `timeout_s` (0.2 s,
+  `config/sim_cmd_vel_timeout.yaml`), sends zero until the next command arrives.
+- It runs on simulation time, so it behaves the same at any real-time factor.
+- Every timeout is logged ("holding the simulated base at zero"), so a trace shows whether the
+  command chain sent its own zero or the timeout had to stop the base.
+- `/sim/base_cmd_vel` is internal to this package: only this node publishes it, only the bridge
+  reads it. It is not a platform interface; nothing else may use it.
+- After the zero, DiffDrive slows down at its own acceleration limit (`gazebo_control.xacro`); it
+  does not brake like the Teensy's full stop.
+
+Simulation only. It is not the firmware's command watchdog and not safety evidence.
+
+Tests (`test/`): `test_cmd_vel_timeout.py` (the decision logic, no ROS),
+`test_sim_cmd_vel_timeout_node.py` (the node on a simulated clock, no Gazebo) and
+`test_sim_cmd_vel_timeout_gazebo.py` (headless Gazebo: the base stops after its `/cmd_vel`
+publisher is SIGKILLed, measured from Gazebo's world pose; skips without `gz` unless
+`OPENAMR_REQUIRE_GZ=1`).
 
 ## Launch Arguments
 

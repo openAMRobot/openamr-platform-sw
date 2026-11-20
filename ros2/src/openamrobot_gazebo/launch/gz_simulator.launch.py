@@ -72,6 +72,19 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Command timeout for the simulated base (#79): DiffDrive repeats its last command forever, the
+    # real base controller stops after 200 ms without one. Sits between /cmd_vel and the bridge.
+    cmd_vel_timeout = Node(
+        package='openamrobot_gazebo',
+        executable='sim_cmd_vel_timeout',
+        name='sim_cmd_vel_timeout',
+        output='screen',
+        parameters=[
+            os.path.join(gazebo_dir, 'config', 'sim_cmd_vel_timeout.yaml'),
+            {'use_sim_time': use_sim_time},
+        ],
+    )
+
     gz_sim_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -128,6 +141,7 @@ def generate_launch_description():
         gz_sim_gui,
         gz_sim_headless,
         bridge,
+        cmd_vel_timeout,
         spawn_entity,
         start_robot_state_publisher_cmd,
         joint_state_publisher,
