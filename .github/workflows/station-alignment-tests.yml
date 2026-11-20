@@ -320,8 +320,17 @@ jobs:
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
           - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          # Fast DDS, as Baseline 1 (upperbody-sw baseline1-acceptance.yml sets no RMW)
-          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
+          # CycloneDDS, matching Baseline 1 acceptance (upperbody-sw baseline1-acceptance.yml
+          # has set CycloneDDS since 21a2d02 - the "sets no RMW" claim this comment used to
+          # make was already stale when #174 flagged it: Fast DDS here was a leftover from
+          # before that pin, not a deliberate match to the real acceptance environment, and it
+          # drops enough frames under this leg's 7 s test-only image delay to starve a trial of
+          # fresh marker samples regardless of the shared retry budget (#174's own evidence:
+          # runs 44464798587/44464850846/44588689142, and this branch's own CI at d6202bf,
+          # run 44720394890 - "not aligned: no fresh marker sample: 3 received, 2 fresh" under
+          # rmw_fastrtps_cpp). Alex's decision: CycloneDDS for Baseline 1 acceptance, not a
+          # window-size relaxation to accommodate a Fast DDS leg nothing else here requires.
+          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
           - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
              rmw: rmw_cyclonedds_cpp, behaviors: '164'}
