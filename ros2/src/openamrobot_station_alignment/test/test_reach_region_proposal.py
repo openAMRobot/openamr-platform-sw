@@ -18,6 +18,9 @@ import math
 import os
 
 import pytest
+import yaml
+
+from openamrobot_station_alignment import evaluation as e
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARGIN = 0.003
@@ -46,7 +49,8 @@ def proposed(along, left, yaw):
 
 
 def current(along, left, yaw):
-    return math.hypot(along, left) <= 0.04 and abs(yaw) <= 0.08
+    """The budget evaluation.py applies today."""
+    return math.hypot(along, left) <= e.REACH_XY and abs(yaw) <= e.REACH_YAW
 
 
 GRID = [(a / 1000, lat / 1000, y / 1000)
@@ -83,7 +87,10 @@ def test_every_recorded_aligned_station_pose_is_inside_the_proposed_region():
 def test_the_alignment_acceptance_corner_is_inside_the_proposed_region():
     """accept_along 0.025 + bias 0.0054 behind, accept_lateral 0.02 + 0.0027, accept_yaw 0.06 (config comment): the
     alignment can end there; the proposed region must accept it, the isotropic 0.034 m and 0.030 m radii do not."""
-    along, left, yaw = -(0.025 + 0.0054), 0.02 + 0.0027, 0.06
+    with open(os.path.join(HERE, "..", "config", "station_alignment.yaml"), encoding="utf-8") as f:
+        p = yaml.safe_load(f)["station_alignment"]["ros__parameters"]
+    along, left, yaw = -(p["accept_along"] + 0.0054), p["accept_lateral"] + 0.0027, p["accept_yaw"]
+    assert (round(-along, 4), round(left, 4), yaw) == (0.0304, 0.0227, 0.06)
     assert proposed(along, left, yaw)
     assert along - boundary(left, yaw) > MARGIN
     assert math.hypot(along, left) > 0.034
