@@ -182,6 +182,25 @@ Software lead's review of aa8fd11 (Proposed changes, 18 Nov 2026):
 - **b. Stop:** `/safety/stop_state` (openamr_nav_msgs/StopState, published by #90's gate) not RUNNING, or a Nav2 sub-goal CANCELED that this node did not cancel, ends the station goal (ABORTED, outcome `aborted: stopped: ...`); nothing more is sent, also after release (openamrobot-interfaces #40, item 3). No stop_state message (no gate on the stack) counts as running. This is client behaviour, not safety evidence.
 - **c. 9900:** ABORTED with 9900 by default; `succeed_unaligned` is opt-in.
 
+Kunal's review of ea8ed13 (Proposed changes, 20 Nov 2026):
+- **Station tree:** no bare except. Only a missing openamrobot_nav2 package gives an empty default; an empty
+  `behavior_tree` or one that is not a file is logged as an error at start, and every goal is ABORTED with 9901
+  before anything is sent to Nav2 (Nav2 would otherwise run its default tree and report ordinary results).
+- **Goal behavior_tree:** empty or the configured station tree runs (the configured tree is sent); any other tree is
+  ABORTED with 9902 before anything is sent, as it would bypass station_goal_checker. Open question to the
+  reviewer: honour a validated request tree instead.
+- **Failed turn:** a rotation goal of a correction that fails (face or align) is followed by rotation-only goals back
+  to the heading the marker was measured at, at most `rotate_recovery_attempts` (2); a failed forward drive after a
+  turn turns back to the target yaw the same way. When none succeeds the goal is ABORTED with 9903. No reverse.
+- **Stale window:** reopened like a window in which nothing arrived, on the same budget (`not_seen_retries`).
+- **Odom at the image stamps:** the history keeps `sample_timeout_s + max_latency_s + max_extension_s +
+  odom_history_tolerance_s + 2 s` of /odom (cleared on a /clock reset) instead of 400 entries. Without an odom pose within
+  `odom_history_tolerance_s` of the mean image stamp the node logs a warning and measures again, up to
+  `odom_miss_retries` (1) times, then ABORTS with 9904. The current pose is never used in its place.
+- **Cancel before the next goal:** after a correction goal times out, the node waits for the cancel response and the
+  goal's terminal status, up to `cancel_timeout_s` (10 s, simulation time), before it sends the next goal; an
+  unconfirmed cancel is logged and named in the move.
+
 Station definition: the station is defined relative to the plate (`standoff` 0.713 m in front of the plate face,
 `lateral` 0, facing the shelf). The plate becomes the reference of the station; item positions on the shelf must be
 known relative to it.
@@ -191,9 +210,10 @@ known relative to it.
 | Name | Type | Producer | Consumer |
 |---|---|---|---|
 | `/station_alignment/station_pose` | geometry_msgs/PoseWithCovarianceStamped, frame base_footprint, image stamp | station_marker_detector | station_alignment |
-| `/station_alignment/navigate_to_station` | action nav2_msgs/action/NavigateToPose (goal: nominal station in map; behavior_tree ignored) | station_alignment | mission layer |
+| `/station_alignment/navigate_to_station` | action nav2_msgs/action/NavigateToPose (goal: nominal station in map; behavior_tree empty or the configured station tree, any other is refused with 9902) | station_alignment | mission layer |
 | `/station_alignment/report` | std_msgs/String, one JSON object per goal (iterations, residuals, sample window, outcome `aligned`, `not aligned: ...` or `aborted: ...`) | station_alignment | diagnostics, trial runner |
 | `NavigateToPose.Result.error_code` 9900 NOT_ALIGNED | result code with status ABORTED (SUCCEEDED with `on_marker_not_seen: succeed_unaligned`): #164 reached the station, no marker correction | station_alignment | mission layer |
+| `NavigateToPose.Result.error_code` 9901 to 9904 | status ABORTED: 9901 no station tree, 9902 another behavior_tree requested (nothing sent for either), 9903 heading not recovered after a failed turn, 9904 no odom pose at the image stamps | station_alignment | mission layer |
 | `/safety/stop_state` | openamr_nav_msgs/StopState, subscribed (reliable, transient local) | safety_stop_gate_node (platform-sw #90) | station_alignment |
 | `station_marker_3`, `station_marker_4` | TF frames of apriltag_ros | apriltag_ros | station_marker_detector |
 | `station_alignment.launch.py` arguments `use_sim_time`, `image_topic`, `camera_info_topic`, `tags_file`, `params_file` | launch arguments | | bringup |

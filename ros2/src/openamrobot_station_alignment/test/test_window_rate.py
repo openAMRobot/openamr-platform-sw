@@ -105,3 +105,18 @@ def test_the_rule_is_off_unless_configured_and_configured_in_the_alignment():
     node = open(os.path.join(PKG, "openamrobot_station_alignment", "station_alignment_node.py")).read()
     assert 'float(self.get_parameter("period_margin").value)' in node
     assert 'float(self.get_parameter("max_extension_s").value)' in node
+
+
+def test_the_odom_history_covers_an_extended_window():
+    """A window kept open at the measured rate closes up to max_extension_s later, so its images can be that much
+    older when the correction looks up the odom pose at their stamps (Kunal's review of ea8ed13, point 4)."""
+    import rosstub
+    rosstub.install()
+    from test_review_c4666a1 import BASE, S, Harness
+    from openamrobot_station_alignment import sources
+    h = Harness(start_s=100.0, overrides={"max_extension_s": 15.0})
+    assert h.odom_horizon_s == 6.0 + 15.0 + 15.0 + 0.5 + 2.0
+    for k in range(45 * 50):                                            # 45 s of /odom at 50 Hz
+        h.latest_odom = (100 * S + k * S // 50, "odom", BASE, (k * 1e-3, 0.0, 0.0))
+    image = h.odom_history[-1][0] - 36 * S                              # 6 + 15 + 15 s before the window closed
+    assert sources.odom_at(list(h.odom_history), image, 0.5) is not None

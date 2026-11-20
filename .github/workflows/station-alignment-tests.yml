@@ -57,7 +57,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 179 tests ran
+      - name: Check that all 217 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -65,7 +65,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 194 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 217 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -273,6 +273,36 @@ jobs:
           assert len(failed) == 14 and all(n.startswith(('test_a_', 'test_b_', 'test_c_', 'test_correction_'))
                                            for n in failed)
           assert passed == ['test_keep_running_stop_state_does_not_stop', 'test_keep_succeed_unaligned_is_opt_in']
+          EOF
+
+      # Revert run of the fixes for Kunal's review of ea8ed13 (review 5986320877): package code, configuration and
+      # scripts back to ea8ed13, tests kept. Every test_p* of test_review_ea8ed13.py must fail; only the test_keep_*
+      # tests (behaviour ea8ed13 already had: an empty or the configured tree runs, the overlay strips a self-closing
+      # BackUp, no #164 tree names BackUp) pass.
+      - name: Revert run of the ea8ed13 review fixes (ea8ed13 code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin ea8ed13c608c4d00bc533e8014bb23609ac7f733
+          for f in $(git ls-tree -r --name-only ea8ed13c608c4d00bc533e8014bb23609ac7f733 \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config $PKG_DIR/scripts); do
+            git show ea8ed13c608c4d00bc533e8014bb23609ac7f733:$f > $f
+          done
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=.:test timeout 300 python3 -m pytest -q -p no:cacheprovider \
+            --junitxml=$GITHUB_WORKSPACE/reverted_ea8ed13.xml test/test_review_ea8ed13.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_ea8ed13.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if list(c))
+          passed = sorted(c.get('name') for c in root.iter('testcase') if not list(c))
+          print(f'reverted ea8ed13 review fixes: {len(failed)} failed {failed}, {len(passed)} passed {passed}')
+          assert len(failed) == 16 and all(n.startswith('test_p') for n in failed)
+          assert len(passed) == 5 and all(n.startswith('test_keep_') for n in passed)
           EOF
 
   # rtf1: the five-trial comparison at full speed. rtf02: target real-time factor 0.2 (Baseline 1's runner) and image

@@ -185,18 +185,24 @@ def _cell_overlaps_polygon(cx, cy, half, corners):
     return True
 
 
-def occupancy():
-    """(width, height, rows top to bottom of 0 occupied / 254 free). Map origin = world (-FLOOR/2)."""
+def occupancy(boxes=None, cylinders=None):
+    """(width, height, rows top to bottom of 0 occupied / 254 free). Map origin = world (-FLOOR/2). Only what the
+    LiDAR plane cuts is occupied: a box or a cylinder (standing on the floor, z 0 to its height, as world_sdf places
+    it) that lies wholly above or below LIDAR_PLANE_Z is not seen by the scan and stays free (Kunal's review of
+    ea8ed13, point 7: cylinders had no height check). boxes, cylinders: default static_boxes() and CYLINDERS."""
+    boxes = static_boxes() if boxes is None else boxes
+    cylinders = CYLINDERS if cylinders is None else cylinders
     width, height = int(round(FLOOR[0] / MAP_RESOLUTION)), int(round(FLOOR[1] / MAP_RESOLUTION))
     ox, oy = -FLOOR[0] / 2.0, -FLOOR[1] / 2.0
     grid = [[254] * width for _ in range(height)]
     half = MAP_RESOLUTION / 2.0
     shapes = []
-    for _, size, centre, yaw in static_boxes():
+    for _, size, centre, yaw in boxes:
         if centre[2] - size[2] / 2.0 <= LIDAR_PLANE_Z <= centre[2] + size[2] / 2.0:
             shapes.append(("box", _box_corners(size, centre, yaw)))
-    for _, radius, _, (x, y) in CYLINDERS:
-        shapes.append(("cyl", (x, y, radius)))
+    for _, radius, length, (x, y) in cylinders:
+        if 0.0 <= LIDAR_PLANE_Z <= length:
+            shapes.append(("cyl", (x, y, radius)))
     for row in range(height):
         cy = oy + (height - 1 - row + 0.5) * MAP_RESOLUTION
         for col in range(width):

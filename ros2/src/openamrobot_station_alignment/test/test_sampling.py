@@ -115,4 +115,6 @@ def test_a_slow_marker_stream_is_used_with_min_samples_after_the_timeout():
 def test_a_window_with_nothing_received_is_reopened_a_limited_number_of_times():
     assert sampling.reopen(sampling.NOT_SEEN, 0, 2) and sampling.reopen(sampling.NOT_SEEN, 1, 2)
     assert not sampling.reopen(sampling.NOT_SEEN, 2, 2)
-    assert not sampling.reopen(sampling.STALE, 0, 2) and not sampling.reopen(sampling.DONE, 0, 2)
+    # stale shares the path and the budget (Kunal's review of ea8ed13, point 3; was: never reopened)
+    assert sampling.reopen(sampling.STALE, 0, 2) and not sampling.reopen(sampling.STALE, 2, 2)
+    assert not sampling.reopen(sampling.DONE, 0, 2) and not sampling.reopen(sampling.WAITING, 0, 2)

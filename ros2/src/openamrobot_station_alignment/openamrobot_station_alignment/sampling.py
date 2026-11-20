@@ -35,9 +35,11 @@ def pending_expired(received_ns, now_ns, timeout_s):
 
 
 def reopen(status, attempt, retries):
-    """Open the window once more after `status`? Only when nothing at all arrived (images come in bursts over Fast
-    DDS: run 44265339608 rtf02 trial 1, 0 poses in the 6 s after a correction, then the base was 0.012 m away)."""
-    return status == NOT_SEEN and attempt < retries
+    """Open the window once more after `status`? When nothing at all arrived (images come in bursts over Fast DDS: run
+    44265339608 rtf02 trial 1, 0 poses in the 6 s after a correction, then the base was 0.012 m away) and when samples
+    arrived but too few were fresh (stale: the same burst latency, with old images in the queue). Both share one
+    budget of `retries` reopenings (Kunal's review of ea8ed13, point 3)."""
+    return status in (NOT_SEEN, STALE) and attempt < retries
 
 
 def without_marker(iteration, nominal_ok):

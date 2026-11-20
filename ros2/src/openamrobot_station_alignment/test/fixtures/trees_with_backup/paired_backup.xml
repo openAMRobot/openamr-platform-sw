@@ -1,0 +1,11 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Test fixture (review of #167 at ea8ed13, point 8): a BackUp element with a closing tag, which the overlay's
+     pattern does not remove; the overlay must fail on it instead of leaving it in the tree. -->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RoundRobin name="RecoveryActions">
+      <Wait wait_duration="5.0"/>
+      <BackUp backup_dist="0.30" backup_speed="0.15"></BackUp>
+    </RoundRobin>
+  </BehaviorTree>
+</root>
