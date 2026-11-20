@@ -43,10 +43,12 @@ dock_robot is NOT yet covered by this pattern - same architecture, tracked
 as a further fast-follow (needs #125's docking_server work first).
 
 Alex's 19 Nov P1 review (same finding/fix as navigate_to_pose_goal_proxy_
-node.py): this public server also rejects a goal outright while Stop is
-engaged (subscribes to /safety/stop_lock itself; see _goal_callback) -
-previously it had no goal_callback at all, so rclpy's own default (accept
-everything) applied and a direct client got ACCEPTED regardless of Stop.
+node.py), Mohamed's 20 Nov correction: this public server also rejects a
+goal outright while Stop is engaged (subscribes to /safety/stop_state
+itself, same rule as goal_pose_forwarder_node.py's own _on_stop_state; see
+_goal_callback) - previously it had no goal_callback at all, so rclpy's own
+default (accept everything) applied and a direct client got ACCEPTED
+regardless of Stop.
 """
 import threading
 import uuid
@@ -55,14 +57,17 @@ from action_msgs.msg import GoalStatus
 
 from nav2_msgs.action import NavigateThroughPoses
 
+from openamr_nav_msgs.msg import StopState
+
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.task import Future
 
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 
 _REAL_ACTION_NAME = 'navigate_through_poses_real'
 _PUBLIC_ACTION_NAME = 'navigate_through_poses'
@@ -76,19 +81,19 @@ class NavigateThroughPosesGoalProxy(Node):
     def __init__(self):
         """Stand up the public action server and the real-server client."""
         super().__init__('navigate_through_poses_goal_proxy')
-        # Alex's 19 Nov P1 review on #90: fail closed (reject) until a real
-        # /safety/stop_lock sample arrives - same convention as
-        # navigate_to_pose_goal_proxy_node.py's own default, which mirrors
-        # safety_stop_gate_node.py's own "locked before anything else" and
-        # twist_mux.yaml's own comment on why its lock topic defaults to
-        # expired/locked rather than unlocked. _goal_callback (below) is the
-        # only reader.
-        self._stop_locked = True
-        stop_lock_qos = QoSProfile(
+        # Alex's 19 Nov P1 review on #90, Mohamed's 20 Nov correction: fail
+        # closed (reject) until a real /safety/stop_state sample arrives,
+        # same topic/message/QoS/default goal_pose_forwarder_node.py's own
+        # _on_stop_state already uses ("same rule as the forwarder"), and
+        # the same correction as navigate_to_pose_goal_proxy_node.py's own
+        # sibling fix - not a second, parallel /safety/stop_lock reader.
+        # _goal_callback (below) is the only reader.
+        self._stop_state = StopState.STATE_LOCKED
+        stop_state_qos = QoSProfile(
             depth=1, reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(
-            Bool, '/safety/stop_lock', self._on_stop_lock, stop_lock_qos)
+            StopState, '/safety/stop_state', self._on_stop_state, stop_state_qos)
         self._instance_id = uuid.uuid4().hex
         self._outstanding = 0
         # panthera-momagdii's #90 seventh review, P1 (same race as
@@ -150,8 +155,8 @@ class NavigateThroughPosesGoalProxy(Node):
         self._server_ready_poll_timer = self.create_timer(
             0.1, self._poll_for_first_heartbeat, callback_group=cb_group)
 
-    def _on_stop_lock(self, msg: Bool) -> None:
-        self._stop_locked = msg.data
+    def _on_stop_state(self, msg: StopState) -> None:
+        self._stop_state = msg.state
 
     def _goal_callback(self, goal_request) -> GoalResponse:
         # Alex's 19 Nov P1 review on #90 (same finding/fix as
@@ -162,9 +167,10 @@ class NavigateThroughPosesGoalProxy(Node):
         # when Stop engages is still handled by safety_stop_gate_node.py's
         # own cancellation path, unchanged by this.
         del goal_request
-        if self._stop_locked:
+        if self._stop_state != StopState.STATE_RUNNING:
             self.get_logger().warning(
-                f'{_PUBLIC_ACTION_NAME} goal rejected: Stop is engaged')
+                '%s goal rejected: Stop is active (state=%d)'
+                % (_PUBLIC_ACTION_NAME, self._stop_state))
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
@@ -235,6 +241,27 @@ class NavigateThroughPosesGoalProxy(Node):
             real_handle.cancel_goal_async()
         return CancelResponse.ACCEPT
 
+    async def _wait_for_cancel_request(self, goal_handle, timeout_s: float) -> None:
+        """
+        Poll goal_handle.is_cancel_requested in short steps, up to timeout_s.
+
+        Same reasoning and mechanism as navigate_to_pose_goal_proxy_node.py's own sibling
+        method (rclpy drives these coroutines itself, not a real asyncio event loop;
+        asyncio.sleep raises "no running event loop" here).
+        """
+        step_s = 0.05
+        elapsed = 0.0
+        while not goal_handle.is_cancel_requested and elapsed < timeout_s:
+            fut = Future()
+
+            def _resolve(f=fut):
+                if not f.done():
+                    f.set_result(None)
+            timer = self.create_timer(step_s, _resolve)
+            await fut
+            timer.cancel()
+            elapsed += step_s
+
     async def _execute(self, goal_handle):
         # Outstanding count and the 'sent' event are handled in
         # _handle_accepted - not here, to avoid double-counting.
@@ -291,6 +318,14 @@ class NavigateThroughPosesGoalProxy(Node):
                     # otherwise raises. abort() reports the same practical
                     # outcome (goal did not succeed) without that
                     # precondition.
+                    #
+                    # Mohamed's 20 Nov P2 #3 (same race as navigate_to_pose_
+                    # goal_proxy_node.py's own sibling fix - see its own
+                    # comment for the full reasoning): give an already
+                    # in-flight public cancel a bounded chance to arrive
+                    # before falling back to abort().
+                    if not goal_handle.is_cancel_requested:
+                        await self._wait_for_cancel_request(goal_handle, 0.5)
                     if goal_handle.is_cancel_requested:
                         goal_handle.canceled()
                     else:

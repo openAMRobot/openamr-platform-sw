@@ -20,13 +20,15 @@ import time
 import unittest
 import unittest.mock
 
-from action_msgs.msg import GoalStatus
+from action_msgs.msg import GoalInfo, GoalStatus
+from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateThroughPoses
 import pytest
 
 rclpy = pytest.importorskip('rclpy')  # tracking: #90/#124
 
+from openamr_nav_msgs.msg import StopState  # noqa: E402,I100
 from openamrobot_nav2.navigate_through_poses_goal_proxy_node import (  # noqa: E402
     NavigateThroughPosesGoalProxy)
 from openamrobot_nav2.safety_stop_gate_node import SafetyStopGateNode, T_READY  # noqa: E402
@@ -36,10 +38,10 @@ from rclpy.callback_groups import ReentrantCallbackGroup  # noqa: E402
 from rclpy.duration import Duration  # noqa: E402
 from rclpy.executors import MultiThreadedExecutor  # noqa: E402
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E402
-from std_msgs.msg import Bool, String  # noqa: E402
+from std_msgs.msg import String  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 
-_STOP_LOCK_QOS = QoSProfile(
+_STOP_STATE_QOS = QoSProfile(
     depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
@@ -137,18 +139,21 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
             self.client.wait_for_server(timeout_sec=5.0),
             'navigate_through_poses proxy action server never came up')
 
-        # Alex's 19 Nov P1 fix (same as navigate_to_pose_goal_proxy_node.py):
-        # the proxy fail-closed-rejects goals until a real /safety/stop_lock
-        # sample arrives. Unlock explicitly before any of this file's other
-        # tests, which all expect ACCEPT - the reject-while-locked behavior
-        # has its own dedicated test class below with its own fixture.
-        self.stop_lock_pub = self.probe.create_publisher(Bool, '/safety/stop_lock', _STOP_LOCK_QOS)
-        self.stop_lock_pub.publish(Bool(data=False))
+        # Alex's 19 Nov P1 fix, Mohamed's 20 Nov correction (same as
+        # navigate_to_pose_goal_proxy_node.py): the proxy fail-closed-
+        # rejects goals until a real /safety/stop_state sample arrives.
+        # Publish RUNNING before any of this file's other tests, which all
+        # expect ACCEPT - the reject-while-locked behavior has its own
+        # dedicated full-chain test class below with its own fixture.
+        self.stop_state_pub = self.probe.create_publisher(
+            StopState, '/safety/stop_state', _STOP_STATE_QOS)
+        self.stop_state_pub.publish(StopState(state=StopState.STATE_RUNNING))
         end = time.monotonic() + 5.0
-        while self.proxy._stop_locked and time.monotonic() < end:
+        while self.proxy._stop_state != StopState.STATE_RUNNING and time.monotonic() < end:
             time.sleep(0.02)
-        self.assertFalse(
-            self.proxy._stop_locked, 'proxy never observed the unlocked /safety/stop_lock sample')
+        self.assertEqual(
+            self.proxy._stop_state, StopState.STATE_RUNNING,
+            'proxy never observed the RUNNING /safety/stop_state sample')
 
     def tearDown(self):
         self.fake_real.finish_now()
@@ -373,6 +378,53 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
         self.assertTrue(result_future.done(), 'get_result_async never completed')
         self.assertEqual(result_future.result().status, GoalStatus.STATUS_CANCELED)
 
+    def test_a_real_cancel_that_finishes_before_the_late_public_cancel_still_reports_canceled(
+            self):
+        # Mohamed's 20 Nov P2 #3 (same race, same reproduction as
+        # navigate_to_pose_goal_proxy_node.py's own sibling test - see that
+        # test's own comment for the full reasoning): the REAL server is
+        # cancelled directly first (bypassing this node's own
+        # cancel_callback, same path safety_stop_gate_node.py's
+        # _cancel_clients uses) and allowed to finish completely, and only
+        # THEN is the public cancel sent.
+        self.fake_real.start()
+        goal_handle = self._send_goal()
+        end = time.monotonic() + 2.0
+        while self.fake_real._goal_handle is None and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertIsNotNone(self.fake_real._goal_handle)
+
+        real_direct_cancel_client = self.probe.create_client(
+            CancelGoal, 'navigate_through_poses_real/_action/cancel_goal')
+        self.assertTrue(
+            real_direct_cancel_client.wait_for_service(timeout_sec=5.0),
+            'navigate_through_poses_real cancel service never came up')
+        cancel_future = real_direct_cancel_client.call_async(
+            CancelGoal.Request(goal_info=GoalInfo()))
+        end = time.monotonic() + 5.0
+        while not cancel_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(cancel_future.done(), 'direct real-server cancel never completed')
+        self.assertTrue(
+            self.fake_real.cancel_requested.wait(timeout=5.0),
+            'the real (fake) server never received the direct cancel')
+
+        public_cancel_future = goal_handle.cancel_goal_async()
+        end = time.monotonic() + 5.0
+        while not public_cancel_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(public_cancel_future.done(), 'public cancel_goal_async never completed')
+
+        result_future = goal_handle.get_result_async()
+        end = time.monotonic() + 5.0
+        while not result_future.done() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(result_future.done(), 'get_result_async never completed')
+        self.assertEqual(
+            result_future.result().status, GoalStatus.STATUS_CANCELED,
+            'the public action reported ABORTED for a goal whose real result was CANCELED - '
+            'the real cancel finished before the late public cancel was even sent')
+
     def test_heartbeat_cannot_observe_a_count_between_decrement_and_done_publish(self):
         # panthera-momagdii's #90 seventh review, P1 (same race as
         # navigate_to_pose_goal_proxy_node.py's own sibling test) - see
@@ -528,13 +580,15 @@ class NavigateThroughPosesGoalProxyTestCase(unittest.TestCase):
             '_pending_cancels was written to without self._lock held: ' + '; '.join(violations))
 
 
-class GoalRejectedWhileStopIsEngagedTestCase(unittest.TestCase):
+class GoalRejectedWhileStopIsEngagedFullChainTestCase(unittest.TestCase):
     """
     A direct navigate_through_poses client must not be ACCEPTED while Stop is engaged.
 
     Alex's 19 Nov P1 review on #90 (same finding/fix as the navigate_to_pose
-    sibling test). Own fixture (not the shared unlocked one above) so each
-    test controls the lock state explicitly.
+    sibling test); Mohamed's 20 Nov correction asked for a full-chain proof -
+    see that sibling test file's own class docstring for the full reasoning.
+    Own fixture (not the shared unlocked one above) so each test controls
+    the real gate's lock state explicitly.
     """
 
     @classmethod
@@ -546,13 +600,16 @@ class GoalRejectedWhileStopIsEngagedTestCase(unittest.TestCase):
         rclpy.shutdown()
 
     def setUp(self):
+        self.real_server_node = rclpy.create_node(
+            'through_poses_goal_rejected_while_locked_fake_real_server')
+        self.fake_real = _FakeRealServer(self.real_server_node)
         self.proxy = NavigateThroughPosesGoalProxy()
+        self.gate = SafetyStopGateNode()
         self.probe = rclpy.create_node('through_poses_goal_rejected_while_locked_probe')
-        self.stop_lock_pub = self.probe.create_publisher(Bool, '/safety/stop_lock', _STOP_LOCK_QOS)
 
         self.executor = MultiThreadedExecutor()
-        self.executor.add_node(self.proxy)
-        self.executor.add_node(self.probe)
+        for node in (self.real_server_node, self.proxy, self.gate, self.probe):
+            self.executor.add_node(node)
         self._spin_thread = threading.Thread(target=self.executor.spin, daemon=True)
         self._spin_thread.start()
 
@@ -562,10 +619,14 @@ class GoalRejectedWhileStopIsEngagedTestCase(unittest.TestCase):
             'navigate_through_poses proxy action server never came up')
 
     def tearDown(self):
+        self.fake_real.finish_now()
         self.executor.shutdown(timeout_sec=2.0)
         self._spin_thread.join(timeout=2.0)
         self.client.destroy()
+        self.fake_real.destroy()
         self.proxy.destroy_node()
+        self.gate.destroy_node()
+        self.real_server_node.destroy_node()
         self.probe.destroy_node()
 
     def _try_send_goal(self):
@@ -580,39 +641,71 @@ class GoalRejectedWhileStopIsEngagedTestCase(unittest.TestCase):
         self.assertTrue(send_future.done(), 'send_goal_async never completed')
         return send_future.result()
 
-    def test_a_goal_sent_before_any_lock_sample_arrives_is_rejected(self):
+    def test_a_goal_sent_on_the_real_gates_own_default_locked_state_is_rejected(self):
         goal_handle = self._try_send_goal()
         self.assertFalse(
             goal_handle.accepted,
-            'a goal sent before this proxy ever observed a real /safety/stop_lock '
-            'sample was accepted - it must fail closed (reject) until it knows')
-
-    def test_a_goal_sent_while_locked_is_rejected(self):
-        self.stop_lock_pub.publish(Bool(data=True))
-        end = time.monotonic() + 5.0
-        while not self.proxy._stop_locked and time.monotonic() < end:
+            'a goal sent while the real gate is still in its own default locked '
+            'state was accepted - the proxy must fail closed (reject) until it '
+            'observes a real RUNNING /safety/stop_state sample')
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
             time.sleep(0.02)
-        self.assertTrue(self.proxy._stop_locked, 'proxy never observed the locked sample')
+        self.assertIsNone(
+            self.fake_real._goal_handle,
+            'the real server received a goal even though the proxy rejected it - '
+            'a rejected goal must never reach send_goal_async, so there is no path '
+            'to a nonzero /cmd_vel from it')
+
+    def test_a_goal_sent_while_the_real_gate_is_locked_is_rejected(self):
+        end = time.monotonic() + 5.0
+        while self.proxy._stop_state != StopState.STATE_LOCKED and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertEqual(
+            self.proxy._stop_state, StopState.STATE_LOCKED,
+            "proxy never observed the real gate's own locked /safety/stop_state")
 
         goal_handle = self._try_send_goal()
         self.assertFalse(
             goal_handle.accepted,
-            'a direct navigate_through_poses client was ACCEPTED while Stop was '
-            'engaged - the public proxy must reject it, not just rely on the gate '
-            'to cancel it afterwards')
-
-    def test_a_goal_sent_after_the_lock_releases_is_accepted(self):
-        self.stop_lock_pub.publish(Bool(data=True))
-        end = time.monotonic() + 5.0
-        while not self.proxy._stop_locked and time.monotonic() < end:
+            'a direct navigate_through_poses client was ACCEPTED while the real '
+            'gate was locked - the public proxy must reject it itself, not just '
+            'rely on the gate to cancel it afterwards')
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
             time.sleep(0.02)
-        self.assertTrue(self.proxy._stop_locked)
+        self.assertIsNone(
+            self.fake_real._goal_handle,
+            'the real server received a goal even though the proxy rejected it')
 
-        self.stop_lock_pub.publish(Bool(data=False))
+    def test_a_goal_sent_after_the_real_gate_releases_is_accepted(self):
         end = time.monotonic() + 5.0
-        while self.proxy._stop_locked and time.monotonic() < end:
+        while self.proxy._stop_state != StopState.STATE_LOCKED and time.monotonic() < end:
             time.sleep(0.02)
-        self.assertFalse(self.proxy._stop_locked, 'proxy never observed the release')
+        self.assertEqual(self.proxy._stop_state, StopState.STATE_LOCKED)
+
+        self.gate._enabled_producers = {'navigate_through_poses'}
+        self.gate._start -= Duration(seconds=T_READY + 1.0)
+        client = self.probe.create_client(Trigger, '/safety/stop_lock_release')
+        self.assertTrue(client.wait_for_service(timeout_sec=5.0), 'release service never came up')
+        end = time.monotonic() + 5.0
+        released = False
+        while time.monotonic() < end and not released:
+            future = client.call_async(Trigger.Request())
+            deadline = time.monotonic() + 0.5
+            while not future.done() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            released = future.done() and future.result() is not None and future.result().success
+            if not released:
+                time.sleep(0.05)
+        self.assertTrue(released, 'Resume never succeeded')
+
+        end = time.monotonic() + 5.0
+        while self.proxy._stop_state != StopState.STATE_RUNNING and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertEqual(
+            self.proxy._stop_state, StopState.STATE_RUNNING,
+            'proxy never observed the release')
 
         goal_handle = self._try_send_goal()
         self.assertTrue(
