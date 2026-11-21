@@ -305,3 +305,28 @@ advance. Evidence: deployed commit, the outputs above, the driver log, the stick
   STATE.md.
 - Pass criterion: the change request and the merged PR recorded; on the robot `cmd_vel_teleop`
   has 0 publishers and the teleop publisher is on the contract topic.
+
+### (e) Spin test (drive model check, Proposed)
+
+Purpose: measure what the simulators currently estimate for an in-place turn. MuJoCo needs about
+6.7 N m per wheel to turn the robot in place (two rim contacts of the 46 mm cylinder slide, the
+wheel servo is proportional only). **6.7 N m is a simulation estimate, not a measured value.**
+The motor is rated 5.5 N m and 6.5 A, 16 N m and 19 A peak (hw readme, B2 V1.01).
+
+- Precondition: gates (b), (c) and (d) recorded and the platform lead's go in the record. This
+  document does not instruct motion. Part 1 runs with the wheels off the ground, Part 2 on the floor.
+- Part 1, wheels up: for each commanded wheel speed step (owner chooses the steps, within the
+  SPEED-CEILING), record commanded and measured wheel speed per side, motor current per side from
+  the driver readback (object and units from the V4.2 manual, RG-DRV-009 to RG-DRV-011) and the
+  tracking error over time.
+- Part 2, on the floor, in-place turn: commanded angular velocity, measured angular velocity
+  (IMU yaw rate and an external reference), wheel speed and motor current per side, tracking error
+  of both, floor type and robot mass as weighed (MP-01).
+- Torque estimate: current times a torque constant. The constant from the rated point
+  (5.5 N m / 6.5 A, about 0.85 N m/A) is a datasheet estimate; label it as such until the drive
+  owner confirms it.
+- Output: a record with raw logs, commit, firmware and driver settings, and the comparison with
+  the Gazebo and MuJoCo values. It fills or replaces the 6.7 N m estimate and the wheel servo
+  model (speed loop, integral action, torque limit) only after review by the drive owners.
+- Not safety evidence. Telemetry, current readback and tracking error do not verify the stop chain.
+- Pass criterion: the record filed and reviewed by the electrical owner and the simulation owner.
