@@ -1,0 +1,254 @@
+# SPDX-License-Identifier: MIT
+"""The station alignment test scene: Gazebo world, Nav2 map and the true station pose, from one description.
+
+Layout source: openamr-upperbody-sw ros2/src/openamrobot_build1_scene/config/scene.yaml at
+d1c88bed17060f935c0b08f8259076ec4bfd484c (integration/baseline1, the Baseline 1 world): the same work shelf, aisle
+shelves, obstacles and station, so that the LiDAR sees what it sees there (shelf posts only at the scan height;
+boards are at 0.82 m and 1.09 m). Copied as numbers, not imported. Differences: no tote, item, payload or charging
+dock; the marker plate below is added. This world is not the Baseline 1 world and does not replace it. Every value
+here is a simulation input, not a site measurement.
+
+Run `python3 -m openamrobot_station_alignment.scene <package dir>` to rewrite worlds/ and maps/;
+test/test_scene.py fails when the committed files differ from this module.
+"""
+import math
+import os
+import sys
+
+WORLD_NAME = "station_alignment"
+
+FLOOR = (14.0, 10.0)
+SHELF_LENGTH, SHELF_DEPTH, BOARD, POST = 1.20, 0.40, 0.02, 0.04
+LEVELS = (0.82, 1.09)
+AISLE_WIDTH, AISLE_CENTRE, UNITS_PER_SIDE = 1.50, (3.0, 2.5, 0.0), 3
+WORK_SHELF = (0.0, -3.0, 0.0)          # unit centre, front face looks along +y
+PARKING_GAP = 0.30                     # UC1: the robot parks about 30 cm from the shelf front
+FOOTPRINT_FRONT_X = 0.415              # front edge of the nav2_params.yaml footprint
+OBSTACLES = (("obstacle_box_a", (0.40, 0.40, 0.50), (2.5, -1.5, 0.0)),
+             ("obstacle_box_b", (0.60, 0.30, 0.30), (4.5, 0.8, 0.0)))
+CYLINDERS = (("obstacle_post", 0.10, 1.00, (1.5, 1.2)),)
+
+# Marker plate (Proposed): two 36h11 tags on the work shelf front, below board 0, above the LiDAR plane (0.222 m).
+# Panel 0.125 m, black square 0.10 m (8 of 10 modules). Centres 0.10 m left and right of the unit centre, 0.32 m above
+# the floor. The plate face is MARKER_FACE_OFFSET in front of the shelf front edge. Estimated, not a site value.
+MARKER_IDS = (3, 4)
+MARKER_OFFSETS = {3: -0.10, 4: 0.10}   # along the shelf axis u (local +x of the unit)
+MARKER_HEIGHT = 0.32
+MARKER_PANEL = 0.125
+MARKER_TAG_SIZE = 0.10
+MARKER_FACE_OFFSET = 0.002
+LIDAR_PLANE_Z = 0.222
+
+MAP_RESOLUTION = 0.05
+
+
+def _rot(x, y, yaw):
+    c, s = math.cos(yaw), math.sin(yaw)
+    return c * x - s * y, s * x + c * y
+
+
+def _place(local, pose):
+    x, y = _rot(local[0], local[1], pose[2])
+    return pose[0] + x, pose[1] + y, local[2]
+
+
+def shelf_boxes(name, pose):
+    boxes = []
+    for index, top in enumerate(LEVELS):
+        boxes.append((f"{name}_board_{index}", (SHELF_LENGTH, SHELF_DEPTH, BOARD), (0.0, 0.0, top - BOARD / 2.0)))
+    height = max(LEVELS)
+    for index, (sx, sy) in enumerate(((-1, -1), (-1, 1), (1, -1), (1, 1))):
+        boxes.append((f"{name}_post_{index}", (POST, POST, height - BOARD),
+                      (sx * (SHELF_LENGTH - POST) / 2.0, sy * (SHELF_DEPTH - POST) / 2.0, (height - BOARD) / 2.0)))
+    return [(n, size, _place(c, pose), pose[2]) for n, size, c in boxes]
+
+
+def shelf_poses():
+    x0, y0, yaw = AISLE_CENTRE
+    poses = {}
+    for unit in range(UNITS_PER_SIDE):
+        along = (unit + 0.5) * SHELF_LENGTH
+        for side, sign in (("a", 1.0), ("b", -1.0)):
+            dx, dy = _rot(along, sign * (AISLE_WIDTH + SHELF_DEPTH) / 2.0, yaw)
+            poses[f"shelf_{side}{unit}"] = (x0 + dx, y0 + dy, yaw + (math.pi if sign > 0 else 0.0))
+    poses["work_shelf"] = WORK_SHELF
+    return poses
+
+
+def static_boxes():
+    boxes = []
+    for name, pose in shelf_poses().items():
+        boxes += shelf_boxes(name, pose)
+    for name, size, (x, y, yaw) in OBSTACLES:
+        boxes.append((name, size, (x, y, size[2] / 2.0), yaw))
+    return boxes
+
+
+def shelf_front():
+    """(point on the work shelf front edge at the unit centre, outward unit normal), world frame."""
+    x, y, yaw = WORK_SHELF
+    nx, ny = _rot(0.0, 1.0, yaw)
+    return (x + nx * SHELF_DEPTH / 2.0, y + ny * SHELF_DEPTH / 2.0), (nx, ny)
+
+
+def station():
+    """True station pose (x, y, yaw) of base_footprint in the world (= map) frame."""
+    (fx, fy), (nx, ny) = shelf_front()
+    gap = PARKING_GAP + FOOTPRINT_FRONT_X
+    return fx + nx * gap, fy + ny * gap, math.atan2(-ny, -nx)
+
+
+def standoff():
+    """Distance from the marker plate face to the station along the face normal."""
+    return PARKING_GAP + FOOTPRINT_FRONT_X - MARKER_FACE_OFFSET
+
+
+def marker_centres():
+    """{tag id: (x, y, z)} world positions of the tag centres (on the plate face)."""
+    (fx, fy), (nx, ny) = shelf_front()
+    ux, uy = ny, -nx
+    out = {}
+    for tag, offset in MARKER_OFFSETS.items():
+        out[tag] = (fx + nx * MARKER_FACE_OFFSET + ux * offset, fy + ny * MARKER_FACE_OFFSET + uy * offset,
+                    MARKER_HEIGHT)
+    return out
+
+
+def world_sdf():
+    fx, fy = FLOOR
+    out = ['<?xml version="1.0"?>',
+           "<!-- SPDX-License-Identifier: MIT -->",
+           "<!-- Generated by openamrobot_station_alignment/scene.py. Do not edit. Simulation only. Not the Baseline 1"
+           " world. -->",
+           '<sdf version="1.9">', f'<world name="{WORLD_NAME}">',
+           '<physics name="1ms" type="ignored"><max_step_size>0.001</max_step_size>'
+           "<real_time_factor>1.0</real_time_factor></physics>",
+           '<plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>',
+           '<plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>',
+           '<plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>',
+           '<plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">'
+           "<render_engine>ogre2</render_engine></plugin>",
+           '<scene><ambient>0.6 0.6 0.6 1</ambient><background>0.8 0.8 0.8 1</background>'
+           "<shadows>false</shadows></scene>",
+           '<light type="directional" name="sun"><cast_shadows>false</cast_shadows><pose>0 0 10 0 0 0</pose>'
+           "<diffuse>0.9 0.9 0.9 1</diffuse><specular>0.2 0.2 0.2 1</specular><direction>-0.4 0.2 -0.9</direction>"
+           "</light>",
+           '<model name="floor"><static>true</static><link name="link">'
+           '<collision name="collision"><geometry><plane><normal>0 0 1</normal>'
+           f"<size>{fx} {fy}</size></plane></geometry><surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode>"
+           "</friction></surface></collision>"
+           f'<visual name="visual"><geometry><plane><normal>0 0 1</normal><size>{fx} {fy}</size></plane></geometry>'
+           "<material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material></visual>"
+           "</link></model>",
+           '<model name="fixtures"><static>true</static><link name="link">']
+    for name, size, centre, yaw in static_boxes():
+        geometry = f"<geometry><box><size>{size[0]} {size[1]} {size[2]}</size></box></geometry>"
+        pose = f"<pose>{centre[0]:.5f} {centre[1]:.5f} {centre[2]:.5f} 0 0 {yaw:.5f}</pose>"
+        out.append(f'<collision name="{name}_collision">{pose}{geometry}</collision>'
+                   f'<visual name="{name}_visual">{pose}{geometry}<material><ambient>0.55 0.45 0.3 1</ambient>'
+                   "<diffuse>0.55 0.45 0.3 1</diffuse></material></visual>")
+    for name, radius, height, (x, y) in CYLINDERS:
+        geometry = f"<geometry><cylinder><radius>{radius}</radius><length>{height}</length></cylinder></geometry>"
+        pose = f"<pose>{x} {y} {height / 2.0} 0 0 0</pose>"
+        out.append(f'<collision name="{name}_collision">{pose}{geometry}</collision>'
+                   f'<visual name="{name}_visual">{pose}{geometry}<material><ambient>0.8 0.2 0.2 1</ambient>'
+                   "<diffuse>0.8 0.2 0.2 1</diffuse></material></visual>")
+    out.append("</link></model>")
+    # The marker model's +x face shows the tags (as model://apriltag_dock). Its +x is the shelf's outward normal.
+    (sx, sy), (nx, ny) = shelf_front()
+    yaw = math.atan2(ny, nx)
+    px, py = sx + nx * (MARKER_FACE_OFFSET / 2.0), sy + ny * (MARKER_FACE_OFFSET / 2.0)
+    out.append(f'<include><name>station_marker</name><uri>model://station_marker</uri>'
+               f"<pose>{px:.5f} {py:.5f} {MARKER_HEIGHT} 0 0 {yaw:.5f}</pose></include>")
+    out += ["</world>", "</sdf>", ""]
+    return "\n".join(out)
+
+
+def _box_corners(size, centre, yaw):
+    hx, hy = size[0] / 2.0, size[1] / 2.0
+    return [(centre[0] + dx, centre[1] + dy) for dx, dy in
+            (_rot(sx * hx, sy * hy, yaw) for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)))]
+
+
+def _cell_overlaps_polygon(cx, cy, half, corners):
+    """Separating-axis test of an axis-aligned cell against a convex polygon."""
+    cell = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)]
+    for poly in (cell, corners):
+        for i in range(len(poly)):
+            ax, ay = poly[i]
+            bx, by = poly[(i + 1) % len(poly)]
+            nx, ny = by - ay, ax - bx
+            p1 = [nx * x + ny * y for x, y in cell]
+            p2 = [nx * x + ny * y for x, y in corners]
+            if max(p1) < min(p2) or max(p2) < min(p1):
+                return False
+    return True
+
+
+def occupancy(boxes=None, cylinders=None):
+    """(width, height, rows top to bottom of 0 occupied / 254 free). Map origin = world (-FLOOR/2). Only what the
+    LiDAR plane cuts is occupied: a box or a cylinder (standing on the floor, z 0 to its height, as world_sdf places
+    it) that lies wholly above or below LIDAR_PLANE_Z is not seen by the scan and stays free (Kunal's review of
+    ea8ed13, point 7: cylinders had no height check). boxes, cylinders: default static_boxes() and CYLINDERS."""
+    boxes = static_boxes() if boxes is None else boxes
+    cylinders = CYLINDERS if cylinders is None else cylinders
+    width, height = int(round(FLOOR[0] / MAP_RESOLUTION)), int(round(FLOOR[1] / MAP_RESOLUTION))
+    ox, oy = -FLOOR[0] / 2.0, -FLOOR[1] / 2.0
+    grid = [[254] * width for _ in range(height)]
+    half = MAP_RESOLUTION / 2.0
+    shapes = []
+    for _, size, centre, yaw in boxes:
+        if centre[2] - size[2] / 2.0 <= LIDAR_PLANE_Z <= centre[2] + size[2] / 2.0:
+            shapes.append(("box", _box_corners(size, centre, yaw)))
+    for _, radius, length, (x, y) in cylinders:
+        if 0.0 <= LIDAR_PLANE_Z <= length:
+            shapes.append(("cyl", (x, y, radius)))
+    for row in range(height):
+        cy = oy + (height - 1 - row + 0.5) * MAP_RESOLUTION
+        for col in range(width):
+            cx = ox + (col + 0.5) * MAP_RESOLUTION
+            for kind, shape in shapes:
+                if kind == "box":
+                    hit = _cell_overlaps_polygon(cx, cy, half, shape)
+                else:
+                    dx = max(abs(cx - shape[0]) - half, 0.0)
+                    dy = max(abs(cy - shape[1]) - half, 0.0)
+                    hit = math.hypot(dx, dy) <= shape[2]
+                if hit:
+                    grid[row][col] = 0
+                    break
+    return width, height, grid
+
+
+def map_pgm():
+    width, height, grid = occupancy()
+    header = f"P5\n# station_alignment map, generated by scene.py\n{width} {height}\n255\n".encode("ascii")
+    return header + bytes(v for row in grid for v in row)
+
+
+def map_yaml():
+    return (f"# SPDX-License-Identifier: MIT\n# Generated by openamrobot_station_alignment/scene.py. Map frame = Gazebo"
+            f" world frame.\nimage: station_alignment_map.pgm\nmode: trinary\nresolution: {MAP_RESOLUTION}\n"
+            f"origin: [{-FLOOR[0] / 2.0}, {-FLOOR[1] / 2.0}, 0.0]\nnegate: 0\noccupied_thresh: 0.65\n"
+            "free_thresh: 0.196\n")
+
+
+def outputs():
+    return {"worlds/station_alignment.sdf": world_sdf().encode("utf-8"),
+            "maps/station_alignment_map.pgm": map_pgm(),
+            "maps/station_alignment_map.yaml": map_yaml().encode("utf-8")}
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    root = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for relative, data in outputs().items():
+        path = os.path.join(root, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        print(f"wrote {path} ({len(data)} bytes)")
+
+
+if __name__ == "__main__":
+    main()

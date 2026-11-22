@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: MIT
+# Station-relative final alignment (Proposed, 17 Nov 2026). docs/architecture/station_alignment.md.
+# Station: Build 1 work shelf. Every value is a simulation working value, not a site or robot value.
+station_marker_detector:
+  ros__parameters:
+    base_frame: base_footprint
+    detections_topic: /apriltag/detections
+    station_pose_topic: /station_alignment/station_pose
+    # Marker plate: 36h11 ids 3 and 4 (0 to 2 are the charging dock's), centres 0.10 m either side of the plate
+    # origin along the shelf axis; the station is 0.713 m in front of the plate face (parking gap 0.30 m + footprint
+    # front 0.415 m - plate 0.002 m in front of the shelf edge), facing the shelf. scene.py derives the same numbers;
+    # test/test_scene.py checks that they agree.
+    tag_ids: [3, 4]
+    tag_frames: [station_marker_3, station_marker_4]
+    tag_offsets: [-0.10, 0.10]
+    standoff: 0.713
+    lateral: 0.0
+    # Both tags: the shelf axis comes from the 0.20 m baseline between them. One tag alone gives its face normal,
+    # whose yaw is ambiguous in a near-frontal view (PnP flip); min_tags 1 would publish it with a larger yaw floor.
+    min_tags: 2
+    window: 10
+    gate_xy: 0.02
+    gate_yaw: 0.04
+    floor_xy: 0.003
+    floor_yaw: 0.005
+    single_tag_floor_yaw: 0.03
+
+station_alignment:
+  ros__parameters:
+    navigate_action: navigate_to_pose
+    action_name: /station_alignment/navigate_to_station
+    station_pose_topic: /station_alignment/station_pose
+    report_topic: /station_alignment/report
+    global_frame: map
+    base_frame: base_footprint
+    settle_s: 1.0
+    samples: 8
+    # Fewer once sample_timeout_s has passed: at least min_samples (low frame rates over Fast DDS).
+    min_samples: 4
+    # A window in which nothing at all arrived (not seen), or in which too few fresh samples arrived (stale), is opened
+    # again up to not_seen_retries times, one budget for both (Kunal's review of ea8ed13, point 3).
+    not_seen_retries: 2
+    # Sample window, simulation time (sampling.py): `samples` station poses stamped after the robot settled. Not
+    # seen: nothing at all in sample_timeout_s. Stale stamps (the camera to pose pipeline lags; more than 6 s of
+    # simulation time at a real-time factor of 0.2 in Baseline 1): wait up to sample_timeout_s + max_latency_s.
+    sample_timeout_s: 6.0
+    max_latency_s: 15.0
+    # No usable marker after the #164 approach: error_code 9900 and outcome "not aligned: ...", the base stays where
+    # #164 stopped it. abort (default): status ABORTED. succeed_unaligned (opt-in): status SUCCEEDED. Abort is the
+    # default because most clients read only the status (software lead's review of aa8fd11, item c). Proposed.
+    on_marker_not_seen: abort
+    max_iterations: 3
+    # Acceptance per axis of the measured residual (the station in the robot frame), Proposed 18 Nov 2026.
+    # The budget counts the marker error: in 20 CI trials it was +4.1 to +5.4 mm along the heading (a bias, constant
+    # sign) and -2.7 to +1.3 mm to the side (noise, follows the yaw error). Worst true error:
+    # hypot(accept_along + 0.0054, accept_lateral + 0.0027) = hypot(0.0304, 0.0227) = 0.0379 m, inside 0.04 m.
+    # accept_along was 0.03 (hypot(0.03, 0.02) + 0.0052 = 0.0413 m, over; review of c4666a1, 3d). The bias is not
+    # subtracted: its cause is not found, and a simulation correction must not reach the robot.
+    # A lateral residual up to accept_lateral is not driven (a differential base cannot step sideways); a larger one
+    # by turning to the target point first (below).
+    accept_along: 0.025
+    accept_lateral: 0.02
+    accept_yaw: 0.06
+    # Corrections (Proposed, maneuver.py), forward only: D-19 (8 Nov) allows no reverse in Build 1 and platform-sw
+    # #90 removes backup, drive_on_heading and assisted_teleop from behavior_server (software lead's review of
+    # aa8fd11, item a). Position target fixed in odom at the measurement, heading target in map (AMCL). Every move is
+    # a NavigateToPose goal of #164's station tree: rotation-only goals at the current map position, and forward
+    # drives on the current map heading. Lateral residual > accept_lateral, or the target behind the robot: turn to
+    # the target point, drive forward, turn to the target yaw. Otherwise: drive forward, turn to the target yaw.
+    # drive_lead: a drive goal lies this far beyond its point, as station_goal_checker (xy 0.025 m) ends the goal
+    # before the point; the base runs on after the checker fires (0.009 and 0.018 m past the point with a 0.025 m lead,
+    # run 44368551389). A distance residual within accept_along is not driven when the lateral one is accepted; a
+    # failed forward drive after a turn to the target point turns back to the target yaw. correction_timeout_s: simulation-time deadline of one correction goal, after which the
+    # node cancels it; stall detection inside the goal is Nav2's progress checker (0.05 m in 12 s).
+    odom_frame: odom
+    drive_lead: 0.015
+    correction_timeout_s: 60.0
+    # Stop (software lead's review of aa8fd11, item b): /safety/stop_state not RUNNING, or a sub-goal CANCELED by
+    # another client (the gate cancels on Stop), ends the station goal and nothing more is sent (openamrobot-interfaces
+    # #40, item 3). No message (no gate on the stack) counts as running. Functional behaviour, not safety evidence.
+    stop_state_topic: /safety/stop_state
+    # A marker that says the robot is further off than AMCL ever was at the station is not trusted: abort.
+    max_correction_xy: 0.15
+    max_correction_yaw: 0.30
+    # Largest deviation of one marker pose from the mean of the window. Simulation: below 3e-5 m and 0.004 rad.
+    # 0.003 m allows a real camera's millimetre noise and caps the shift one bad frame of 4 can cause unnoticed at
+    # 1 mm (it lies 3/4 of its offset from the mean). 0.01 rad rejects a PnP flip (one frame 0.2 rad off).
+    max_sample_spread_xy: 0.003
+    max_sample_spread_yaw: 0.01
+    # The correction starts from the /odom pose within odom_history_tolerance_s of the mean image stamp; the history
+    # keeps sample_timeout_s + max_latency_s + odom_history_tolerance_s + 2 s. Without that pose: a warning, the
+    # measurement again up to odom_miss_retries times, then ABORTED 9904 (Kunal's review of ea8ed13, point 4).
+    odom_history_tolerance_s: 0.5
+    odom_miss_retries: 1
+    # A failed turn of a correction: at most rotate_recovery_attempts rotation-only goals back to the heading of the
+    # measurement (after a failed forward drive: to the target yaw), then ABORTED 9903. Forward only (D-19).
+    rotate_recovery_attempts: 2
+    # After a timed-out goal: wait up to cancel_timeout_s (simulation time) for the cancel response and the goal's end
+    # before the next goal, so bt_navigator does not reject it (Kunal's review of ea8ed13, point 5).
+    cancel_timeout_s: 10.0
+    navigation_timeout_s: 300.0
