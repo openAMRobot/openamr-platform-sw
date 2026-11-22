@@ -16,7 +16,7 @@ velocity_smoother:
   feedback: "OPEN_LOOP"
   scale_velocities: False
   max_velocity: [0.20, 0.0, 0.5]     # [vx, vy, vθ]
-  min_velocity: [-0.20, 0.0, -0.5]
+  min_velocity: [0.0, 0.0, -0.5]
   max_accel:   [1.0, 0.0, 3.0]
   max_decel:   [-2.5, 0.0, -3.0]
   velocity_timeout: 0.3
