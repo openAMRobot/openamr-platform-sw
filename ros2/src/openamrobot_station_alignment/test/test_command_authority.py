@@ -125,9 +125,10 @@ def test_corrections_are_not_map_frame_position_goals():
 
 
 def test_station_approach_controller_cannot_reverse():
-    """Why the correction does not reverse through StationApproach: nav2_graceful_controller turns allow_backward
-    off when initial_rotation is on (log: "setting allow backward to false")."""
+    """Why the correction does not reverse through StationApproach: initial_rotation is on and allow_backward is stated
+    false (#178, 90ced15: the file says what runs; with initial_rotation on nav2_graceful_controller would turn a true
+    to false itself, log "setting allow backward to false")."""
     import yaml
     with open(os.path.join(NAV2, "config", "nav2_params.yaml"), encoding="utf-8") as f:
         params = yaml.safe_load(f)["controller_server"]["ros__parameters"]["StationApproach"]
-    assert params["initial_rotation"] is True and params["allow_backward"] is True
+    assert params["initial_rotation"] is True and params["allow_backward"] is False

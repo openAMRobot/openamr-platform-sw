@@ -23,8 +23,8 @@ _BT_DIR = os.path.join(
     'behavior_trees')
 
 _FILES = (
-    'navigate_to_pose_no_backup.xml',
-    'navigate_through_poses_no_backup.xml',
+    'navigate_to_pose.xml',
+    'navigate_through_poses.xml',
 )
 
 

@@ -10,7 +10,7 @@ was still offered:
 
 1. backup/drive_on_heading/assisted_teleop are each their own directly-
    callable behavior_server action, independent of whatever the BT does
-   (the BT-recovery-only fix is navigate_to_pose_no_backup.xml) -
+   (the BT-recovery-only fix is navigate_to_pose.xml) -
    drive_on_heading accepts a negative target/speed, assisted_teleop
    forwards whatever linear.x a teleop operator sends. Removed from
    behavior_plugins entirely.

@@ -70,7 +70,10 @@ jobs:
             ros-jazzy-nav2-smoother \
             ros-jazzy-nav2-rotation-shim-controller \
             ros-jazzy-nav2-dwb-controller \
-            ros-jazzy-nav2-smac-planner
+            ros-jazzy-nav2-smac-planner \
+            ros-jazzy-nav2-graceful-controller \
+            ros-jazzy-nav2-regulated-pure-pursuit-controller \
+            ros-jazzy-nav2-navfn-planner
           # The last 4 (platform-sw#90, found the hard way AFTER the first push of this
           # job's item-4 package list, via a clean ros:jazzy-ros-base container repro -
           # not assumed): without ros-jazzy-nav2-smoother, `ros2 launch

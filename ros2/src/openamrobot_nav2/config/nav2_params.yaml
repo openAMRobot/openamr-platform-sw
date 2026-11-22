@@ -89,8 +89,8 @@ bt_navigator:
     # a naive parameter-read test can pass), but the navigators themselves
     # never look at them and silently fall back to the stock
     # *_w_replanning_and_recovery.xml trees, which DO contain BackUp.
-    default_nav_to_pose_bt_xml: "behavior_trees/navigate_to_pose_no_backup.xml"
-    default_nav_through_poses_bt_xml: "behavior_trees/navigate_through_poses_no_backup.xml"
+    default_nav_to_pose_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_to_pose.xml"
+    default_nav_through_poses_bt_xml: "$(find-pkg-share openamrobot_nav2)/behavior_trees/navigate_through_poses.xml"
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     navigate_through_poses:

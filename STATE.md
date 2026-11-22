@@ -80,3 +80,4 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - SIL layer (14 Nov 2026): emulators and Gazebo only. No real CAN bus, drive, lift or BMS. From 15 Nov 2026 the read-only
   telemetry image runs in Renode on CAN1 (no clock tree, bit timing, bus-off, UART inversion or pin levels modelled).
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.
+- 23 Nov 2026, #187 (PROPOSED, be4791c + fold): main f45b9cc merged into the Baseline 1 line at #182 c8b9e6f; one default tree per action (`navigate_to_pose.xml`, `navigate_through_poses.xml` carry #90's content, the `*_no_backup.xml` files are gone). Open for the owner: package.xml lacks exec_depend for nav2_graceful_controller, nav2_regulated_pure_pursuit_controller, nav2_navfn_planner.
