@@ -160,7 +160,16 @@ controller_server:
       min_lookahead_dist: 0.10                    # StationApproach min_lookahead
       max_lookahead_dist: 0.40                    # StationApproach max_lookahead
       use_velocity_scaled_lookahead_dist: false
-      approach_velocity_scaling_dist: 0.25        # StationApproach slowdown_radius
+      # Kunal's review of #182: StationApproach's own slowdown_radius (0.25 m) was copied
+      # verbatim, but the whole retreat move is only forward_m=0.3 m
+      # (baseline1_mission_options.json, upperbody#117) - at 0.25 m the robot is inside the
+      # scaling zone for essentially the entire path and the documented desired_linear_vel
+      # 0.10 m/s is never actually reached for more than an instant. Re-derived for this
+      # path length instead of copied: 0.08 m leaves about 0.22 m (roughly 70%) of the 0.3 m
+      # move at full speed, with deceleration only over the final stretch comparable to the
+      # 0.025 m station_goal_checker's own precision needs. Proposed, not measured in
+      # Gazebo - re-check against a real run before adopting.
+      approach_velocity_scaling_dist: 0.08
       min_approach_linear_velocity: 0.03          # StationApproach v_linear_min
       use_regulated_linear_velocity_scaling: false
       use_cost_regulated_linear_velocity_scaling: false

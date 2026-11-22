@@ -139,9 +139,12 @@ def test_rpp_allow_reversing_true_is_a_reverse_path():
     assert reverse_paths(rpp(allow_reversing=False, use_rotate_to_heading=True), {}) == []
     params, _trees = shipped()
     retreat = params['controller_server']['ros__parameters'].get('StationRetreat')
-    if retreat is not None:
-        assert retreat['allow_reversing'] is False, 'StationRetreat is forward only (D-19)'
-        assert retreat['use_rotate_to_heading'] is True
+    # Hard assertion, not `if retreat is not None:` - on this branch StationRetreat is what
+    # this PR adds; a renamed/dropped key must fail this test, not silently skip the one
+    # check that proves its D-19 forward-only guarantee (Kunal's review of #182).
+    assert retreat is not None, 'StationRetreat is missing from controller_server'
+    assert retreat['allow_reversing'] is False, 'StationRetreat is forward only (D-19)'
+    assert retreat['use_rotate_to_heading'] is True
 
 
 def test_the_station_retreat_tree_uses_station_retreat_and_the_station_checker():
