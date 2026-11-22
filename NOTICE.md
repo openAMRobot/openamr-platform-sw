@@ -18,6 +18,17 @@ This repository depends on third-party open-source packages from the ROS 2 ecosy
 
 Do not add third-party code, meshes, models, textures, datasets, marker images, or other assets unless their license is clearly documented.
 
+### Approved LGPL dependencies (separate components)
+
+Approved by Botshare LTD on 22 November 2026 under the "approval needed" class of the [Third-Party Material Policy](https://github.com/openAMRobot/.github/blob/main/THIRD_PARTY_POLICY.md):
+
+| Package | Licence | Use here | Conditions |
+|---|---|---|---|
+| `slam_toolbox` | LGPL-2.1 | Mapping, launched from `openamrobot_nav2` | Installed and run as its own ROS 2 package. Its source is never copied into or linked into OpenAMRobot code. It stays replaceable, and any change to it is published under its own licence. |
+| `nav2_amcl` | LGPL-2.1-or-later | Localization, launched from `openamrobot_nav2` | Same conditions. |
+
+The rest of Nav2 is Apache-2.0 or BSD-3-Clause.
+
 ### Bundled third-party assets
 
 #### AprilTag panel texture
