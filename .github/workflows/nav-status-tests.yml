@@ -174,7 +174,7 @@ jobs:
           # this - each stands up its own fake "real" action server directly
           # in-process, no navigation_launch.py or bt_navigator involved.
           #
-          # test_d13_real_dock_trigger_clean_boot_and_exclusion.py \
+          # test_d13_real_dock_trigger_clean_boot_and_exclusion.py
           # (platform-sw#124/#90) is STILL deliberately NOT run here: it
           # needs openamrobot_docking (apriltag_msgs, apriltag_ros,
           # openamrobot_gazebo), a different dependency footprint than the
@@ -222,7 +222,7 @@ jobs:
           # graph violation (platform-sw#90, Alex's 13 Nov review added the
           # /cmd_vel/collision_monitor check to the tool itself).
           status=0
-          python3 tools/issue35_arbitration/stop_lock_invariants.py
+          python3 tools/issue35_arbitration/stop_lock_invariants.py \
             --await-ready-s 30 --no-check-cmd-vel || status=$?
 
           echo "----- gate.log -----"; cat gate.log || true
