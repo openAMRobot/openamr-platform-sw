@@ -46,4 +46,5 @@ def test_shipped_parameters_keep_the_real_base_timeout():
     params = yaml.safe_load((CONFIG / 'sim_cmd_vel_timeout.yaml').read_text())
     values = params['sim_cmd_vel_timeout']['ros__parameters']
     assert values['timeout_s'] == DEFAULT_TIMEOUT_S == 0.2
-    assert 0.0 < values['tick_period_s'] <= values['timeout_s']
+    assert 0.0 < values['tick_period_s'] < values['timeout_s']
+    assert values['tick_period_s'] <= values['zero_repeat_period_s'] <= values['timeout_s']

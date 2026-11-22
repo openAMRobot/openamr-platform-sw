@@ -95,6 +95,7 @@ def test_forwards_then_zero_after_0_2_s_of_simulation_time(rig):
     for step in range(16, 30):  # past 10.2 s
         set_clock(10.0 + step * 0.01)
     assert harness.out[-1] == 0.0
+    assert harness.out.count(0.0) == 1  # zero at once; the first repeat is 0.1 s later
     assert node.timeout.timeouts == 1
 
 
@@ -146,6 +147,75 @@ def test_command_before_the_first_clock_message_is_held_at_zero_once_the_clock_s
     command(harness, spin, 0.15)           # non-latching: the next command passes
     assert harness.out[-1] == pytest.approx(0.15)
     assert not node.timeout.stale
+
+
+def test_20hz_docking_cadence_with_a_150ms_processing_gap_does_not_false_timeout(rig):
+    # dock_trigger defaults to 20 Hz (50 ms). Exercise that cadence plus a synthetic 150 ms
+    # command gap for blocking vision/processing work. This tests the timeout margin; it does not
+    # replace running the complete docking simulation and measuring actual AprilTag pauses.
+    node, harness, spin, set_clock = rig
+    set_clock(40.0)
+    command(harness, spin, 0.1)
+    for step in range(1, 5):
+        set_clock(40.0 + step * 0.05)
+        command(harness, spin, 0.1)
+    set_clock(40.35)  # 150 ms since the last command
+    assert 0.0 not in harness.out, harness.out
+    command(harness, spin, 0.1)
+    for step in range(1, 6):
+        set_clock(40.35 + step * 0.05)
+        command(harness, spin, 0.1)
+    assert node.timeout.timeouts == 0
+    assert 0.0 not in harness.out, harness.out
+
+
+def test_zero_is_sent_at_once_then_repeated_at_the_reduced_rate_until_the_next_command(rig):
+    # Kunal's review (#177): not 50 Hz. The first zero at once, then one per zero_repeat_period_s
+    # (0.1 s): 1.8 s of stale time gives about 19 zeros, not the 90 of one per 0.02 s tick.
+    node, harness, spin, set_clock = rig
+    set_clock(50.0)
+    command(harness, spin, 0.2)
+    for step in range(1, 201):                    # 50.01 .. 52.00 s
+        set_clock(50.0 + step * 0.01)
+    zeros = harness.out.count(0.0)
+    assert 16 <= zeros <= 20, zeros
+    command(harness, spin, 0.15)                  # non-latching: the next command passes at once
+    sent = len(harness.out)
+    for step in range(1, 11):                     # 0.10 s of fresh command: no zero
+        set_clock(52.0 + step * 0.01)
+    assert harness.out[sent:] == []
+
+
+def test_zero_is_sent_again_promptly_when_the_clock_is_reset_while_stale(rig):
+    # The repeat is measured against the last zero. After a reset the clock is before that zero:
+    # it must not wait for the clock to catch up (60.4 s here), or the base is unheld for 55 s.
+    node, harness, spin, set_clock = rig
+    set_clock(60.0)
+    command(harness, spin, 0.2)
+    for step in range(1, 41):
+        set_clock(60.0 + step * 0.01)
+    assert harness.out[-1] == 0.0
+    before = harness.out.count(0.0)
+    for step in range(0, 30):                     # the clock jumps back to 5.00 s and runs 0.29 s
+        set_clock(5.0 + step * 0.01)
+    assert harness.out.count(0.0) >= before + 2, (before, harness.out.count(0.0))
+
+
+def test_a_pause_in_the_command_stream_of_0_25_s_zeroes_the_base_and_the_next_command_resumes(rig):
+    # What a docking pause of 0.2 s or more does in simulation, documented as a test: the base is
+    # held at zero for the rest of the gap and moves again on the next command. The real base
+    # (platform-fw #17, T11) does the same at 200 ms.
+    node, harness, spin, set_clock = rig
+    set_clock(70.0)
+    command(harness, spin, 0.1)
+    set_clock(70.1)
+    assert 0.0 not in harness.out
+    for step in range(1, 26):                     # 70.11 .. 70.35 s: 0.35 s since the command
+        set_clock(70.1 + step * 0.01)
+    assert harness.out[-1] == 0.0
+    assert node.timeout.timeouts == 1
+    command(harness, spin, 0.1)
+    assert harness.out[-1] == pytest.approx(0.1)
 
 
 def test_no_timeout_while_the_simulation_clock_stands_still(rig):

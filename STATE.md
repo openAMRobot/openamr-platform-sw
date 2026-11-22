@@ -36,7 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
-| Command timeout for the simulated base (#79, rc.1): `sim_cmd_vel_timeout` between `/cmd_vel` and DiffDrive, zero after 0.2 s of simulation time, non-latching; simulation only (20 Nov 2026) | fix/79-sim-base-command-timeout | open (PR #177), review findings answered 22 Nov | Kunal review; Alex: confirm it may feed Gate A simulation evidence |
+| Command timeout for the simulated base (#79, rc.1): `sim_cmd_vel_timeout` between `/cmd_vel` and DiffDrive, zero after 0.2 s of simulation time, non-latching; simulation only (20 Nov 2026) | fix/79-sim-base-command-timeout | open (PR #177), second review round answered 22 Nov | Kunal review; Alex: confirm it may feed Gate A simulation evidence |
 
 ## Decisions this repository implements
 
@@ -68,6 +68,6 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - SIL layer (14 Nov 2026): emulators and Gazebo only. No firmware in Renode, no real CAN bus, drive, lift or BMS.
 - Real-robot motion, docking and sensor bring-up; simulation and fake hardware only, since dfd44a5.
 - Simulated base command timeout (#79, 20 Nov 2026): headless Gazebo and the standalone smoother
-  and collision monitor only; the full `bringup.launch.py sim:=true` stack was not run with it. The
-  docking sequence (`dock_trigger.py`) was not run with it: its command gaps were checked by reading
-  the code, not measured.
+  and collision monitor only; the full `bringup.launch.py sim:=true` stack was not run with it. A
+  20 Hz command cadence with a synthetic 150 ms gap is covered by the node test; the full docking
+  sequence (`dock_trigger.py`) and its actual vision pauses were not run or measured.

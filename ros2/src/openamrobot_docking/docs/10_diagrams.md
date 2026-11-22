@@ -76,8 +76,9 @@ graph LR
     SBF --> NAV2[Nav2 stack]
     AMCL --> NAV2
     TRIG -->|NavigateToPose phase 1| NAV2
-    NAV2 -->|/cmd_vel| BR
-    TRIG -->|/cmd_vel direct phases 2-5| BR
+    NAV2 -->|/cmd_vel| TIMEOUT[sim_cmd_vel_timeout]
+    TRIG -->|/cmd_vel direct phases 2-5| TIMEOUT
+    TIMEOUT -->|/sim/base_cmd_vel| BR
     SBF -.->|forward-cone obstacle guard| TRIG
   end
 ```
@@ -172,9 +173,10 @@ graph TD
 ```mermaid
 graph LR
   RPP[Nav2 controller phase 1] -->|action result| ACT[NavigateToPose action server]
-  ACT -->|/cmd_vel Nav2 internals| BR
-  TRIG[dock_trigger.py phases 2-5] -->|/cmd_vel direct| BR
-  BR[ros_gz_bridge] -->|gz /cmd_vel| DD[DiffDrive plugin]
+  ACT -->|/cmd_vel Nav2 internals| TIMEOUT[sim_cmd_vel_timeout]
+  TRIG[dock_trigger.py phases 2-5] -->|/cmd_vel direct| TIMEOUT
+  TIMEOUT -->|/sim/base_cmd_vel| BR[ros_gz_bridge]
+  BR -->|gz /cmd_vel| DD[DiffDrive plugin]
   DD -->|wheel torques| GZ[Gazebo physics]
   SCAN[/scan_filtered/<br/>= /scan minus rear ±40°<br/>scan_body_filter] -.->|obstacle guard| TRIG
 ```

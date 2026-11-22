@@ -67,7 +67,11 @@ than 200 ms with zero, non-latching (platform-fw `docs/safety/motion-safety.md`,
 ```
 
 - It forwards every command unchanged and, once no command has arrived for `timeout_s` (0.2 s,
-  `config/sim_cmd_vel_timeout.yaml`), sends zero until the next command arrives.
+  `config/sim_cmd_vel_timeout.yaml`), publishes zero at once and repeats it every
+  `zero_repeat_period_s` (0.1 s) until the next command arrives. One zero already stops DiffDrive;
+  the repeat is for a bridge that was not running when the timeout fired. A TRANSIENT_LOCAL
+  publisher does not replace it: `ros_gz_bridge` 1.0.24 subscribes volatile, so a bridge started
+  late does not receive the retained sample (measured on 22 Nov 2026).
 - It runs on simulation time, so it behaves the same at any real-time factor. Before the first
   `/clock` message the node clock reads 0 and nothing times out; a command received then is held
   at zero once the clock starts. A clock that goes backwards (a simulation reset) also stops the

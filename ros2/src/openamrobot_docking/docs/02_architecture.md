@@ -189,7 +189,8 @@ graph TD
   TRIG -->|NavigateToPose phase 1| NAV[Nav2/RPP]
   TRIG -->|/cmd_vel_nav phases 2,3,4| SMO[velocity_smoother]
   SMO --> CM[collision_monitor]
-  CM -->|/cmd_vel| BR2[ros_gz_bridge]
+  CM -->|/cmd_vel| TO[sim_cmd_vel_timeout]
+  TO -->|/sim/base_cmd_vel| BR2[ros_gz_bridge]
   BR2 -->|gz /cmd_vel| DD[DiffDrive plugin]
 ```
 

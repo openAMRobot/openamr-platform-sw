@@ -17,6 +17,41 @@ DEFAULT_TIMEOUT_S = 0.2
 # Clock times are float seconds from integer nanoseconds; 10.2 - 10.0 is 0.19999999999999929.
 # An age within a nanosecond of the timeout counts as reaching it.
 _EPS_S = 1e-9
+_CLOCK_RESET_EPS_S = 1e-6  # ignore sub-microsecond backward jitter
+# How often zero is repeated while the command is stale. One zero already stops DiffDrive; the
+# repeat is for a bridge that was not running when the timeout fired, and it must stay shorter
+# than the timeout itself.
+DEFAULT_ZERO_REPEAT_S = 0.1
+
+
+def validate_tick_period(timeout_s, tick_period_s):
+    """Reject a timer period that could consume the entire timeout budget."""
+    if not 0.0 < tick_period_s < timeout_s:
+        raise ValueError(
+            f'tick_period_s must be in (0, timeout_s), got {tick_period_s!r} '
+            f'for timeout_s={timeout_s!r}')
+
+
+def validate_zero_repeat_period(timeout_s, tick_period_s, repeat_s):
+    """Reject a repeat period the timer cannot honour or that outlasts the timeout."""
+    if not tick_period_s <= repeat_s <= timeout_s:
+        raise ValueError(
+            f'zero_repeat_period_s must be in [tick_period_s, timeout_s] = '
+            f'[{tick_period_s!r}, {timeout_s!r}], got {repeat_s!r}')
+
+
+def zero_is_due(now_s, last_zero_s, repeat_s):
+    """
+    Whether the held zero has to be sent again.
+
+    True before any zero was sent, once `repeat_s` has passed, and when the clock went backwards
+    (a simulation reset): comparing against a zero from a later clock time would otherwise
+    suppress zeros for as long as the reset went back.
+    """
+    if last_zero_s is None:
+        return True
+    elapsed = now_s - last_zero_s
+    return elapsed < 0.0 or elapsed >= repeat_s - _EPS_S
 
 
 class CommandTimeout:
@@ -24,8 +59,9 @@ class CommandTimeout:
     Decide when the simulated base command is stale.
 
     Times are seconds of the node clock (simulation time in the simulator). Non-latching: the next
-    command after a timeout passes through unchanged. A clock that goes backwards (a simulation
-    reset) counts as stale, so a command from before the reset never keeps the base moving.
+    command after a timeout passes through unchanged. A clock that goes backwards (a
+    simulation reset) by more than a microsecond counts as stale, so a command from before the
+    reset never keeps the base moving.
     """
 
     def __init__(self, timeout_s=DEFAULT_TIMEOUT_S):
@@ -54,7 +90,7 @@ class CommandTimeout:
         if self.last_command_s is None:
             return False, False
         age = now_s - self.last_command_s
-        if age < 0.0 or age >= self.timeout_s - _EPS_S:
+        if age < -_CLOCK_RESET_EPS_S or age >= self.timeout_s - _EPS_S:
             newly = not self.stale
             if newly:
                 self.timeouts += 1

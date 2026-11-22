@@ -4,7 +4,9 @@
 
 """Command timeout of the simulated base (#79): the decision logic, without ROS."""
 
-from openamrobot_gazebo.cmd_vel_timeout import CommandTimeout, DEFAULT_TIMEOUT_S
+from openamrobot_gazebo.cmd_vel_timeout import (
+    CommandTimeout, DEFAULT_TIMEOUT_S, DEFAULT_ZERO_REPEAT_S, validate_tick_period,
+    validate_zero_repeat_period, zero_is_due)
 import pytest
 
 
@@ -62,6 +64,23 @@ def test_each_timeout_is_counted_once():
     assert t.timeouts == 3
 
 
+def test_sub_microsecond_clock_jitter_does_not_look_like_a_reset():
+    t = CommandTimeout()
+    t.on_command(10.0)
+    assert t.on_tick(10.0 - 5e-7) == (False, False)
+    assert t.on_tick(10.0 + 0.199) == (False, False)
+
+
+@pytest.mark.parametrize('period', [0.0, -0.01, 0.2, 0.21, float('nan')])
+def test_tick_period_must_be_positive_and_shorter_than_timeout(period):
+    with pytest.raises(ValueError):
+        validate_tick_period(0.2, period)
+
+
+def test_tick_period_can_be_shorter_than_timeout():
+    validate_tick_period(0.2, 0.02)
+
+
 def test_clock_going_backwards_counts_as_stale():
     # A simulation reset moves the clock back; the command from before it must not keep driving.
     t = CommandTimeout()
@@ -85,3 +104,24 @@ def test_stale_message_names_the_age_and_never_prints_a_negative_one():
     reset = describe_stale(-4.98, 0.2)
     assert 'went back 4.980 s' in reset and 'holding the simulated base at zero' in reset
     assert '-' not in reset.replace('(simulation reset?)', '')
+
+
+def test_zero_is_due_at_once_then_every_repeat_period():
+    assert zero_is_due(10.2, None, 0.1)
+    assert not zero_is_due(10.25, 10.2, 0.1)
+    assert zero_is_due(10.3, 10.2, 0.1)        # the exact period counts (float tolerance)
+
+
+def test_zero_is_due_again_when_the_clock_went_backwards():
+    # A reset puts the clock before the last zero; waiting for it to catch up would suppress zeros.
+    assert zero_is_due(5.0, 60.4, 0.1)
+
+
+@pytest.mark.parametrize('repeat', [0.01, 0.0, 0.25, float('nan')])
+def test_repeat_period_must_lie_between_tick_and_timeout(repeat):
+    with pytest.raises(ValueError):
+        validate_zero_repeat_period(0.2, 0.02, repeat)
+
+
+def test_default_repeat_period_is_valid_with_the_default_timeout():
+    validate_zero_repeat_period(DEFAULT_TIMEOUT_S, 0.02, DEFAULT_ZERO_REPEAT_S)

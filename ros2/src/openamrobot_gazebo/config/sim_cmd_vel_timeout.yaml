@@ -6,3 +6,4 @@ sim_cmd_vel_timeout:
   ros__parameters:
     timeout_s: 0.2
     tick_period_s: 0.02
+    zero_repeat_period_s: 0.1
