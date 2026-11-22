@@ -142,7 +142,9 @@ controller_server:
       initial_rotation_tolerance: 0.25
       prefer_final_rotation: true
       rotation_scaling_factor: 0.5
-      allow_backward: true
+      # Forward only (D-19, no reverse path). Stated false: with initial_rotation true the controller would turn
+      # true to false itself (nav2_graceful_controller parameter_handler.cpp, jazzy), but the file says what runs.
+      allow_backward: false
       in_place_collision_resolution: 0.1
     FollowPath:
       # RotationShimController: makes the robot ROTATE toward the path before driving (DWB alone
