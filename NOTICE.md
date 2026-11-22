@@ -63,6 +63,15 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 - **Modification status:** unmodified, byte for byte. `SHA256SUMS` records the hashes and `test/test_vendor_integrity.py` checks them.
 - **Reason for inclusion:** the ZLAC8015D and CTL-017 CANopen emulators are reused by `openamrobot_sil` instead of being rewritten. Details: `vendor/can_sil/PROVENANCE.md`.
 
+#### Nav2 bringup launch files
+
+- **Files:** `ros2/src/openamrobot_nav2/launch/navigation_launch.py`, `ros2/src/openamrobot_nav2/launch/localization_launch.py`.
+- **Source:** Nav2 ([github.com/ros-navigation/navigation2](https://github.com/ros-navigation/navigation2)), package `nav2_bringup`, files `nav2_bringup/launch/navigation_launch.py` and `nav2_bringup/launch/localization_launch.py`, branch `jazzy`. The upstream commit the copies were taken from is not recorded; they were compared with `jazzy` at `c7046550547d382a5186d106b0895eda02485d7c` (22 Nov 2026). Upstream has no NOTICE file.
+- **Copyright:** Copyright (c) 2018 Intel Corporation (as stated in the header of each file).
+- **Licence:** Apache-2.0 ([apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0)). The upstream licence header is kept in each file. These two files are not covered by the repository's MIT licence.
+- **Modification status:** modified by OpenAMRobot. Both files read their share directory from `openamrobot_nav2` and their default parameters from `config/nav2_params.yaml`. `localization_launch.py` passes the map file to the map server through a rewritten parameter file. `navigation_launch.py` drops `route_server` and `docking_server`, reorders the lifecycle nodes, remaps the behavior server and BT navigator topics (`cmd_vel`, `goal_pose`), sets `bond_timeout`, and adds `navigation_status_node`.
+- **Reason for inclusion:** Nav2 bringup adapted to the OpenAMRobot topic chain and docking flow. `openamrobot_nav2/package.xml` lists Apache-2.0 next to MIT for these files.
+
 ## Trademarks and Project Names
 
 The names OpenAMRobot and OpenAMR are used to identify the project maintained by the OpenAMRobot organization.

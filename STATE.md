@@ -36,6 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
+| rc.1 licence audit (release #18): NOTICE.md entry for the two Apache-2.0 Nav2 launch files; package.xml adds Apache-2.0 (openamrobot_nav2) and CERN-OHL-P-2.0 (openamrobot_description) (22 Nov 2026) | release/rc1-third-party-notice | draft | owner: adopt, adapt or reject; Apache-2.0 text copy is an open owner decision; re-pin manifest #23 after merge |
 
 ## Decisions this repository implements
 
