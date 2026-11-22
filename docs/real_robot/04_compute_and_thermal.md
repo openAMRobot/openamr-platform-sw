@@ -111,7 +111,7 @@ watch -n1 "vcgencmd measure_temp; vcgencmd get_throttled"
 
 ### Mitigation
 
-- **Real fix (hardware):** fit the official **Raspberry Pi 5 Active Cooler** (~€5–10 clip-on
+- **Real fix (hardware):** fit the official **Raspberry Pi 5 Active Cooler** (clip-on
   heatsink+fan) → ~50–60 °C under load, throttling gone. *On order as of 2026-07-06; this is
   why on-robot work paused in favour of documentation.*
 - **Interim (software):** the **light bring-up** removes ~74 % of a core of unnecessary work,

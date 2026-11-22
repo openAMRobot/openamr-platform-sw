@@ -36,6 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
 | Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
+| Proposed (owner decision): remove backer-tier prices and payment links from README.md and the cooler price from docs/real_robot/04_compute_and_thermal.md, rc.1 audit check 5 (22 Nov 2026) | proposed/rc1-remove-public-prices | draft | Alex decides; re-pin manifest #23 after merge |
 
 ## Decisions this repository implements
 
