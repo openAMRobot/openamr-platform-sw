@@ -276,4 +276,4 @@ OpenAMRobot is operated by **Botshare LTD**. Before a contribution can be accept
 3. any necessary employer, university, client, sponsor, co-author, or institutional authorization must be obtained; and
 4. third-party and material AI-assisted content must be disclosed with its source, licence, and required notices.
 
-The Contributor Agreement governs assignment of transferable economic rights in accepted contributions to Botshare LTD. DCO confirms provenance and authority but does not replace that agreement. Do not submit unauthorized confidential information, personal data, credentials, export-controlled material, or third-party material with unclear rights.
+The contributor agreement version you accepted governs rights in accepted contributions ([process](https://github.com/openAMRobot/.github/blob/main/CLA.md)): under version 2.0 you keep ownership and license Botshare LTD; contributions accepted under version 1.1 were assigned. DCO confirms provenance and authority but does not replace that agreement. Do not submit unauthorized confidential information, personal data, credentials, export-controlled material, or third-party material with unclear rights.

@@ -40,6 +40,7 @@ import math
 import subprocess
 import threading
 import time
+import uuid
 
 import rclpy
 from rclpy.action import ActionClient
@@ -53,7 +54,7 @@ from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
 
 from std_msgs.msg import Bool, String, Float32
-from std_srvs.srv import SetBool, Empty
+from std_srvs.srv import SetBool, Empty, Trigger
 from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import Point, PoseStamped, Twist
 from sensor_msgs.msg import LaserScan
@@ -63,6 +64,18 @@ from nav2_msgs.action import (
 )
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
+
+# D-19 (platform-sw#124, Alex's 8 Nov ruling, P-03 rev20.6 item 30 A2): reverse
+# and automatic undock are disabled for Build 1, for EVERY caller - the
+# explicit /undock_robot trigger included, not just the automatic goal_pose
+# path - until #78's cancellable, docked-only, rear-checked undock action is
+# accepted. A code constant, not a declared ROS parameter: re-enabling it is
+# a deliberate, reviewed change gated on #78's owner acceptance, not
+# something an operator can flip at launch time. run_undock_sequence() is the
+# single chokepoint every caller goes through before any reverse motion;
+# on_undock and on_goal_pose/_undock_then_forward also refuse early, so no
+# busy/thread-state churn happens for a sequence that cannot move anyway.
+BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED = True
 
 
 def quat_to_yaw(q):
@@ -90,7 +103,9 @@ def quat_rotate_z(qx, qy, qz, qw):
     nz = 1.0 - 2.0 * (qx * qx + qy * qy)
     return nx, ny, nz
 
-
+class DockCancelled(Exception):
+    """Raised mid-sequence when /safety/stop_lock engages — unwinds to _run_and_release's
+    try/except so the existing cleanup (AMCL, collision_monitor, busy, status) runs."""
 class DockTrigger(Node):
     def __init__(self):
         super().__init__('dock_trigger')
@@ -304,7 +319,14 @@ class DockTrigger(Node):
         # stop zone and publishes zero on /cmd_vel, fighting dock_trigger's forward
         # command (both publish /cmd_vel) → the robot stalls ~15 cm out. Kept ON for
         # normal navigation, OFF only during the maneuver.
-        self.declare_parameter('pause_collision_monitor_during_dock', True)
+        #
+        # Default False (platform-sw#90 review, Alex, BLOCKER 3): since #35/#90,
+        # docking's command path goes through the same arbitration/stop chain as
+        # everything else and collision_monitor is meant to stay the only final
+        # publisher. A launch that forgets to load dock_trigger.yaml must not
+        # silently disable it. True is a legacy opt-in for a deployment still on
+        # the pre-#35 direct-/cmd_vel path.
+        self.declare_parameter('pause_collision_monitor_during_dock', False)
         self.declare_parameter('collision_monitor_node', '/collision_monitor')
         self.declare_parameter('amcl_pause_min_d', 1000.0)       # m  — huge = AMCL never laser-updates
         self.declare_parameter('amcl_pause_min_a', 1000.0)       # rad
@@ -540,6 +562,7 @@ class DockTrigger(Node):
         # is_docked: the robot completed a docking sequence and has not yet
         #            undocked. Gates the undock-before-navigate behaviour.
         self.busy = False
+        self._cancel_requested = False
         self.is_docked = False
 
         # ── Goal-pose gate publisher (forwards to Nav2 after undock) ────────
@@ -574,6 +597,18 @@ class DockTrigger(Node):
         self.dock_status_pub = self.create_publisher(String, 'dock_trigger_status', 10)
         self.create_timer(2.0, self._heartbeat_status, callback_group=self.cb_group)
 
+        # ── Goal-authority ledger wiring (platform-sw#124, D-13) ────────────
+        # undock_robot only - see safety_stop_gate_node.py's goal_authority.py
+        # for the wire protocol and why instance_id exists (restart detection).
+        self._goal_authority_instance_id = uuid.uuid4().hex
+        # panthera-momagdii's #90 review, P1: a gate that restarts between
+        # this producer's own 'sent' and 'done' events never saw 'sent' on
+        # its fresh ledger - the next heartbeat is the only remaining signal,
+        # so it must carry the real outstanding count, not just "alive".
+        self._undock_outstanding = 0
+        self._goal_authority_pub = self.create_publisher(
+            String, 'goal_authority_events', 10)
+
         # ── Triggers ────────────────────────────────────────────────────────
         self.create_subscription(
             Bool, self.trigger_topic, self.on_trigger, 10,
@@ -581,6 +616,18 @@ class DockTrigger(Node):
         )
         self.create_subscription(
             Bool, self.undock_trigger_topic, self.on_undock, 10,
+            callback_group=self.cb_group,
+        )
+        self.create_subscription(
+            Bool, '/safety/stop_lock', self._on_stop_lock, 10,
+            callback_group=self.cb_group,
+        )
+        # platform-sw#119 (Alex's Option B decision): the gate drives cancellation
+        # directly through this service, called on engage and repeated every tick
+        # while locked - the /safety/stop_lock subscription above stays as a second,
+        # redundant path (belt-and-suspenders), not the primary mechanism anymore.
+        self.create_service(
+            Trigger, '~/abort', self._on_abort,
             callback_group=self.cb_group,
         )
         self.create_subscription(
@@ -607,6 +654,44 @@ class DockTrigger(Node):
     def _heartbeat_status(self) -> None:
         if not self.busy:
             self._pub_status('docked' if self.is_docked else 'idle')
+
+        # D-13 (platform-sw#124): establishes liveness for undock_robot
+        # without waiting on a goal - this is what makes a clean-boot
+        # Resume possible at all for this producer. Published
+        # unconditionally, even while self.busy is True: this is the one
+        # signal a gate that restarted mid-undock has, since it never saw
+        # this instance's own 'sent' event on its fresh ledger object -
+        # panthera-momagdii's #90 review, P1.
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|heartbeat|{self._goal_authority_instance_id}|'
+            f'{self._undock_outstanding}'))
+
+    def _on_stop_lock(self, msg: Bool) -> None:
+        if msg.data and self.busy:
+            self._cancel_requested = True
+
+    def _on_abort(self, request, response):
+        """
+        platform-sw#119: the gate's engage path calls this directly instead of
+        relying solely on the /safety/stop_lock subscription's timing.
+
+        Sets the same cancel flag every blocking loop already checks and returns
+        immediately - it does not wait for the sequence thread to actually unwind
+        (that can take a tick or more). dock_trigger_status is what confirms the
+        sequence has actually reached idle/failed; the gate's own release
+        condition (b) polls that, not this call's return value. A no-op (still
+        succeeds) when nothing is running - safe to call on every tick while
+        locked regardless of whether a sequence is active.
+        """
+        del request  # Trigger has no request fields
+        self._cancel_requested = True
+        response.success = True
+        response.message = 'cancel requested' if self.busy else 'idle, nothing to abort'
+        return response
+
+    def _raise_if_cancelled(self) -> None:
+        if self._cancel_requested:
+            raise DockCancelled()
 
     def _check_single_forwarder(self) -> None:
         """One-shot A6 guard: warn if more than one node publishes the Nav2 goal topic."""
@@ -738,6 +823,7 @@ class DockTrigger(Node):
             if self.busy:
                 self.get_logger().warn('Sequence already in progress — ignoring trigger')
                 return
+            self._cancel_requested = False
             self.busy = True
             t = threading.Thread(target=self._run_and_release, daemon=True)
             t.start()
@@ -927,6 +1013,8 @@ class DockTrigger(Node):
         self._pause_amcl()          # freeze map->odom: no relocalisation jumps during the maneuver
         try:
             self.run_docking_sequence()
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Docking sequence error: {e}')
         finally:
@@ -945,8 +1033,15 @@ class DockTrigger(Node):
         if self.busy:
             self.get_logger().warn('Sequence already in progress — ignoring undock')
             return
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            self.get_logger().warn(
+                'Undock refused — reverse/automatic undock disabled for '
+                'Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return
         if not self.is_docked:
-            self.get_logger().warn('Not docked — running undock maneuver anyway')
+            self.get_logger().warn('Not docked — undock request refused (D-19)')
+            return
+        self._cancel_requested = False
         self.busy = True
         t = threading.Thread(target=self._undock_and_release, daemon=True)
         t.start()
@@ -955,6 +1050,8 @@ class DockTrigger(Node):
         self._pub_status('undocking')
         try:
             self.run_undock_sequence()
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Undock sequence error: {e}')
         finally:
@@ -967,11 +1064,22 @@ class DockTrigger(Node):
         if not self.is_docked:
             self.goal_pose_pub.publish(msg)
             return
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: a navigation goal while docked must NOT silently undock
+            # and reverse - see the module constant's own docstring. The
+            # goal is dropped, not queued: Build 1 has no mechanism to
+            # resume it once #78 lands, and queuing it would just move the
+            # same undecided reverse to a later, less visible moment.
+            self.get_logger().warn(
+                'Navigation goal while docked ignored — automatic undock '
+                'disabled for Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return
         # Docked: undock first, then forward the goal.
         if self.busy:
             self.get_logger().warn('Sequence in progress — ignoring navigation goal')
             return
         self.busy = True
+        self._cancel_requested = False
         t = threading.Thread(target=self._undock_then_forward, args=(msg,), daemon=True)
         t.start()
 
@@ -986,6 +1094,8 @@ class DockTrigger(Node):
             else:
                 self.get_logger().error('   undock failed — navigation goal NOT forwarded')
                 self._pub_status('failed')
+        except DockCancelled:
+            self.get_logger().warn('Sequence cancelled via /safety/stop_lock')
         except Exception as e:
             self.get_logger().error(f'Undock-then-navigate error: {e}')
             self._pub_status('failed')
@@ -1120,6 +1230,7 @@ class DockTrigger(Node):
         last_key = None
         deadline = time.time() + self.filter_max_collect_time
         while time.time() < deadline and n < num_samples:
+            self._raise_if_cancelled()
             p0 = self._lookup_tag_map3('charging_dock_tag_0')
             p1 = self._lookup_tag_map3('charging_dock_tag_1')
             p2 = self._lookup_tag_map3('charging_dock_tag_2')
@@ -1267,6 +1378,7 @@ class DockTrigger(Node):
 
         Stops when camera→centre-tag depth ≤ docking_distance.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         camera_forward_offset = 0.35   # camera_link is +0.35 m ahead of base_link (URDF)
@@ -1778,6 +1890,16 @@ class DockTrigger(Node):
         safety. Add a real rear sensor (bumper, rear camera, sonar) before
         re-introducing a guard here.
         """
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: the single chokepoint every caller goes through before
+            # any reverse motion - defense in depth beyond on_undock's and
+            # on_goal_pose's own early refusals, for whatever calls this
+            # directly, now or in the future.
+            self.get_logger().error(
+                'Undock sequence refused — reverse/automatic undock disabled '
+                'for Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return False
+
         self.get_logger().info(
             f'── UNDOCK: reverse {self.undock_reverse_distance:.2f}m, then spin 180°'
         )
@@ -1808,6 +1930,7 @@ class DockTrigger(Node):
         sensor is the prerequisite for re-introducing a per-iteration
         backward check here.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         # Measure travel in ODOM, not map: the map pose JUMPS when AMCL's laser
         # correction resumes at undock (relocalise), which would spike `travelled`
@@ -1857,6 +1980,7 @@ class DockTrigger(Node):
         If only one tag is visible we steer toward it to bring the other into
         view; if neither is visible we rotate open-loop.
         """
+        self._raise_if_cancelled()
         self.scan_rotation_speed = float(self.get_parameter('scan_rotation_speed').value)
         period = 1.0 / self.drive_rate_hz
         timeout_s = 2.0 * math.pi / max(0.05, self.scan_rotation_speed) + 15.0
@@ -1956,6 +2080,7 @@ class DockTrigger(Node):
         - Quaternion averaged component-wise then re-normalised (valid for
           small perturbations around a nominal orientation, which is our case)
         """
+        self._raise_if_cancelled()
         samples = []
         deadline = time.time() + self.filter_max_collect_time
         last_stamp = None
@@ -2061,6 +2186,7 @@ class DockTrigger(Node):
         Bypass nav2's Spin action (which has an eager costmap collision check)
         — publish cmd_vel directly, P-controlled.
         """
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         stable_required = 5
@@ -2109,6 +2235,7 @@ class DockTrigger(Node):
         within a loose tolerance — no precise target heading, no settle band.
         Used for the undock 180° where precision doesn't matter and robustness
         (low battery, poor localisation) does."""
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         prev = self._lookup_odom_yaw()
         if prev is None:
@@ -2140,6 +2267,7 @@ class DockTrigger(Node):
     def _drive_to_xy(self, tx: float, ty: float, max_time: float = 60.0) -> bool:
         """Drive forward toward (tx, ty) in map frame, correcting heading along
         the way. Stops when robot is within position_tolerance of (tx, ty)."""
+        self._raise_if_cancelled()
         period = 1.0 / self.drive_rate_hz
         deadline = time.time() + max_time
         pose0 = self.lookup_robot_pose()
@@ -2303,6 +2431,7 @@ class DockTrigger(Node):
         checking is disabled / no scan available — see fall-back below).
         Returns False on timeout — the caller should abort the phase.
         """
+        self._raise_if_cancelled()
         if not self.obstacle_check_enabled:
             return True
         if self.latest_scan is None:
@@ -2708,6 +2837,7 @@ class DockTrigger(Node):
         send_future = client.send_goal_async(goal)
         deadline = time.monotonic() + accept_timeout
         while not send_future.done():
+            self._raise_if_cancelled()
             if time.monotonic() > deadline:
                 self.get_logger().error('Goal acceptance timed out')
                 return False
@@ -2719,6 +2849,7 @@ class DockTrigger(Node):
         result_future = gh.get_result_async()
         deadline = time.monotonic() + result_timeout
         while not result_future.done():
+            self._raise_if_cancelled()
             if time.monotonic() > deadline:
                 self.get_logger().error(
                     f'Action result timed out after {result_timeout}s; cancelling')
@@ -2738,12 +2869,53 @@ class DockTrigger(Node):
         return True
 
     def _send_undock(self):
+        if BUILD1_REVERSE_AND_AUTO_UNDOCK_DISABLED:
+            # D-19: on_trigger(False)'s undock_on_false path (dormant by
+            # default - config/dock_trigger.yaml ships it false) is still
+            # an undock trigger, so it stays gated for the same reason
+            # on_undock and on_goal_pose are, even though today nothing can
+            # reach this line in the shipped config.
+            self.get_logger().warn(
+                'Undock refused — reverse/automatic undock disabled for '
+                'Build 1 (D-19, platform-sw#78 not yet accepted)')
+            return
         if not self.undock_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().warn('undock_robot action not available')
             return
         goal = UndockRobot.Goal()
         goal.dock_type = str(self.dock_type)
-        self.undock_client.send_goal_async(goal)
+
+        self._undock_outstanding += 1
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|sent|{self._goal_authority_instance_id}'))
+        send_future = self.undock_client.send_goal_async(goal)
+        send_future.add_done_callback(self._on_undock_goal_response)
+
+    def _on_undock_goal_response(self, future) -> None:
+        """
+        Notify 'done' only off the actual result, not off goal acceptance.
+
+        D-13 (platform-sw#124): a cancel/rejection reply never counts as
+        terminal on its own. A rejected goal (never actually started) is
+        the one case where acceptance itself IS the terminal fact: there
+        is no result future to wait on at all.
+        """
+        gh = future.result()
+        if gh is None or not gh.accepted:
+            self._undock_outstanding = max(0, self._undock_outstanding - 1)
+            self._goal_authority_pub.publish(String(
+                data=f'undock_robot|done|{self._goal_authority_instance_id}'))
+            return
+        result_future = gh.get_result_async()
+        result_future.add_done_callback(self._on_undock_goal_result)
+
+    def _on_undock_goal_result(self, future) -> None:
+        del future  # success, failure or cancellation all mean "no longer
+        # outstanding" for the goal-authority ledger - the actual outcome
+        # is not this callback's concern.
+        self._undock_outstanding = max(0, self._undock_outstanding - 1)
+        self._goal_authority_pub.publish(String(
+            data=f'undock_robot|done|{self._goal_authority_instance_id}'))
 
 
 def main():
