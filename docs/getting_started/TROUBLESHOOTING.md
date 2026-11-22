@@ -61,7 +61,8 @@ If these checks fail, fix the setup before debugging higher-level launch or dock
 | Build creates `build/ install/ log/` in repo root | Built from wrong folder | Build from `openamr-platform-sw/ros2` |
 | `dock_trigger.py` exits silently | FastDDS issue on Jazzy | Use CycloneDDS |
 | Gazebo/RViz does not open | No graphical display or headless machine | Use headless launch arguments |
-| Robot does not move | `/cmd_vel` not reaching Gazebo | Check `/cmd_vel` and bridge |
+| Robot does not move | `/cmd_vel` not reaching Gazebo | Check `/cmd_vel`, `sim_cmd_vel_timeout` and the bridge on `/sim/base_cmd_vel` |
+| Robot moves, then stops after 0.2 s | The simulated base stops 0.2 s after the last `/cmd_vel` | Publish repeatedly (`-r 10`), not `--once` |
 | Nav2 does not plan | Costmap/localization not ready | Wait, check `/scan`, `/map`, `/tf` |
 | AprilTag is never detected | Camera/tag/config issue | Check image, camera info, tag family/size |
 | TF lookup errors | Missing transform or time mismatch | Check TF chain and `use_sim_time` |
@@ -419,26 +420,45 @@ Check whether velocity commands are being published:
 ros2 topic echo /cmd_vel
 ```
 
-Send a small manual command:
+Send a small manual command. Publish it repeatedly: the simulated base stops 0.2 s after the last
+command, like the real base.
 
 ```bash
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}" --once
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}"
 ```
 
-If `/cmd_vel` has messages but the robot does not move in Gazebo, check the Gazebo bridge and diff-drive plugin.
+If `/cmd_vel` has messages but the robot does not move in Gazebo, check the command timeout node,
+the Gazebo bridge and the diff-drive plugin:
+
+```bash
+ros2 topic info /sim/base_cmd_vel -v
+ros2 node list | grep -E 'sim_cmd_vel_timeout|bridge'
+```
+
+`/sim/base_cmd_vel` should have `sim_cmd_vel_timeout` as publisher and the bridge as subscriber.
+
+### Robot Moves Briefly, Then Stops
+
+In simulation `sim_cmd_vel_timeout` sends zero when no `/cmd_vel` has arrived for 0.2 s of
+simulation time, as the real base does (#79). A single `--once` command, or a publisher slower
+than 5 Hz, shows this. The `sim_cmd_vel_timeout` log then has the warning
+"holding the simulated base at zero". The next command moves the robot again.
 
 ### Nav2 Moves in RViz but Robot Does Not Move in Gazebo
 
-This usually means the ROS-to-Gazebo bridge is not forwarding `/cmd_vel`.
+This usually means the ROS-to-Gazebo bridge is not forwarding the command: `/cmd_vel` is read by
+`sim_cmd_vel_timeout`, which publishes `/sim/base_cmd_vel` for the bridge.
 
 Check:
 
 ```bash
-ros2 topic info /cmd_vel
-ros2 node list | grep bridge
+ros2 topic info /cmd_vel -v
+ros2 topic info /sim/base_cmd_vel -v
+ros2 node list | grep -E 'sim_cmd_vel_timeout|bridge'
 ```
 
-The bridge should be subscribed to `/cmd_vel`.
+`sim_cmd_vel_timeout` should be subscribed to `/cmd_vel`. The bridge should be subscribed to
+`/sim/base_cmd_vel`, not to `/cmd_vel`.
 
 ### Robot Moves but Drifts or Slides
 

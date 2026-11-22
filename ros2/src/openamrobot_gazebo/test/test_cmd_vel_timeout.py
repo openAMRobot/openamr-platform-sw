@@ -76,3 +76,12 @@ def test_age_follows_the_given_clock():
     assert t.age(3.25) == pytest.approx(0.25)
     assert t.on_tick(3.49) == (False, False)
     assert t.on_tick(3.5) == (True, True)
+
+
+def test_stale_message_names_the_age_and_never_prints_a_negative_one():
+    from openamrobot_gazebo.cmd_vel_timeout import describe_stale
+    normal = describe_stale(0.2, 0.2)
+    assert '0.200 s' in normal and 'holding the simulated base at zero' in normal
+    reset = describe_stale(-4.98, 0.2)
+    assert 'went back 4.980 s' in reset and 'holding the simulated base at zero' in reset
+    assert '-' not in reset.replace('(simulation reset?)', '')

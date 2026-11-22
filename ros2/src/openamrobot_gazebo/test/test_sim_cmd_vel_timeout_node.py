@@ -110,6 +110,44 @@ def test_next_command_resumes(rig):
     assert not node.timeout.stale
 
 
+def test_clock_reset_holds_zero_and_the_log_does_not_print_a_negative_age(rig, capfd):
+    # A simulation reset puts the clock before the last command. The base must stop (the command
+    # is from before the reset) and the log must say why, not "no /cmd_vel for -4.980 s".
+    node, harness, spin, set_clock = rig
+    set_clock(10.0)
+    command(harness, spin, 0.2)
+    for step in range(1, 5):
+        set_clock(10.0 + step * 0.01)
+    capfd.readouterr()
+    for step in range(4):                  # rclpy re-arms its timer after a backward jump:
+        set_clock(5.0 + step * 0.01)       # the first tick comes 0.02 s into the new timeline
+    log = capfd.readouterr().err
+    assert harness.out[-1] == 0.0
+    assert node.timeout.timeouts == 1
+    assert 'went back' in log and 'holding the simulated base at zero' in log, log
+    assert ' -' not in log.split('sim_cmd_vel_timeout]:')[-1], f'negative age in the log: {log}'
+
+
+def test_command_before_the_first_clock_message_is_held_at_zero_once_the_clock_starts(rig):
+    # Before the first /clock message the node clock reads 0 and its timer does not run, so the
+    # budget does not elapse while the simulation has not started (Gazebo publishes /clock, so
+    # nothing moves either). A command received then counts as older than the timeout as soon as
+    # the clock starts at a later time: fail-safe, the base is held at zero until the next command.
+    node, harness, spin, set_clock = rig
+    assert node.get_clock().now().nanoseconds == 0
+    command(harness, spin, 0.2)
+    spin(0.6)                              # wall time passes, the clock has not started
+    assert harness.out == [pytest.approx(0.2)]
+    assert node.timeout.timeouts == 0
+    set_clock(5.0)                         # the simulation already ran: first /clock is at 5 s
+    set_clock(5.02)
+    assert harness.out[-1] == 0.0
+    assert node.timeout.timeouts == 1
+    command(harness, spin, 0.15)           # non-latching: the next command passes
+    assert harness.out[-1] == pytest.approx(0.15)
+    assert not node.timeout.stale
+
+
 def test_no_timeout_while_the_simulation_clock_stands_still(rig):
     # At a real-time factor below 1 a lot of wall time passes per simulated second; only simulation
     # time counts. One wall second with the clock held at +0.1 s must not stop the base.

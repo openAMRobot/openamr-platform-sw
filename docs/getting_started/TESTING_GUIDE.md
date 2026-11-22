@@ -302,24 +302,31 @@ ros2 topic hz /rgb_image
 ros2 topic echo /odom --once
 ```
 
-Check the velocity command bridge:
+Check the velocity command path:
 
 ```bash
-ros2 topic info /cmd_vel
+ros2 topic info /cmd_vel -v
+ros2 topic info /sim/base_cmd_vel -v
 ```
 
-The Gazebo bridge should be connected to `/cmd_vel`.
+In simulation the bridge does not subscribe to `/cmd_vel`. `sim_cmd_vel_timeout` subscribes to
+`/cmd_vel` and forwards the commands to `/sim/base_cmd_vel`, the topic the Gazebo bridge
+subscribes to (#79). `/sim/base_cmd_vel` is internal to `openamrobot_gazebo`.
 
 Manual movement test:
 
 ```bash
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}" --once
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}"
 ```
 
 Expected:
 
-- Robot moves forward briefly in Gazebo.
-- `/odom` changes.
+- Robot moves forward in Gazebo while the command is published, and `/odom` changes.
+- After Ctrl+C the robot stops within a second: the simulated base stops 0.2 s after the last
+  `/cmd_vel`, like the real base.
+
+Publish repeatedly (`-r 10`). A single `--once` command is not held: the robot moves for about
+0.2 s of simulation time and then stops.
 
 Use a small velocity and stop the test if the robot behaves unexpectedly.
 

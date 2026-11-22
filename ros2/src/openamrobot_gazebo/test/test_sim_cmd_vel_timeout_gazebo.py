@@ -30,7 +30,11 @@ import tempfile
 import threading
 import time
 
+from geometry_msgs.msg import Twist
 import pytest
+import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.parameter import Parameter
 
 MODEL = 'openamrobot'
 POSES = '/world/walled_world/dynamic_pose/info'
@@ -43,6 +47,10 @@ DECEL = 0.5                 # m/s^2, DiffDrive min_linear_acceleration (gazebo_c
 # bridge and tick latency at full speed: 0.04 + 0.04 + 0.02 = 0.10 m; 0.15 m leaves margin.
 MAX_TRAVEL_AFTER_KILL_M = 0.15
 MAX_STOP_DELAY_S = 1.0      # simulation time from the kill until the body is still
+# Simulation time from the last command that reached the DiffDrive to the first zero: the timeout,
+# one 0.02 s tick, and the quantisation of the bridged /clock the two timestamps are read from.
+ZERO_DELAY_MIN_S = TIMEOUT_S - 0.03
+ZERO_DELAY_MAX_S = TIMEOUT_S + 0.15
 STILL_M_PER_S = 0.005
 
 
@@ -96,6 +104,38 @@ class WorldPose:
             return [(t, x, y) for t, x, y in self.samples if t0 <= t <= t1]
 
 
+class BaseCommands:
+    """What reaches Gazebo's DiffDrive: /sim/base_cmd_vel, stamped with simulation time."""
+
+    def __init__(self, domain_id):
+        self.context = rclpy.context.Context()
+        rclpy.init(context=self.context, domain_id=domain_id)
+        self.node = rclpy.create_node(
+            'test79_base_cmd_recorder', context=self.context,
+            parameter_overrides=[Parameter('use_sim_time', value=True)])
+        self.lock = threading.Lock()
+        self.samples = []  # (sim_s, linear_x)
+        self.node.create_subscription(Twist, '/sim/base_cmd_vel', self._on_command, 10)
+        self.executor = SingleThreadedExecutor(context=self.context)
+        self.executor.add_node(self.node)
+        self.thread = threading.Thread(target=self.executor.spin, daemon=True)
+        self.thread.start()
+
+    def _on_command(self, msg):
+        with self.lock:
+            self.samples.append((self.node.get_clock().now().nanoseconds * 1e-9, msg.linear.x))
+
+    def snapshot(self):
+        with self.lock:
+            return list(self.samples)
+
+    def close(self):
+        self.executor.shutdown()
+        self.thread.join(timeout=5)
+        self.node.destroy_node()
+        rclpy.shutdown(context=self.context)
+
+
 def _travel(pts):
     return math.hypot(pts[-1][1] - pts[0][1], pts[-1][2] - pts[0][2]) if len(pts) > 1 else 0.0
 
@@ -136,6 +176,7 @@ def sim():
                                'gui:=false'], env=env, stdout=log, stderr=subprocess.STDOUT,
                               stdin=subprocess.DEVNULL, start_new_session=True)
     pose = WorldPose(pose_v, gz_node)
+    commands = BaseCommands(int(env['ROS_DOMAIN_ID']))
     try:
         end = time.monotonic() + 120
         while pose.now() is None or pose.now() < 2.0:   # robot spawned and settled
@@ -144,8 +185,9 @@ def sim():
                 tail = log.read()[-2000:]
                 pytest.fail(f'simulation did not start (exit {launch.poll()}): {tail}')
             time.sleep(0.2)
-        yield pose, env, log
+        yield pose, env, log, commands
     finally:
+        commands.close()
         _kill_group(launch, signal.SIGINT)
         try:
             launch.wait(timeout=20)
@@ -155,7 +197,7 @@ def sim():
 
 
 def test_base_stops_after_its_cmd_vel_publisher_is_killed(sim):
-    pose, env, log = sim
+    pose, env, log, commands = sim
     pub = subprocess.Popen(['ros2', 'topic', 'pub', '-r', '20', '/cmd_vel',
                             'geometry_msgs/msg/Twist', f'{{linear: {{x: {SPEED}}}}}'],
                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -175,12 +217,22 @@ def test_base_stops_after_its_cmd_vel_publisher_is_killed(sim):
     travel_after = _travel(after)
     still = _still_from(after)
     last_2s = _travel(pose.between(t_kill + WATCH_S - 2.0, t_kill + WATCH_S))
-    log.seek(0)
-    timeouts_logged = log.read().count('holding the simulated base at zero')
+    # Structured evidence from what reaches the DiffDrive, not from a log line: the last non-zero
+    # command, and when the first zero followed it. Only the timeout can send that zero: the
+    # publisher was killed, and nothing else publishes /sim/base_cmd_vel.
+    sent = commands.snapshot()
+    nonzero = [t for t, vx in sent if vx != 0.0]
+    last_command_s = nonzero[-1] if nonzero else None
+    zeros = [t for t, vx in sent
+             if last_command_s is not None and t > last_command_s and vx == 0.0]
+    zero_delay = zeros[0] - last_command_s if zeros else None
     report = {'commanded_m_per_s': SPEED, 'driven_before_kill_m': round(driven, 4),
               'travel_after_kill_m': round(travel_after, 4),
               'still_after_kill_s': None if still is None else round(still - t_kill, 3),
-              'travel_last_2s_m': round(last_2s, 4), 'timeouts_logged': timeouts_logged,
+              'travel_last_2s_m': round(last_2s, 4),
+              'commands_forwarded': len(nonzero), 'zeros_sent_after_last_command': len(zeros),
+              'first_zero_after_last_command_s':
+                  None if zero_delay is None else round(zero_delay, 3),
               'samples_after_kill': len(after), 'kill_sim_s': round(t_kill, 3)}
     out = os.environ.get('OPENAMR_TEST79_REPORT')
     if out:
@@ -193,4 +245,8 @@ def test_base_stops_after_its_cmd_vel_publisher_is_killed(sim):
     assert travel_after <= MAX_TRAVEL_AFTER_KILL_M, f'base kept driving after the kill: {report}'
     assert still is not None and still - t_kill <= MAX_STOP_DELAY_S, f'base not still: {report}'
     assert last_2s < 0.002, f'base still moving at the end: {report}'
-    assert timeouts_logged >= 1, f'the command timeout did not report firing: {report}'
+    assert len(nonzero) > 20, f'few commands reached the DiffDrive path: {report}'
+    assert zero_delay is not None, f'the timeout never sent zero to the DiffDrive: {report}'
+    assert ZERO_DELAY_MIN_S <= zero_delay <= ZERO_DELAY_MAX_S, (
+        f'first zero {zero_delay:.3f} s after the last command, expected about {TIMEOUT_S} s: '
+        f'{report}')

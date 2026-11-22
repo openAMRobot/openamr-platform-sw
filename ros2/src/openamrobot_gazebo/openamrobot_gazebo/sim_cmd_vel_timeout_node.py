@@ -13,13 +13,19 @@ simulation time (use_sim_time), so it behaves the same at any real-time factor.
 /sim/base_cmd_vel is internal to openamrobot_gazebo: only this node publishes it and only the
 bridge reads it. Nothing else may use it; it is not an interface of the platform.
 
+Clock edge cases (all fail-safe, pinned by test_sim_cmd_vel_timeout_node.py): before the first
+/clock message the node clock reads 0 and its timer does not run, so nothing times out while the
+simulation (the source of /clock) has not started; a command received then counts as older than
+the timeout as soon as the clock starts at a later time, and the base is held at zero until the
+next command. A clock that goes backwards (a simulation reset) also counts as stale.
+
 It makes the simulated base stop when its commands stop, as the real base controller does. It is
 not the firmware watchdog and not safety evidence. Every timeout is logged with its age so a test
 or a trace can tell "the chain sent its own zero" apart from "the timeout had to stop the base".
 """
 
 from geometry_msgs.msg import Twist
-from openamrobot_gazebo.cmd_vel_timeout import CommandTimeout, DEFAULT_TIMEOUT_S
+from openamrobot_gazebo.cmd_vel_timeout import CommandTimeout, DEFAULT_TIMEOUT_S, describe_stale
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -64,10 +70,8 @@ class SimCmdVelTimeout(Node):
         if not hold_zero:
             return
         if newly:
-            age = self.timeout.age(now)
             self.get_logger().warning(
-                f'no {INPUT_TOPIC} for {age:.3f} s of node time (timeout '
-                f'{self.timeout.timeout_s:.3f} s): holding the simulated base at zero '
+                f'{describe_stale(self.timeout.age(now), self.timeout.timeout_s)} '
                 f'(timeout {self.timeout.timeouts})')
         self.pub.publish(Twist())
 

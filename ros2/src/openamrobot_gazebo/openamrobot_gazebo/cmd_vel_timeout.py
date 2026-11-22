@@ -65,3 +65,17 @@ class CommandTimeout:
     def age(self, now_s):
         """Seconds since the last command, or None before the first one."""
         return None if self.last_command_s is None else now_s - self.last_command_s
+
+
+def describe_stale(age_s, timeout_s):
+    """
+    Say why the base is held at zero, for the log.
+
+    A negative age is a clock that went backwards (a simulation reset), not a command "-5 s"
+    old; it is reported as such.
+    """
+    if age_s < 0.0:
+        return (f'node clock went back {-age_s:.3f} s since the last /cmd_vel '
+                '(simulation reset?): holding the simulated base at zero')
+    return (f'no /cmd_vel for {age_s:.3f} s of node time (timeout {timeout_s:.3f} s): '
+            'holding the simulated base at zero')

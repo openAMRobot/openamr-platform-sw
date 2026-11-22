@@ -68,7 +68,10 @@ than 200 ms with zero, non-latching (platform-fw `docs/safety/motion-safety.md`,
 
 - It forwards every command unchanged and, once no command has arrived for `timeout_s` (0.2 s,
   `config/sim_cmd_vel_timeout.yaml`), sends zero until the next command arrives.
-- It runs on simulation time, so it behaves the same at any real-time factor.
+- It runs on simulation time, so it behaves the same at any real-time factor. Before the first
+  `/clock` message the node clock reads 0 and nothing times out; a command received then is held
+  at zero once the clock starts. A clock that goes backwards (a simulation reset) also stops the
+  base, and the log says so.
 - Every timeout is logged ("holding the simulated base at zero"), so a trace shows whether the
   command chain sent its own zero or the timeout had to stop the base.
 - `/sim/base_cmd_vel` is internal to this package: only this node publishes it, only the bridge
@@ -81,7 +84,8 @@ Simulation only. It is not the firmware's command watchdog and not safety eviden
 Tests (`test/`): `test_cmd_vel_timeout.py` (the decision logic, no ROS),
 `test_sim_cmd_vel_timeout_node.py` (the node on a simulated clock, no Gazebo) and
 `test_sim_cmd_vel_timeout_gazebo.py` (headless Gazebo: the base stops after its `/cmd_vel`
-publisher is SIGKILLed, measured from Gazebo's world pose; skips without `gz` unless
+publisher is SIGKILLed, measured from Gazebo's world pose and from what reaches
+`/sim/base_cmd_vel`; skips without `gz` unless
 `OPENAMR_REQUIRE_GZ=1`).
 
 ## Launch Arguments
