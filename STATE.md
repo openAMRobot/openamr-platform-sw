@@ -25,6 +25,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | E-01 safety docs | #66 | draft | owner review |
 | Devcontainer | #57 | in review | owner review |
 | Nav2 behavior_server remap (#35) | #54 | in review | owner review |
+| Read-only bench diagnostics `tools/bench/` (lidar_identify.sh, ros_graph_snapshot.sh, can_readonly.sh; no publish, no CAN send, no link change; test_bench_readonly.py, workflow `bench-tools-tests`; 22 Nov 2026), for the 23 Nov bench gate (b) | bench/readonly-diagnostics-2026-11-23 | draft | software lead: adopt, adapt or reject; bench: run on the robot with the LiDAR and CAN adapter connected |
 | Gemini 336L base camera simulation | #53 | draft | owner review |
 | Named volume `openamrobot_maps` mounted at `/data/maps` in the platform container, unblocks openamrobot-ui #53 | #114 | approved (panthera-momagdii) | owner merge |
 | Launch Nav2's map_saver_server so `/map_saver/save_map` is available (new `map_saver_launch.py`, included from `bringup.launch.py` and `sim_bringup_launch.py`) | #115 | changes requested (panthera-momagdii, use_sim_time + namespace fixed) | re-review |
