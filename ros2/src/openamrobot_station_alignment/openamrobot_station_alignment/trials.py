@@ -31,6 +31,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from openamrobot_station_alignment import evaluation, geometry, scene
 from openamrobot_station_alignment.evaluation import (COMMAND_PUBLISHERS, REACH_XY, REACH_YAW, START_POSES,
@@ -149,6 +150,28 @@ class Runner(Node):
         return {4: "succeeded", 5: "canceled", 6: "aborted"}.get(result.result().status, str(result.result().status)), \
             time.monotonic() - started
 
+    def release_software_stop(self, present_wall_s=20.0, release_wall_s=90.0):
+        """Operator release of the software Stop (openamrobot_nav2 safety_stop_gate_node, #90) before the first goal.
+        The gate starts locked and refuses goals until /safety/stop_lock_release succeeds. -> record for the result
+        file. Only the gate's public service is called. A functional stop of the test stack, not the hardwired E-stop."""
+        client = self.create_client(Trigger, "/safety/stop_lock_release")
+        record = {"gate_present": client.wait_for_service(timeout_sec=present_wall_s), "released": None, "message": ""}
+        if not record["gate_present"]:
+            return record
+        end = time.monotonic() + release_wall_s
+        while time.monotonic() < end:
+            future = client.call_async(Trigger.Request())
+            wait = time.monotonic() + 10.0
+            while not future.done() and time.monotonic() < wait:
+                time.sleep(0.05)
+            if future.done() and future.result() is not None:
+                record["released"], record["message"] = future.result().success, future.result().message
+                if record["released"]:
+                    break
+            time.sleep(1.0)
+        record["released"] = bool(record["released"])
+        return record
+
     def measure(self, station):
         settled = self.get_clock().now().nanoseconds + int(0.5 * 1e9)
         self.sleep_sim(2.5)
@@ -201,6 +224,10 @@ def main(argv=None):
                                args.startup_timeout)
              and node.wait_for("station alignment", lambda: node.align.wait_for_server(timeout_sec=1.0), 120.0)
              and node.wait_for("AMCL pose", lambda: node.amcl() is not None, 300.0))
+    if ready:
+        record["software_stop"] = node.release_software_stop()
+        print(json.dumps({"software_stop": record["software_stop"]}), flush=True)
+        ready = not record["software_stop"]["gate_present"] or record["software_stop"]["released"]
     record["ready"] = ready
     if ready:
         for index in range(args.trials):
