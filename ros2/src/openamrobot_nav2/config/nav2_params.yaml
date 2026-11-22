@@ -180,13 +180,12 @@ controller_server:
       # PROPOSED (upperbody #117, platform #182 comment 7078214371): not stateful. With RPP's default stateful true the
       # position is latched at the 0.025 m edge and the controller only rotates afterwards; a small pose shift then leaves
       # the station goal checker unsatisfied and the 0.05 m progress checker aborts after 12 s (run 45010425642 leg 1).
-      stateful: false
       rotate_to_heading_angular_vel: 0.25         # StationApproach v_angular_min_in_place
       max_angular_accel: 3.0                      # FollowPath
       use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 1.0
       transform_tolerance: 0.6                    # StationApproach
-      stateful: true
+      stateful: false
     FollowPath:
       # RotationShimController: makes the robot ROTATE toward the path before driving (DWB alone
       # struggles to turn in place to set off in another direction). DWB remains the sub-controller.
