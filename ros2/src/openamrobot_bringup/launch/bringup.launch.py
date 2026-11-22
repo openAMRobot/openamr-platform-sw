@@ -6,18 +6,26 @@ for both profiles. The same Nav2 stack and the SAME ``nav2_params.yaml`` run in 
 cases; only the data source and the clock differ.
 
 * ``sim:=false`` (default) — real hardware: openamrobot_drivers + openamrobot_perception
-  + EKF + measured static TFs, then localization + Nav2 with ``use_sim_time:=false`` and a
-  ``/goal_pose -> /goal_pose_nav`` relay (so the RViz "2D Goal Pose" reaches Nav2). No Gazebo
-  window; RViz only if ``use_rviz:=true``. Needs the real hardware and a real map.
+  + EKF + measured static TFs, then localization + Nav2 with ``use_sim_time:=false`` and
+  ``goal_pose_forwarder_node`` (so the RViz "2D Goal Pose" reaches Nav2 through the public
+  navigate_to_pose action, platform-sw#90). No Gazebo window; RViz only if ``use_rviz:=true``.
+  Needs the real hardware and a real map.
 * ``sim:=true`` — simulation: openamrobot_gazebo (Gazebo + gz_bridge + robot_state_publisher)
-  publishes the same topics, then localization + Nav2 with ``use_sim_time:=true``, plus the docking
-  layer (``use_docking:=true`` by default). Opens the Gazebo window; no hardware needed. This makes
+  publishes the same topics, then localization + Nav2 with ``use_sim_time:=true``; docking is
+  OFF by default here too (see D-19 below — #124's dock_robot server does not exist yet, on
+  either profile). Opens the Gazebo window; no hardware needed. This makes
   ``sim:=true`` the single command for the whole simulation (it replaces the legacy
   ``openamrobot_docking/bringup_sim.launch.py``, which still works for backwards compatibility).
 
-Docking is ON by default in BOTH profiles. ``dock_trigger`` owns ``/goal_pose`` and forwards it to
-``/goal_pose_nav`` (it IS the goal forwarder). With ``use_docking:=false`` a plain relay takes over
-that forwarding for nav-only debugging. Exactly one forwarder runs — never both.
+Docking is OFF by default on BOTH profiles (D-19, Alex's 19 Nov owner decision, superseding the
+11 Nov sim-on/real-off split once the goal-proxy question was settled — #124's dock_robot server
+does not exist yet, so there is nothing for either profile to start). ``goal_pose_forwarder_node``
+is therefore the sole ``/goal_pose`` forwarder by default in both profiles, sending every pose as
+a real NavigateToPose goal on the public navigate_to_pose action (platform-sw#90). Pass
+``use_docking:=true`` explicitly to opt into testing #124 once the dock_robot server lands on
+that branch — it is not a supported configuration otherwise, and remains off on the real robot
+until D-19's three conditions (see the ``use_docking`` DeclareLaunchArgument below) are also met
+there.
 
   # real, everything
   ros2 launch openamrobot_bringup bringup.launch.py
@@ -92,6 +100,17 @@ def launch_setup(context, *args, **kwargs):
     map_file = LaunchConfiguration('map').perform(context)
     is_sim = _truthy(sim)
 
+    # D-19 (Alex, 19 Nov owner decision on platform-sw#90's item 1, superseding the
+    # 11 Nov sim-on/real-off split): docking is OFF by default on BOTH profiles now -
+    # #124's dock_robot server does not exist on main, so there is nothing for the
+    # simulation default to start either. Resolved here rather than in the
+    # declaration so that an explicit use_docking:=true still works once #124 lands
+    # (sim, to test it) or D-19's three real-profile conditions are met (real).
+    if use_docking == '':
+        use_docking = 'false'
+        print('[bringup] D-19 (19 Nov): docking is off by default on both profiles '
+              '(pass use_docking:=true only once #124 conditions are met)')
+
     # Map gating (Raj review PR2): the real robot must NOT silently fall back to the bundled
     # sim map.
     if not map_file:
@@ -133,43 +152,46 @@ def launch_setup(context, *args, **kwargs):
             parameters=[os.path.join(nav2, 'config', 'scan_body_filter_sim.yaml'),
                         {'use_sim_time': True}]))
         # Goal routing (sim) — SYMMETRIC to the real branch below, gated by use_docking.
-        # navigation_launch remaps bt_navigator's goal to goal_pose_nav (for the docking gate), so
-        # the RViz "2D Goal Pose" (/goal_pose) must be forwarded or it never reaches Nav2. Exactly
-        # ONE forwarder runs: dock_trigger (when docking) OR a plain relay (nav-only) — never both.
+        # navigation_launch remaps bt_navigator's goal to a name nothing publishes to
+        # (platform-sw#90), so the RViz "2D Goal Pose" (/goal_pose) must be forwarded onto
+        # the public navigate_to_pose action or it never reaches Nav2. Exactly ONE forwarder
+        # runs: dock_trigger (when docking) OR goal_pose_forwarder_node (nav-only) — never both.
         if _truthy(use_docking):
             # Sim docking layer (gz camera_info bridge + sync + apriltag_sim + detected_dock_pose +
-            # dock_trigger). dock_trigger OWNS /goal_pose and forwards it to /goal_pose_nav, so it
-            # IS the forwarder (no relay). This folds the legacy
-            # openamrobot_docking/bringup_sim.launch.py into the unified bringup: `sim:=true` now
-            # does Gazebo + Nav2 + docking in one command.
+            # dock_trigger). dock_trigger OWNS /goal_pose and forwards it to /goal_pose_nav - which
+            # bt_navigator no longer listens on (#124's own scope to fix, not this PR's). This
+            # folds the legacy openamrobot_docking/bringup_sim.launch.py into the unified bringup:
+            # `sim:=true` now does Gazebo + Nav2 + docking in one command.
             docking = get_package_share_directory('openamrobot_docking')
             actions.append(IncludeLaunchDescription(
                 src(docking, 'openamrobot_docking.launch.py'),
                 launch_arguments={'use_sim_time': sim}.items()))
         else:
-            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch
-            # by hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no
-            # docking.
+            # nav-only debug (no docking): the standalone forwarder (same brick you'd launch
+            # by hand in the per-terminal workflow). Exactly one forwarder -> here
+            # goal_pose_forwarder_node, no docking.
             actions.append(IncludeLaunchDescription(src(bringup, 'goal_relay.launch.py')))
     else:
         actions.append(IncludeLaunchDescription(
             src(bringup, 'real_bringup.launch.py'),
             launch_arguments={'use_camera': use_camera}.items()))
-        # Goal routing (real only). navigation_launch remaps bt_navigator's goal to goal_pose_nav
-        # so the docking node can gate /goal_pose (undock-before-navigate).
+        # Goal routing (real only). navigation_launch remaps bt_navigator's goal to a name
+        # nothing publishes to (platform-sw#90) - the docking node's own gate on /goal_pose
+        # (undock-before-navigate) stays unchanged, out of this PR's scope (#124).
         if _truthy(use_docking):
             # Real docking: dock_trigger OWNS /goal_pose and forwards it to /goal_pose_nav (after
-            # undocking if docked, immediately otherwise) -> replaces the placeholder relay AND
-            # adds AprilTag docking. Needs the physical dock + tags (config/tags_36h11.yaml,
-            # config/dock_trigger.yaml). Harmless if the dock is absent (just forwards goals).
+            # undocking if docked, immediately otherwise) - bt_navigator no longer listens on that
+            # name (#124's own scope), same as the sim branch above. Needs the physical dock and
+            # tags (config/tags_36h11.yaml, config/dock_trigger.yaml). Harmless if the dock is
+            # absent (just forwards goals nowhere useful yet).
             docking = get_package_share_directory('openamrobot_docking')
             actions.append(IncludeLaunchDescription(
                 src(docking, 'docking_real.launch.py'),
                 launch_arguments={'use_sim_time': sim}.items()))
         else:
-            # nav-only debug (no docking): the standalone relay forwarder (same brick you'd launch
-            # by hand in the per-terminal workflow). Exactly one forwarder -> here the relay, no
-            # docking.
+            # nav-only debug (no docking): the standalone forwarder (same brick you'd launch
+            # by hand in the per-terminal workflow). Exactly one forwarder -> here
+            # goal_pose_forwarder_node, no docking.
             actions.append(IncludeLaunchDescription(src(bringup, 'goal_relay.launch.py')))
 
     # --- same Nav2 stack on top of either source ---
@@ -180,11 +202,20 @@ def launch_setup(context, *args, **kwargs):
         launch_arguments={
             'map': '', 'params_file': params_with_map, 'use_sim_time': sim,
         }.items()))
+    # enabled_producers (platform-sw#124, D-13; panthera-momagdii's #90 review, P1): derived
+    # from THIS profile's own use_docking, not left at navigation_launch.py's own default
+    # (which enables all four unconditionally). With use_docking:=false no docking server/
+    # heartbeat exists at all, so dock_robot/undock_robot must be excluded by name here, or
+    # _release_blockers() reads them as never-received/UNKNOWN forever and Resume never
+    # succeeds in nav-only mode.
+    enabled_producers = (
+        'navigate_to_pose,navigate_through_poses,dock_robot,undock_robot' if _truthy(use_docking)
+        else 'navigate_to_pose,navigate_through_poses')
     actions.append(IncludeLaunchDescription(
         src(nav2, 'navigation_launch.py'),
         # navigation_launch no longer runs a scan filter (it's owned by the data source above) —
         # it only consumes /scan_filtered. Exactly one /scan_filtered publisher per profile.
-        launch_arguments={'use_sim_time': sim}.items()))
+        launch_arguments={'use_sim_time': sim, 'enabled_producers': enabled_producers}.items()))
     actions.append(IncludeLaunchDescription(
         src(nav2, 'map_saver_launch.py'),
         launch_arguments={'use_sim_time': sim}.items()))
@@ -215,11 +246,21 @@ def generate_launch_description():
             'use_camera', default_value='true',
             description='Real only: launch the IMX708 camera (false = lighter load).'),
         DeclareLaunchArgument(
-            'use_docking', default_value='true',
-            description='Sim AND real: docking is ON by default (dock_trigger owns /goal_pose '
-                        'and IS the goal forwarder). Set false only for nav-only debug -> a plain '
-                        'topic_tools relay /goal_pose->/goal_pose_nav takes over as the '
-                        'forwarder. Exactly one forwarder runs in either case.'),
+            'use_docking', default_value='',
+            description='Empty (default) means OFF on BOTH profiles (D-19, Alex, 19 Nov owner '
+                        "decision on #90's item 1 - #124's dock_robot server does not exist "
+                        'on main yet, so the simulation default has nothing to start either). '
+                        'D-19 (Alex, 11 Nov) separately keeps reverse and automatic undock '
+                        'disabled in Build 1, and the opennav_docking server exposes a direct '
+                        '/undock_robot that the #90 constant cannot gate, so the real profile '
+                        'must not start it until (1) release no longer needs a dock_robot '
+                        'server, (2) a direct /undock_robot produces no motion, and (3) the '
+                        'real-profile runtime test runs - those three stay the real-robot bar '
+                        'even once #124 lands for simulation. Dock_trigger owns /goal_pose and '
+                        'IS the goal forwarder when on; when off (the default) '
+                        'goal_pose_forwarder_node takes over, sending every /goal_pose as a '
+                        'real NavigateToPose goal on the public navigate_to_pose action '
+                        '(platform-sw#90). Exactly one forwarder runs in either case.'),
         DeclareLaunchArgument(
             'map', default_value='',
             description='Map YAML for AMCL/localization. Empty -> sim uses the bundled '
