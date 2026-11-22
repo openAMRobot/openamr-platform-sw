@@ -8,9 +8,9 @@ not how the robot moves. reverse_paths() lists every way the configuration lets 
    class, whatever name they are registered under).
 2. A DWB controller (FollowPath's primary controller) has a negative min_vel_x.
 3. velocity_smoother lets a negative linear x through (min_velocity[0] < 0).
-4. A graceful controller allows backward motion. nav2_graceful_controller turns allow_backward off itself when
-   initial_rotation is on (it logs "setting allow backward to false"), so allow_backward with initial_rotation is
-   effective forward-only and is not listed; the test of that rule is below.
+4. A graceful controller sets allow_backward true. nav2_graceful_controller turns it off itself when
+   initial_rotation is on (it logs "setting allow backward to false"), but the file must say what runs, so any
+   allow_backward true is listed, with or without initial_rotation (Kunal's review of #164 and #178).
 5. A behaviour tree calls BackUp, DriveOnHeading or AssistedTeleop (none of them is registered, see 1).
 
 The Baseline 1 retreat of openamr-upperbody-sw uses behavior_server's backup action today; with this configuration it
@@ -53,8 +53,8 @@ def reverse_paths(params, trees):
             if values.get('min_vel_x', 0.0) < 0.0:
                 found.append(f'{name} min_vel_x {values["min_vel_x"]}')
         if 'graceful' in plugin.lower():
-            if values.get('allow_backward', False) and not values.get('initial_rotation', True):
-                found.append(f'{name} allow_backward true without initial_rotation')
+            if values.get('allow_backward', False):
+                found.append(f'{name} allow_backward true')
     smoother = params.get('velocity_smoother', {}).get('ros__parameters', {})
     if smoother.get('min_velocity', [0.0])[0] < 0.0:
         found.append(f'velocity_smoother min_velocity {smoother["min_velocity"]}')
@@ -108,13 +108,15 @@ def test_the_check_finds_each_reverse_path():
     assert len(found) == 7, found
 
 
-def test_graceful_allow_backward_counts_only_without_initial_rotation():
+def test_graceful_allow_backward_true_is_a_reverse_path():
     def graceful(**values):
         return {'controller_server': {'ros__parameters': {
             'controller_plugins': ['A'], 'A': dict(plugin='nav2_graceful_controller::GracefulController', **values)}}}
-    assert reverse_paths(graceful(allow_backward=True, initial_rotation=True), {}) == []
+    assert reverse_paths(graceful(allow_backward=True, initial_rotation=True), {}) != []
+    assert reverse_paths(graceful(allow_backward=False, initial_rotation=True), {}) == []
     assert reverse_paths(graceful(allow_backward=True, initial_rotation=False), {}) != []
     params, _trees = shipped()
     station = params['controller_server']['ros__parameters'].get('StationApproach')
     if station is not None:
-        assert station['initial_rotation'] is True, 'StationApproach relies on initial_rotation for forward-only'
+        assert station['allow_backward'] is False, 'StationApproach is forward only (D-19)'
+        assert station['initial_rotation'] is True
