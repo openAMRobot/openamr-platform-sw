@@ -54,7 +54,9 @@ done
 case $seconds in
     '' | *[!0-9]*) refuse "--seconds must be a whole number" ;;
 esac
-[ "$seconds" -ge 1 ] && [ "$seconds" -le 120 ] || refuse "--seconds must be 1 to 120"
+if [ "$seconds" -lt 1 ] || [ "$seconds" -gt 120 ]; then
+    refuse "--seconds must be 1 to 120"
+fi
 
 bench_init can_readonly "$out"
 have ip || { say "BLOCKED: ip (iproute2) not installed"; not_checked "everything: no ip tool"; bench_finish; exit 0; }

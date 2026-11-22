@@ -37,7 +37,9 @@ done
 case $seconds in
     '' | *[!0-9]*) echo "--seconds must be a whole number" >&2; exit 2 ;;
 esac
-[ "$seconds" -ge 3 ] && [ "$seconds" -le 60 ] || { echo "--seconds must be 3 to 60" >&2; exit 2; }
+if [ "$seconds" -lt 3 ] || [ "$seconds" -gt 60 ]; then
+    { echo "--seconds must be 3 to 60" >&2; exit 2; }
+fi
 
 bench_init ros_graph_snapshot "$out"
 
