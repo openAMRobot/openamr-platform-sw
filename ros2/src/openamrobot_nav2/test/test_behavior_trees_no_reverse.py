@@ -9,6 +9,12 @@ how the robot moves; the velocity clamps (min_vel_x, velocity_smoother.min_veloc
    blackboard that this file cannot prove forward.
 3. bt_navigator's default trees are files of this package, so Nav2's stock trees (which contain BackUp) are not loaded.
 4. Spin and Wait stay in each recovery round robin: only the reversing action was removed.
+5. No nav2_graceful_controller plugin in controller_server has allow_backward true (Kunal's
+   review of #164: this PR's own StationApproach shipped allow_backward true, contradicting
+   point 1-3's own D-19 reasoning, with nothing here checking controller_server at all -
+   test_baseline1_no_reverse_paths.py on platform-sw#178 covers the full reverse-path surface
+   including behavior_server/DWB/velocity_smoother, which is #178's own removal scope, not
+   #164's; this is the narrow part of that same check that belongs here).
 """
 import os
 import xml.etree.ElementTree as ET
@@ -79,3 +85,28 @@ def test_spin_and_wait_stay_in_each_recovery_round_robin():
         for robin in robins:
             assert robin.find('Spin') is not None, f'{name}: Spin removed'
             assert robin.find('Wait') is not None, f'{name}: Wait removed'
+
+
+def graceful_controllers_with_backward_allowed(controller_server):
+    """Name of every nav2_graceful_controller plugin whose allow_backward is true."""
+    found = []
+    for name in controller_server.get('controller_plugins', []):
+        values = controller_server.get(name, {}) or {}
+        if 'graceful' in values.get('plugin', '').lower() and values.get('allow_backward', False):
+            found.append(name)
+    return found
+
+
+def test_the_check_finds_a_graceful_controller_with_backward_allowed():
+    controller_server = {
+        'controller_plugins': ['A'],
+        'A': {'plugin': 'nav2_graceful_controller::GracefulController', 'allow_backward': True},
+    }
+    assert graceful_controllers_with_backward_allowed(controller_server) == ['A']
+
+
+def test_no_graceful_controller_allows_backward():
+    with open(PARAMS) as f:
+        controller_server = yaml.safe_load(f)['controller_server']['ros__parameters']
+    found = graceful_controllers_with_backward_allowed(controller_server)
+    assert not found, f'{found} allow(s) backward (no general reversing, D-19)'
