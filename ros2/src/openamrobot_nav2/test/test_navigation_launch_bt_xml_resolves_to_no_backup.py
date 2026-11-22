@@ -13,6 +13,7 @@ via RewrittenYaml (see navigation_launch.py's own param_substitutions).
 See test_behavior_trees_no_backup.py for the static check that the BT
 files themselves never contain a BackUp node.
 """
+import faulthandler
 import os
 import signal
 import subprocess
@@ -67,7 +68,24 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
     def tearDownClass(cls):
         rclpy.shutdown()
 
+    # Mohamed's 22 Nov review on a00e497: producer-tests has hung in this
+    # class's own test_default_nav_to_pose_bt_xml_resolves_to_the_no_backup_
+    # file three times (0bb2e97, 4fad3d8, 2dd1c74) despite every Python-level
+    # wait in this file already being individually bounded - the block is
+    # somewhere inside rclpy or the launched subprocess tree itself, not in
+    # application code, so no amount of tightening the loops above can name
+    # it. This class's own nominal worst case is well under 2 minutes (90s
+    # service wait + 5s future + bounded setup/teardown); 180s is real
+    # margin for a loaded CI runner, not a tight bound that could itself
+    # become a flake. exit=True actually terminates a hung run instead of
+    # just reporting while the hang continues, so the job fails fast with a
+    # stack trace instead of consuming the full job timeout - see Mohamed's
+    # own example call. Cancelled in tearDown so a normally-completing test
+    # never triggers it.
+    HANG_DIAGNOSIS_S = 180
+
     def setUp(self):
+        faulthandler.dump_traceback_later(self.HANG_DIAGNOSIS_S, exit=True)
         self._proc = _start_navigation_launch()
         self.node = rclpy.create_node('bt_xml_resolution_probe')
         # Static identity map->odom->base_link, published once (TRANSIENT_
@@ -96,6 +114,7 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
     def tearDown(self):
         _stop_navigation_launch(self._proc)
         self.node.destroy_node()
+        faulthandler.cancel_dump_traceback_later()
 
     def _get_bt_navigator_param(self, name, timeout_s=90.0):
         # 30.0 was enough locally but timed out on the hosted CI runner
