@@ -177,6 +177,10 @@ controller_server:
       allow_reversing: false
       use_rotate_to_heading: true
       rotate_to_heading_min_angle: 0.25           # StationApproach initial_rotation_tolerance
+      # PROPOSED (upperbody #117, platform #182 comment 7078214371): not stateful. With RPP's default stateful true the
+      # position is latched at the 0.025 m edge and the controller only rotates afterwards; a small pose shift then leaves
+      # the station goal checker unsatisfied and the 0.05 m progress checker aborts after 12 s (run 45010425642 leg 1).
+      stateful: false
       rotate_to_heading_angular_vel: 0.25         # StationApproach v_angular_min_in_place
       max_angular_accel: 3.0                      # FollowPath
       use_collision_detection: true

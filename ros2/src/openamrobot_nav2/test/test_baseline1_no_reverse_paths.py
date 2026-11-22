@@ -162,3 +162,11 @@ def test_the_station_retreat_tree_uses_station_retreat_and_the_station_checker()
     station = ET.fromstring(trees['navigate_to_station.xml'])
     station_controllers = {f.get('controller_id') for f in station.iter('FollowPath')}
     assert station_controllers == {'{selected_controller}', 'StationApproach'}, 'the shelf keeps StationApproach'
+
+
+def test_station_retreat_is_not_stateful():
+    """PROPOSED (platform #182 comment 7078214371): RPP's default stateful true latches the position at the 0.025 m
+    edge and then only rotates; a small pose shift leaves the goal checker unsatisfied until the progress checker
+    aborts (upperbody run 45010425642 leg 1). Not stateful, RPP re-checks the position every cycle."""
+    params, _trees = shipped()
+    assert params['controller_server']['ros__parameters']['StationRetreat']['stateful'] is False
