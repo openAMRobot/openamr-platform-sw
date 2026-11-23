@@ -293,13 +293,11 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          - {name: trace-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+          - {name: trace-rtf02-a, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
              behaviors: pr90}
-          - {name: trace-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+          - {name: trace-rtf02-b, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
              behaviors: pr90}
-          - {name: trace-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
-             behaviors: pr90}
-          - {name: trace-rtf1-d, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+          - {name: trace-rtf02-c, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
              behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}

@@ -59,9 +59,10 @@ class Runner(Node):
         from rcl_interfaces.msg import Log
         from geometry_msgs.msg import Twist, TwistStamped
         self.create_subscription(Log, "/rosout", self._on_log, 200)
-        for topic in ("/cmd_vel_nav", "/cmd_vel_smoothed", "/cmd_vel"):
-            self.create_subscription(Twist, topic, self._on_cmd(topic, False), 10)
-            self.create_subscription(TwistStamped, topic, self._on_cmd(topic, True), 10)
+        # One subscription per topic, of the type the topic actually has: Fast DDS refuses a second type on a topic
+        # (platform-sw #197), so the type is looked up once the publisher is there (_subscribe_commands, from _sample).
+        self._cmd_types = {"geometry_msgs/msg/Twist": (Twist, False), "geometry_msgs/msg/TwistStamped": (TwistStamped, True)}
+        self._cmd_pending = {"/cmd_vel_nav", "/cmd_vel_smoothed", "/cmd_vel"}
         self.create_timer(0.5, self._sample)
         self.create_subscription(Odometry, "/station_alignment/ground_truth/odom", self._store("truth"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._store("amcl"), 10)
@@ -107,6 +108,18 @@ class Runner(Node):
                     self.counts[key] = self.counts.get(key, 0) + 1
         return cb
 
+    def _subscribe_commands(self):
+        if not self._cmd_pending:
+            return
+        known = dict(self.get_topic_names_and_types())
+        for topic in sorted(self._cmd_pending):
+            for name in known.get(topic, []):
+                if name in self._cmd_types:
+                    cls, stamped = self._cmd_types[name]
+                    self.create_subscription(cls, topic, self._on_cmd(topic, stamped), 10)
+                    self._cmd_pending.discard(topic)
+                    break
+
     def _on_cmd(self, topic, stamped):
         def cb(msg):
             t = msg.twist if stamped else msg
@@ -124,6 +137,7 @@ class Runner(Node):
                                           msg.msg[:160]))
 
     def _sample(self):
+        self._subscribe_commands()
         with self.lock:
             if self.trace is None:
                 return
