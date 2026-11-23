@@ -341,6 +341,9 @@ class StationAlignment(Node):
         safety checks they go through (Nav2 controller_server, the velocity smoother, the collision monitor
         and the Stop gate, same as the nominal goal - traced for #192).
 
+        The caller lets the skip stand only when a usable marker window follows (run()); without one the nominal
+        goal is sent, so "not aligned" keeps meaning "where #164 stopped the base".
+
         This is an opportunistic check, not a requirement: a single, non-blocking TF lookup, not
         _map_from_base / _tf_pose (which retries for up to tf_wait_s - that would add a real wait to every
         goal just to decide whether to skip one). False, "" when the request frame is not global_frame (the
@@ -451,6 +454,16 @@ class StationAlignment(Node):
 
         def run():
             skip, why = self._skip_nominal_goal(target, frame)
+            if skip:
+                # The skip stands only on a usable marker measurement (review of 7e4251c). Without one the base
+                # could be left up to max_correction_xy / max_correction_yaw from the station with no Nav2 goal
+                # ever sent, and reported "not aligned" (SUCCEEDED under on_marker_not_seen: succeed_unaligned)
+                # as if #164 had stopped it there. No usable marker: send the nominal goal as before the skip.
+                self._sleep_sim(float(p("settle_s")))
+                status, _ = self._collect(self.get_clock().now())
+                if status != sampling.DONE:
+                    report["skip_withdrawn"] = f"{why}; no usable marker ({status}), nominal goal sent"
+                    skip = False
             if skip:
                 nominal_ok = True
             else:
