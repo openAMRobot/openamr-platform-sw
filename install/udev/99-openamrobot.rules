@@ -1,0 +1,78 @@
+# OpenAMRobot persistent device names for the Jetson host.
+#
+# Install:
+#   sudo install -m 0644 99-openamrobot.rules /etc/udev/rules.d/99-openamrobot.rules
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# Check:
+#   udevadm verify install/udev/99-openamrobot.rules
+#   ls -l /dev/openamr/
+#
+# Launch files, systemd units and the environment file refer to /dev/openamr/<name> only.
+# tests/install/test_udev_rules.py checks that every such name exists below.
+#
+# Vendor and product IDs come from vendor documents or the Linux kernel source:
+#   Slamtec sllidar_ros2 scripts/rplidar.rules   10c4:ea60 (Silicon Labs CP210x UART bridge)
+#   Orbbec OrbbecSDK_ROS2 99-obsensor-libusb.rules   2bc5:0807 (Gemini 336L)
+#   PJRC 00-teensy.rules   16c0:04xx (Teensy USB serial is 16c0:0483)
+#   OpenOCD 60-openocd.rules   0483:374x (ST-LINK family)
+#   Linux drivers/net/can/usb/gs_usb.c   gs_usb / candleLight family IDs
+# Every ID that no document gives is marked TODO(Karthikeyan) and has no active rule.
+# The group "plugdev" must exist and the operator user must be a member; "dialout" owns
+# serial devices on Ubuntu 24.04.
+
+# --- Navigation LiDAR: RPLIDAR S3 and RPLIDAR A1 (legacy, existing robot) -------------
+# Both ship behind a CP210x UART bridge (10c4:ea60), so VID and PID cannot tell them
+# apart. The serial number can, once it is read on the unit:
+#   udevadm info -a -n /dev/ttyUSB0 | grep -E 'ATTRS\{(serial|product)\}'
+# TODO(Karthikeyan): read the serial of the S3 adapter and of the A1 adapter, replace the
+# two placeholders below and remove the comment marks. CP2102 adapters often carry the
+# factory serial 0001; if both adapters report it, use KERNELS=="<usb port path>" instead.
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="TODO_S3_ADAPTER_SERIAL", SYMLINK+="openamr/lidar_s3", GROUP="dialout", MODE="0660"
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="TODO_A1_ADAPTER_SERIAL", SYMLINK+="openamr/lidar_a1", GROUP="dialout", MODE="0660"
+# Fallback while the serials are unknown: the first CP210x tty gets the generic name. With
+# two CP210x devices plugged in at once this name is ambiguous; do not rely on it then.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="openamr/lidar", GROUP="dialout", MODE="0660"
+
+# --- Orbbec Gemini 336L (base camera). The SDK needs raw USB access (libusb). ----------
+SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", ATTR{idProduct}=="0807", GROUP="video", MODE="0666", SYMLINK+="openamr/gemini_336l"
+# Bootloader / firmware update mode of the Orbbec family (from the same Orbbec file).
+SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", ATTR{idProduct}=="0501", GROUP="video", MODE="0666", SYMLINK+="openamr/orbbec_bootloader"
+
+# --- Stereolabs ZED Mini (head camera). ------------------------------------------------
+# TODO(Karthikeyan): read the USB IDs of the ZED Mini on the unit (lsusb) and from the
+# ZED SDK installer rules, then add the rule. The ZED SDK installer normally installs its
+# own rules; no ID is hard-coded here because none is in a document we hold.
+# SUBSYSTEM=="usb", ATTR{idVendor}=="TODO", ATTR{idProduct}=="TODO", GROUP="video", MODE="0666", SYMLINK+="openamr/zed_mini"
+
+# --- Teensy 4.0 (Gate A base controller, release 001 rig, H-day legacy profile) --------
+# Teensy USB serial is 16c0:0483. The Teensy serial number is unique, so the name stays
+# valid with more than one Teensy plugged in only if ATTRS{serial} is added.
+# TODO(Karthikeyan): add ATTRS{serial} of the release 001 Teensy if a second one is used.
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="0483", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="openamr/teensy", GROUP="dialout", MODE="0660"
+
+# --- NUCLEO-H723ZG base controller (STM32H723ZG) ---------------------------------------
+# On-board ST-LINK/V3 as seen over USB. VID 0483. The ST-LINK/V3 product IDs in the
+# OpenOCD rules are 374e, 374f, 3753 (V3 with and without virtual COM port). The exact
+# PID of the NUCLEO-H723ZG board is not in the documents we hold.
+# TODO(Karthikeyan): run lsusb with the board plugged in and keep only the PID that shows.
+# The virtual COM port (USART3, PD8/PD9) is the debug console; it is not the micro-ROS link.
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="374e|374f|3753", ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="openamr/nucleo_stlink_vcp", GROUP="dialout", MODE="0660"
+# Debug probe access for flashing and gdb (no symlink needed beyond a stable name).
+SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="374e|374f|3753", GROUP="plugdev", MODE="0660", TAG+="uaccess", SYMLINK+="openamr/nucleo_stlink"
+# micro-ROS over USB CDC (application port of the NUCLEO, first bench option).
+# TODO(Evans): the USB CDC VID and PID are chosen by the firmware (PR #22 has no USB
+# application). Add the rule once the descriptor is fixed:
+# SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="TODO", ATTRS{idProduct}=="TODO", SYMLINK+="openamr/nucleo_cdc", GROUP="dialout", MODE="0660"
+
+# --- USB-CAN FD adapters for the two OpenArm buses (gs_usb / candleLight family) --------
+# SocketCAN netdevs cannot take a SYMLINK, so the stable names are interface names:
+# right arm can_right, left arm can_left. The adapter is chosen by USB serial number.
+# TODO(Karthikeyan): the adapter model is not mandated by the OpenArm documents. Read the
+# serial of each adapter (udevadm info -a -p /sys/class/net/can0) and fill the two
+# placeholders. Common gs_usb IDs, for reference only: 1d50:606f, 1209:2323, 1cd2:606f,
+# 16d0:10b8 (kernel gs_usb.c).
+# SUBSYSTEM=="net", ACTION=="add", SUBSYSTEMS=="usb", ATTRS{idVendor}=="TODO", ATTRS{idProduct}=="TODO", ATTRS{serial}=="TODO_RIGHT_ARM_ADAPTER_SERIAL", NAME="can_right"
+# SUBSYSTEM=="net", ACTION=="add", SUBSYSTEMS=="usb", ATTRS{idVendor}=="TODO", ATTRS{idProduct}=="TODO", ATTRS{serial}=="TODO_LEFT_ARM_ADAPTER_SERIAL", NAME="can_left"
+# The gs_usb adapters are allowed raw USB access for firmware tools only through plugdev.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="606f", GROUP="plugdev", MODE="0660"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1209", ATTR{idProduct}=="2323", GROUP="plugdev", MODE="0660"
