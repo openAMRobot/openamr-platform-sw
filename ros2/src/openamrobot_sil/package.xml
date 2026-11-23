@@ -23,6 +23,17 @@
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>python3-can</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <!-- stm32:=simref nav2:=true only (launch/simref_nav2.launch.py) -->
+  <exec_depend>openamrobot_nav2</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>iproute2</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
