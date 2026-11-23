@@ -330,6 +330,38 @@ class StationAlignment(Node):
                                  float(self.get_parameter("correction_timeout_s").value))
         return ok, f"rotate to {target_yaw:+.4f} {why}"
 
+    def _skip_nominal_goal(self, target, frame):
+        """Decide whether the #164 approach goal is redundant and can be skipped.
+
+        True, text when the base's current map pose is already within max_correction_xy / max_correction_yaw
+        of `target`: that is exactly the goal the graceful controller's path-length latch and the shared
+        progress checker fail on (platform-sw #192). The marker correction loop below reaches the remainder
+        directly if a usable measurement is there; every correction it sends is itself a NavigateToPose goal
+        on navigate_to_station.xml, so this changes which goals are sent, not what commands the base or which
+        safety checks they go through (Nav2 controller_server, the velocity smoother, the collision monitor
+        and the Stop gate, same as the nominal goal - traced for #192).
+
+        This is an opportunistic check, not a requirement: a single, non-blocking TF lookup, not
+        _map_from_base / _tf_pose (which retries for up to tf_wait_s - that would add a real wait to every
+        goal just to decide whether to skip one). False, "" when the request frame is not global_frame (the
+        comparison below needs both poses in the same frame) or the transform is not available right now: the
+        nominal goal is sent exactly as before.
+        """
+        if frame != self.get_parameter("global_frame").value:
+            return False, ""
+        try:
+            t = self.tf_buffer.lookup_transform(frame, self.get_parameter("base_frame").value, Time())
+        except TransformException:
+            return False, ""
+        q = t.transform.rotation
+        actual = (t.transform.translation.x, t.transform.translation.y,
+                  geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w))
+        residual = geometry.between(target, actual)
+        if not geometry.within(residual, float(self.get_parameter("max_correction_xy").value),
+                               float(self.get_parameter("max_correction_yaw").value)):
+            return False, ""
+        return True, f"skipped: base already within the correction range {residual}"
+
     def _correct(self, goal_handle, residual, step):
         """Reach the measured station: position target fixed in odom, yaw target in map, see maneuver.py."""
         p = lambda name: self.get_parameter(name).value  # noqa: E731
@@ -418,8 +450,12 @@ class StationAlignment(Node):
             return result
 
         def run():
-            nominal_ok, why = self._navigate(goal_handle, target, frame)
-            report["iterations"].append({"goal": target, "nav2": why})
+            skip, why = self._skip_nominal_goal(target, frame)
+            if skip:
+                nominal_ok = True
+            else:
+                nominal_ok, why = self._navigate(goal_handle, target, frame)
+            report["iterations"].append({"goal": target, "nav2": why, **({"skipped": True} if skip else {})})
             if goal_handle.is_cancel_requested:
                 return finish(False, "canceled")
             # A failed #164 goal is not the end: the base may stop a few centimetres off (for example the progress
