@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import signal
+import struct
 import subprocess
 import threading
 import time
@@ -33,7 +34,8 @@ class Probe(Node):
         self.stamp = {}
         self.cmd = None
         for topic in ('/sil/drive/emulator_state', '/sil/lift/emulator_state',
-                      '/sil/drive/status', '/sil/lift/status', '/sil/bms/status'):
+                      '/sil/drive/status', '/sil/lift/status', '/sil/bms/status',
+                      '/sil/bms/emulator_state'):
             self.create_subscription(String, topic, lambda m, t=topic: self.put(
                 t, json.loads(m.data)), 10)
         self.create_subscription(Odometry, '/sil/gz/odom', lambda m: self.put('gz_odom', m), 10)
@@ -126,6 +128,11 @@ def sil():
         rclpy.shutdown()
 
 
+def f32(x):
+    """x rounded to IEEE 754 single precision, the type of the BatteryState fields."""
+    return struct.unpack('<f', struct.pack('<f', x))[0]
+
+
 def gz_x(probe):
     return probe.get('gz_odom').pose.pose.position.x
 
@@ -133,8 +140,25 @@ def gz_x(probe):
 def test_bms_values_arrive_over_can2(sil):
     assert sil.wait(lambda: sil.get('battery') is not None, 5.0)
     battery = sil.get('battery')
-    assert battery.voltage == pytest.approx(25.6, abs=0.05)
-    assert battery.percentage == pytest.approx(0.80, abs=0.001)
+    # The pack and power model (config/sil.yaml bms.model, config/power_model.yaml) set the
+    # voltage: 80 % SOC on the placeholder OCV table is 26.56 V at rest, minus the sag of the
+    # rail loads. The value read over CAN2 equals the modelled terminal voltage within the
+    # 0.1 V frame resolution.
+    assert sil.wait(lambda: sil.get('/sil/bms/emulator_state') is not None, 5.0)
+    model = sil.get('/sil/bms/emulator_state')
+    assert model['model_enabled']
+    assert battery.voltage == pytest.approx(model['pack_voltage_v'], abs=0.1)
+    # BatteryState.voltage is float32 and the Daly frame rounds to 0.1 V, so the reading may
+    # sit up to half a frame step above the terminal voltage it encodes.
+    assert f32(25.6) <= battery.voltage <= f32(model['ocv_v'] + 0.05)
+    assert model['ocv_v'] <= 29.2
+    # SOC is coulomb-counted: the 150 W electronics load takes about 0.1 % per minute from
+    # the 80 % start value, so it is compared with the model and must still be near 80 %.
+    assert battery.percentage == pytest.approx(model['soc_percent'] / 100.0, abs=0.001)
+    # BatteryState.percentage is float32. An exact 80.0 % arrives as f32(0.80) =
+    # 0.800000011920929, above the double 0.80; the bounds are the float32 values of 0.79 and
+    # 0.80, so the check is as strict as before and only the representation differs.
+    assert f32(0.79) <= battery.percentage <= f32(0.80)
     # The client may poll before the emulator has opened its socket at start-up. Once both
     # run, every poll is answered: over 2 s (10 poll cycles at 5 Hz) no new timeout appears.
     before = sil.get('/sil/bms/status')
