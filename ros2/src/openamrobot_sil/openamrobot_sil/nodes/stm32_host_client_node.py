@@ -16,7 +16,8 @@ from std_msgs.msg import Bool, Int8, String
 from openamrobot_sil import config
 from openamrobot_sil.can_sil import ctl017_emulator as c
 from openamrobot_sil.canbus import open_bus
-from openamrobot_sil.nodes.common import NodeClock, device_timer, publish_json, thread_check
+from openamrobot_sil.nodes.common import (NodeClock, device_timer, health_timer, publish_json,
+                                           thread_check)
 from openamrobot_sil.stm32_host import BmsHost, DriveHost, LiftHost
 
 LIFT_STOP_CMD = -1
@@ -70,8 +71,10 @@ class HostClientNode(Node):
         self.create_subscription(Int8, '/sil/lift/command', self.on_lift_command, 10)
         self.create_subscription(Bool, '/sil/lift/permit', self.on_permit, 10)
         self.create_subscription(Bool, '/sil/lift/permit_silent', self.on_permit_silent, 10)
-        device_timer(self, 0.02, self.on_odom)
-        device_timer(self, 0.05, self.on_status)
+        self._diag = {'odom_calls': 0, 'odom_published': 0, 'status_calls': 0}
+        self._t_odom = device_timer(self, 0.02, self.on_odom)
+        self._t_status = device_timer(self, 0.05, self.on_status)
+        health_timer(self, 10.0, self._diag137)
         self.get_logger().warning(
             'host test client active: test stand-in for the STM32 on vcan, no safety function')
 
@@ -109,7 +112,25 @@ class HostClientNode(Node):
     def on_permit_silent(self, msg):
         self.lift.permit_silent = bool(msg.data)
 
+    def _diag137(self):
+        # DIAGNOSTIC ONLY (upperbody #137): do the ROS-time timers run, and does anyone listen?
+        try:
+            next_odom = self._t_odom.time_until_next_call()
+        except Exception as e:  # noqa: BLE001
+            next_odom = repr(e)
+        d = self.drive.state()
+        self.get_logger().info(
+            f"DIAG137 host ros_now_ns {self.get_clock().now().nanoseconds} "
+            f"ros_time_active {getattr(self.get_clock(), 'ros_time_is_active', None)} "
+            f"odom_calls {self._diag['odom_calls']} odom_published {self._diag['odom_published']} "
+            f"status_calls {self._diag['status_calls']} odom_timer_canceled {self._t_odom.is_canceled()} "
+            f"odom_timer_next_ns {next_odom} odom_subscribers {self.odom_pub.get_subscription_count()} "
+            f"status_subscribers {self.drive_pub.get_subscription_count()} "
+            f"drive configured {d.get('configured')} samples {d.get('samples')} "
+            f"clock_events {d.get('clock_events')} sdo_errors {d.get('sdo_errors')} sim {self.sim.status()}")
+
     def on_odom(self):
+        self._diag['odom_calls'] += 1
         s = self.drive.new_sample(self._odom_samples)
         if s is None:
             return  # no new 606Ch sample: publish nothing rather than the last twist again
@@ -125,8 +146,10 @@ class HostClientNode(Node):
         msg.twist.twist.linear.x = s['v']
         msg.twist.twist.angular.z = s['w']
         self.odom_pub.publish(msg)
+        self._diag['odom_published'] += 1
 
     def on_status(self):
+        self._diag['status_calls'] += 1
         publish_json(self.drive_pub, self.drive.state())
         publish_json(self.lift_pub, dict(self.lift.state(), sim_clock=self.sim.status()))
         b = self.bms.state()
