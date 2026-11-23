@@ -145,17 +145,17 @@ class TestBtNavigatorResolvesToNoBackupFiles(unittest.TestCase):
         # regardless of whether any navigator code reads it.
         value = self._get_bt_navigator_param('default_nav_to_pose_bt_xml')
         self.assertTrue(
-            value.endswith(os.path.join('behavior_trees', 'navigate_to_pose_no_backup.xml')),
+            value.endswith(os.path.join('behavior_trees', 'navigate_to_pose.xml')),
             f'bt_navigator resolved default_nav_to_pose_bt_xml to {value!r}, expected it to '
-            'end with behavior_trees/navigate_to_pose_no_backup.xml')
+            'end with behavior_trees/navigate_to_pose.xml')
 
     def test_default_nav_through_poses_bt_xml_resolves_to_the_no_backup_file(self):
         value = self._get_bt_navigator_param('default_nav_through_poses_bt_xml')
         self.assertTrue(
             value.endswith(
-                os.path.join('behavior_trees', 'navigate_through_poses_no_backup.xml')),
+                os.path.join('behavior_trees', 'navigate_through_poses.xml')),
             f'bt_navigator resolved default_nav_through_poses_bt_xml to {value!r}, expected '
-            'it to end with behavior_trees/navigate_through_poses_no_backup.xml')
+            'it to end with behavior_trees/navigate_through_poses.xml')
 
     def test_bt_navigator_reaches_active_with_no_backup_tree_loaded(self):
         # panthera-momagdii's #90 review, P1: the live tests on this branch

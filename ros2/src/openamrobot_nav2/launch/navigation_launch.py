@@ -76,16 +76,16 @@ def generate_launch_description():
     # Create our own temporary YAML files that include substitutions
     #
     # default_nav_to_pose_bt_xml/default_nav_through_poses_bt_xml (D-19 audit,
-    # platform-sw#124): the YAML can only hold a relative placeholder string -
-    # nav2_bt_navigator needs an absolute path, so it's resolved here, same
-    # pattern as autostart above. See the BT files' own comments for why
-    # BackUp is removed from both.
+    # platform-sw#124, folded with #164 23 Nov 2026): the YAML can only hold a
+    # relative placeholder string - nav2_bt_navigator needs an absolute path,
+    # so it's resolved here, same pattern as autostart above. See the BT
+    # files' own comments for why BackUp is removed from both.
     param_substitutions = {
         'autostart': autostart,
         'default_nav_to_pose_bt_xml': os.path.join(
-            bringup_dir, 'behavior_trees', 'navigate_to_pose_no_backup.xml'),
+            bringup_dir, 'behavior_trees', 'navigate_to_pose.xml'),
         'default_nav_through_poses_bt_xml': os.path.join(
-            bringup_dir, 'behavior_trees', 'navigate_through_poses_no_backup.xml'),
+            bringup_dir, 'behavior_trees', 'navigate_through_poses.xml'),
     }
 
     configured_params = ParameterFile(

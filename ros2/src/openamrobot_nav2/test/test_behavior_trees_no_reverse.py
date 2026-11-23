@@ -24,7 +24,11 @@ import yaml
 PACKAGE = os.path.join(os.path.dirname(__file__), '..')
 TREES = os.path.join(PACKAGE, 'behavior_trees')
 PARAMS = os.path.join(PACKAGE, 'config', 'nav2_params.yaml')
-SHARE_PREFIX = '$(find-pkg-share openamrobot_nav2)/behavior_trees/'
+# Tree fold of #90 and #164 (platform owner, 23 Nov 2026): a relative placeholder, resolved to
+# an absolute path at launch time by navigation_launch.py's own RewrittenYaml param_substitutions
+# (nav2_params.yaml's own comment on this key explains why - a $(find-pkg-share ...) substitution
+# here was never run against a real launch).
+SHARE_PREFIX = 'behavior_trees/'
 
 
 def tree_files():
