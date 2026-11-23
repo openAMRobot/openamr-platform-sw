@@ -1,0 +1,212 @@
+# Clock inventory of openamrobot_sil (Proposed, D2 of the digital twin plan, 15 Nov 2026;
+# implementation of 17 Nov 2026).
+#
+# Every clock read and every timer in the package source, with the domain it runs on now and the
+# domain the clock contract in docs/architecture/sil-topology.md section 6 assigns to it.
+# test/test_clock_inventory.py counts the clock reads per file and fails when the source and this
+# file disagree, so a new timer cannot enter without a domain.
+#
+# Domains: gazebo (Gazebo simulation time, /clock), renode (Renode virtual time), ros (ROS time of
+# a node with use_sim_time; equals gazebo in a SIL launch), steady (host monotonic time).
+# A device model that is given the process clock (sim_time.py) runs on gazebo in a SIL launch with
+# Gazebo and on steady with the internal plant (rule C1); it is listed with target gazebo.
+# status: conforms = current equals target; to_change = current differs from target.
+# needs: where the change has to happen first (vendored code changes start in openamr-platform-fw).
+#
+# Counted patterns per file: time.monotonic(, time.time(, time.sleep(, device_timer( and
+# health_timer( calls, create_timer(, get_clock(), clock.now(), clock.snapshot(), Stamp( and
+# is_fresh( calls. The vendored platform-fw tests (vendor/can_sil/tests) are not counted: they
+# are test deadlines, rule C5.
+version: 1
+files:
+  openamrobot_sil/sim_time.py:
+    counts: {time.monotonic: 1, clock.now: 2, clock.snapshot: 1}
+    sites:
+      - what: SteadyClock.now(), the host-time implementation of the clock interface (internal plant, health checks)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+      - what: ClockCoordinator stall check, the time since the last /clock advance measured on steady time
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+      - what: ClockCoordinator feed and report, the fed time itself
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: Stamp receipt time and generation, read together by clock.snapshot() in the receiver's domain
+        current: gazebo
+        target: gazebo
+        rule: C6
+        status: conforms
+  openamrobot_sil/stm32_host.py:
+    counts: {time.monotonic: 3, time.sleep: 1, clock.now: 12, Stamp: 1}
+    sites:
+      - what: SDO answer timeout of MatchedSdoClient, the drive client (the vendored client's timeout, with the answer matched to the request)
+        current: steady
+        target: gazebo
+        rule: C1
+        status: to_change
+        needs: the same change as the vendored SDO client timeout; issue openAMRobot/openamr-platform-fw#57
+      - what: 20 ms control loop pacing (_run, _wait_until on the worker clock); before the first /clock time no step runs (first-clock startup)
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: host sleep of at most 2 ms while waiting for the worker clock, and the 2 ms receive wait of the BMS poll (upper bound of one wait)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+      - what: odometry sample time, drive keep-alive, lift command keep-alive, heartbeat, NMT retry and permit period
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: BMS request answer timeout and last-answer age
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+  openamrobot_sil/zlac_gazebo.py:
+    counts: {Stamp: 1, is_fresh: 1}
+    sites:
+      - what: freshness of the Gazebo wheel feedback fed to the drive emulator (receipt time, C6)
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+  openamrobot_sil/ctl017_gazebo.py:
+    counts: {clock.now: 2}
+    sites:
+      - what: clock_ms(), behind the _now_ms override; time base of every CTL-017 timer and of the permit freshness gate
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: _now() and the _run override, firmware time of the CTL-017 node thread (the dt of every emulator step and the heartbeat producer period); the host receive timeout of tick_s stays a wait bound
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+  openamrobot_sil/vendor/can_sil/ctl017_emulator.py:
+    counts: {time.monotonic: 1, time.sleep: 1}
+    sites:
+      - what: _now_ms() default, time base of every CTL-017 timer; overridden by GazeboCtl017 in this package, so the SIL runs these timers on gazebo
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+      - what: command-line print loop (__main__ only)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+  openamrobot_sil/vendor/can_sil/canopen_common.py:
+    counts: {time.monotonic: 5}
+    sites:
+      - what: node thread tick and the dt passed to every emulator tick (plant integration, heartbeat period); the CTL-017 node replaces this loop with the firmware-time loop of ctl017_gazebo.py, the ZLAC8015D node still runs it
+        current: steady
+        target: gazebo
+        rule: C1
+        status: to_change
+        needs: openamr-platform-fw (injectable clock), then re-vendor; issue openAMRobot/openamr-platform-fw#57
+      - what: SDO client response timeout
+        current: steady
+        target: gazebo
+        rule: C1
+        status: to_change
+        needs: openamr-platform-fw (injectable clock), then re-vendor; issue openAMRobot/openamr-platform-fw#57
+  openamrobot_sil/vendor/can_sil/zlac8015d_emulator.py:
+    counts: {time.monotonic: 4, time.sleep: 1}
+    sites:
+      - what: last receipt time and the 2000h link-loss timeout
+        current: steady
+        target: gazebo
+        rule: C1
+        status: to_change
+        needs: openamr-platform-fw (injectable clock), then re-vendor; issue openAMRobot/openamr-platform-fw#57
+      - what: command-line print loop (__main__ only)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+  openamrobot_sil/nodes/common.py:
+    counts: {health_timer: 1, create_timer: 3, clock.now: 2}
+    sites:
+      - what: device_timer(), the node timer helper on the node's ROS time
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+      - what: health_timer() and its one use, the 100 ms NodeClock health check (stall report, thread liveness)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+      - what: outside_gazebo_timer(), host steady timer for the nodes outside the Gazebo domain (Renode firmware node console poll 20 ms and status 200 ms, drive bus capture status 200 ms); keeps running in a Gazebo pause; never an emulator device timer
+        current: steady
+        target: steady
+        rule: C2
+        status: conforms
+      - what: NodeClock log lines with the fed time
+        current: gazebo
+        target: gazebo
+        rule: C1
+        status: conforms
+  openamrobot_sil/nodes/zlac8015d_node.py:
+    counts: {device_timer: 2}
+    sites:
+      - what: 20 ms drive command step and 50 ms state publish
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+  openamrobot_sil/nodes/ctl017_node.py:
+    counts: {device_timer: 2}
+    sites:
+      - what: 10 ms lift command step and 50 ms state publish
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+  openamrobot_sil/nodes/daly_bms_node.py:
+    counts: {device_timer: 1}
+    sites:
+      - what: 200 ms BMS state publish
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+  openamrobot_sil/nodes/stm32_host_client_node.py:
+    counts: {device_timer: 2, get_clock: 2}
+    sites:
+      - what: 20 ms odometry publish and 50 ms status publish
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+      - what: header stamps of odometry and status
+        current: ros
+        target: ros
+        rule: C4
+        status: conforms
+  openamrobot_sil/nodes/renode_fw_node.py:
+    counts: {time.monotonic: 2}
+    sites:
+      - what: boot banner timeout after a Renode start (the node fails and the launch stops when no banner arrives); a launch and process-health deadline, not a device timer. The firmware itself runs on Renode virtual time (C2)
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms
+  openamrobot_sil/nodes/drive_bus_audit_node.py:
+    counts: {time.time: 1}
+    sites:
+      - what: receive timestamp of a captured vcan_drive frame when python-can gives none (host wall clock, epoch seconds, as candump writes); test evidence only, no timer and no device decision reads it
+        current: steady
+        target: steady
+        rule: C5
+        status: conforms

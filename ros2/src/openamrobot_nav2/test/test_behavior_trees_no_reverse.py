@@ -8,7 +8,8 @@ how the robot moves; the velocity clamps (min_vel_x, velocity_smoother.min_veloc
 2. No tree has a DriveOnHeading that can drive backwards: a negative speed or distance, or a value read from the
    blackboard that this file cannot prove forward.
 3. bt_navigator's default trees are files of this package, so Nav2's stock trees (which contain BackUp) are not loaded.
-4. Spin and Wait stay in each recovery round robin: only the reversing action was removed.
+4. Spin and Wait stay in each recovery round robin: only the reversing action was removed. Every tree has one,
+   except the trees in NO_ROUND_ROBIN, each with its reason (PROPOSED, upperbody #117).
 5. No nav2_graceful_controller plugin in controller_server has allow_backward true (Kunal's
    review of #164: this PR's own StationApproach shipped allow_backward true, contradicting
    point 1-3's own D-19 reasoning, with nothing here checking controller_server at all -
@@ -29,6 +30,9 @@ PARAMS = os.path.join(PACKAGE, 'config', 'nav2_params.yaml')
 # (nav2_params.yaml's own comment on this key explains why - a $(find-pkg-share ...) substitution
 # here was never run against a real launch).
 SHARE_PREFIX = 'behavior_trees/'
+# PROPOSED (upperbody #117): the forward-retreat tree is the station stage only (Wait between retries); it never had a
+# stock recovery round robin, so nothing was removed from it. Any other tree without one still fails.
+NO_ROUND_ROBIN = {'navigate_to_station_retreat.xml': 'station stage only, Wait 1.0 between two retries'}
 
 
 def tree_files():
@@ -85,6 +89,9 @@ def test_default_trees_are_this_packages_files():
 def test_spin_and_wait_stay_in_each_recovery_round_robin():
     for name in tree_files():
         robins = list(ET.parse(os.path.join(TREES, name)).getroot().iter('RoundRobin'))
+        if name in NO_ROUND_ROBIN:
+            assert not robins, f'{name}: has a round robin, remove it from NO_ROUND_ROBIN'
+            continue
         assert robins, f'{name}: no recovery round robin'
         for robin in robins:
             assert robin.find('Spin') is not None, f'{name}: Spin removed'

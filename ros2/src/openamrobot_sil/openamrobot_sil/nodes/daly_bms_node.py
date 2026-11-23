@@ -6,7 +6,7 @@ from std_msgs.msg import String
 from openamrobot_sil import config
 from openamrobot_sil.canbus import open_bus
 from openamrobot_sil.daly_bms import DalyBmsEmulator
-from openamrobot_sil.nodes.common import publish_json, steady_timer
+from openamrobot_sil.nodes.common import device_timer, publish_json
 
 
 class DalyNode(Node):
@@ -21,7 +21,7 @@ class DalyNode(Node):
             b['capacity_ah']).start()
         self.state_pub = self.create_publisher(String, '/sil/bms/emulator_state', 10)
         self.create_subscription(String, '/sil/bms/inject', self.on_inject, 10)
-        steady_timer(self, 0.2, lambda: publish_json(self.state_pub, self.emu.state()))
+        device_timer(self, 0.2, lambda: publish_json(self.state_pub, self.emu.state()))
         self.get_logger().info('Daly BMS emulator (protocol unconfirmed) on %s' %
                                bus_cfg['interface'])
 

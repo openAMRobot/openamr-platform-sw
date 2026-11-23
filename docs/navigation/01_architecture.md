@@ -92,7 +92,7 @@ map                                        ← amcl (localization)
  └─ odom                                   ← gz DiffDrive (sim, child_frame_id base_footprint)
      └─ base_footprint                     ← URDF root, on the floor under the drive axle
          └─ base_link                      ← z 0.098, drive-axle midpoint
-             ├─ left_wheel_link / right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100
+             ├─ left_wheel_link / right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.098 (loaded; unloaded 0.100)
              ├─ lidar_link                 ← (0.330, 0, 0.124), yaw π; scan plane 222.05 mm above floor
              ├─ base_camera_link           ← (0.387, 0, 0.046), pitch by base_tilt (Gemini 336L)
              │   ├─ base_camera_color_optical_frame  ← rpy (−π/2, 0, −π/2)

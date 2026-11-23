@@ -35,9 +35,9 @@
       <!-- wheel separation: track 0.400 m is a placeholder from the 2023 STEP and the general arrangement; decisions.yaml DRIVE-TRACK is open and the 2.0 wheel assembly will change it; Gate A unit measured 0.46 m (2026-06-19).
            Was 0.4075, superseded by Alex decision 2026-10-12 -->
       <wheel_separation>0.400</wheel_separation>
-      <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-           was 0.11, superseded by Alex decision 2026-10-12 -->
-      <wheel_radius>0.100</wheel_radius>
+      <!-- loaded wheel radius 0.098, equals the wheel collision radius (Alex decision 2026-11-15);
+           was 0.100 (Alex decision 2026-10-12), superseded by Alex decision 2026-11-15 -->
+      <wheel_radius>0.098</wheel_radius>
       <max_linear_acceleration>0.5</max_linear_acceleration>
       <min_linear_acceleration>-0.5</min_linear_acceleration>
       <max_angular_acceleration>1.0</max_angular_acceleration>

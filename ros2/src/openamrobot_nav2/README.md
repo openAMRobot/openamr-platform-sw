@@ -310,3 +310,10 @@ trees only name `general_goal_checker`, which is required once two goal checkers
 The tolerances come from the arm reach of the Build 1 work-shelf grasp (openamr-upperbody-sw
 `docs/integration/station_approach.md`). They are simulation-derived working values, not a site acceptance tolerance.
 `test/test_station_approach_config.py` checks the consistency of the parameters and trees, not the motion.
+
+**Station retreat (22 Nov 2026, openamr-upperbody-sw #117).**
+`behavior_trees/navigate_to_station_retreat.xml` is the station stage only: one `StationPlanner` path, then the
+`StationRetreat` controller (`nav2_regulated_pure_pursuit_controller`, `allow_reversing: false`,
+`use_rotate_to_heading: true`) with `station_goal_checker`. It is meant for the Baseline 1 forward retreat, where the
+graceful controller's path-length goal latch can stop the robot outside the 0.025 m checker. The shelf approach keeps
+`navigate_to_station.xml` and `StationApproach`.

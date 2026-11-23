@@ -74,7 +74,7 @@ base_footprint                  ← URDF root, on the floor under the drive-axle
     ├── us_front_left, us_front_right, us_rear_left, us_rear_right, tof_front, tof_rear
     ├── camera_link             ← (0.35, 0, 0.20), legacy IMX708, Gate A; docking camera
     │   └── camera_optical_frame  ← rpy (−π/2, 0, −π/2) for solvePnP
-    ├── left_wheel_link, right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.100
+    ├── left_wheel_link, right_wheel_link  ← (0, ±0.200, 0), wheel radius 0.098 (loaded; unloaded 0.100)
     └── (4 caster + 4 caster-wheel links)
 ```
 
