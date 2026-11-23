@@ -64,7 +64,7 @@
       <RecoveryNode number_of_retries="2" name="StationApproach">
         <Sequence name="StationApproachOnce">
           <ComputePathToPose goal="{goal}" path="{station_path}" planner_id="StationPlanner" error_code_id="{compute_path_error_code}"/>
-          <FollowPath path="{station_path}" controller_id="StationApproach" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker" error_code_id="{follow_path_error_code}"/>
+          <FollowPath path="{station_path}" controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker" error_code_id="{follow_path_error_code}"/>
         </Sequence>
         <Wait wait_duration="1.0"/>
       </RecoveryNode>

@@ -143,7 +143,7 @@ controller_server:
     station_progress_checker:
       plugin: "nav2_controller::PoseProgressChecker"
       required_movement_radius: 0.05
-      required_movement_angle: 0.10
+      required_movement_angle: 0.30
       movement_time_allowance: 12.0
     general_goal_checker:
       stateful: True
