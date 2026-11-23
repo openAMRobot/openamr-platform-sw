@@ -80,16 +80,43 @@ def test_a_base_already_within_the_correction_range_skips_the_nominal_goal_and_a
     assert gh.state == "succeeded" and report["outcome"] == "aligned"
 
 
-def test_a_base_already_within_the_correction_range_without_a_marker_is_not_aligned_not_aborted():
+def test_without_a_usable_marker_the_skip_is_withdrawn_and_the_nominal_goal_is_sent():
+    """Review of 7e4251c: a skip with no marker left the base up to max_correction_xy from the station with no
+    Nav2 goal sent. "not aligned" must keep meaning "where #164 stopped the base"."""
     h = Harness(start_s=100.0)
     h.tf_buffer.lookup_transform = lambda *a: _tf(0.05, 0.0, 0.0)
     # no camera: no marker sample ever arrives
     gh, result, report = run(h)
-    assert len(h.nav_calls) == 0
+    assert len(h.nav_calls) == 1, "no usable marker: the nominal goal is sent as before the skip existed"
+    assert "skipped" not in report["iterations"][0] and "no usable marker" in report["skip_withdrawn"]
     assert report["outcome"].startswith("not aligned")
     import openamrobot_station_alignment.station_alignment_node as san
-    assert result.error_code == san.NOT_ALIGNED, (
-        "skipping the nominal goal must not turn a benign no-marker case into an abort")
+    assert gh.state == "aborted" and result.error_code == san.NOT_ALIGNED
+
+
+def test_succeed_unaligned_never_succeeds_on_a_skip_without_a_nominal_goal():
+    h = Harness(start_s=100.0, overrides={"on_marker_not_seen": "succeed_unaligned"})
+    h.tf_buffer.lookup_transform = lambda *a: _tf(0.14, 0.0, 0.29)   # just inside the correction range
+    gh, result, report = run(h)
+    assert len(h.nav_calls) == 1, "the opt-in may only report success after Nav2 has run the station goal"
+
+
+def test_only_stale_marker_poses_withdraw_the_skip():
+    h = Harness(start_s=100.0)
+    h.tf_buffer.lookup_transform = lambda *a: _tf(0.05, 0.0, 0.0)
+    h.camera = camera(5.0, 30.0, (0.0, 0.0, 0.0), start_s=60.0)   # every image 30 s old on arrival
+    gh, result, report = run(h)
+    assert len(h.nav_calls) == 1 and "skip_withdrawn" in report
+
+
+def test_an_engaged_stop_ends_a_skipped_goal_before_anything_is_measured_or_sent():
+    h = Harness(start_s=100.0)
+    h.tf_buffer.lookup_transform = lambda *a: _tf(0.05, 0.0, 0.0)
+    h.camera = camera(5.0, 0.3, (0.0, 0.0, 0.0), start_s=100.5)
+    h.stop_state = rosstub.StopState.STATE_LOCKED
+    gh, result, report = run(h)
+    assert gh.state == "aborted" and report["outcome"].startswith("aborted: stopped")
+    assert len(h.nav_calls) == 0
 
 
 def test_a_base_within_the_correction_range_but_outside_acceptance_is_corrected_not_skipped_entirely():
