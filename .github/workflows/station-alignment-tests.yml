@@ -12,7 +12,7 @@ name: station-alignment-tests
 
 on:
   push:
-    branches: [diag/192-rpp-pose-2026-11-23]
+    branches: [diag/192-fast-stall-2026-11-23]
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
@@ -293,20 +293,22 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          # EXPERIMENT 2 (#192): stage 2 on the StationRetreat controller (RPP) AND the station progress checker
-          # (PoseProgressChecker) with required_movement_angle 0.30 rad (twice the largest heading-hold swing measured).
-          - {name: rpp-pose-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
+          # EXPERIMENT 3 (#192): controller unchanged (StationApproach, graceful). Station progress checker
+          # PoseProgressChecker 0.05 m / 0.30 rad / 4.0 s: a deliberate turn counts, the heading-hold swing (0.10 to
+          # 0.14 rad measured) does not, and a stall is seen after 4 s instead of 12 s. StationApproach retries 2 -> 5:
+          # six plans of at most 4 s of stall each instead of three of 12 s.
+          - {name: fast-stall-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: fast-stall, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-pose-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
+          - {name: fast-stall-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: fast-stall, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-pose-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
+          - {name: fast-stall-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: fast-stall, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-pose-short-a, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-pose,
+          - {name: fast-stall-rtf1-d, rtf: '1.0', delay: '0.0', trials: '5', code: fast-stall, expect: pass,
+             rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: fast-stall-short-a, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: fast-stall,
              expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-pose-short-b, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-pose,
+          - {name: fast-stall-short-b, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: fast-stall,
              expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-pose-rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: rpp-pose, expect: pass,
-             rmw: rmw_fastrtps_cpp, behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       QT_QPA_PLATFORM: offscreen
@@ -377,17 +379,39 @@ jobs:
           git diff --stat
           test "$(git diff --numstat | wc -l)" = 2
 
-      - name: "EXPERIMENT 2: station stage 2 on StationRetreat, station progress checker at 0.30 rad"
-        if: matrix.code == 'rpp-pose'
+      - name: "EXPERIMENT 3: fast stall detection on the station stage, five retries"
+        if: matrix.code == 'fast-stall'
         working-directory: ws/src/openamr-platform-sw
         run: |
-          sed -i 's/controller_id="StationApproach" goal_checker_id="station_goal_checker"/controller_id="StationRetreat" goal_checker_id="station_goal_checker"/' \
-            ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
-          sed -i 's/      required_movement_angle: 0.10/      required_movement_angle: 0.30/' ros2/src/openamrobot_nav2/config/nav2_params.yaml
-          grep -n "<FollowPath" ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
-          grep -n "required_movement_angle" ros2/src/openamrobot_nav2/config/nav2_params.yaml
-          grep -c 'controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker"' ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml | grep -qx 1
-          grep -c 'required_movement_angle: 0.30' ros2/src/openamrobot_nav2/config/nav2_params.yaml | grep -qx 1
+          python3 - <<'PY'
+          import re
+          p = 'ros2/src/openamrobot_nav2/config/nav2_params.yaml'
+          s = open(p).read()
+          a = '''    station_progress_checker:
+                plugin: "nav2_controller::PoseProgressChecker"
+                required_movement_radius: 0.05
+                required_movement_angle: 0.10
+                movement_time_allowance: 12.0
+          '''.replace('          ', '', 1)
+          import textwrap
+          old = textwrap.dedent('''\
+              station_progress_checker:
+                plugin: "nav2_controller::PoseProgressChecker"
+                required_movement_radius: 0.05
+                required_movement_angle: 0.10
+                movement_time_allowance: 12.0
+          ''')
+          old = ''.join('    ' + l + '\n' for l in old.splitlines())
+          new = old.replace('required_movement_angle: 0.10', 'required_movement_angle: 0.30').replace('movement_time_allowance: 12.0', 'movement_time_allowance: 4.0')
+          assert s.count(old) == 1, s.count(old)
+          open(p, 'w').write(s.replace(old, new))
+          t = 'ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml'
+          x = open(t).read()
+          o = '<RecoveryNode number_of_retries="2" name="StationApproach">'
+          assert x.count(o) == 1
+          open(t, 'w').write(x.replace(o, '<RecoveryNode number_of_retries="5" name="StationApproach">'))
+          PY
+          git diff | grep '^[+-]' | grep -v '^+++\|^---'
 
       - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
         if: matrix.behaviors == 'pr90'
