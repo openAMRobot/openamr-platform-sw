@@ -322,7 +322,7 @@ jobs:
         run: |
           sudo apt-get install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-ros-gz \
             ros-jazzy-apriltag-ros ros-jazzy-apriltag-msgs ros-jazzy-xacro ros-jazzy-robot-state-publisher \
-            ros-jazzy-joint-state-publisher ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py
+            ros-jazzy-joint-state-publisher ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py ros-jazzy-twist-mux
 
       - name: "ENV: versions"
         run: |

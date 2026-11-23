@@ -74,7 +74,9 @@ def generate_launch_description():
                               "use_sim_time": "true"}.items()),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(nav2, "launch", "navigation_launch.py")),
-            launch_arguments={"use_sim_time": "true"}.items()),
+            # No docking server in this simulation: the software Stop gate (#90) waits only for the Nav2 producers.
+            launch_arguments={"use_sim_time": "true",
+                              "enabled_producers": "navigate_to_pose,navigate_through_poses"}.items()),
         OpaqueFunction(function=_camera_chain),
     ])
 
