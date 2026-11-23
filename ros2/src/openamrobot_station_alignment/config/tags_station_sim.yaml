@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# apriltag_ros parameters for the station marker plate (Proposed). Same detector settings as
+# openamrobot_docking/config/tags_36h11_sim.yaml; different ids, size and frames.
+/**:
+    ros__parameters:
+        image_transport: raw
+        family: 36h11
+        # side of the black square: 8 of the 10 modules of the 0.125 m panel
+        size: 0.10
+        max_hamming: 0
+        detector:
+            threads: 2
+            decimate: 1.0
+            blur: 0.0
+            refine: True
+            sharpening: 0.25
+            debug: False
+        pose_estimation_method: "pnp"
+        tag:
+            ids: [3, 4]
+            frames: [station_marker_3, station_marker_4]

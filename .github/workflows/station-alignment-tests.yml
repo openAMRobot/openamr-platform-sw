@@ -1,0 +1,452 @@
+# SPDX-License-Identifier: MIT
+# Station-relative final alignment (Proposed): openamrobot_station_alignment.
+#
+# unit: geometry, scene, command authority and pass-criteria tests (no simulator), then the same tests with the
+#   package's code, configuration and assets removed (the revert run): they must fail.
+# simulation: the station alignment world (a separate world with the Baseline 1 work shelf layout and a marker plate;
+#   the Baseline 1 world is not used or changed), the platform robot with a test-only base camera, AMCL and Nav2 from
+#   openamrobot_nav2 unchanged (platform-sw #164 head), N trials of #164 alone against #164 plus marker refinement,
+#   final pose against Gazebo ground truth. Simulation evidence only: never robot, site, physical or safety evidence.
+#   No secrets, no hardware.
+name: station-alignment-tests
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_station_alignment/**'
+      # The simulation runs openamrobot_nav2's parameters and trees (platform-sw #192): a change there must run it too.
+      - 'ros2/src/openamrobot_nav2/config/**'
+      - 'ros2/src/openamrobot_nav2/behavior_trees/**'
+      - 'docs/architecture/station_alignment.md'
+      - 'NOTICE.md'
+      - '.github/workflows/station-alignment-tests.yml'
+  workflow_dispatch:
+    inputs:
+      trials:
+        description: 'number of trials (at least 5)'
+        default: '5'
+
+permissions:
+  contents: read
+
+env:
+  PKG_DIR: ros2/src/openamrobot_station_alignment
+  # openamrobot-interfaces revision of nav-status-tests.yml (openamr_nav_msgs for navigation_status_node).
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  # 50ed777 (openamrobot-interfaces main): adds openamr_nav_msgs/StopState for /safety/stop_state (was 7795047).
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
+  # platform-sw #90 (D-19 behaviour set: no backup, drive_on_heading or assisted_teleop; min_vel_x 0), not merged.
+  PR90_SHA: 4fad3d8bfd40954bc8fcf6f0adf603561e6bb530
+  ROS_APT_SOURCE_VERSION: '1.3.0'
+  # Gazebo vendor builds as pinned by openamr-upperbody-sw baseline1-acceptance.yml (17 Nov 2026).
+  GZ_SIM_VENDOR: 0.0.13-1noble.20261031.125555
+  GZ_TOOLS_VENDOR: 0.0.8-1noble.20261025.230735
+  SDFORMAT_VENDOR: 0.0.14-1noble.20261031.120928
+  GZ_SIM_VERSION: 8.15.0
+  SDFORMAT_VERSION: 14.9.0
+  TRIALS: ${{ github.event.inputs.trials || '5' }}
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Install test tools
+        run: |
+          apt-get update
+          apt-get install -y python3-pytest python3-yaml
+      - name: Unit tests
+        run: |
+          cd "$PKG_DIR"
+          PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
+      - name: Check that all 197 tests ran
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('unit.xml').getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
+          print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
+          assert tests == 197 and skipped == 0 and failed == 0 and errors == 0
+          EOF
+      # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
+      # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
+      - name: Revert run (the tests fail without the change)
+        run: |
+          cd "$PKG_DIR"
+          rm -rf openamrobot_station_alignment config launch maps worlds models urdf scripts
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
+            --junitxml=$GITHUB_WORKSPACE/reverted.xml test/
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted.xml')).getroot()
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
+          print(f'reverted: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
+          # the two checks of #164's own files (its tree, its controller parameters) do not depend on this change
+          assert sorted(passed) == ['test_station_approach_controller_cannot_reverse',
+                                    'test_the_station_tree_of_platform_sw_164_is_present'], passed
+          assert errors >= 3 and failed >= 1
+          EOF
+      # Revert run of the low real-time factor fix only: station_alignment_node.py back to 353e3d6 (window and Nav2
+      # deadlines partly on wall time, freshness against a fixed 6 s window), sampling.py removed. The sampling tests
+      # and the wall-clock check must fail.
+      - name: Revert run of the sample window fix (353e3d6 node)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"   # undo the previous step's removal
+          git fetch --no-tags --depth=1 origin 353e3d650a79f470c42f507faa7683054e101832
+          cd "$PKG_DIR"
+          git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/openamrobot_station_alignment/station_alignment_node.py \
+            > openamrobot_station_alignment/station_alignment_node.py
+          rm openamrobot_station_alignment/sampling.py
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
+            --junitxml=$GITHUB_WORKSPACE/reverted_window.xml test/test_sampling.py \
+            test/test_command_authority.py::test_the_alignment_node_uses_no_wall_clock
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_window.xml')).getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
+          print(f'reverted window fix: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
+          assert not passed and failed == 1 and errors == 1
+          EOF
+
+      # Revert run of the odom-frame correction only: station_alignment_node.py back to 7c3f7fb (corrections as
+      # map-frame NavigateToPose goals through #164's tree), maneuver.py removed. Its tests must fail. (The
+      # nav2-actions-only check is not part of it any more: 7c3f7fb, like the forward-only head, had NavigateToPose
+      # clients only.)
+      - name: Revert run of the odom-frame correction (7c3f7fb node)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin 7c3f7fb2be999aab693be5c4e15176590b5db783
+          cd "$PKG_DIR"
+          git show 7c3f7fb2be999aab693be5c4e15176590b5db783:$PKG_DIR/openamrobot_station_alignment/station_alignment_node.py \
+            > openamrobot_station_alignment/station_alignment_node.py
+          rm openamrobot_station_alignment/maneuver.py
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
+            --junitxml=$GITHUB_WORKSPACE/reverted_odom.xml test/test_maneuver.py \
+            test/test_command_authority.py::test_corrections_are_not_map_frame_position_goals
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_odom.xml')).getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
+          print(f'reverted odom correction: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
+          assert not passed and failed == 1 and errors == 1
+          EOF
+
+      # Revert run of the input fix only: the node, the detector and the launch file back to 3e6e203 (station pose
+      # over DDS between two processes, odom from /tf without a wait), sources.py and stack.py removed.
+      - name: Revert run of the in-process hand-over and the waited lookups (3e6e203)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin 3e6e2034a2d719941757a2ec25b42fab07597fd7
+          cd "$PKG_DIR"
+          for f in openamrobot_station_alignment/station_alignment_node.py \
+                   openamrobot_station_alignment/station_marker_detector.py launch/station_alignment.launch.py; do
+            git show 3e6e2034a2d719941757a2ec25b42fab07597fd7:$PKG_DIR/$f > $f
+          done
+          rm openamrobot_station_alignment/sources.py openamrobot_station_alignment/stack.py
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --continue-on-collection-errors \
+            --junitxml=$GITHUB_WORKSPACE/reverted_inputs.xml test/test_sources.py \
+            test/test_command_authority.py::test_robot_launch_starts_the_detector_the_alignment_and_apriltag_only
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_inputs.xml')).getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          tests, failed, errors = (int(s.get(k)) for k in ('tests', 'failures', 'errors'))
+          print(f'reverted inputs: {tests} collected, {failed} failed, {errors} errors, passed: {passed}')
+          assert not passed and failed == 1 and errors == 1
+          EOF
+
+      # Revert run of the review fixes: the package code and configuration back to c4666a1, tests kept. Exactly the
+      # eight *_FINDING tests of the independent review (comment 6979742457) must fail, plus 4a and 5b, which were
+      # adapted to the software lead's review of aa8fd11 (ABORTED 9900 default; no behavior_server clients and a
+      # /safety/stop_state subscription); the other twelve pass.
+      - name: Revert run of the review fixes (c4666a1 code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin c4666a14edfe088518bbe4daf8d09efed74e79b0
+          for f in $(git ls-tree -r --name-only c4666a14edfe088518bbe4daf8d09efed74e79b0 \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config); do
+            git show c4666a14edfe088518bbe4daf8d09efed74e79b0:$f > $f
+          done
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=. python3 -m pytest -q -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/reverted_review.xml \
+            test/test_review_c4666a1.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_review.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
+          passed = [c.get('name') for c in root.iter('testcase') if not list(c)]
+          print(f'reverted review fixes: {len(failed)} failed {failed}, {len(passed)} passed')
+          adapted = ['test_4a_no_samples_reports_not_aligned_9900_within_a_bounded_time',
+                     'test_5b_alignment_callbacks_are_reentrant_and_tf_and_clock_are_not_behind_execute']
+          findings = [n for n in failed if n not in adapted]
+          assert len(findings) == 8 and all('_FINDING_' in n for n in findings) and len(passed) == 12
+          assert sorted(set(failed) - set(findings)) == adapted
+          EOF
+
+      # Revert run of the fixes for the review of aa8fd11 (skunal3318): package code and configuration back to
+      # aa8fd11, tests kept. All eight point tests must fail (k3 and k5 adapted to the forward-only correction);
+      # the two that document behaviour aa8fd11 already had
+      # (goal_callback rejection, _correct writing target_odom) pass.
+      - name: Revert run of the aa8fd11 review fixes (aa8fd11 code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin aa8fd11dcddbc2c1ef55a0ea261665521fb86eef
+          for f in $(git ls-tree -r --name-only aa8fd11dcddbc2c1ef55a0ea261665521fb86eef \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config); do
+            git show aa8fd11dcddbc2c1ef55a0ea261665521fb86eef:$f > $f
+          done
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=.:test timeout 300 python3 -m pytest -q -p no:cacheprovider \
+            --junitxml=$GITHUB_WORKSPACE/reverted_aa8fd11.xml test/test_review_aa8fd11.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_aa8fd11.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
+          passed = sorted(c.get('name') for c in root.iter('testcase') if not list(c))
+          print(f'reverted aa8fd11 review fixes: {len(failed)} failed {failed}, {len(passed)} passed {passed}')
+          assert len(failed) == 8 and passed == [
+              'test_k1_count_from_the_real_correct_step',
+              'test_k2_a_second_goal_is_rejected_in_goal_callback_and_accepted_after_the_first_ends']
+          EOF
+
+      # Revert run of the fixes for the software lead's review of aa8fd11 (items a, b, c): package code and
+      # configuration back to a2bf64d, the #90 overlay script removed, tests kept. Every a/b/c test and the deadline
+      # test must fail; only the two test_keep_* tests (behaviour a2bf64d already had) pass.
+      - name: Revert run of the software lead's review fixes (a2bf64d code)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -- "$PKG_DIR"
+          git fetch --no-tags --depth=1 origin a2bf64d5c70f69bd387a4b7eb765e621b69fb2d3
+          for f in $(git ls-tree -r --name-only a2bf64d5c70f69bd387a4b7eb765e621b69fb2d3 \
+                     $PKG_DIR/openamrobot_station_alignment $PKG_DIR/config); do
+            git show a2bf64d5c70f69bd387a4b7eb765e621b69fb2d3:$f > $f
+          done
+          rm $PKG_DIR/scripts/apply_pr90_behaviour_set.py
+          cd "$PKG_DIR"
+          set +e
+          PYTHONPATH=.:test timeout 300 python3 -m pytest -q -p no:cacheprovider \
+            --junitxml=$GITHUB_WORKSPACE/reverted_lead.xml test/test_review_aa8fd11_lead.py
+          echo "pytest exit status $?"
+          set -e
+          python3 - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'reverted_lead.xml')).getroot()
+          failed = sorted(c.get('name') for c in root.iter('testcase') if c.find('failure') is not None)
+          passed = sorted(c.get('name') for c in root.iter('testcase') if not list(c))
+          print(f'reverted lead review fixes: {len(failed)} failed {failed}, {len(passed)} passed {passed}')
+          assert len(failed) == 14 and all(n.startswith(('test_a_', 'test_b_', 'test_c_', 'test_correction_'))
+                                           for n in failed)
+          assert passed == ['test_keep_running_stop_state_does_not_stop', 'test_keep_succeed_unaligned_is_opt_in']
+          EOF
+
+  # rtf1: the five-trial comparison at full speed. rtf02: target real-time factor 0.2 (Baseline 1's runner) and image
+  # stamps 7 s of simulation time old on arrival (test-only image_delay_relay), as Baseline 1 showed. rtf02-353e3d6:
+  # the same with the alignment node of 353e3d6, which must end without alignment ("marker not seen").
+  simulation:
+    name: simulation (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 175
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
+          # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
+          - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90}
+          # CycloneDDS, matching Baseline 1: upperbody-sw baseline1-acceptance.yml sets
+          # RMW_IMPLEMENTATION=rmw_cyclonedds_cpp. This job ran Fast DDS before #197's trace; that no longer
+          # matched the mission, and the trace found the marker-starvation cause in image delivery to the
+          # detector at RTF 0.2, not in the RMW.
+          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90}
+          - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
+             rmw: rmw_cyclonedds_cpp, behaviors: '164'}
+    env:
+      RMW_IMPLEMENTATION: ${{ matrix.rmw }}
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: "ENV: ROS 2 Jazzy from packages.ros.org (pinned ros2-apt-source)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl locales software-properties-common
+          sudo add-apt-repository -y universe
+          curl --fail --location --retry 5 --retry-delay 5 -o /tmp/ros2-apt-source.deb \
+            "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.noble_all.deb"
+          sudo dpkg -i /tmp/ros2-apt-source.deb
+          sudo apt-get update
+          sudo apt-get install -y ros-jazzy-ros-base python3-colcon-common-extensions python3-pytest python3-yaml
+
+      - name: "ENV: pinned Gazebo vendor builds"
+        run: |
+          sudo apt-get install -y --allow-downgrades \
+            ros-jazzy-gz-sim-vendor=${GZ_SIM_VENDOR} \
+            ros-jazzy-gz-tools-vendor=${GZ_TOOLS_VENDOR} \
+            ros-jazzy-sdformat-vendor=${SDFORMAT_VENDOR}
+          sudo apt-mark hold ros-jazzy-gz-sim-vendor ros-jazzy-gz-tools-vendor ros-jazzy-sdformat-vendor
+
+      - name: "ENV: the stack (Nav2, ros_gz, apriltag_ros, CycloneDDS)"
+        run: |
+          sudo apt-get install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-ros-gz \
+            ros-jazzy-apriltag-ros ros-jazzy-apriltag-msgs ros-jazzy-xacro ros-jazzy-robot-state-publisher \
+            ros-jazzy-joint-state-publisher ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py ros-jazzy-twist-mux
+
+      - name: "ENV: versions"
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          sim=$(gz sim --versions); sdf=$(gz sdf --versions)
+          echo "gz sim ${sim}, gz sdf ${sdf}"
+          dpkg-query -W -f='${Package} ${Version}\n' | grep -E '^ros-jazzy-(navigation2|nav2-(amcl|controller|bt-navigator|graceful-controller|navfn-planner)|ros-gz-bridge|apriltag-ros|apriltag|rmw-cyclonedds-cpp|gz-sim-vendor)( |$)' | sort | tee versions.txt
+          test "${sim}" = "${GZ_SIM_VERSION}" && test "${sdf}" = "${SDFORMAT_VERSION}"
+        shell: bash
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          path: ws/src/openamr-platform-sw
+          persist-credentials: false
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+          persist-credentials: false
+
+      - name: "REVERT: the 353e3d6 alignment node"
+        if: matrix.code == '353e3d6'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          git fetch --no-tags --depth=1 origin 353e3d650a79f470c42f507faa7683054e101832
+          for f in openamrobot_station_alignment/station_alignment_node.py launch/station_alignment.launch.py; do
+            git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/$f > $PKG_DIR/$f
+          done
+          git diff --stat
+
+      - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
+        if: matrix.behaviors == 'pr90'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          git fetch --no-tags --depth=1 origin "$PR90_SHA"
+          git show "$PR90_SHA":ros2/src/openamrobot_nav2/config/nav2_params.yaml > /tmp/pr90_nav2_params.yaml
+          python3 $PKG_DIR/scripts/apply_pr90_behaviour_set.py /tmp/pr90_nav2_params.yaml ros2/src/openamrobot_nav2
+          git diff --stat
+
+      - name: "BUILD: colcon build"
+        shell: bash
+        working-directory: ws
+        run: |
+          cp -r ../interfaces/ros2/openamr_nav_msgs src/
+          source /opt/ros/jazzy/setup.bash
+          colcon build --base-paths src --packages-up-to openamrobot_station_alignment --event-handlers console_cohesion+
+          git -C src/openamr-platform-sw rev-parse HEAD | tee ../head.txt
+
+      - name: "CHECK: where gz sdf puts the test-only base camera"
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          share=$(ros2 pkg prefix openamrobot_station_alignment)/share/openamrobot_station_alignment
+          xacro "$share/urdf/station_alignment_test_robot.urdf.xacro" > /tmp/test_robot.urdf
+          python3 "$share/scripts/check_camera_pose.py" /tmp/test_robot.urdf
+
+      - name: "RUN: ${{ matrix.trials }} trials, RTF ${{ matrix.rtf }}, image delay ${{ matrix.delay }} s, ${{ matrix.code }}"
+        id: trials
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          mkdir -p ../out
+          echo "nproc $(nproc)"
+          ros2 launch openamrobot_station_alignment station_alignment_sim.launch.py headless:=true \
+            real_time_factor:=${{ matrix.rtf }} image_delay:=${{ matrix.delay }} > ../out/launch.log 2>&1 &
+          launch_pid=$!
+          set +e
+          trials=${{ matrix.trials }}; [ "${{ matrix.name }}" = rtf1 ] && trials="$TRIALS"
+          timeout 150m ros2 run openamrobot_station_alignment station_alignment_trials --trials "$trials" \
+            --out ../out/station_alignment_trials.json --markdown ../out/station_alignment_trials.md
+          rc=$?
+          echo "trials exit status $rc"
+          ros2 action list > ../out/actions.txt 2>&1; cat ../out/actions.txt
+          if [ "${{ matrix.behaviors }}" = pr90 ] && grep -qE "^/(backup|drive_on_heading|assisted_teleop)$" ../out/actions.txt; then
+            echo "#90 behaviour set not in effect: a reverse-capable behavior_server action exists"; rc=1
+          fi
+          kill -INT $launch_pid; sleep 10; kill -9 $launch_pid 2>/dev/null
+          pkill -9 -f "gz sim" 2>/dev/null
+          echo "TRIALS_RC=$rc" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          { echo "### Station alignment trials (simulation only)"; echo "head $(cat head.txt 2>/dev/null)";
+            cat out/station_alignment_trials.md 2>/dev/null || echo "no result table"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "--- per-trial message counts"
+          grep -o '"message_counts": {[^}]*}' out/station_alignment_trials.json 2>/dev/null || true
+          echo "--- station_marker_detector and apriltag lines"
+          grep -nE "station_marker_detector|apriltag" out/launch.log | tail -60 || true
+          echo "--- tracebacks in launch.log"
+          grep -n -A45 "Traceback" out/launch.log | head -150 || true
+          echo "--- launch.log: errors and the last 80 lines"
+          grep -nE "ERROR|FATAL|exception|Traceback|died" out/launch.log | head -60 || true
+          tail -80 out/launch.log || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: station-alignment-trials-${{ matrix.name }}
+          path: |
+            out/
+            versions.txt
+            head.txt
+
+      - name: Verdict
+        run: |
+          if [ "${{ matrix.expect }}" = pass ]; then
+            test "${TRIALS_RC:-1}" = "0"
+          else
+            # the reverted node must fail, and fail for the reason of Baseline 1
+            test "${TRIALS_RC:-0}" != "0"
+            grep -q "marker not seen" out/station_alignment_trials.json
+          fi
