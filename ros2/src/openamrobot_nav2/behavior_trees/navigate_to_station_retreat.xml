@@ -8,6 +8,8 @@
   the goal pose itself), then FollowPath with the StationRetreat controller (nav2_regulated_pure_pursuit_controller,
   forward only) and station_goal_checker. Retried twice after a 1 s wait. No coarse stage: on a goal this short the
   general checker (0.35 m) accepts at once. No BackUp, DriveOnHeading or AssistedTeleop (D-19).
+  Progress checker: station_progress_checker (PoseProgressChecker; PROPOSED, 23 Nov 2026, platform-sw #192), so the
+  rotate-to-heading at the end counts as progress. Its radius and time allowance are the general ones.
 
   Every command still leaves controller_server on cmd_vel_nav and passes the velocity smoother and the collision
   monitor. No other node publishes a velocity.
@@ -17,7 +19,7 @@
     <RecoveryNode number_of_retries="2" name="StationRetreat">
       <Sequence name="StationRetreatOnce">
         <ComputePathToPose goal="{goal}" path="{station_path}" planner_id="StationPlanner" error_code_id="{compute_path_error_code}"/>
-        <FollowPath path="{station_path}" controller_id="StationRetreat" goal_checker_id="station_goal_checker" error_code_id="{follow_path_error_code}"/>
+        <FollowPath path="{station_path}" controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker" error_code_id="{follow_path_error_code}"/>
       </Sequence>
       <Wait wait_duration="1.0"/>
     </RecoveryNode>

@@ -14,6 +14,9 @@ on:
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
+      # The simulation runs openamrobot_nav2's parameters and trees (platform-sw #192): a change there must run it too.
+      - 'ros2/src/openamrobot_nav2/config/**'
+      - 'ros2/src/openamrobot_nav2/behavior_trees/**'
       - 'docs/architecture/station_alignment.md'
       - 'NOTICE.md'
       - '.github/workflows/station-alignment-tests.yml'
@@ -57,7 +60,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 179 tests ran
+      - name: Check that all 183 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -65,7 +68,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 179 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 183 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -294,7 +297,15 @@ jobs:
           - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
              behaviors: pr90}
           - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
-             rmw: rmw_cyclonedds_cpp, behaviors: '164'}
+             expect_text: 'marker not seen', rmw: rmw_cyclonedds_cpp, behaviors: '164'}
+          # platform-sw #192: five station goals that start less than 0.05 m from the goal and more than 0.3 rad off its
+          # heading (trials.py short-corrections). The second entry is the revert leg: the station stages on the
+          # general, translation-only progress checker, as before 23 Nov 2026; it must fail on a Nav2 abort.
+          - {name: short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: head, expect: pass,
+             rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: short-correction-general-checker, rtf: '1.0', delay: '0.0', trials: '5', short: '5',
+             code: general-progress-checker, expect: fail, expect_text: 'Nav2 aborted', rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       QT_QPA_PLATFORM: offscreen
@@ -355,6 +366,16 @@ jobs:
           done
           git diff --stat
 
+      - name: "REVERT: the station stages on the general progress checker (test only, this checkout)"
+        if: matrix.code == 'general-progress-checker'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          sed -i 's/progress_checker_id="station_progress_checker"/progress_checker_id="progress_checker"/' \
+            ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml \
+            ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station_retreat.xml
+          git diff --stat
+          test "$(git diff --numstat | wc -l)" = 2
+
       - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
         if: matrix.behaviors == 'pr90'
         working-directory: ws/src/openamr-platform-sw
@@ -398,6 +419,7 @@ jobs:
           set +e
           trials=${{ matrix.trials }}; [ "${{ matrix.name }}" = rtf1 ] && trials="$TRIALS"
           timeout 150m ros2 run openamrobot_station_alignment station_alignment_trials --trials "$trials" \
+            --short-corrections "${{ matrix.short || '0' }}" \
             --out ../out/station_alignment_trials.json --markdown ../out/station_alignment_trials.md
           rc=$?
           echo "trials exit status $rc"
@@ -420,6 +442,9 @@ jobs:
           grep -o '"message_counts": {[^}]*}' out/station_alignment_trials.json 2>/dev/null || true
           echo "--- station_marker_detector and apriltag lines"
           grep -nE "station_marker_detector|apriltag" out/launch.log | tail -60 || true
+          echo "--- progress checkers (platform-sw #192)"
+          grep -nE "Created progress_checker|progress checkers available|Failed to make progress|Failed to find progress" out/launch.log | cut -c1-220 | head -40 || true
+          echo "Failed to make progress: $(grep -c 'Failed to make progress' out/launch.log || true)"
           echo "--- tracebacks in launch.log"
           grep -n -A45 "Traceback" out/launch.log | head -150 || true
           echo "--- launch.log: errors and the last 80 lines"
@@ -440,7 +465,7 @@ jobs:
           if [ "${{ matrix.expect }}" = pass ]; then
             test "${TRIALS_RC:-1}" = "0"
           else
-            # the reverted node must fail, and fail for the reason of Baseline 1
+            # the reverted code must fail, and fail for its own reason (Baseline 1's for the 353e3d6 node)
             test "${TRIALS_RC:-0}" != "0"
-            grep -q "marker not seen" out/station_alignment_trials.json
+            grep -q "${{ matrix.expect_text }}" out/station_alignment_trials.json
           fi

@@ -9,6 +9,12 @@ truth, the marker estimate against ground truth, and every publisher of /cmd_vel
 Writes JSON and a Markdown table. Exit status 0 only when every trial completed, every aligned pose is within the reach
 budget (0.04 m, 0.08 rad, openamr-upperbody-sw docs/integration/station_approach.md) and the only /cmd_vel publisher
 is collision_monitor. Simulation evidence only: not robot, site or safety acceptance.
+
+--short-corrections N (platform-sw #192) runs the short correction regression instead of the trials: N times, drive
+to a start pose with the default tree, park beside the station and off its heading with the station tree (evaluation.short_correction_offset), then send the
+station goal itself with the station tree, straight to Nav2. That second goal is shorter than the 0.05 m the general
+progress checker needs and starts with a turn in place. Recorded per repetition: where the controller thought it
+started (AMCL), the Nav2 result, the simulation time taken, and how far the ground truth turned and moved.
 """
 import argparse
 import json
@@ -46,6 +52,7 @@ class Runner(Node):
         self.lock = threading.Lock()
         self.latest = {}
         self.markers = []
+        self.travel = None    # while a dict: yaw and path length the ground truth has travelled since start_travel()
         self.create_subscription(Odometry, "/station_alignment/ground_truth/odom", self._store("truth"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._store("amcl"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/station_alignment/station_pose",
@@ -63,6 +70,14 @@ class Runner(Node):
         def cb(msg):
             with self.lock:
                 self.latest[key] = msg
+                if key == "truth" and self.travel is not None:
+                    q, p = msg.pose.pose.orientation, msg.pose.pose.position
+                    yaw = geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w)
+                    last = self.travel.get("last")
+                    if last is not None:
+                        self.travel["yaw"] += abs(geometry.wrap(yaw - last[2]))
+                        self.travel["xy"] += math.hypot(p.x - last[0], p.y - last[1])
+                    self.travel["last"] = (p.x, p.y, yaw)
                 if key == "marker":
                     self.counts["station_pose"] = self.counts.get("station_pose", 0) + 1
                     q = msg.pose.pose.orientation
@@ -81,6 +96,15 @@ class Runner(Node):
                     key = f"detections {ids}"
                     self.counts[key] = self.counts.get(key, 0) + 1
         return cb
+
+    def start_travel(self):
+        with self.lock:
+            self.travel = {"yaw": 0.0, "xy": 0.0, "last": None}
+
+    def stop_travel(self):
+        with self.lock:
+            out, self.travel = self.travel, None
+        return out["yaw"], out["xy"]
 
     def take_counts(self):
         with self.lock:
@@ -203,6 +227,43 @@ class Runner(Node):
         return out
 
 
+def short_corrections(node, station, tree, count, goal_timeout):
+    """The records of the short correction regression; at most 2 * count repetitions to get count exercised ones."""
+    records = []
+    for index in range(2 * count):
+        if sum(1 for r in records if evaluation.short_correction_exercised(r)) >= count:
+            break
+        offset = evaluation.short_correction_offset(index)
+        pre = geometry.compose(station, offset)
+        record = {"repetition": index + 1, "offset": offset, "pre_pose": pre}
+        # Leave the station first with the default tree, so that parking at the pre-pose is an ordinary station
+        # approach from a distance and only the second goal is the short one.
+        record["to_start"], _ = node.send(node.nav, START_POSES[(index + 1) % len(START_POSES)], "", goal_timeout)
+        record["pre_nav2"], _ = node.send(node.nav, pre, tree, goal_timeout)
+        node.sleep_sim(2.0)
+        truth, amcl = node.truth(), node.amcl()
+        start = {"truth": truth, "amcl": amcl}
+        for name, pose in (("truth", truth), ("amcl", amcl)):
+            if pose is not None:
+                exy, eyaw, _, _ = geometry.pose_error(pose, station)
+                start[f"{name}_goal_xy"], start[f"{name}_goal_yaw"] = exy, eyaw
+        record["start"] = start
+        sim0 = node.get_clock().now().nanoseconds
+        node.start_travel()
+        record["nav2"], record["wall_s"] = node.send(node.nav, station, tree, goal_timeout)
+        record["sim_s"] = (node.get_clock().now().nanoseconds - sim0) * 1e-9
+        record["yaw_travel"], record["xy_travel"] = node.stop_travel()
+        node.sleep_sim(2.0)
+        end = node.truth()
+        if end is not None:
+            record["end_truth"] = end
+            record["error_xy"], record["error_yaw"], _, _ = geometry.pose_error(end, station)
+        record["exercised"] = evaluation.short_correction_exercised(record)
+        records.append(record)
+        print(json.dumps({"short_correction": record}, default=str), flush=True)
+    return records
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=5)
@@ -210,6 +271,8 @@ def main(argv=None):
     parser.add_argument("--markdown", default="station_alignment_trials.md")
     parser.add_argument("--startup-timeout", type=float, default=900.0)
     parser.add_argument("--goal-timeout", type=float, default=1800.0)
+    parser.add_argument("--short-corrections", type=int, default=0,
+                        help="run the short correction regression N times instead of the trials (platform-sw #192)")
     args = parser.parse_args(argv)
     rclpy.init()
     node = Runner()
@@ -229,6 +292,24 @@ def main(argv=None):
         print(json.dumps({"software_stop": record["software_stop"]}), flush=True)
         ready = not record["software_stop"]["gate_present"] or record["software_stop"]["released"]
     record["ready"] = ready
+    if args.short_corrections > 0:
+        record["short_corrections"] = (short_corrections(node, station, tree, args.short_corrections,
+                                                         args.goal_timeout) if ready else [])
+        record["command_publishers"] = node.publishers()
+        pubs_ok, pubs_why = command_publishers_ok(record["command_publishers"])
+        passed, why = evaluation.evaluate_short_corrections(record["short_corrections"], args.short_corrections)
+        record["passed"] = ready and passed and pubs_ok
+        record["reasons"] = ([] if ready else ["stack not ready"]) + why + pubs_why
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=1, default=str)
+        text = evaluation.short_correction_summary(record["short_corrections"]) \
+            + f"\n\ncommand publishers: {record['command_publishers']}\n" \
+            f"short correction regression: {'PASS' if record['passed'] else 'FAIL'} {record['reasons']}\n"
+        with open(args.markdown, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(text, flush=True)
+        sys.stdout.flush()
+        os._exit(0 if record["passed"] else 1)
     if ready:
         for index in range(args.trials):
             start = START_POSES[index % len(START_POSES)]

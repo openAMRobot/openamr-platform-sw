@@ -12,6 +12,9 @@
   2. StationApproach: one fresh plan from where the robot stopped to the goal with StationPlanner (NavFn, whose last
      pose is the goal pose itself; Smac2D with downsampling ends on a 0.10 m cell centre), then FollowPath with the
      StationApproach controller (nav2_graceful_controller) and station_goal_checker. Retried twice after a 1 s wait.
+     Its progress checker is station_progress_checker (nav2_controller::PoseProgressChecker; PROPOSED, 23 Nov 2026,
+     platform-sw #192), which also counts rotation: this stage turns in place before and after a path that can be
+     shorter than the 0.05 m the general progress checker needs. Stage 1 keeps progress_checker.
 
   Every command still leaves controller_server on cmd_vel_nav and passes the velocity smoother and the collision
   monitor. No other node publishes a velocity. The tolerances and their derivation are in nav2_params.yaml.
@@ -33,7 +36,7 @@
             </RecoveryNode>
           </RateController>
           <RecoveryNode number_of_retries="1" name="FollowPath">
-            <FollowPath path="{path}" controller_id="{selected_controller}" goal_checker_id="general_goal_checker" error_code_id="{follow_path_error_code}"/>
+            <FollowPath path="{path}" controller_id="{selected_controller}" goal_checker_id="general_goal_checker" progress_checker_id="progress_checker" error_code_id="{follow_path_error_code}"/>
             <Sequence>
               <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
               <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
@@ -61,7 +64,7 @@
       <RecoveryNode number_of_retries="2" name="StationApproach">
         <Sequence name="StationApproachOnce">
           <ComputePathToPose goal="{goal}" path="{station_path}" planner_id="StationPlanner" error_code_id="{compute_path_error_code}"/>
-          <FollowPath path="{station_path}" controller_id="StationApproach" goal_checker_id="station_goal_checker" error_code_id="{follow_path_error_code}"/>
+          <FollowPath path="{station_path}" controller_id="StationApproach" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker" error_code_id="{follow_path_error_code}"/>
         </Sequence>
         <Wait wait_duration="1.0"/>
       </RecoveryNode>

@@ -112,7 +112,7 @@ controller_server:
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.5
-    progress_checker_plugins: ["progress_checker"]
+    progress_checker_plugins: ["progress_checker", "station_progress_checker"]
     goal_checker_plugins: ["general_goal_checker", "station_goal_checker"]
     controller_plugins: ["FollowPath", "StationApproach", "StationRetreat"]
     use_realtime_priority: false
@@ -123,6 +123,27 @@ controller_server:
       # 30 -> 12 s: declare 'no progress' and run recoveries sooner instead of
       # sitting stuck for 30 s (a big part of the perceived 'thinking' time,
       # especially when a wheel momentarily stalls (a loose motor cable, or start-up stiction).
+      movement_time_allowance: 12.0
+    # Station stages only (PROPOSED, 23 Nov 2026, platform-sw #192; awaiting Kunal, Nav2 owner). Selected by
+    # progress_checker_id on the stage 2 FollowPath of navigate_to_station.xml and on navigate_to_station_retreat.xml.
+    # Every other FollowPath names progress_checker above, which is unchanged.
+    # Why: nav2_graceful_controller rotates in place before a short path (initial_rotation) and again once it is inside
+    # the goal distance (graceful_controller.cpp 164 to 165, navigation2 1.3.14, a latch until the next plan).
+    # SimpleProgressChecker counts translation only, so a station goal less than required_movement_radius away can
+    # never show progress and has movement_time_allowance in total for both rotations and the drive
+    # (simulation rtf1 on bc8aeae, trial 5: three "Failed to make progress", Nav2 status 6, 0.65 rad left).
+    # nav2_controller::PoseProgressChecker (same package, navigation2 1.3.14 pose_progress_checker.cpp) is
+    # SimpleProgressChecker plus one condition: rotation of more than required_movement_angle from the baseline pose
+    # is progress too. Radius and time allowance are the general values on purpose: nothing is relaxed for translation.
+    # required_movement_angle 0.10 rad is an EXPERIMENT value, not an approved one: at v_angular_min_in_place 0.25 rad/s
+    # it is 0.4 s of turning, and it is twice the station yaw tolerance (0.05 rad), so standing inside the tolerance
+    # band is not progress. A base that cannot turn 0.10 rad in 12 s still aborts. Not covered: a rotation that
+    # oscillates by more than 0.10 rad counts as progress; the station alignment correction_timeout_s (60 s) and the
+    # client's goal deadline bound that case. Owner to derive the final value from measured yaw noise at standstill.
+    station_progress_checker:
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.05
+      required_movement_angle: 0.10
       movement_time_allowance: 12.0
     general_goal_checker:
       stateful: True

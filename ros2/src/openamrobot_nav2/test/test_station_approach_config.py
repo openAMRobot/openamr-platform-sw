@@ -11,6 +11,8 @@ that evidence is the whole-robot Baseline 1 run in openamr-upperbody-sw.
    controller with station_goal_checker.
 4. The station tolerances stay inside the arm-reach budget minus the localization allowance, and the station
    controller stays inside the commissioning speed limits.
+5. controller_server has two progress checkers (Proposed, 23 Nov 2026, platform-sw #192), so every FollowPath names
+   one. Only the station stages use the one that counts rotation; the general one and its values are unchanged.
 """
 import os
 import xml.etree.ElementTree as ET
@@ -123,3 +125,62 @@ def test_amcl_updates_within_the_station_approach():
     amcl = params()['amcl']['ros__parameters']
     assert amcl['update_min_d'] <= 0.05
     assert amcl['update_min_a'] <= 0.05
+
+
+
+# navigation2 1.3.14 controller_server.cpp findProgressCheckerId: with more than one progress checker an empty
+# progress_checker_id ends the goal with "Failed to find progress checker name".
+STATION_PROGRESS = 'station_progress_checker'
+GENERAL_PROGRESS = 'progress_checker'
+
+
+def progress_ids(root):
+    return [(f.get('controller_id'), f.get('progress_checker_id')) for f in root.iter('FollowPath')]
+
+
+def test_every_follow_path_names_a_configured_progress_checker():
+    checkers = controller()['progress_checker_plugins']
+    assert checkers == [GENERAL_PROGRESS, STATION_PROGRESS]
+    for name in tree_files():
+        ids = progress_ids(tree(name))
+        assert ids, f'{name}: no FollowPath'
+        for controller_id, checker in ids:
+            assert checker in checkers, f'{name}: FollowPath {controller_id} without a configured progress_checker_id'
+
+
+def test_only_the_station_stages_use_the_station_progress_checker():
+    for name in ('navigate_to_pose.xml', 'navigate_through_poses.xml'):
+        assert {c for _, c in progress_ids(tree(name))} == {GENERAL_PROGRESS}, name
+    sequence = tree('navigate_to_station.xml').find('BehaviorTree/Sequence')
+    assert {c for _, c in progress_ids(sequence[0])} == {GENERAL_PROGRESS}, 'stage 1 is ordinary navigation'
+    assert progress_ids(sequence[1]) == [('StationApproach', STATION_PROGRESS)]
+    assert progress_ids(tree('navigate_to_station_retreat.xml')) == [('StationRetreat', STATION_PROGRESS)]
+
+
+def test_the_general_progress_checker_is_unchanged():
+    general = controller()[GENERAL_PROGRESS]
+    assert general == {'plugin': 'nav2_controller::SimpleProgressChecker', 'required_movement_radius': 0.05,
+                       'movement_time_allowance': 12.0}
+
+
+def test_the_station_progress_checker_adds_rotation_and_relaxes_nothing():
+    general, station = controller()[GENERAL_PROGRESS], controller()[STATION_PROGRESS]
+    assert station['plugin'] == 'nav2_controller::PoseProgressChecker'
+    assert station['required_movement_radius'] == general['required_movement_radius']
+    assert station['movement_time_allowance'] == general['movement_time_allowance'], 'no longer stall window'
+    angle = station['required_movement_angle']
+    # Standing inside the station yaw tolerance must not count as progress.
+    assert angle > controller()['station_goal_checker']['yaw_goal_tolerance']
+    # The slowest in-place rotation the station controller commands must be able to show progress well inside the
+    # allowance, or a healthy rotation is aborted like before.
+    slowest = controller()['StationApproach']['v_angular_min_in_place']
+    assert angle / slowest <= station['movement_time_allowance'] / 4.0
+
+
+def test_a_short_station_correction_can_show_progress_only_by_rotation():
+    """The case of platform-sw #192: the station goal checker accepts within 0.025 m, so a correction can be shorter
+    than the general progress radius. Such a goal cannot satisfy a translation-only checker."""
+    c = controller()
+    assert c['station_goal_checker']['xy_goal_tolerance'] < c[GENERAL_PROGRESS]['required_movement_radius']
+    assert 'required_movement_angle' not in c[GENERAL_PROGRESS]
+    assert c[STATION_PROGRESS]['required_movement_angle'] > 0.0
