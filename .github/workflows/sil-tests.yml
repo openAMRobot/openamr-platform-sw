@@ -47,8 +47,9 @@ jobs:
             echo "::error::BLOCKED: vcan unavailable. No SIL test ran. This is not a pass."
             exit 1
           fi
-          sudo ip link add dev vcan_siltest type vcan
-          sudo ip link set up vcan_siltest
+          # Classic CAN test bus: created by the package script, MTU 16 set explicitly.
+          sudo sh ros2/src/openamrobot_sil/scripts/sil_vcan.sh up vcan_siltest
+          sh ros2/src/openamrobot_sil/scripts/sil_vcan.sh check vcan_siltest
           ip -br link show type vcan
 
       - name: Start the ROS 2 Jazzy container on the host network
@@ -86,10 +87,15 @@ jobs:
             SIL_LAUNCH_LOG=/repo/sil-launch.log python3 -m pytest -v -p no:cacheprovider \
               --junitxml=/repo/sil-gazebo.xml ros2/src/openamrobot_sil/test_integration'
 
+      # The three buses the launch file created: virtual CAN, classic frame size (MTU 16).
+      - name: Check the vcan interfaces of the launch file
+        run: |
+          $SIL 'sh ros2/src/openamrobot_sil/scripts/sil_vcan.sh check vcan_drive vcan_bms vcan_aux'
+
       - name: Show the launch log
         if: always()
         run: |
-          ip -br link show type vcan || true
+          ip -d link show type vcan || true
           tail -n 300 sil-launch.log || true
 
       # A missing, renamed or skipped test must not pass as a smaller suite.
@@ -97,7 +103,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
-          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 57, 'sil-gazebo.xml': 4}
+          expected = {'sil-vendored.xml': 36, 'sil-protocol.xml': 78, 'sil-gazebo.xml': 4}
           for name, want in expected.items():
               root = ET.parse(name).getroot()
               suite = root if root.tag == 'testsuite' else root.find('testsuite')
