@@ -293,8 +293,11 @@ jobs:
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
           - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          # Fast DDS, as Baseline 1 (upperbody-sw baseline1-acceptance.yml sets no RMW)
-          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
+          # CycloneDDS, matching Baseline 1: upperbody-sw baseline1-acceptance.yml sets
+          # RMW_IMPLEMENTATION=rmw_cyclonedds_cpp. This job ran Fast DDS before #197's trace; that no longer
+          # matched the mission, and the trace found the marker-starvation cause in image delivery to the
+          # detector at RTF 0.2, not in the RMW.
+          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
           - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
              rmw: rmw_cyclonedds_cpp, behaviors: '164'}
