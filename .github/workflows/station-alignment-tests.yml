@@ -12,7 +12,7 @@ name: station-alignment-tests
 
 on:
   push:
-    branches: [diag/192-trace-2026-11-23]
+    branches: [diag/192-rpp-approach-2026-11-23]
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
@@ -293,17 +293,16 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          - {name: trace-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
-             behaviors: pr90}
-          - {name: trace-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
-             behaviors: pr90}
-          - {name: trace-rtf1-general-checker, rtf: '1.0', delay: '0.0', trials: '5', code: general-progress-checker,
-             expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: trace-short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: head, expect: pass,
+          # EXPERIMENT (#192): stage 2 of the station tree on the StationRetreat controller (Regulated Pure Pursuit,
+          # stateful false) instead of StationApproach (graceful controller); progress checker back to the general one.
+          - {name: rpp-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: trace-short-correction-general-checker, rtf: '1.0', delay: '0.0', trials: '5', short: '5',
-             code: general-progress-checker, expect: fail, expect_text: 'Nav2 aborted', rmw: rmw_cyclonedds_cpp,
-             behaviors: pr90}
+          - {name: rpp-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
+             rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: rpp-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
+             rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: rpp-short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-approach,
+             expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       QT_QPA_PLATFORM: offscreen
@@ -373,6 +372,15 @@ jobs:
             ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station_retreat.xml
           git diff --stat
           test "$(git diff --numstat | wc -l)" = 2
+
+      - name: "EXPERIMENT: station stage 2 on the StationRetreat controller and the general progress checker"
+        if: matrix.code == 'rpp-approach'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          sed -i 's/controller_id="StationApproach" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker"/controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="progress_checker"/' \
+            ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
+          grep -n "<FollowPath" ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
+          grep -c 'controller_id="StationRetreat"' ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml | grep -qx 1
 
       - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
         if: matrix.behaviors == 'pr90'
