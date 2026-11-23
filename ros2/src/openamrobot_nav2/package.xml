@@ -16,6 +16,9 @@
   <exec_depend>nav2_bt_navigator</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>
   <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_graceful_controller</exec_depend>
+  <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_amcl</exec_depend>
