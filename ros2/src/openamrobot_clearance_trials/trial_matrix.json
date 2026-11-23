@@ -1,0 +1,11 @@
+[
+ {"label": "baseline main c42a972 (local inflation 0.15, csf 3.0)",
+  "scenarios": "free,open_box,gap100,gap080,gap066,gap050,aisle_blocked", "repeats": "1", "overrides": {}},
+ {"label": "local inflation 0.45, csf 3.0",
+  "scenarios": "free,open_box,gap100,gap080,gap066,gap050,aisle_blocked", "repeats": "1",
+  "overrides": {"local_costmap/local_costmap/ros__parameters/inflation_layer/inflation_radius": 0.45}},
+ {"label": "local inflation 0.55, csf 5.0",
+  "scenarios": "free,open_box,gap100,gap080,gap066,gap050,aisle_blocked", "repeats": "1",
+  "overrides": {"local_costmap/local_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+                "local_costmap/local_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 5.0}}
+]
