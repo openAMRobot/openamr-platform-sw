@@ -12,7 +12,7 @@ name: station-alignment-tests
 
 on:
   push:
-    branches: [diag/192-rpp-approach-2026-11-23]
+    branches: [diag/192-rpp-pose-2026-11-23]
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
@@ -293,16 +293,20 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          # EXPERIMENT (#192): stage 2 of the station tree on the StationRetreat controller (Regulated Pure Pursuit,
-          # stateful false) instead of StationApproach (graceful controller); progress checker back to the general one.
-          - {name: rpp-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
+          # EXPERIMENT 2 (#192): stage 2 on the StationRetreat controller (RPP) AND the station progress checker
+          # (PoseProgressChecker) with required_movement_angle 0.30 rad (twice the largest heading-hold swing measured).
+          - {name: rpp-pose-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
+          - {name: rpp-pose-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-approach, expect: pass,
+          - {name: rpp-pose-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: rpp-pose, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: rpp-short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-approach,
+          - {name: rpp-pose-short-a, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-pose,
              expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: rpp-pose-short-b, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: rpp-pose,
+             expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: rpp-pose-rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: rpp-pose, expect: pass,
+             rmw: rmw_fastrtps_cpp, behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       QT_QPA_PLATFORM: offscreen
@@ -373,14 +377,17 @@ jobs:
           git diff --stat
           test "$(git diff --numstat | wc -l)" = 2
 
-      - name: "EXPERIMENT: station stage 2 on the StationRetreat controller and the general progress checker"
-        if: matrix.code == 'rpp-approach'
+      - name: "EXPERIMENT 2: station stage 2 on StationRetreat, station progress checker at 0.30 rad"
+        if: matrix.code == 'rpp-pose'
         working-directory: ws/src/openamr-platform-sw
         run: |
-          sed -i 's/controller_id="StationApproach" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker"/controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="progress_checker"/' \
+          sed -i 's/controller_id="StationApproach" goal_checker_id="station_goal_checker"/controller_id="StationRetreat" goal_checker_id="station_goal_checker"/' \
             ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
+          sed -i 's/      required_movement_angle: 0.10/      required_movement_angle: 0.30/' ros2/src/openamrobot_nav2/config/nav2_params.yaml
           grep -n "<FollowPath" ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml
-          grep -c 'controller_id="StationRetreat"' ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml | grep -qx 1
+          grep -n "required_movement_angle" ros2/src/openamrobot_nav2/config/nav2_params.yaml
+          grep -c 'controller_id="StationRetreat" goal_checker_id="station_goal_checker" progress_checker_id="station_progress_checker"' ros2/src/openamrobot_nav2/behavior_trees/navigate_to_station.xml | grep -qx 1
+          grep -c 'required_movement_angle: 0.30' ros2/src/openamrobot_nav2/config/nav2_params.yaml | grep -qx 1
 
       - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
         if: matrix.behaviors == 'pr90'

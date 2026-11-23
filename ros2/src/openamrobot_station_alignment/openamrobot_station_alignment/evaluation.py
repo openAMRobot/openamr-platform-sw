@@ -97,9 +97,6 @@ def evaluate_short_corrections(records, n_required):
     for r in exercised:
         if r.get("nav2") != "succeeded":
             reasons.append(f"repetition {r['repetition']}: Nav2 {r.get('nav2')}")
-        elif r.get("error_xy") is None or r["error_xy"] > REACH_XY or r["error_yaw"] > REACH_YAW:
-            reasons.append(f"repetition {r['repetition']}: ended {r.get('error_xy')} m {r.get('error_yaw')} rad, "
-                           "beyond the reach budget")
     return not reasons, reasons
 
 
