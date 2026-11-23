@@ -1,0 +1,25 @@
+<!--
+  SPDX-License-Identifier: MIT
+  Station retreat (PROPOSED, 22 Nov 2026, openamr-upperbody-sw #117; awaiting Kunal, Nav2 owner, and the software lead):
+  navigate_to_pose for the Baseline 1 forward retreat, a short goal (0.25 to 0.35 m) straight ahead of the robot after
+  it has turned away from the station. Selected per goal through NavigateToPose.behavior_tree. Not a default tree.
+
+  Only the station stage: one plan from where the robot is to the goal with StationPlanner (NavFn, whose last pose is
+  the goal pose itself), then FollowPath with the StationRetreat controller (nav2_regulated_pure_pursuit_controller,
+  forward only) and station_goal_checker. Retried twice after a 1 s wait. No coarse stage: on a goal this short the
+  general checker (0.35 m) accepts at once. No BackUp, DriveOnHeading or AssistedTeleop (D-19).
+
+  Every command still leaves controller_server on cmd_vel_nav and passes the velocity smoother and the collision
+  monitor. No other node publishes a velocity.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="2" name="StationRetreat">
+      <Sequence name="StationRetreatOnce">
+        <ComputePathToPose goal="{goal}" path="{station_path}" planner_id="StationPlanner" error_code_id="{compute_path_error_code}"/>
+        <FollowPath path="{station_path}" controller_id="StationRetreat" goal_checker_id="station_goal_checker" error_code_id="{follow_path_error_code}"/>
+      </Sequence>
+      <Wait wait_duration="1.0"/>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
