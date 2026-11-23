@@ -13,6 +13,13 @@ This project follows a simple changelog structure:
 
 ## Unreleased
 
+### Simulation: motion limits per command layer (19 Nov 2026, Proposed)
+
+- `docs/architecture/motion_limits.md` and `openamrobot_sil/test/test_motion_limit_layers.py`:
+  speed and deceleration of Nav2, the smoother, docking, Gazebo DiffDrive and the ZLAC8015D
+  emulator against SPEED-CEILING and MASS-LEDGER D-29. Seven breaches declared against #172; no
+  parameter changed.
+
 ### Simulation — Base and lift software-in-the-loop on virtual CAN (14 Nov 2026)
 
 - New package `openamrobot_sil`: ZLAC8015D, CTL-017 and Daly BMS emulators on `vcan_drive`, `vcan_aux` and `vcan_bms`, bridged
