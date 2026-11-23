@@ -2,8 +2,10 @@
 #
 # Companion of sensor_frames.yaml: that file says where each sensor is, this one says how it
 # behaves (range, rate, resolution, noise) and where every number comes from. The keys under
-# `frames` are exactly the frame ids of sensor_frames.yaml. Nothing in the URDF, the SDF or a
-# launch file reads this file yet; test/test_sensor_profiles.py is its only consumer.
+# `frames` are exactly the frame ids of sensor_frames.yaml. urdf/sensors.xacro loads this file
+# and the base Gazebo sensors (sensors.xacro, gazebo_control.xacro) take their numbers from it
+# (#156); a null value writes no SDF element. test/test_sensor_profiles.py checks the file,
+# test/test_gazebo_sensor_profiles.py checks the expanded model against it.
 #
 # Every value is a mapping:
 #   value:   the number, or null when it is not known
@@ -45,6 +47,11 @@ documents:
   tf_luna: &doc_tf_luna >-
     Benewake PD-TF-Luna-Datasheet-A05, SHA-256
     d080033ececa32866ed9361ae04f6d25d8dbdcd478cd2961be0360b241249718
+  tf_luna_manual: &doc_tf_luna_manual >-
+    Benewake TF-Luna User Manual rev A05 (revision table 2020-07-23, page footer REV
+    01/04/2024), section 6.4 Basic Data Output, as filed in openamr-platform-hw
+    datasheets/Benewake/TF-Luna/User-Manual/en.pdf SHA-256
+    36dfae2e9d6a298624889c5036cfdef9b191c9f44239b7f58ffcef685d9c28e7, read 17 Nov 2026
   mb7060: &doc_mb7060 >-
     MaxBotix XL-MaxSonar-WR/WRC series datasheet, document 11838ab (no revision date printed),
     SHA-256 76e77577b493ca8f38780b589430e26ceeb2489c2171f4a8f66f71f92d86395d
@@ -162,9 +169,25 @@ frames:
                   firmware configures"}
         bias_stability:
           {value: null, unit: dps, source: null, status: unknown,
-           needed: "zero-rate output and bias figures from DS-000347 rev 1.9 (filed, not read
-                    here), then a static bias-drift measurement on the delivered board",
+           needed: "static bias-drift measurement on the delivered board (MP-19); DS-000347
+                    rev 1.9 gives tolerances only (zro_initial_tolerance), not a standard
+                    deviation",
            owner: Vineeth}
+        zro_initial_tolerance:
+          {value: 0.5, unit: dps, source: *doc_icm_ds, status: datasheet,
+           note: "plus or minus, typical, board level, 25 C, Table 1 note 3 (derived from
+                  characterisation, not tested in production). A bound on the zero-rate
+                  output, not a standard deviation: not written as a Gazebo bias_stddev"}
+        zro_tempco:
+          {value: 0.005, unit: dps/degC, source: *doc_icm_ds, status: datasheet,
+           note: "plus or minus, typical, 0 to 70 C, Table 1 note 3; a bound, not a standard
+                  deviation"}
+        rms_noise_100hz:
+          {value: 0.028, unit: dps rms, source: *doc_icm_ds, status: datasheet,
+           note: "total RMS noise at a 100 Hz bandwidth, calculated by the vendor from the
+                  noise density (Table 1 note 4). A per-sample standard deviation only if the
+                  firmware's noise bandwidth is 100 Hz; scales with sqrt(bandwidth / 100 Hz).
+                  Not written into Gazebo until odr and the filter are known"}
         odr:
           {value: null, unit: Hz, source: null, status: unknown,
            needed: "output data rate the firmware sets (TODO(Evans)); /imu/data_raw rate",
@@ -175,9 +198,23 @@ frames:
            note: "low-noise mode; Z axis 70, X and Y axes 65; the worst axis is used"}
         bias_stability:
           {value: null, unit: mg, source: null, status: unknown,
-           needed: "zero-g offset figures from DS-000347 rev 1.9 (filed, not read here), then a
-                    static measurement on the delivered board",
+           needed: "static offset-drift measurement on the delivered board (MP-19); DS-000347
+                    rev 1.9 gives tolerances only (zero_g_initial_tolerance), not a standard
+                    deviation",
            owner: Vineeth}
+        zero_g_initial_tolerance:
+          {value: 20.0, unit: mg, source: *doc_icm_ds, status: datasheet,
+           note: "plus or minus, typical, board level, all axes, Table 2 note 3. A bound, not
+                  a standard deviation: not written as a Gazebo bias_stddev"}
+        zero_g_tempco:
+          {value: 0.15, unit: mg/degC, source: *doc_icm_ds, status: datasheet,
+           note: "plus or minus, typical, -40 to 85 C, Table 2 note 3; a bound, not a standard
+                  deviation"}
+        rms_noise_100hz:
+          {value: 0.70, unit: mg rms, source: *doc_icm_ds, status: datasheet,
+           note: "RMS noise at a 100 Hz bandwidth, Z axis (X and Y 0.65), calculated from the
+                  noise density (Table 2 note 4); the worst axis is used. Same bandwidth
+                  condition as the gyro rms_noise_100hz"}
         odr:
           {value: null, unit: Hz, source: null, status: unknown,
            needed: "output data rate the firmware sets (TODO(Evans))",
@@ -208,6 +245,17 @@ frames:
         power_up_ready_time:
           {value: 0.175, unit: s, source: *doc_mb7060, status: datasheet,
            note: "ready to range 175 ms after power-up"}
+        no_target_output:
+          {value: 7.65, unit: m, source: *doc_mb7060, status: datasheet,
+           note: "the compact (-2XX) package still reports 765 cm as the no-detection output
+                  when no target is found (section Performance Changes when Selecting a Compact,
+                  Pipe or Ultra-Compact Package). A value, not an obstacle; Gazebo returns the
+                  maximum or inf for a ray with no hit and does not model it"}
+        range_max_effective:
+          {value: 6.45, unit: m, source: *doc_mb7060, status: datasheet,
+           note: "maximum effective range of the compact, pipe and ultra-compact packages (same
+                  section); range_max 7.65 m is the largest reported value. The Gazebo range
+                  max stays range_max until the owner decides"}
         beam_half_angle:
           {value: null, unit: rad, source: null, status: unknown,
            needed: "beam pattern of the MB7060 from the datasheet figures (target shape and
@@ -259,6 +307,16 @@ frames:
         range_noise_stddev:
           {value: null, unit: m, source: null, status: unknown,
            needed: "floor-return repeatability test at the dock and cliff heights; the
-                    datasheet gives accuracy only",
+                    datasheet gives accuracy only, and the user manual section 3.3 gives
+                    reference standard deviations that depend on signal strength and distance
+                    (not one value)",
            owner: Cuma}
+        invalid_amp_below:
+          {value: 100, unit: Amp counts, source: *doc_tf_luna_manual, status: datasheet,
+           note: "Dist is unreliable when the signal strength Amp is below 100 (too low). A
+                  rule for the sensor-fault layer, not modelled by Gazebo"}
+        invalid_amp_overexposed:
+          {value: 65535, unit: Amp counts, source: *doc_tf_luna_manual, status: datasheet,
+           note: "Dist is unreliable when Amp equals 0xFFFF (overexposed); Amp above 32768
+                  flags ambient-light overexposure. Not modelled by Gazebo"}
   tof_rear: *tof_tf_luna

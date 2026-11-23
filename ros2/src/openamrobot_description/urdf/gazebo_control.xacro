@@ -115,6 +115,9 @@
   <xacro:caster_gazebo prefix="br" />
 
   <!-- ── Link-level: camera_link — forward-facing RGB camera ──────── -->
+  <!-- Legacy Gate A IMX708, not 2.0 hardware and not in config/sensor_profiles.yaml
+       (RG-SEN-036). Kept: the AprilTag docking pipeline reads /rgb_image and
+       camera_optical_frame; removing it is a contract change (#156, #53, #105). -->
   <gazebo reference="camera_link">
     <material>Gazebo/Black</material>
     <sensor name="camera_sensor" type="camera">
@@ -144,12 +147,61 @@
     </sensor>
   </gazebo>
 
+  <!-- ── Link-level: base_camera_link — Orbbec Gemini 336L RGB-D (#156, RG-SEN-007) ── -->
+  <!-- From config/sensor_profiles.yaml base_camera_link.depth: 90 deg horizontal field of
+       view, 1280 x 800, 30 Hz (the maximum at that size; the robot's rate is set in the driver
+       launch), depth clip 0.17 to 20 m. One rgbd_camera has one field of view, so the colour
+       channel (94 x 68 deg, up to 60 Hz) is not modelled separately; Gazebo derives the vertical
+       field of view from the aspect, 64.0 deg against 65 in the profile. image_noise_stddev is
+       null: no noise block. Gazebo topic /base_camera/rgbd (Gazebo appends /image,
+       /depth_image, /points, /camera_info) and sensor name as in #53; Proposed, not bridged to
+       ROS: the ROS topics are a contract change (#53, #41). The legacy /rgb_image sensor
+       above stays: docking reads it. -->
+  <xacro:property name="gemini_depth" value="${sensor_profiles['base_camera_link']['channels']['depth']}"/>
+  <xacro:property name="gemini_noise_stddev"
+                  value="${sensor_profiles['base_camera_link']['channels']['color']['image_noise_stddev']['value']}"/>
+  <gazebo reference="base_camera_link">
+    <sensor name="gemini_rgbd_sensor" type="rgbd_camera">
+      <pose relative_to="base_camera_link">0 0 0 0 0 0</pose>
+      <topic>/base_camera/rgbd</topic>
+      <gz_frame_id>base_camera_color_optical_frame</gz_frame_id>
+      <update_rate>${gemini_depth['frame_rate_max']['value']}</update_rate>
+      <camera>
+        <horizontal_fov>${radians(gemini_depth['fov_horizontal']['value'])}</horizontal_fov>
+        <image>
+          <width>${gemini_depth['width_max']['value']}</width>
+          <height>${gemini_depth['height_max']['value']}</height>
+          <format>R8G8B8</format>
+        </image>
+        <depth_camera>
+          <clip>
+            <near>${gemini_depth['range_min']['value']}</near>
+            <far>${gemini_depth['range_max']['value']}</far>
+          </clip>
+        </depth_camera>
+        <xacro:if value="${gemini_noise_stddev is not None}">
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${gemini_noise_stddev}</stddev>
+          </noise>
+        </xacro:if>
+      </camera>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+    </sensor>
+  </gazebo>
+
   <!-- ── Link-level: imu_link — simulated IMU (from #69) ─────────────── -->
   <!-- Publishes gz topic "imu", which config/gz_bridge.yaml bridges to /imu.
        The sensor sits on imu_link with no pose offset; the frame (sensor axes,
        yaw -90 deg) is declared in sensors.xacro. The rate matches the 0.02 s
-       nominal period in openamrobot_nav2 navigation_status_profile.yaml. No noise
-       model: simulation only, not the ICM-42688-P's characteristics. -->
+       nominal period in openamrobot_nav2 navigation_status_profile.yaml; it is not from
+       config/sensor_profiles.yaml, where the output data rate the firmware sets is null
+       (imu_link.gyro.odr, TODO(Evans)); reported in #156, kept until the owner decides.
+       No noise model: the profile's per-sample noise (rms_noise_100hz) holds only at a
+       100 Hz noise bandwidth, which the firmware filter sets and is not known, and the bias
+       figures are tolerances, not standard deviations. Simulation only. -->
   <gazebo reference="imu_link">
     <sensor name="imu_sensor" type="imu">
       <pose relative_to="imu_link">0 0 0 0 0 0</pose>
@@ -168,32 +220,41 @@
   </gazebo>
 
   <!-- ── Link-level: lidar_link — sensor ONLY here ─────────────────── -->
+  <!-- RPLIDAR S3 from config/sensor_profiles.yaml (lidar_link.scan, #156): range 0.05 m to
+       40 m (white target; Gazebo has no reflectivity, the 15 m black-target limit is not
+       modelled), resolution 10 mm, 10 Hz, samples per turn 360 / 0.1125 deg = 3200.
+       range_noise_stddev is null (the +-30 mm accuracy is a limit, not a standard deviation):
+       no noise block. Was 0.40 to 10 m, 360 samples, stddev 0.001 m (no source). -->
+  <xacro:property name="lidar_scan" value="${sensor_profiles['lidar_link']['channels']['scan']}"/>
+  <xacro:property name="lidar_noise_stddev" value="${lidar_scan['range_noise_stddev']['value']}"/>
   <gazebo reference="lidar_link">
     <material>Gazebo/Black</material>
     <sensor name="lidar_sensor" type="gpu_lidar">
       <pose relative_to="lidar_link">0 0 0 0 0 0</pose>
       <topic>/scan</topic>
       <gz_frame_id>lidar_link</gz_frame_id>
-      <update_rate>10</update_rate>
+      <update_rate>${lidar_scan['scan_rate']['value']}</update_rate>
       <lidar>
         <scan>
           <horizontal>
-            <samples>360</samples>
+            <samples>${int(round(360.0 / lidar_scan['angular_resolution']['value']))}</samples>
             <resolution>1</resolution>
             <min_angle>-3.14159</min_angle>
             <max_angle>3.14159</max_angle>
           </horizontal>
         </scan>
         <range>
-          <min>0.40</min>
-          <max>10.0</max>
-          <resolution>0.01</resolution>
+          <min>${lidar_scan['range_min']['value']}</min>
+          <max>${lidar_scan['range_max_white']['value']}</max>
+          <resolution>${lidar_scan['range_resolution']['value'] * 0.001}</resolution>
         </range>
-        <noise>
-          <type>gaussian</type>
-          <mean>0.0</mean>
-          <stddev>0.001</stddev>
-        </noise>
+        <xacro:if value="${lidar_noise_stddev is not None}">
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>${lidar_noise_stddev}</stddev>
+          </noise>
+        </xacro:if>
       </lidar>
       <visualize>false</visualize>
       <always_on>true</always_on>

@@ -36,7 +36,7 @@ The PR evidence check fails when STATE.md exists and a PR neither updates it nor
 | Base E-stop and RESET in the release 001 button holes, P-03 rev20.0 item 24 (27 Oct 2026) | #100 | merged (131e500) | mechanical owner: confirm the 22.4 mm hole |
 | BOM Issue 7.14 and P-03 rev20.2 item 26 references: no click shield, TDK EV_ICM-42688-P (1 Nov 2026) | #104 | merged (b5dcb2d) | none |
 | Legacy Gate A camera_link box no longer drawn above the 2.0 top cover; frame kept (1 Nov 2026) | #106 | merged (4926f40) | none |
-| Sensor behaviour profiles (range, rate, noise per sensor frame, each value with its source; unknown stays null): config/sensor_profiles.yaml, test_sensor_profiles.py (14 Nov 2026) | night-shift/sensor-profiles-2026-11-14 | draft | Vineeth and Cuma review; Vineeth: next package reads the values into the Gazebo sensors (not changed here); Evans: IMU and TF-Luna rates |
+| Base Gazebo sensors read sensor_profiles.yaml (#138 merged e194312; #156, 17 Nov 2026): S3 0.05 to 40 m, 3200 samples; Gemini 336L rgbd_camera on base_camera_link (gz topic /base_camera/rgbd, Proposed, not bridged); TF-Luna 100 Hz; null values write no noise; ICM-42688-P tolerances and RMS noise, TF-Luna Amp rule, MB7060 no-target 765 cm added to the profile; test_gazebo_sensor_profiles.py (81 tests, 335 description tests) | sensors/base-from-profiles | draft | owner: adopt, adapt or reject; before merge: sim LiDAR body mask (scan_body_filter_sim.yaml) re-measured, the 0.05 m minimum exposes body returns at about +-35 to 39 deg; open: IMU 50 Hz (ODR null, Evans), MB7060 half angle 0.17 rad (Vineeth), legacy /rgb_image camera (docking contract) |
 
 ## Decisions this repository implements
 
@@ -57,7 +57,7 @@ DOCK-NO-CONTACTS, DOCKING-NOT-CHARGING.
 - Base E-stop and RESET (27 Oct 2026) are placeholders from datasheet dimensions in the
   release 001 button holes (22.5 mm in CAD v0.2); the Schneider STEP models and the XB4 hole
   tolerance (22.4 mm, unconfirmed) are not verified; the mechanical owner confirms the hole.
-- Sensor profiles (14 Nov 2026): Gazebo sensors do not read config/sensor_profiles.yaml yet; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
+- Sensor profiles (17 Nov 2026, #156): the base Gazebo sensors read config/sensor_profiles.yaml; unknown values (LiDAR, camera and IMU bias and latency, ODR, beam angle, range noise) stay null and write no SDF element until a datasheet or a bench test fills them; the RPLIDAR S3 and Gemini 336L datasheets are not in the datasheet index.
 - Harness not pinned; `repository-quality` calls the reusable workflow at `@main` (step b).
 - No `tools/verify.sh`; `quality/test` is skipped on main.
 - Watchdog report-only on dfd44a5 plus this PR (17 Oct 2026): 46 decisions findings, 15

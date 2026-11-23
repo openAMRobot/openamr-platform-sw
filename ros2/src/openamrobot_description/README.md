@@ -90,6 +90,19 @@ then re-pin. The note is recorded in `config/roadmap_mass_export.source.yaml` an
 | `camera_link` | none (legacy Gate A IMX708 frame, massless) | none |
 | `camera_optical_frame` | — (optical convention frame) |
 
-**Sensor — LiDAR:** 2D GPU LiDAR — 360°, 10 m max range, 10 Hz, Gaussian noise σ=0.001 m.
+**Gazebo sensors read `config/sensor_profiles.yaml`** (#156): `urdf/sensors.xacro` loads the profile with
+`xacro.load_yaml`, and every range, rate, resolution, field of view and noise value of the base sensors below is taken from
+it. A null (unknown) profile value writes no SDF element, so no noise block is written today. `test/test_gazebo_sensor_profiles.py`
+checks the expanded model against the profile and pins the topic names and frame ids.
 
-**Sensor — Camera:** Forward-facing RGB camera mounted at `xyz="0.35 0 0.20"` on `base_link` — 640×480, 30 Hz, 60° HFOV, 0.05–15 m range, topic `/rgb_image`, Gaussian noise σ=0.005. Frame `camera_optical_frame` follows ROS optical convention.
+| Sensor (link) | Gazebo topic | Values from the profile | Not from the profile |
+|---|---|---|---|
+| RPLIDAR S3 `lidar_sensor` (`lidar_link`) | `/scan` | 0.05 to 40 m, 10 mm, 10 Hz, 3200 samples (0.1125 deg), no noise | none |
+| Gemini 336L `gemini_rgbd_sensor` (`base_camera_link`, frame `base_camera_color_optical_frame`) | `/base_camera/rgbd` (Proposed, not bridged to ROS) | depth 90 deg horizontal, 1280 x 800, 30 Hz, clip 0.17 to 20 m, no noise | colour channel (94 x 68 deg) not modelled separately |
+| ICM-42688-P `imu_sensor` (`imu_link`) | `imu` (bridged to `/imu`) | no noise (bandwidth unknown) | 50 Hz: the profile ODR is null (set by the firmware, not yet known) |
+| TF-Luna `tof_front_sensor`, `tof_rear_sensor` | `/tof/front`, `/tof/rear` | 0.2 to 8 m, 1 cm, 2 deg field of view, 100 Hz datasheet default, no noise | none |
+| MB7060 `us_*_sensor` | `/ultrasonic/*` | 0.2 to 7.65 m, 1 cm, 10 Hz, no noise | 9-ray fan, half angle 0.17 rad: beam_half_angle is null |
+
+**Sensor — legacy camera:** Gate A IMX708 RGB camera on `camera_link` — 640×480, 12 Hz, 60° HFOV, 0.05–15 m, topic
+`/rgb_image`, Gaussian noise σ=0.005, not 2.0 hardware and not in the profile. Kept because the AprilTag docking pipeline reads
+`/rgb_image`; removing it is a contract change. Frame `camera_optical_frame` follows ROS optical convention.
