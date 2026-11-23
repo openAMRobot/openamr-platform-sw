@@ -11,6 +11,8 @@
 name: station-alignment-tests
 
 on:
+  push:
+    branches: [diag/192-trace-2026-11-23]
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
@@ -291,19 +293,15 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+          - {name: trace-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          # Fast DDS, as Baseline 1 (upperbody-sw baseline1-acceptance.yml sets no RMW)
-          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
+          - {name: trace-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
-             expect_text: 'marker not seen', rmw: rmw_cyclonedds_cpp, behaviors: '164'}
-          # platform-sw #192: five station goals that start less than 0.05 m from the goal and more than 0.3 rad off its
-          # heading (trials.py short-corrections). The second entry is the revert leg: the station stages on the
-          # general, translation-only progress checker, as before 23 Nov 2026; it must fail on a Nav2 abort.
-          - {name: short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: head, expect: pass,
+          - {name: trace-rtf1-general-checker, rtf: '1.0', delay: '0.0', trials: '5', code: general-progress-checker,
+             expect: pass, rmw: rmw_cyclonedds_cpp, behaviors: pr90}
+          - {name: trace-short-correction, rtf: '1.0', delay: '0.0', trials: '5', short: '5', code: head, expect: pass,
              rmw: rmw_cyclonedds_cpp, behaviors: pr90}
-          - {name: short-correction-general-checker, rtf: '1.0', delay: '0.0', trials: '5', short: '5',
+          - {name: trace-short-correction-general-checker, rtf: '1.0', delay: '0.0', trials: '5', short: '5',
              code: general-progress-checker, expect: fail, expect_text: 'Nav2 aborted', rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
     env:

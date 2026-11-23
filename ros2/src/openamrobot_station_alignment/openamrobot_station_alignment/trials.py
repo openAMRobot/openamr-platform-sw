@@ -53,6 +53,16 @@ class Runner(Node):
         self.latest = {}
         self.markers = []
         self.travel = None    # while a dict: yaw and path length the ground truth has travelled since start_travel()
+        # DIAGNOSTIC (platform-sw #192): commands, poses and Nav2 log lines while a goal runs
+        self.trace = None
+        self.cmd = {}
+        from rcl_interfaces.msg import Log
+        from geometry_msgs.msg import Twist, TwistStamped
+        self.create_subscription(Log, "/rosout", self._on_log, 200)
+        for topic in ("/cmd_vel_nav", "/cmd_vel_smoothed", "/cmd_vel"):
+            self.create_subscription(Twist, topic, self._on_cmd(topic, False), 10)
+            self.create_subscription(TwistStamped, topic, self._on_cmd(topic, True), 10)
+        self.create_timer(0.5, self._sample)
         self.create_subscription(Odometry, "/station_alignment/ground_truth/odom", self._store("truth"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._store("amcl"), 10)
         self.create_subscription(PoseWithCovarianceStamped, "/station_alignment/station_pose",
@@ -96,6 +106,51 @@ class Runner(Node):
                     key = f"detections {ids}"
                     self.counts[key] = self.counts.get(key, 0) + 1
         return cb
+
+    def _on_cmd(self, topic, stamped):
+        def cb(msg):
+            t = msg.twist if stamped else msg
+            with self.lock:
+                self.cmd[topic] = (round(t.linear.x, 4), round(t.angular.z, 4))
+        return cb
+
+    def _on_log(self, msg):
+        if msg.name not in ("controller_server", "bt_navigator", "planner_server", "collision_monitor",
+                            "station_alignment", "behavior_server", "velocity_smoother"):
+            return
+        with self.lock:
+            if self.trace is not None:
+                self.trace["log"].append((round(self.get_clock().now().nanoseconds * 1e-9, 2), msg.name,
+                                          msg.msg[:160]))
+
+    def _sample(self):
+        with self.lock:
+            if self.trace is None:
+                return
+            goal = self.trace["goal"]
+            cmd, self.cmd = dict(self.cmd), {}
+        truth, amcl = self.truth(), self.amcl()
+        row = {"t": round(self.get_clock().now().nanoseconds * 1e-9, 2), "cmd": cmd}
+        for name, pose in (("truth", truth), ("amcl", amcl)):
+            if pose is not None:
+                exy, eyaw, along, left = geometry.pose_error(pose, goal)
+                row[name] = (round(exy, 4), round(eyaw, 4), round(along, 4), round(left, 4), round(pose[2], 3))
+        with self.lock:
+            if self.trace is not None:
+                self.trace["rows"].append(row)
+
+    def start_trace(self, goal):
+        with self.lock:
+            self.trace = {"goal": goal, "rows": [], "log": []}
+
+    def stop_trace(self, label, always=False):
+        with self.lock:
+            out, self.trace = self.trace, None
+        failures = sum(1 for _, _, m in out["log"] if "Failed to make progress" in m)
+        out["progress_failures"] = failures
+        if always or failures or len(out["rows"]) > 60:
+            print("TRACE " + json.dumps({"label": label, **out}, default=str), flush=True)
+        return failures
 
     def start_travel(self):
         with self.lock:
@@ -250,7 +305,9 @@ def short_corrections(node, station, tree, count, goal_timeout):
         record["start"] = start
         sim0 = node.get_clock().now().nanoseconds
         node.start_travel()
+        node.start_trace(station)
         record["nav2"], record["wall_s"] = node.send(node.nav, station, tree, goal_timeout)
+        record["progress_failures"] = node.stop_trace(f"short correction {index + 1}", always=True)
         record["sim_s"] = (node.get_clock().now().nanoseconds - sim0) * 1e-9
         record["yaw_travel"], record["xy_travel"] = node.stop_travel()
         node.sleep_sim(2.0)
@@ -319,12 +376,17 @@ def main(argv=None):
             node.take_counts()
             status, _ = node.send(node.nav, start, "", args.goal_timeout)
             trial["to_start"] = status
+            node.start_trace(station)
             status, wall = node.send(node.nav, station, tree, args.goal_timeout)
-            trial["baseline"] = {"nav2": status, "wall_s": wall, **node.measure(station)}
+            failures = node.stop_trace(f"trial {index + 1} baseline")
+            trial["baseline"] = {"nav2": status, "wall_s": wall, "progress_failures": failures,
+                                 **node.measure(station)}
             with node.lock:
                 node.latest.pop("report", None)
+            node.start_trace(station)
             status, wall = node.send(node.align, station, tree, args.goal_timeout)
-            aligned = {"nav2": status, "wall_s": wall, **node.measure(station)}
+            failures = node.stop_trace(f"trial {index + 1} aligned")
+            aligned = {"nav2": status, "wall_s": wall, "progress_failures": failures, **node.measure(station)}
             report = node.get("report")
             if report is not None:
                 aligned["report"] = json.loads(report.data)
