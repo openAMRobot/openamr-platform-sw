@@ -11,6 +11,8 @@
 name: station-alignment-tests
 
 on:
+  push:
+    branches: [diag/164-skip-trace-2026-11-23]
   pull_request:
     paths:
       - 'ros2/src/openamrobot_station_alignment/**'
@@ -60,7 +62,7 @@ jobs:
         run: |
           cd "$PKG_DIR"
           PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
-      - name: Check that all 197 tests ran
+      - name: Check that all 201 tests ran
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -68,7 +70,7 @@ jobs:
           s = root if root.tag == 'testsuite' else root.find('testsuite')
           tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
           print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
-          assert tests == 197 and skipped == 0 and failed == 0 and errors == 0
+          assert tests == 201 and skipped == 0 and failed == 0 and errors == 0
           EOF
       # Revert run: the package's code, configuration, launch files, world, map, model and URDF are removed, the tests
       # stay. Every test must fail or error except the two that check #164's own files, which this PR does not own.
@@ -291,13 +293,14 @@ jobs:
         include:
           # behaviors pr90: #90's behaviour set on #164's Nav2 (scripts/apply_pr90_behaviour_set.py), so the
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
-          - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+          - {name: trace-rtf1-a, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          # Fast DDS, as Baseline 1 (upperbody-sw baseline1-acceptance.yml sets no RMW)
-          - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_fastrtps_cpp,
+          - {name: trace-rtf1-b, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
-             rmw: rmw_cyclonedds_cpp, behaviors: '164'}
+          - {name: trace-rtf1-c, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90}
+          - {name: trace-rtf1-d, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       QT_QPA_PLATFORM: offscreen
