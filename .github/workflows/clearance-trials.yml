@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Obstacle clearance trials (platform-sw #188, #190), scratch branch only. Each entry of
-# ros2/src/openamrobot_clearance_trials/trial_matrix.json runs the scenarios once per repeat with a copy of
+# .github/clearance_matrix.json runs the scenarios once per repeat with a copy of
 # nav2_params.yaml that carries the entry's overrides. The repository's nav2_params.yaml is not changed by this
 # workflow. Simulation evidence only: never robot, site, physical or safety evidence. No secrets, no hardware.
 name: clearance-trials
@@ -9,7 +9,7 @@ on:
   push:
     branches: ['diag/188-**']
     paths:
-      - 'ros2/src/openamrobot_clearance_trials/**'
+      - '.github/clearance_matrix.json'
       - '.github/workflows/clearance-trials.yml'
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          plan = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))
+          plan = json.load(open(".github/clearance_matrix.json"))
           groups, only = plan["groups"], plan.get("run_groups")
           print("matrix=" + json.dumps({"include": [{"index": i, "group": g["name"], "lidar_min": g["lidar_min"],
                                                      "body_mask": g.get("body_mask", "")}
@@ -155,7 +155,7 @@ jobs:
           params=$(ros2 pkg prefix openamrobot_nav2)/share/openamrobot_nav2/config/nav2_params.yaml
           python3 - <<'PY'
           import json
-          group = json.load(open("src/openamr-platform-sw/ros2/src/openamrobot_clearance_trials/trial_matrix.json"))["groups"][${{ matrix.index }}]
+          group = json.load(open("src/openamr-platform-sw/.github/clearance_matrix.json"))["groups"][${{ matrix.index }}]
           for i, e in enumerate(group["entries"]):
               json.dump(e, open(f"/tmp/entry_{i}.json", "w"))
               open(f"/tmp/entry_{i}.overrides", "w").write(json.dumps(e.get("overrides", {})))
@@ -195,6 +195,24 @@ jobs:
             echo "::endgroup::"
             { echo "### $label (LiDAR min ${{ matrix.lidar_min }})"; cat ../out/overrides_$i.txt; cat ../out/clearance_trials_$i.md 2>/dev/null || echo "no result table"; } >> "$GITHUB_STEP_SUMMARY"
           done
+          python3 - <<'PY'
+          import glob, json, statistics
+          rows = {}
+          for f in sorted(glob.glob("../out/clearance_trials_*.json")):
+              if ".series." in f:
+                  continue
+              d = json.load(open(f))
+              for t in d.get("trials", []):
+                  rows.setdefault(t["scenario"], []).append(t)
+          print("SUMMARY scenario | launches | reached | contacts | min clearance | median | below 0.10 | min to mapped | values")
+          for name, ts in rows.items():
+              c = [t["min_clear"] for t in ts if t["min_clear"] is not None]
+              m = [t["min_clear_mapped"] for t in ts]
+              print("SUMMARY", name, "|", len(ts), "|", sum(t["status"] == "succeeded" for t in ts), "|",
+                    sum(bool(t["contact"]) for t in ts), "|", f"{min(c):.3f}" if c else "n/a", "|",
+                    f"{statistics.median(c):.3f}" if c else "n/a", "|", sum(v < 0.10 for v in c), "|", f"{min(m):.3f}", "|",
+                    " ".join(f"{v:.3f}" for v in c))
+          PY
           echo "TRIALS_RC=$rc_all" >> "$GITHUB_ENV"
           exit 0
 

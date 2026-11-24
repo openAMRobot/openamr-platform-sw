@@ -6,8 +6,8 @@ through the unchanged command chain, and records from the Gazebo ground truth: t
 chassis collision box and every obstacle, contacts, path, time, speeds, standstill time, and from Nav2 the result,
 the recovery nodes that ran and what collision_monitor did. The runner publishes no velocity command.
 
-Exit status 0 when no trial had a contact and every trial ended as its scenario expects. The 0.10 m clearance target
-is reported per trial, not enforced here. Simulation evidence only: not robot, site, physical or safety evidence.
+Exit status 0 when no trial had a contact and every trial ended as its scenario expects, and, with --min-clearance,
+when the chassis never came closer than that to an obstacle that is not in the map. Simulation evidence only: not robot, site, physical or safety evidence.
 """
 import argparse
 import json
@@ -457,6 +457,8 @@ def main(argv=None):
     parser.add_argument("--out", default="clearance_trials.json")
     parser.add_argument("--markdown", default="clearance_trials.md")
     parser.add_argument("--label", default="")
+    parser.add_argument("--min-clearance", type=float, default=None,
+                        help="fail when the chassis comes closer than this to an obstacle that is not in the map")
     parser.add_argument("--startup-timeout", type=float, default=900.0)
     parser.add_argument("--sim-timeout", type=float, default=420.0)
     parser.add_argument("--wall-timeout", type=float, default=2400.0)
@@ -537,6 +539,10 @@ def main(argv=None):
                 if t["contact"]]
     reasons += [f"trial {i + 1} {t['scenario']}: expected {t['expect']}, Nav2 {t['status']}"
                 for i, t in enumerate(trials) if not t["as_expected"] and not t["contact"]]
+    if args.min_clearance is not None:
+        reasons += [f"trial {i + 1} {t['scenario']}: chassis {t['min_clear']:.3f} m from {t['min_at']['obstacle']},"
+                    f" required {args.min_clearance} m" for i, t in enumerate(trials)
+                    if t["min_clear"] is not None and t["min_clear"] < args.min_clearance]
     record["passed"] = not reasons
     record["reasons"] = reasons
     clear = [t["min_clear"] for t in trials if t["min_clear"] is not None]

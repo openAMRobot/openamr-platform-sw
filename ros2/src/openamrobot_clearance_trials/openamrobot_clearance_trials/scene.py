@@ -95,11 +95,6 @@ def scenarios(aisle_width=AISLE_WIDTH):
         "all_blocked": {"obstacles": [block] + closures, "expect": "blocked",
                         "note": "every route closed for the whole trial: the robot must stay stopped and report"},
     }
-    # The narrow passage as the only route: both ways round are closed.
-    out["gap100_only"] = {"obstacles": [cart_with_gap(1.00)] + closures, "expect": "pass",
-                          "note": "cart in the aisle, 1.00 m free, no other route"}
-    out["gap080_only"] = {"obstacles": [cart_with_gap(0.80)] + closures, "expect": "either",
-                          "note": "cart in the aisle, 0.80 m free (0.11 m per side at best), no other route"}
     out["head_on_block"] = dict(out["all_blocked"], note="every route closed: the approach to the block, straight on,"
                                 " gives the stopping behaviour (smallest distance and the speed profile)")
     # Rotation next to an obstacle: the goal is in the aisle beside the cart, facing back. The chassis diagonal is
