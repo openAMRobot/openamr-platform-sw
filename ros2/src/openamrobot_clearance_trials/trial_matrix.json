@@ -81,7 +81,8 @@
       "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.45
      }
     }
-   ]
+   ],
+   "body_mask": ""
   },
   {
    "name": "B baseline: repeats and recovery scenarios",
@@ -99,10 +100,11 @@
      "repeats": "3",
      "overrides": {}
     }
-   ]
+   ],
+   "body_mask": ""
   },
   {
-   "name": "C LiDAR range_min 0.05 (datasheet), with and without distance zones",
+   "name": "C2 LiDAR range_min 0.05 and body mask 42 deg, with and without distance zones",
    "lidar_min": "0.05",
    "entries": [
     {
@@ -175,11 +177,11 @@
       }
      }
     }
-   ]
+   ],
+   "body_mask": "-42.0,42.0"
   }
  ],
  "run_groups": [
-  1,
   2
  ]
 }

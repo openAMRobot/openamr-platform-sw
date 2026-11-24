@@ -39,7 +39,8 @@ jobs:
           import json
           plan = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))
           groups, only = plan["groups"], plan.get("run_groups")
-          print("matrix=" + json.dumps({"include": [{"index": i, "group": g["name"], "lidar_min": g["lidar_min"]}
+          print("matrix=" + json.dumps({"include": [{"index": i, "group": g["name"], "lidar_min": g["lidar_min"],
+                                                     "body_mask": g.get("body_mask", "")}
                                                     for i, g in enumerate(groups) if only is None or i in only]}))
           PY
       - name: Static tests of the trial package
@@ -168,7 +169,8 @@ jobs:
             echo "::group::ENTRY $i: $label"
             ros2 run openamrobot_clearance_trials clearance_overrides "$params" /tmp/nav2_params_$i.yaml "$(cat /tmp/entry_$i.overrides)" | tee ../out/overrides_$i.txt
             setsid ros2 launch openamrobot_clearance_trials clearance_sim.launch.py headless:=true \
-              scene_dir:=/tmp/clearance_scene params_file:=/tmp/nav2_params_$i.yaml > ../out/launch_$i.log 2>&1 &
+              scene_dir:=/tmp/clearance_scene params_file:=/tmp/nav2_params_$i.yaml \
+              body_mask:="${{ matrix.body_mask }}" > ../out/launch_$i.log 2>&1 &
             launch_pid=$!
             set +e
             timeout 150m ros2 run openamrobot_clearance_trials clearance_trials --label "$label (LiDAR min ${{ matrix.lidar_min }})" \

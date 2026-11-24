@@ -27,6 +27,10 @@ def _stack(context):
     world = os.path.join(scene_dir, "clearance.sdf")
     gz_args = f"-r {'-s --headless-rendering ' if headless else ''}-v 2 {world}"
     sim_time = {"use_sim_time": True}
+    # Test only: another full-mask sector for the body filter ("lower,upper" in degrees, LiDAR frame), for runs with a
+    # LiDAR minimum range other than the repository's 0.40 m. Empty: scan_body_filter_sim.yaml unchanged.
+    mask = context.launch_configurations["body_mask"]
+    body_mask = [{"full_mask_sectors_deg": [float(v) for v in mask.split(",")]}] if mask else []
     return [
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -36,7 +40,7 @@ def _stack(context):
              parameters=[{"config_file": os.path.join(share, "config", "gz_bridge_clearance.yaml"),
                           "qos_overrides./tf_static.publisher.durability": "transient_local"}]),
         Node(package="openamrobot_perception", executable="scan_body_filter", name="scan_body_filter", output="screen",
-             parameters=[os.path.join(nav2, "config", "scan_body_filter_sim.yaml"), sim_time]),
+             parameters=[os.path.join(nav2, "config", "scan_body_filter_sim.yaml"), sim_time] + body_mask),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(nav2, "launch", "localization_launch.py")),
             launch_arguments={"map": os.path.join(scene_dir, "clearance_map.yaml"), "use_sim_time": "true",
@@ -58,6 +62,7 @@ def generate_launch_description():
         DeclareLaunchArgument("headless", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("scene_dir", default_value="/tmp/clearance_scene"),
         DeclareLaunchArgument("params_file", default_value=""),
+        DeclareLaunchArgument("body_mask", default_value=""),
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", os.path.dirname(description)),
         Node(package="robot_state_publisher", executable="robot_state_publisher", name="robot_state_publisher",
              output="screen", parameters=[sim_time, {"robot_description": robot}]),
