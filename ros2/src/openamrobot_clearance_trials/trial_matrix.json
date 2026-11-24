@@ -286,12 +286,39 @@
      }
     }
    ]
+  },
+  {
+   "name": "F1 global 0.55/3.0 (platform #202): only-route and recovery",
+   "lidar_min": "0.40",
+   "body_mask": "",
+   "entries": [
+    {
+     "label": "F1 global 0.55/3.0, only-route and recovery scenarios",
+     "scenarios": "gap100_only,gap080_only,temporary,crossing,turn_beside_cart,oncoming,operator_stop,head_on_block",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "F2 baseline: only-route and recovery",
+   "lidar_min": "0.40",
+   "body_mask": "",
+   "entries": [
+    {
+     "label": "F2 baseline, only-route and recovery scenarios",
+     "scenarios": "gap100_only,gap080_only,temporary,crossing,turn_beside_cart,oncoming,operator_stop,head_on_block",
+     "repeats": "1",
+     "overrides": {}
+    }
+   ]
   }
  ],
  "run_groups": [
-  5,
-  6,
-  7,
-  8
+  9,
+  10
  ]
 }
