@@ -56,6 +56,8 @@ class Runner(Node):
         self.obstacles = {}          # name -> shape, the spawned ones
         self.walls = scene.shapes(scene.mapped())
         self.create_subscription(Odometry, "/clearance/ground_truth/odom", self._truth, 50)
+        self.create_subscription(Odometry, "/clearance/mover/odom", self._mover, 50)
+        self.mover_size = None
         self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl, 10)
         self.create_subscription(Twist, "/cmd_vel", lambda m: self._cmd("cmd_out", m), 20)
         self.create_subscription(Twist, "/cmd_vel_smoothed", lambda m: self._cmd("cmd_in", m), 20)
@@ -115,6 +117,28 @@ class Runner(Node):
                                  f" nearest valid {near} m")
         return "\n".join(lines)
 
+    def _mover(self, msg):
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        with self.lock:
+            if self.mover_size is not None:
+                yaw = geometry.yaw_of_quaternion(q.x, q.y, q.z, q.w)
+                self.obstacles["mover"] = ("box", geometry.box(self.mover_size[0], self.mover_size[1], (p.x, p.y, yaw)))
+
+    def spawn_mover(self, mover, mirror):
+        x, y = mover["start"]
+        vx, vy = mover["velocity"]
+        if mirror:
+            x, vx = scene.START[0] + scene.GOAL[0] - x, -vx
+        cmd = ["ros2", "run", "ros_gz_sim", "create", "-world", scene.WORLD_NAME, "-string",
+               scene.mover_sdf("mover", mover["size"], (vx, vy)), "-name", "mover", "-x", str(x), "-y", str(y),
+               "-z", "0"]
+        with self.lock:
+            self.mover_size = mover["size"]
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if done.returncode != 0:
+            self.get_logger().error(f"spawn mover failed: {done.stdout[-300:]} {done.stderr[-300:]}")
+        return done.returncode == 0
+
     def _amcl(self, msg):
         p = msg.pose.pose
         with self.lock:
@@ -140,6 +164,16 @@ class Runner(Node):
                 d = geometry.shape_distance(chassis, shape)
                 if sample[6] is None or d < sample[6]:
                     sample[6] = round(d, 4)
+                if name == "mover":
+                    # A moving obstacle can run into a robot that stands still: counted apart from the robot's own.
+                    if d < rec["min_clear_mover"]:
+                        rec["min_clear_mover"], rec["min_mover_at"] = d, {"t": t, "pose": pose, "v": speed,
+                                                                         "cm": self.cm}
+                    if d < CONTACT:
+                        rec["mover_contact_samples"] += 1
+                        if speed > 0.02:
+                            rec["mover_contact_robot_moving"] += 1
+                    continue
                 if d < rec["min_clear"]:
                     rec["min_clear"], rec["min_at"] = d, {"t": t, "pose": pose, "v": speed, "w": v.angular.z,
                                                           "obstacle": name, "cm": self.cm}
@@ -217,6 +251,16 @@ class Runner(Node):
         record["released"] = bool(record["released"])
         return record
 
+    def trigger(self, service, wall_s=20.0):
+        client = self.create_client(Trigger, service)
+        if not client.wait_for_service(timeout_sec=wall_s):
+            return None
+        future = client.call_async(Trigger.Request())
+        end = time.monotonic() + wall_s
+        while not future.done() and time.monotonic() < end:
+            time.sleep(0.05)
+        return future.result().success if future.done() and future.result() is not None else None
+
     def spawn(self, item):
         name, kind, data, height = item
         x, y, yaw = scene.model_pose(kind, data)
@@ -285,7 +329,9 @@ class Runner(Node):
                "min_clear": math.inf, "min_at": None, "min_clear_footprint": math.inf, "min_clear_mapped": math.inf,
                "min_mapped_with": None, "contact_samples": 0, "contact_with": set(), "path": 0.0, "turned": 0.0,
                "v_max": 0.0, "still": 0.0, "still_run": 0.0, "still_run_max": 0.0, "cm_time": {}, "cm_cut_s": 0.0,
-               "cm_events": [], "recoveries": {}, "series": [], "t0": None, "removed": None, "spawn_ok": True}
+               "cm_events": [], "recoveries": {}, "series": [], "t0": None, "removed": None, "spawn_ok": True,
+               "min_clear_mover": math.inf, "min_mover_at": None, "mover_contact_samples": 0,
+               "mover_contact_robot_moving": 0, "mover_spawned": None, "operator_stop": None}
         for item in spec["obstacles"]:
             rec["spawn_ok"] = self.spawn(item) and rec["spawn_ok"]
         self.sleep_sim(3.0)
@@ -293,9 +339,28 @@ class Runner(Node):
         with self.lock:
             rec["t0"] = self.truth[0]
             self.rec = rec
-        state = {"removed": False}
+        state = {"removed": False, "mover": False}
+        mover = spec.get("mover")
 
         def on_tick(elapsed):
+            if mover is not None and not state["mover"]:
+                with self.lock:
+                    moved = rec["path"]
+                if moved >= mover["trigger_path_m"]:
+                    state["mover"] = True
+                    ok = self.spawn_mover(mover, direction == "west")
+                    with self.lock:
+                        rec["mover_spawned"] = {"elapsed_s": elapsed, "ok": ok}
+            stop_after = spec.get("operator_stop_after_still_s")
+            if stop_after is not None and not state.get("stopped"):
+                with self.lock:
+                    moved, still = rec["path"], rec["still_run"]
+                if moved > 1.0 and still >= stop_after:
+                    state["stopped"] = True
+                    engaged = self.trigger("/safety/stop_lock_engage")
+                    self.remove("cart")
+                    with self.lock:
+                        rec["operator_stop"] = {"elapsed_s": elapsed, "engaged": engaged, "path_m": moved}
             delay = spec.get("remove_after_stop_s")
             if delay is None or state["removed"]:
                 return
@@ -308,6 +373,14 @@ class Runner(Node):
                     rec["removed"] = {"elapsed_s": elapsed, "path_m": moved}
 
         status, sim_s = self.drive(target, sim_timeout, wall_timeout, on_tick)
+        if state.get("stopped"):
+            # The way is free now and the Stop is engaged: watch 20 s of simulation time for any movement.
+            with self.lock:
+                path0 = rec["path"]
+            self.sleep_sim(20.0)
+            with self.lock:
+                rec["operator_stop"]["moved_while_stopped_m"] = rec["path"] - path0
+            rec["operator_stop"]["released"] = self.trigger("/safety/stop_lock_release")
         self.sleep_sim(1.0)
         with self.lock:
             self.rec = None
@@ -320,13 +393,23 @@ class Runner(Node):
         for item in list(spec["obstacles"]):
             if item[0] in self.obstacles:
                 self.remove(item[0])
+        if state["mover"]:
+            self.remove("mover")
+            with self.lock:
+                self.mover_size = None
+                self.obstacles.pop("mover", None)
         rec["contact"] = rec["contact_samples"] > 0
         rec["contact_with"] = sorted(rec["contact_with"])
-        for key in ("min_clear", "min_clear_footprint", "min_clear_mapped"):
+        for key in ("min_clear", "min_clear_footprint", "min_clear_mapped", "min_clear_mover"):
             rec[key] = None if math.isinf(rec[key]) else rec[key]
         rec["mean_speed"] = rec["path"] / sim_s if sim_s > 0 else None
+        rec["contact"] = rec["contact"] or rec["mover_contact_robot_moving"] > 0
         if spec["expect"] == "pass":
             rec["as_expected"] = status == "succeeded" and not rec["contact"]
+        elif spec["expect"] == "stopped":
+            stop = rec.get("operator_stop") or {}
+            rec["as_expected"] = (bool(stop.get("engaged")) and stop.get("moved_while_stopped_m", 1.0) < 0.02
+                                  and status != "succeeded" and not rec["contact"])
         elif spec["expect"] == "blocked":
             rec["as_expected"] = status in ("aborted", "timeout") and not rec["contact"] and rec["end_speed"] < 0.01
         else:
@@ -349,6 +432,8 @@ def summary(trials):
         speed = "n/a" if t["min_at"] is None else f"{t['min_at']['v']:.2f}"
         rec = ", ".join(f"{k} {v}" for k, v in sorted(t["recoveries"].items())) or "none"
         cm = ", ".join(f"{k} {v:.1f}" for k, v in sorted(t["cm_time"].items())) or "none"
+        if t.get("min_clear_mover") is not None:
+            clear += f" (moving: {t['min_clear_mover']:.3f}, contacts {t['mover_contact_samples']})"
         rows.append(f"| {i + 1} | {t['scenario']} | {t['direction']} | {t['expect']} | {t['status']} |"
                     f" {'yes' if t['as_expected'] else 'NO'} | {clear} | {speed} | {'YES' if t['contact'] else 'no'} |"
                     f" {t['min_clear_mapped']:.3f} | {t['sim_s']:.0f} | {t['path']:.1f} | {t['still']:.0f} | {rec} |"
@@ -397,7 +482,23 @@ def main(argv=None):
                 here = node.pose()
                 direction = "east" if abs(here[0] - scene.START[0]) < abs(here[0] - scene.GOAL[0]) else "west"
                 target = east if direction == "east" else west
-                rec, series = node.trial(name, specs[name], target, direction, args.sim_timeout, args.wall_timeout)
+                special = specs[name].get("target")
+                if special is not None:
+                    target = special if direction == "east" else (
+                        scene.START[0] + scene.GOAL[0] - special[0], special[1], geometry.wrap(special[2] + math.pi))
+                try:
+                    rec, series = node.trial(name, specs[name], target, direction, args.sim_timeout,
+                                             args.wall_timeout)
+                except Exception as error:  # a broken scenario must not end the series
+                    import traceback
+                    traceback.print_exc()
+                    with node.lock:
+                        node.rec = None
+                    for leftover in list(node.obstacles):
+                        node.remove(leftover)
+                    record.setdefault("harness_errors", []).append(f"{name}: {error!r}")
+                    print(json.dumps({"harness_error": name, "error": repr(error)}), flush=True)
+                    continue
                 rec["repeat"] = repeat + 1
                 record["trials"].append(rec)
                 print("TRIAL " + json.dumps(rec, default=str), flush=True)
@@ -405,9 +506,10 @@ def main(argv=None):
                     json.dump(record, f, indent=1, default=str)
                 with open(f"{args.out}.series.{len(record['trials'])}.json", "w", encoding="utf-8") as f:
                     json.dump(series, f)
-                if rec["status"] != "succeeded":
+                if rec["status"] != "succeeded" or special is not None:
                     # Clean-up leg with the obstacles removed, so that the next trial starts from an end of the arena.
                     node.sleep_sim(5.0)
+                    target = east if direction == "east" else west
                     status, sim_s = node.drive(target, args.sim_timeout, args.wall_timeout)
                     print(json.dumps({"cleanup_leg": status, "sim_s": sim_s, "pose": node.pose()}), flush=True)
                     if status != "succeeded":
@@ -420,6 +522,7 @@ def main(argv=None):
     reasons = []
     if not ready:
         reasons.append("stack not ready")
+    reasons += [f"harness error in {e}" for e in record.get("harness_errors", [])]
     if len(trials) < planned:
         reasons.append(f"{len(trials)} of {planned} trials ran")
     reasons += [f"trial {i + 1} {t['scenario']}: contact with {t['contact_with']}" for i, t in enumerate(trials)

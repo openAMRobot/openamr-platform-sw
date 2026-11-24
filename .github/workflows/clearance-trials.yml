@@ -37,10 +37,9 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          entries = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))
-          for e in entries:
-              e["overrides"] = json.dumps(e.get("overrides", {}))
-          print("matrix=" + json.dumps({"include": entries}))
+          groups = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))["groups"]
+          print("matrix=" + json.dumps({"include": [{"index": i, "group": g["name"], "lidar_min": g["lidar_min"]}
+                                                    for i, g in enumerate(groups)]}))
           PY
       - name: Static tests of the trial package
         run: |
@@ -49,9 +48,9 @@ jobs:
 
   trials:
     needs: plan
-    name: trials (${{ matrix.label }})
+    name: trials (${{ matrix.group }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
@@ -60,8 +59,16 @@ jobs:
       CYCLONEDDS_URI: '<CycloneDDS><Domain Id="any"><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
       QT_QPA_PLATFORM: offscreen
     steps:
+      # packages.ros.org delivered about 0.1 MB/s to these runners on 24 Nov 2026 (87 minutes of downloads per job).
+      # The downloaded .deb files are kept in the Actions cache; apt still verifies each one against the signed index.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: clearance-apt-debs-v1
       - name: "ENV: ROS 2 Jazzy from packages.ros.org (pinned ros2-apt-source)"
         run: |
+          mkdir -p ~/apt-debs && ls ~/apt-debs | wc -l
+          sudo cp -n ~/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y curl locales software-properties-common
           sudo add-apt-repository -y universe
@@ -85,6 +92,17 @@ jobs:
             ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-joint-state-publisher \
             ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py ros-jazzy-twist-mux
 
+      - name: "ENV: keep the downloaded packages"
+        run: |
+          cp -n /var/cache/apt/archives/*.deb ~/apt-debs/ 2>/dev/null || true
+          ls ~/apt-debs | wc -l; du -sh ~/apt-debs
+      - uses: actions/cache/save@v4
+        if: always()
+        continue-on-error: true
+        with:
+          path: ~/apt-debs
+          key: clearance-apt-debs-v1
+
       - name: "ENV: versions"
         shell: bash
         run: |
@@ -106,6 +124,14 @@ jobs:
           path: interfaces
           persist-credentials: false
 
+      - name: "TEST PLANT: LiDAR range_min of this group (the repository value is 0.40)"
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          f=ros2/src/openamrobot_description/urdf/gazebo_control.xacro
+          test "$(grep -c '<min>0.40</min>' $f)" = 1
+          sed -i 's|<min>0.40</min>|<min>${{ matrix.lidar_min }}</min>|' $f
+          git diff --stat; grep -n -B3 -A2 '<min>${{ matrix.lidar_min }}</min>' $f
+
       - name: "BUILD: colcon build"
         shell: bash
         working-directory: ws
@@ -115,55 +141,54 @@ jobs:
           colcon build --base-paths src --packages-up-to openamrobot_clearance_trials --event-handlers console_cohesion+
           git -C src/openamr-platform-sw rev-parse HEAD | tee ../head.txt
 
-      - name: "CONFIG: scene and the parameter copy with this entry's overrides"
+      - name: "RUN: every entry of the group, one after the other"
         shell: bash
         working-directory: ws
-        env:
-          OVERRIDES: ${{ matrix.overrides }}
         run: |
           source /opt/ros/jazzy/setup.bash
           source install/setup.bash
           mkdir -p ../out
-          ros2 run openamrobot_clearance_trials clearance_scene /tmp/clearance_scene "${{ matrix.aisle_width || '1.5' }}"
-          params=$(ros2 pkg prefix openamrobot_nav2)/share/openamrobot_nav2/config/nav2_params.yaml
-          ros2 run openamrobot_clearance_trials clearance_overrides "$params" /tmp/nav2_params_trial.yaml "$OVERRIDES" | tee ../out/overrides.txt
-          cp /tmp/nav2_params_trial.yaml ../out/
-
-      - name: "RUN: ${{ matrix.label }}"
-        shell: bash
-        working-directory: ws
-        run: |
-          source /opt/ros/jazzy/setup.bash
-          source install/setup.bash
           echo "nproc $(nproc)"
-          ros2 launch openamrobot_clearance_trials clearance_sim.launch.py headless:=true \
-            scene_dir:=/tmp/clearance_scene params_file:=/tmp/nav2_params_trial.yaml > ../out/launch.log 2>&1 &
-          launch_pid=$!
-          set +e
-          timeout 200m ros2 run openamrobot_clearance_trials clearance_trials --label "${{ matrix.label }}" \
-            --scenarios "${{ matrix.scenarios }}" --repeats "${{ matrix.repeats || '1' }}" \
-            --aisle-width "${{ matrix.aisle_width || '1.5' }}" \
-            --out ../out/clearance_trials.json --markdown ../out/clearance_trials.md
-          rc=$?
-          echo "trials exit status $rc"
-          ros2 topic info -v /cmd_vel 2>/dev/null | grep -E "Node name|Publisher count" || true
-          kill -INT $launch_pid; sleep 10; kill -9 $launch_pid 2>/dev/null
-          pkill -9 -f "gz sim" 2>/dev/null
-          echo "TRIALS_RC=$rc" >> "$GITHUB_ENV"
+          ros2 run openamrobot_clearance_trials clearance_scene /tmp/clearance_scene 1.5
+          params=$(ros2 pkg prefix openamrobot_nav2)/share/openamrobot_nav2/config/nav2_params.yaml
+          python3 - <<'PY'
+          import json
+          group = json.load(open("src/openamr-platform-sw/ros2/src/openamrobot_clearance_trials/trial_matrix.json"))["groups"][${{ matrix.index }}]
+          for i, e in enumerate(group["entries"]):
+              json.dump(e, open(f"/tmp/entry_{i}.json", "w"))
+              open(f"/tmp/entry_{i}.overrides", "w").write(json.dumps(e.get("overrides", {})))
+          open("/tmp/entries", "w").write(str(len(group["entries"])))
+          PY
+          rc_all=0
+          for i in $(seq 0 $(( $(cat /tmp/entries) - 1 ))); do
+            label=$(python3 -c "import json;print(json.load(open('/tmp/entry_$i.json'))['label'])")
+            scenarios=$(python3 -c "import json;print(json.load(open('/tmp/entry_$i.json'))['scenarios'])")
+            repeats=$(python3 -c "import json;print(json.load(open('/tmp/entry_$i.json')).get('repeats','1'))")
+            echo "::group::ENTRY $i: $label"
+            ros2 run openamrobot_clearance_trials clearance_overrides "$params" /tmp/nav2_params_$i.yaml "$(cat /tmp/entry_$i.overrides)" | tee ../out/overrides_$i.txt
+            setsid ros2 launch openamrobot_clearance_trials clearance_sim.launch.py headless:=true \
+              scene_dir:=/tmp/clearance_scene params_file:=/tmp/nav2_params_$i.yaml > ../out/launch_$i.log 2>&1 &
+            launch_pid=$!
+            set +e
+            timeout 150m ros2 run openamrobot_clearance_trials clearance_trials --label "$label (LiDAR min ${{ matrix.lidar_min }})" \
+              --scenarios "$scenarios" --repeats "$repeats" \
+              --out ../out/clearance_trials_$i.json --markdown ../out/clearance_trials_$i.md
+            rc=$?
+            set -e
+            echo "ENTRY $i trials exit status $rc"
+            [ "$rc" = 0 ] || rc_all=1
+            ros2 topic info -v /cmd_vel 2>/dev/null | grep -E "Node name|Publisher count" || true
+            kill -INT -- -$launch_pid 2>/dev/null || true; sleep 8; kill -9 -- -$launch_pid 2>/dev/null || true
+            pkill -9 -f "gz sim" 2>/dev/null || true; pkill -9 -f component_container 2>/dev/null || true
+            ros2 daemon stop >/dev/null 2>&1 || true
+            sleep 5
+            echo "--- entry $i: inflation, collision_monitor and controller lines"
+            grep -E "inflation radius|Robot to|Trajectory Hits Obstacle|No valid trajector|Failed to make progress|collision_monitor\]: \[" ../out/launch_$i.log | sed -E 's/\[[0-9.]+\] //' | cut -c1-170 | sort | uniq -c | sort -rn | head -25 || true
+            echo "::endgroup::"
+            { echo "### $label (LiDAR min ${{ matrix.lidar_min }})"; cat ../out/overrides_$i.txt; cat ../out/clearance_trials_$i.md 2>/dev/null || echo "no result table"; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "TRIALS_RC=$rc_all" >> "$GITHUB_ENV"
           exit 0
-
-      - name: Report
-        if: always()
-        shell: bash
-        run: |
-          { echo "### Clearance trials: ${{ matrix.label }} (simulation only)"; echo "head $(cat head.txt 2>/dev/null)";
-            cat out/overrides.txt 2>/dev/null; cat out/clearance_trials.md 2>/dev/null || echo "no result table"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "--- collision_monitor, inflation and controller lines"
-          grep -nE "collision_monitor|inflation radius|Trajectory Hits Obstacle|No valid trajector|Failed to make progress|Running (spin|wait)|Robot to" out/launch.log | awk '{c[substr($0, index($0,"]")+1, 90)]++} END {for (k in c) print c[k], k}' | sort -rn | head -40 || true
-          echo "--- launch.log: errors"
-          grep -nE "ERROR|FATAL|Traceback|died" out/launch.log | head -40 || true
-          echo "--- launch.log: last 40 lines"
-          tail -40 out/launch.log || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()

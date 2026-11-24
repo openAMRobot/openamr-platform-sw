@@ -91,3 +91,14 @@ def test_runner_has_no_velocity_publisher():
     with open(os.path.join(os.path.dirname(HERE), "openamrobot_clearance_trials", "trials.py"), encoding="utf-8") as f:
         text = f.read()
     assert "create_publisher" not in text
+
+
+def test_offset_grows_every_side_by_the_margin():
+    from openamrobot_clearance_trials.trials_constants import FOOTPRINT
+    grown = geometry.offset(list(FOOTPRINT), 0.10)
+    assert max(p[0] for p in grown) == pytest.approx(0.515) and min(p[0] for p in grown) == pytest.approx(-0.490)
+    assert max(p[1] for p in grown) == pytest.approx(0.390) and min(p[1] for p in grown) == pytest.approx(-0.390)
+    # a point 0.09 m in front of the front edge is inside the grown polygon, one 0.11 m in front is not
+    assert geometry._contains(grown, (0.415 + 0.09, 0.0)) and not geometry._contains(grown, (0.415 + 0.11, 0.0))
+    square = geometry.offset([(1, 1), (-1, 1), (-1, -1), (1, -1)], 0.5)
+    assert sorted(square) == [(-1.5, -1.5), (-1.5, 1.5), (1.5, -1.5), (1.5, 1.5)]

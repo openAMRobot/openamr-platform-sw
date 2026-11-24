@@ -95,8 +95,33 @@ def scenarios(aisle_width=AISLE_WIDTH):
         "all_blocked": {"obstacles": [block] + closures, "expect": "blocked",
                         "note": "every route closed for the whole trial: the robot must stay stopped and report"},
     }
+    out["head_on_block"] = dict(out["all_blocked"], note="every route closed: the approach to the block, straight on,"
+                                " gives the stopping behaviour (smallest distance and the speed profile)")
+    # Rotation next to an obstacle: the goal is in the aisle beside the cart, facing back. The chassis diagonal is
+    # 0.972 m, the free width 1.00 m: a turn on the spot fits with 0.014 m per side only when centred in the gap.
+    out["turn_beside_cart"] = {"obstacles": [cart_with_gap(1.00, length=2.0)], "expect": "either",
+                               "target": (mid, half - 0.50, math.pi),
+                               "note": "goal beside a 2 m cart in the aisle, heading reversed: a turn on the spot in a"
+                                       " 1.00 m gap (chassis diagonal 0.972 m)"}
+    # Moving obstacles (spawned when the robot has driven trigger_path_m). Their contacts are counted apart.
+    out["crossing"] = {"obstacles": [], "expect": "pass",
+                       "mover": {"size": (0.50, 0.50), "start": (2.6, 1.8), "velocity": (0.0, -0.25),
+                                 "trigger_path_m": 0.8},
+                       "note": "a 0.5 m trolley crosses the robot's path at 0.25 m/s in the open area"}
+    out["oncoming"] = {"obstacles": [], "expect": "either",
+                       "mover": {"size": (0.50, 0.50), "start": (8.5, 0.0), "velocity": (-0.20, 0.0),
+                                 "trigger_path_m": 2.0},
+                       "note": "a 0.5 m trolley comes towards the robot through the aisle at 0.20 m/s and does not"
+                               " stop: what the robot does when it cannot get out of the way"}
+    out["operator_stop"] = {"obstacles": [block] + closures, "expect": "stopped", "operator_stop_after_still_s": 10.0,
+                            "note": "every route closed; the operator Stop (/safety/stop_lock_engage) is engaged while"
+                                    " the robot waits, then the aisle block is removed: the robot must not move until"
+                                    " the Stop is released, and the automatic recovery must not resume the goal"}
     for value in out.values():
+        value.setdefault("operator_stop_after_still_s", None)
         value.setdefault("remove_after_stop_s", None)
+        value.setdefault("target", None)
+        value.setdefault("mover", None)
     return out
 
 
@@ -111,6 +136,31 @@ def model_sdf(name, kind, data, height, static=True):
             f'<collision name="collision"><geometry>{geom}</geometry></collision>'
             f'<visual name="visual"><geometry>{geom}</geometry><material><ambient>0.8 0.3 0.1 1</ambient>'
             f"<diffuse>0.8 0.3 0.1 1</diffuse></material></visual></link></model></sdf>")
+
+
+def mover_sdf(name, size, velocity, height=1.0, mass=15.0):
+    """A box that moves at a constant world velocity (VelocityControl) and reports its true pose (OdometryPublisher).
+    Not static: it is a pushed trolley, and it pushes what stands in its way."""
+    sx, sy = size
+    ixx = mass * (sy * sy + height * height) / 12.0
+    iyy = mass * (sx * sx + height * height) / 12.0
+    izz = mass * (sx * sx + sy * sy) / 12.0
+    geom = f"<box><size>{sx:.4f} {sy:.4f} {height:.4f}</size></box>"
+    return (f'<?xml version="1.0"?><sdf version="1.9"><model name="{name}"><static>false</static>'
+            f'<link name="link"><pose>0 0 {height / 2.0 + 0.005:.4f} 0 0 0</pose><inertial><mass>{mass}</mass>'
+            f"<inertia><ixx>{ixx:.4f}</ixx><iyy>{iyy:.4f}</iyy><izz>{izz:.4f}</izz><ixy>0</ixy><ixz>0</ixz>"
+            f"<iyz>0</iyz></inertia></inertial>"
+            f'<collision name="collision"><geometry>{geom}</geometry><surface><friction><ode><mu>0.0</mu>'
+            f"<mu2>0.0</mu2></ode></friction></surface></collision>"
+            f'<visual name="visual"><geometry>{geom}</geometry><material><ambient>0.1 0.3 0.8 1</ambient>'
+            f"<diffuse>0.1 0.3 0.8 1</diffuse></material></visual></link>"
+            f'<plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">'
+            f"<initial_linear>{velocity[0]:.3f} {velocity[1]:.3f} 0</initial_linear></plugin>"
+            f'<plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">'
+            f"<odom_frame>world</odom_frame><robot_base_frame>link</robot_base_frame>"
+            f"<odom_topic>/clearance/gz/mover_odom</odom_topic><tf_topic>/clearance/gz/mover_tf</tf_topic>"
+            f"<odom_publish_frequency>50</odom_publish_frequency><dimensions>3</dimensions></plugin>"
+            f"</model></sdf>")
 
 
 def model_pose(kind, data):

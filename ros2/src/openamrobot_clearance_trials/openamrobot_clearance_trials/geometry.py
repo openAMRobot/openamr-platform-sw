@@ -97,3 +97,29 @@ def shape_distance(polygon, shape):
     if kind == "box":
         return polygon_distance(polygon, data)
     return circle_distance(polygon, (data[0], data[1]), data[2])
+
+
+def offset(polygon, margin):
+    """The convex polygon grown by `margin` on every side (edges moved outward, neighbours intersected)."""
+    n = len(polygon)
+    area = sum(polygon[i][0] * polygon[(i + 1) % n][1] - polygon[(i + 1) % n][0] * polygon[i][1] for i in range(n))
+    sign = 1.0 if area > 0 else -1.0          # counter-clockwise: outward normal is (dy, -dx)
+    lines = []
+    for i in range(n):
+        (ax, ay), (bx, by) = polygon[i], polygon[(i + 1) % n]
+        dx, dy = bx - ax, by - ay
+        length = math.hypot(dx, dy)
+        nx, ny = sign * dy / length, -sign * dx / length
+        lines.append((nx, ny, nx * ax + ny * ay + margin))
+    out = []
+    for i in range(n):
+        a1, b1, c1 = lines[i - 1]
+        a2, b2, c2 = lines[i]
+        det = a1 * b2 - a2 * b1
+        out.append(((c1 * b2 - c2 * b1) / det, (a1 * c2 - a2 * c1) / det))
+    return out
+
+
+def points_string(polygon, digits=3):
+    """Nav2 collision_monitor `points` parameter text."""
+    return "[" + ", ".join(f"[{x:.{digits}f}, {y:.{digits}f}]" for x, y in polygon) + "]"
