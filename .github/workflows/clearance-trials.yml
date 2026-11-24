@@ -37,9 +37,10 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          groups = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))["groups"]
+          plan = json.load(open("ros2/src/openamrobot_clearance_trials/trial_matrix.json"))
+          groups, only = plan["groups"], plan.get("run_groups")
           print("matrix=" + json.dumps({"include": [{"index": i, "group": g["name"], "lidar_min": g["lidar_min"]}
-                                                    for i, g in enumerate(groups)]}))
+                                                    for i, g in enumerate(groups) if only is None or i in only]}))
           PY
       - name: Static tests of the trial package
         run: |
