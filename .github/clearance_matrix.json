@@ -290,6 +290,204 @@
      }
     }
    ]
+  },
+  {
+   "name": "O1 gap is the only route, global 0.70/3.0",
+   "lidar_min": "0.40",
+   "body_mask": "",
+   "entries": [
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 1",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 2",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 3",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 4",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 5",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 6",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 7",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 8",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 9",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O1 gap is the only route, global 0.70/3.0, launch 10",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "O2 gap is the only route, global 0.55/3.0",
+   "lidar_min": "0.40",
+   "body_mask": "",
+   "entries": [
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 1",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 2",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 3",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 4",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 5",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 6",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 7",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 8",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 9",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    },
+    {
+     "label": "O2 gap is the only route, global 0.55/3.0, launch 10",
+     "scenarios": "gap100_only",
+     "repeats": "1",
+     "overrides": {
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
+     }
+    }
+   ]
   }
+ ],
+ "run_groups": [
+  3,
+  4
  ]
 }

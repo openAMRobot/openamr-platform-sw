@@ -83,6 +83,8 @@ def scenarios(aisle_width=AISLE_WIDTH):
                    "note": "cart in the aisle, 1.00 m free: up to 0.21 m per side"},
         "gap080": {"obstacles": [cart_with_gap(0.80)], "expect": "pass",
                    "note": "cart in the aisle, 0.80 m free: up to 0.11 m per side"},
+        "gap100_only": {"obstacles": [cart_with_gap(1.00)] + closures, "expect": "pass",
+                        "note": "cart in the aisle, 1.00 m free, and the bypass closed: the gap is the only route"},
         "gap066": {"obstacles": [cart_with_gap(0.66)], "expect": "either",
                    "note": "cart in the aisle, 0.66 m free: at most 0.04 m per side; passing is below the 0.10 m target,"
                            " the bypass outside the aisle is free"},
