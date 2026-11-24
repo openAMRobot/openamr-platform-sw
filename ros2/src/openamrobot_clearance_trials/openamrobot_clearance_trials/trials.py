@@ -125,10 +125,18 @@ class Runner(Node):
                 self.obstacles["mover"] = ("box", geometry.box(self.mover_size[0], self.mover_size[1], (p.x, p.y, yaw)))
 
     def spawn_mover(self, mover, mirror):
-        x, y = mover["start"]
-        vx, vy = mover["velocity"]
-        if mirror:
-            x, vx = scene.START[0] + scene.GOAL[0] - x, -vx
+        if "ahead_m" in mover:
+            # Placed relative to the robot at this moment: ahead on its heading and to its left, moving across.
+            px, py, yaw = self.pose()
+            fx, fy, lx, ly = math.cos(yaw), math.sin(yaw), -math.sin(yaw), math.cos(yaw)
+            x = px + mover["ahead_m"] * fx + mover["lateral_m"] * lx
+            y = py + mover["ahead_m"] * fy + mover["lateral_m"] * ly
+            vx, vy = -mover["speed"] * lx, -mover["speed"] * ly
+        else:
+            x, y = mover["start"]
+            vx, vy = mover["velocity"]
+            if mirror:
+                x, vx = scene.START[0] + scene.GOAL[0] - x, -vx
         cmd = ["ros2", "run", "ros_gz_sim", "create", "-world", scene.WORLD_NAME, "-string",
                scene.mover_sdf("mover", mover["size"], (vx, vy)), "-name", "mover", "-x", str(x), "-y", str(y),
                "-z", "0"]
@@ -365,7 +373,7 @@ class Runner(Node):
             if delay is None or state["removed"]:
                 return
             with self.lock:
-                moved, still = rec["path"], rec["still_run"]
+                moved, still = rec["path"], rec["still"]
             if moved > 1.0 and still >= delay:
                 self.remove("cart")
                 state["removed"] = True

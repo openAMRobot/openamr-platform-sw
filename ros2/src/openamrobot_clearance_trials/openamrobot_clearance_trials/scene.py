@@ -90,8 +90,8 @@ def scenarios(aisle_width=AISLE_WIDTH):
                    "note": "cart in the aisle, 0.50 m free: narrower than the chassis; the bypass outside is free"},
         "aisle_blocked": {"obstacles": [block], "expect": "pass",
                           "note": "aisle closed; the bypass outside the aisle is free"},
-        "temporary": {"obstacles": [block] + closures, "expect": "pass", "remove_after_stop_s": 20.0,
-                      "note": "every route closed; the aisle block is removed 20 s after the robot first stands still"},
+        "temporary": {"obstacles": [block] + closures, "expect": "pass", "remove_after_stop_s": 20.0,   # summed standstill time, not one stretch
+                      "note": "every route closed; the aisle block is removed once the robot has stood still for 20 s in total"},
         "all_blocked": {"obstacles": [block] + closures, "expect": "blocked",
                         "note": "every route closed for the whole trial: the robot must stay stopped and report"},
     }
@@ -105,9 +105,10 @@ def scenarios(aisle_width=AISLE_WIDTH):
                                        " 1.00 m gap (chassis diagonal 0.972 m)"}
     # Moving obstacles (spawned when the robot has driven trigger_path_m). Their contacts are counted apart.
     out["crossing"] = {"obstacles": [], "expect": "pass",
-                       "mover": {"size": (0.50, 0.50), "start": (2.6, 1.8), "velocity": (0.0, -0.25),
+                       "mover": {"size": (0.50, 0.50), "ahead_m": 1.6, "lateral_m": 1.9, "speed": 0.25,
                                  "trigger_path_m": 0.8},
-                       "note": "a 0.5 m trolley crosses the robot's path at 0.25 m/s in the open area"}
+                       "note": "a 0.5 m trolley starts 1.6 m ahead and 1.9 m to the left and crosses the robot's path at"
+                               " 0.25 m/s: on an unchanged course the two meet"}
     out["oncoming"] = {"obstacles": [], "expect": "either",
                        "mover": {"size": (0.50, 0.50), "start": (8.5, 0.0), "velocity": (-0.20, 0.0),
                                  "trigger_path_m": 2.0},
