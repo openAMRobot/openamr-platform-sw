@@ -9,7 +9,7 @@ on:
   push:
     branches: ['diag/188-**']
     paths:
-      - 'ros2/src/openamrobot_clearance_trials/trial_matrix.json'
+      - 'ros2/src/openamrobot_clearance_trials/**'
       - '.github/workflows/clearance-trials.yml'
 
 permissions:

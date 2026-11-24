@@ -23,6 +23,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import BehaviorTreeLog, CollisionMonitorState
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -60,6 +61,11 @@ class Runner(Node):
         self.create_subscription(Twist, "/cmd_vel_smoothed", lambda m: self._cmd("cmd_in", m), 20)
         self.create_subscription(CollisionMonitorState, "/collision_monitor_state", self._cm, 10)
         self.create_subscription(BehaviorTreeLog, "/behavior_tree_log", self._bt, 50)
+        # Field of view of the scans as the stack receives them: per 10 degree sector of bearing from the LiDAR
+        # (0 = robot forward, lidar_joint yaw pi), the share of beams with a valid range and the smallest valid range.
+        self.fov = {"/scan": {}, "/scan_filtered": {}}
+        for topic in self.fov:
+            self.create_subscription(LaserScan, topic, lambda m, k=topic: self._scan(k, m), 5)
         self.nav = ActionClient(self, NavigateToPose, "navigate_to_pose")
 
     def _cmd(self, key, msg):
@@ -80,6 +86,34 @@ class Runner(Node):
             for e in msg.event_log:
                 if e.node_name in RECOVERY_NODES and e.current_status == "RUNNING" and e.previous_status == "IDLE":
                     self.rec["recoveries"][e.node_name] = self.rec["recoveries"].get(e.node_name, 0) + 1
+
+    def _scan(self, key, msg):
+        table = self.fov[key]
+        table["scans"] = table.get("scans", 0) + 1
+        table["range_min"], table["range_max"] = msg.range_min, msg.range_max
+        if table["scans"] % 5:
+            return
+        sectors = table.setdefault("sectors", {})
+        for i, r in enumerate(msg.ranges):
+            bearing = math.degrees(geometry.wrap(msg.angle_min + i * msg.angle_increment + math.pi))
+            cell = sectors.setdefault(int(math.floor(bearing / 10.0)) * 10, [0, 0, math.inf])
+            cell[0] += 1
+            if math.isfinite(r) and msg.range_min <= r <= msg.range_max:
+                cell[1] += 1
+                cell[2] = min(cell[2], r)
+
+    def fov_report(self):
+        lines = []
+        with self.lock:
+            for key, table in self.fov.items():
+                lines.append(f"{key}: {table.get('scans', 0)} scans, range_min {table.get('range_min')},"
+                             f" range_max {table.get('range_max')}")
+                for sector in sorted(table.get("sectors", {})):
+                    n, valid, nearest = table["sectors"][sector]
+                    near = "none" if math.isinf(nearest) else f"{nearest:.2f}"
+                    lines.append(f"  bearing {sector:+4d}..{sector + 10:+4d} deg: valid {100.0 * valid / max(n, 1):5.1f} %,"
+                                 f" nearest valid {near} m")
+        return "\n".join(lines)
 
     def _amcl(self, msg):
         p = msg.pose.pose
@@ -407,6 +441,7 @@ def main(argv=None):
     with open(args.markdown, "w", encoding="utf-8") as f:
         f.write(text)
     print(text, flush=True)
+    print("SCAN FIELD OF VIEW (bearing from the LiDAR, 0 = robot forward)\n" + node.fov_report(), flush=True)
     sys.stdout.flush()
     os._exit(0 if record["passed"] else 1)
 
