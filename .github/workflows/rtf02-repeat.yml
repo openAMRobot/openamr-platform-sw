@@ -1,0 +1,222 @@
+# Scratch only, not for merge: the rtf02 job of station-alignment-tests.yml repeated as independent launches on
+# the head of platform-sw #202 (be2a8b3), to count controller_server deaths and station goal aborts. A core dump,
+# if any, is printed as a backtrace. Simulation evidence only. No secrets, no hardware.
+# SPDX-License-Identifier: MIT
+# Station-relative final alignment (Proposed): openamrobot_station_alignment.
+#
+# unit: geometry, scene, command authority and pass-criteria tests (no simulator), then the same tests with the
+#   package's code, configuration and assets removed (the revert run): they must fail.
+# simulation: the station alignment world (a separate world with the Baseline 1 work shelf layout and a marker plate;
+#   the Baseline 1 world is not used or changed), the platform robot with a test-only base camera, AMCL and Nav2 from
+#   openamrobot_nav2 unchanged (platform-sw #164 head), N trials of #164 alone against #164 plus marker refinement,
+#   final pose against Gazebo ground truth. Simulation evidence only: never robot, site, physical or safety evidence.
+#   No secrets, no hardware.
+name: rtf02-repeat
+
+on:
+  push:
+    branches: ['diag/202-**']
+    paths:
+      - '.github/workflows/rtf02-repeat.yml'
+
+permissions:
+  contents: read
+
+env:
+  PKG_DIR: ros2/src/openamrobot_station_alignment
+  # openamrobot-interfaces revision of nav-status-tests.yml (openamr_nav_msgs for navigation_status_node).
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  # 50ed777 (openamrobot-interfaces main): adds openamr_nav_msgs/StopState for /safety/stop_state (was 7795047).
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
+  # platform-sw #90 (D-19 behaviour set: no backup, drive_on_heading or assisted_teleop; min_vel_x 0), not merged.
+  PR90_SHA: 4fad3d8bfd40954bc8fcf6f0adf603561e6bb530
+  ROS_APT_SOURCE_VERSION: '1.3.0'
+  # Gazebo vendor builds as pinned by openamr-upperbody-sw baseline1-acceptance.yml (17 Nov 2026).
+  GZ_SIM_VENDOR: 0.0.13-1noble.20261031.125555
+  GZ_TOOLS_VENDOR: 0.0.8-1noble.20261025.230735
+  SDFORMAT_VENDOR: 0.0.14-1noble.20261031.120928
+  GZ_SIM_VERSION: 8.15.0
+  SDFORMAT_VERSION: 14.9.0
+  TRIALS: ${{ github.event.inputs.trials || '5' }}
+
+jobs:
+  simulation:
+    name: simulation (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 175
+    continue-on-error: ${{ matrix.allowed_to_fail || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: 'rtf02 launch 1', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-1}
+          - {name: 'rtf02 launch 2', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-2}
+          - {name: 'rtf02 launch 3', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-3}
+          - {name: 'rtf02 launch 4', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-4}
+          - {name: 'rtf02 launch 5', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-5}
+          - {name: 'rtf02 launch 6', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
+             behaviors: pr90, artifact: rtf02-launch-6}
+    env:
+      RMW_IMPLEMENTATION: ${{ matrix.rmw }}
+      # One host runs the simulator, Nav2 and the trial client: more DDS participants than CycloneDDS's default
+      # index limit allows (same setting as upperbody-sw build1-scene-tests.yml). Read by CycloneDDS only.
+      CYCLONEDDS_URI: '<CycloneDDS><Domain Id="any"><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: "ENV: ROS 2 Jazzy from packages.ros.org (pinned ros2-apt-source)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl locales software-properties-common
+          sudo add-apt-repository -y universe
+          curl --fail --location --retry 5 --retry-delay 5 -o /tmp/ros2-apt-source.deb \
+            "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.noble_all.deb"
+          sudo dpkg -i /tmp/ros2-apt-source.deb
+          sudo apt-get update
+          sudo apt-get install -y ros-jazzy-ros-base python3-colcon-common-extensions python3-pytest python3-yaml
+
+      - name: "ENV: pinned Gazebo vendor builds"
+        run: |
+          sudo apt-get install -y --allow-downgrades \
+            ros-jazzy-gz-sim-vendor=${GZ_SIM_VENDOR} \
+            ros-jazzy-gz-tools-vendor=${GZ_TOOLS_VENDOR} \
+            ros-jazzy-sdformat-vendor=${SDFORMAT_VENDOR}
+          sudo apt-mark hold ros-jazzy-gz-sim-vendor ros-jazzy-gz-tools-vendor ros-jazzy-sdformat-vendor
+
+      - name: "ENV: the stack (Nav2, ros_gz, apriltag_ros, CycloneDDS)"
+        run: |
+          sudo apt-get install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-ros-gz \
+            ros-jazzy-apriltag-ros ros-jazzy-apriltag-msgs ros-jazzy-xacro ros-jazzy-robot-state-publisher \
+            ros-jazzy-joint-state-publisher ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py ros-jazzy-twist-mux
+
+      - name: "ENV: versions"
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          sim=$(gz sim --versions); sdf=$(gz sdf --versions)
+          echo "gz sim ${sim}, gz sdf ${sdf}"
+          dpkg-query -W -f='${Package} ${Version}\n' | grep -E '^ros-jazzy-(navigation2|nav2-(amcl|controller|bt-navigator|graceful-controller|navfn-planner)|ros-gz-bridge|apriltag-ros|apriltag|rmw-cyclonedds-cpp|gz-sim-vendor)( |$)' | sort | tee versions.txt
+          test "${sim}" = "${GZ_SIM_VERSION}" && test "${sdf}" = "${SDFORMAT_VERSION}"
+        shell: bash
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          path: ws/src/openamr-platform-sw
+          persist-credentials: false
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+          persist-credentials: false
+
+      - name: "REVERT: the 353e3d6 alignment node"
+        if: matrix.code == '353e3d6'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          git fetch --no-tags --depth=1 origin 353e3d650a79f470c42f507faa7683054e101832
+          for f in openamrobot_station_alignment/station_alignment_node.py launch/station_alignment.launch.py; do
+            git show 353e3d650a79f470c42f507faa7683054e101832:$PKG_DIR/$f > $PKG_DIR/$f
+          done
+          git diff --stat
+
+      - name: "OVERLAY: platform-sw #90 behaviour set (test only, this checkout)"
+        if: matrix.behaviors == 'pr90'
+        working-directory: ws/src/openamr-platform-sw
+        run: |
+          git fetch --no-tags --depth=1 origin "$PR90_SHA"
+          git show "$PR90_SHA":ros2/src/openamrobot_nav2/config/nav2_params.yaml > /tmp/pr90_nav2_params.yaml
+          python3 $PKG_DIR/scripts/apply_pr90_behaviour_set.py /tmp/pr90_nav2_params.yaml ros2/src/openamrobot_nav2
+          git diff --stat
+
+      - name: "BUILD: colcon build"
+        shell: bash
+        working-directory: ws
+        run: |
+          cp -r ../interfaces/ros2/openamr_nav_msgs src/
+          source /opt/ros/jazzy/setup.bash
+          colcon build --base-paths src --packages-up-to openamrobot_station_alignment --event-handlers console_cohesion+
+          git -C src/openamr-platform-sw rev-parse HEAD | tee ../head.txt
+
+      - name: "CHECK: where gz sdf puts the test-only base camera"
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          share=$(ros2 pkg prefix openamrobot_station_alignment)/share/openamrobot_station_alignment
+          xacro "$share/urdf/station_alignment_test_robot.urdf.xacro" > /tmp/test_robot.urdf
+          python3 "$share/scripts/check_camera_pose.py" /tmp/test_robot.urdf
+
+      - name: "RUN: ${{ matrix.trials }} trials, RTF ${{ matrix.rtf }}, image delay ${{ matrix.delay }} s, ${{ matrix.code }}"
+        id: trials
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          mkdir -p ../out
+          echo "nproc $(nproc)"
+          ulimit -c unlimited; sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p
+          ros2 launch openamrobot_station_alignment station_alignment_sim.launch.py headless:=true \
+            real_time_factor:=${{ matrix.rtf }} image_delay:=${{ matrix.delay }} > ../out/launch.log 2>&1 &
+          launch_pid=$!
+          set +e
+          trials=${{ matrix.trials }}; [ "${{ matrix.name }}" = rtf1 ] && trials="$TRIALS"
+          timeout 150m ros2 run openamrobot_station_alignment station_alignment_trials --trials "$trials" \
+            --out ../out/station_alignment_trials.json --markdown ../out/station_alignment_trials.md
+          rc=$?
+          echo "trials exit status $rc"
+          ros2 action list > ../out/actions.txt 2>&1; cat ../out/actions.txt
+          if [ "${{ matrix.behaviors }}" = pr90 ] && grep -qE "^/(backup|drive_on_heading|assisted_teleop)$" ../out/actions.txt; then
+            echo "#90 behaviour set not in effect: a reverse-capable behavior_server action exists"; rc=1
+          fi
+          kill -INT $launch_pid; sleep 10; kill -9 $launch_pid 2>/dev/null
+          pkill -9 -f "gz sim" 2>/dev/null
+          echo "TRIALS_RC=$rc" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          { echo "### Station alignment trials (simulation only)"; echo "head $(cat head.txt 2>/dev/null)";
+            cat out/station_alignment_trials.md 2>/dev/null || echo "no result table"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "--- per-trial message counts"
+          grep -o '"message_counts": {[^}]*}' out/station_alignment_trials.json 2>/dev/null || true
+          echo "--- station_marker_detector and apriltag lines"
+          grep -nE "station_marker_detector|apriltag" out/launch.log | tail -60 || true
+          echo "--- process deaths and cores"
+          grep -n "process has died" out/launch.log | cut -c1-200 || true
+          ls -la /tmp/core.* 2>/dev/null || echo "no core file"
+          for c in /tmp/core.*; do [ -f "$c" ] || continue; sudo apt-get install -y gdb >/dev/null 2>&1; exe=$(file "$c" | grep -o "execfn: '[^']*'" | cut -d"'" -f2); echo "core $c of $exe"; gdb -batch -ex "thread apply all bt 25" "$exe" "$c" 2>&1 | tail -150; done
+          echo "--- station goals: reached, failed to make progress, aborted"
+          grep -cE "Reached the goal" out/launch.log || true; grep -cE "Failed to make progress" out/launch.log || true; grep -cE "Goal failed" out/launch.log || true
+          echo "--- tracebacks in launch.log"
+          grep -n -A45 "Traceback" out/launch.log | head -150 || true
+          echo "--- launch.log: errors and the last 80 lines"
+          grep -nE "ERROR|FATAL|exception|Traceback|died" out/launch.log | head -60 || true
+          tail -80 out/launch.log || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: station-alignment-trials-${{ matrix.artifact || matrix.name }}
+          path: |
+            out/
+            versions.txt
+            head.txt
+
+      - name: Verdict
+        run: |
+          if [ "${{ matrix.expect }}" = pass ]; then
+            test "${TRIALS_RC:-1}" = "0"
+          else
+            # the reverted node must fail, and fail for the reason of Baseline 1
+            test "${TRIALS_RC:-0}" != "0"
+            grep -q "marker not seen" out/station_alignment_trials.json
+          fi
