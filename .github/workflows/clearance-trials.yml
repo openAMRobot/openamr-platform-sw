@@ -1,0 +1,170 @@
+# SPDX-License-Identifier: MIT
+# Obstacle clearance trials (platform-sw #188, Proposed). A generated arena with one 1.5 m aisle (in the map) and
+# obstacles that are not in the map; Nav2 from openamrobot_nav2 unchanged drives one goal per scenario through the
+# normal command chain; the distance between the chassis collision box and each obstacle is measured from the Gazebo
+# ground truth. The job fails on a contact, on a goal that does not end as the scenario expects, and when the chassis
+# comes closer than 0.10 m to an obstacle that is not in the map.
+# Simulation evidence only: never robot, site, physical or safety evidence. No secrets, no hardware.
+name: clearance-trials
+
+on:
+  pull_request:
+    paths:
+      - 'ros2/src/openamrobot_clearance_trials/**'
+      - 'ros2/src/openamrobot_nav2/config/**'
+      - 'ros2/src/openamrobot_nav2/behavior_trees/**'
+      - '.github/workflows/clearance-trials.yml'
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'scenario names, comma separated'
+        default: 'free,open_box,gap100,gap080,aisle_blocked'
+      repeats:
+        default: '1'
+
+permissions:
+  contents: read
+
+env:
+  PKG_DIR: ros2/src/openamrobot_clearance_trials
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
+  ROS_APT_SOURCE_VERSION: '1.3.0'
+  GZ_SIM_VENDOR: 0.0.13-1noble.20261031.125555
+  GZ_TOOLS_VENDOR: 0.0.8-1noble.20261025.230735
+  SDFORMAT_VENDOR: 0.0.14-1noble.20261031.120928
+  GZ_SIM_VERSION: 8.15.0
+  SDFORMAT_VERSION: 14.9.0
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Static tests (geometry, scene arithmetic, overrides; no simulator)
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-pytest python3-yaml
+          cd "$PKG_DIR" && PYTHONPATH=. python3 -m pytest -v -p no:cacheprovider --junitxml=$GITHUB_WORKSPACE/unit.xml test/
+      - name: Check that all 9 tests ran
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('unit.xml').getroot()
+          s = root if root.tag == 'testsuite' else root.find('testsuite')
+          tests, skipped, failed, errors = (int(s.get(k)) for k in ('tests', 'skipped', 'failures', 'errors'))
+          print(f'{tests} tests, {skipped} skipped, {failed} failed, {errors} errors')
+          assert tests == 9 and skipped == 0 and failed == 0 and errors == 0
+          PY
+
+  trials:
+    name: trials (0.10 m clearance)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 175
+    env:
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      CYCLONEDDS_URI: '<CycloneDDS><Domain Id="any"><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
+      QT_QPA_PLATFORM: offscreen
+      SCENARIOS: ${{ github.event.inputs.scenarios || 'free,open_box,gap100,gap080,aisle_blocked' }}
+      REPEATS: ${{ github.event.inputs.repeats || '1' }}
+    steps:
+      - name: "ENV: ROS 2 Jazzy from packages.ros.org (pinned ros2-apt-source)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl locales software-properties-common
+          sudo add-apt-repository -y universe
+          curl --fail --location --retry 5 --retry-delay 5 -o /tmp/ros2-apt-source.deb \
+            "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.noble_all.deb"
+          sudo dpkg -i /tmp/ros2-apt-source.deb
+          sudo apt-get update
+          sudo apt-get install -y ros-jazzy-ros-base python3-colcon-common-extensions python3-pytest python3-yaml
+
+      - name: "ENV: pinned Gazebo vendor builds"
+        run: |
+          sudo apt-get install -y --allow-downgrades \
+            ros-jazzy-gz-sim-vendor=${GZ_SIM_VENDOR} \
+            ros-jazzy-gz-tools-vendor=${GZ_TOOLS_VENDOR} \
+            ros-jazzy-sdformat-vendor=${SDFORMAT_VENDOR}
+          sudo apt-mark hold ros-jazzy-gz-sim-vendor ros-jazzy-gz-tools-vendor ros-jazzy-sdformat-vendor
+
+      - name: "ENV: the stack (Nav2, ros_gz, CycloneDDS)"
+        run: |
+          sudo apt-get install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-ros-gz \
+            ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-joint-state-publisher \
+            ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-tf2-ros-py ros-jazzy-twist-mux
+
+      - name: "ENV: versions"
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          sim=$(gz sim --versions); sdf=$(gz sdf --versions)
+          echo "gz sim ${sim}, gz sdf ${sdf}"
+          dpkg-query -W -f='${Package} ${Version}\n' | grep -E '^ros-jazzy-(navigation2|nav2-(amcl|controller|bt-navigator|collision-monitor|dwb-controller|smac-planner|costmap-2d)|ros-gz-bridge|rmw-cyclonedds-cpp|gz-sim-vendor)( |$)' | sort | tee versions.txt
+          test "${sim}" = "${GZ_SIM_VERSION}" && test "${sdf}" = "${SDFORMAT_VERSION}"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          path: ws/src/openamr-platform-sw
+          persist-credentials: false
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+          persist-credentials: false
+
+      - name: "BUILD: colcon build"
+        shell: bash
+        working-directory: ws
+        run: |
+          cp -r ../interfaces/ros2/openamr_nav_msgs src/
+          source /opt/ros/jazzy/setup.bash
+          colcon build --base-paths src --packages-up-to openamrobot_clearance_trials --event-handlers console_cohesion+
+          git -C src/openamr-platform-sw rev-parse HEAD | tee ../head.txt
+
+      - name: "RUN: the scenarios"
+        shell: bash
+        working-directory: ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          mkdir -p ../out
+          echo "nproc $(nproc)"
+          ros2 run openamrobot_clearance_trials clearance_scene /tmp/clearance_scene 1.5
+          setsid ros2 launch openamrobot_clearance_trials clearance_sim.launch.py headless:=true \
+            scene_dir:=/tmp/clearance_scene > ../out/launch.log 2>&1 &
+          launch_pid=$!
+          set +e
+          timeout 150m ros2 run openamrobot_clearance_trials clearance_trials --label "head $(cat ../head.txt)" \
+            --scenarios "$SCENARIOS" --repeats "$REPEATS" --min-clearance 0.10 \
+            --out ../out/clearance_trials.json --markdown ../out/clearance_trials.md
+          rc=$?
+          set -e
+          echo "trials exit status $rc"
+          ros2 topic info -v /cmd_vel 2>/dev/null | grep -E "Node name|Publisher count" || true
+          kill -INT -- -$launch_pid 2>/dev/null || true; sleep 8; kill -9 -- -$launch_pid 2>/dev/null || true
+          pkill -9 -f "gz sim" 2>/dev/null || true
+          echo "TRIALS_RC=$rc" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          { echo "### Clearance trials (simulation only)"; echo "head $(cat head.txt 2>/dev/null)";
+            cat out/clearance_trials.md 2>/dev/null || echo "no result table"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "--- launch.log: errors and the last 40 lines"
+          grep -nE "ERROR|FATAL|Traceback|died" out/launch.log | head -40 || true
+          tail -40 out/launch.log || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: clearance-trials
+          path: |
+            out/
+            versions.txt
+            head.txt
+
+      - name: Verdict
+        run: test "${TRIALS_RC:-1}" = "0"
