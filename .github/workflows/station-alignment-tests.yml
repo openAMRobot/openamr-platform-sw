@@ -285,6 +285,7 @@ jobs:
     name: simulation (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 175
+    continue-on-error: ${{ matrix.allowed_to_fail || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -293,16 +294,25 @@ jobs:
           # forward-only correction runs without backup or drive_on_heading (software lead's review of aa8fd11, a).
           - {name: rtf1, rtf: '1.0', delay: '0.0', trials: '5', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
-          # CycloneDDS, matching Baseline 1: upperbody-sw baseline1-acceptance.yml sets
-          # RMW_IMPLEMENTATION=rmw_cyclonedds_cpp. This job ran Fast DDS before #197's trace; that no longer
-          # matched the mission, and the trace found the marker-starvation cause in image delivery to the
-          # detector at RTF 0.2, not in the RMW.
+          # CycloneDDS, matching Baseline 1 (upperbody-sw baseline1-acceptance.yml sets
+          # RMW_IMPLEMENTATION=rmw_cyclonedds_cpp). #197: with Fast DDS at RTF 0.2 the detector received 2 to 7
+          # marker poses per sample window (min_samples 4) and the job failed; with CycloneDDS it received
+          # 39 to 40 and passed. CycloneDDS is the supported middleware for RC.1.
           - {name: rtf02, rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90}
+          # Known limitation #197, not required: the same job on Fast DDS (the ROS 2 Jazzy default), kept
+          # visible so the limitation is measured on every change instead of only described. continue-on-error:
+          # its result never decides the workflow.
+          - {name: 'rtf02-fastdds (known limitation #197, not required)', rtf: '0.2', delay: '7.0', trials: '3',
+             code: head, expect: pass, rmw: rmw_fastrtps_cpp, behaviors: pr90, allowed_to_fail: true,
+             artifact: rtf02-fastdds}
           - {name: rtf02-353e3d6, rtf: '0.2', delay: '7.0', trials: '1', code: '353e3d6', expect: fail,
              rmw: rmw_cyclonedds_cpp, behaviors: '164'}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
+      # One host runs the simulator, Nav2 and the trial client: more DDS participants than CycloneDDS's default
+      # index limit allows (same setting as upperbody-sw build1-scene-tests.yml). Read by CycloneDDS only.
+      CYCLONEDDS_URI: '<CycloneDDS><Domain Id="any"><Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>'
       QT_QPA_PLATFORM: offscreen
     steps:
       - name: "ENV: ROS 2 Jazzy from packages.ros.org (pinned ros2-apt-source)"
@@ -435,7 +445,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
-          name: station-alignment-trials-${{ matrix.name }}
+          name: station-alignment-trials-${{ matrix.artifact || matrix.name }}
           path: |
             out/
             versions.txt
