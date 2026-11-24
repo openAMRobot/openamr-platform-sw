@@ -185,7 +185,10 @@
           </horizontal>
         </scan>
         <range>
-          <min>0.40</min>
+          <!-- 0.05 m: RPLIDAR S3 datasheet minimum (config/sensor_profiles.yaml, lidar range_min). Was 0.40 m, which
+               hid everything in the first 0.40 m, the robot's own body included (#156, #83). With 0.05 m the body
+               returns are real and scan_body_filter_sim.yaml masks them. Simulation value, Proposed. -->
+          <min>0.05</min>
           <max>10.0</max>
           <resolution>0.01</resolution>
         </range>

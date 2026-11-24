@@ -30,9 +30,18 @@ import yaml
 CONFIG_PATH = os.path.join(
     os.path.dirname(__file__), '..', 'config', 'scan_body_filter_sim.yaml')
 
-# Re-measured 26 Oct 2026 (issue #74): one contiguous band, index 155-200 of
-# 360, range 0.4067-0.4806 m, identical on all 86 recorded messages.
-MEASURED_BODY_BAND_DEG = (-24.57, 20.56)
+# Re-measured 24 Nov 2026 (platform-sw #156) with the simulated LiDAR minimum range
+# at 0.05 m (was 0.40 m; 26 Oct 2026 band at 0.40 m: -24.57 to 20.56 deg): raw /scan,
+# robot standing in an empty arena, every return under 0.45 m. Body around the mount:
+# -38 to +38 deg, 0.124 to 0.273 m. Thin parts: -86 to -84 deg and +84 to +91 deg,
+# 0.166 to 0.174 m. The same bands in all 30 launches read (run 45386106021).
+MEASURED_BODY_BAND_DEG = (-38.0, 38.0)
+MEASURED_THIN_PARTS_DEG = ((-86.0, -84.0), (84.0, 91.0))
+MEASURED_THIN_PART_MAX_RANGE_M = 0.174
+
+GAZEBO_XACRO_PATH = os.path.join(
+    os.path.dirname(__file__), '..', '..', 'openamrobot_description', 'urdf', 'gazebo_control.xacro')
+SIM_LIDAR_MIN_RANGE_M = 0.05   # RPLIDAR S3 datasheet, sensor_profiles.yaml
 
 # lidar_joint rpy is "0 0 pi" (robo_urdf.urdf.xacro, Alex decision 2026-10-12)
 # mounted at +x of base_link -> scan angle 0 now points to the robot's REAR,
@@ -104,8 +113,34 @@ def test_close_mask_sectors_also_stay_clear_of_forward():
         f'close_mask_sectors_deg {sectors} reaches into the forward driving cone')
 
 
+
+def test_close_mask_takes_the_measured_thin_part():
+    with open(CONFIG_PATH) as f:
+        params = yaml.safe_load(f)['scan_body_filter']['ros__parameters']
+    flat = params['close_mask_sectors_deg']
+    sectors = [(flat[i], flat[i + 1]) for i in range(0, len(flat), 2)]
+    for part in MEASURED_THIN_PARTS_DEG:
+        for a in part:
+            assert _covers(sectors, a), f'close_mask_sectors_deg {sectors} does not cover {a} deg'
+    assert params['close_max'] > MEASURED_THIN_PART_MAX_RANGE_M
+
+
+def test_the_mask_was_measured_at_the_simulated_lidar_minimum_range():
+    # The bands above hold for this minimum range only: a body part nearer than the
+    # minimum is invisible, so a lower minimum shows more body. A change of the
+    # minimum without a new measurement of the mask must fail here.
+    import re
+    with open(GAZEBO_XACRO_PATH) as f:
+        text = f.read()
+    lidar = text[text.index('<lidar>'):text.index('</lidar>')]
+    found = [float(v) for v in re.findall(r'<min>([0-9.]+)</min>', lidar)]
+    assert found == [SIM_LIDAR_MIN_RANGE_M], found
+
+
 if __name__ == '__main__':
     test_mask_covers_the_measured_body_reflection_band()
     test_mask_does_not_cover_the_forward_driving_direction()
     test_close_mask_sectors_also_stay_clear_of_forward()
+    test_close_mask_takes_the_measured_thin_part()
+    test_the_mask_was_measured_at_the_simulated_lidar_minimum_range()
     print('all scan_body_filter_sim.yaml checks passed')
