@@ -7,7 +7,8 @@ from std_msgs.msg import Float64, String
 from openamrobot_sil import config
 from openamrobot_sil.canbus import open_bus
 from openamrobot_sil.ctl017_gazebo import GazeboCtl017
-from openamrobot_sil.nodes.common import joint_value, publish_json, steady_timer
+from openamrobot_sil.nodes.common import (NodeClock, device_timer, joint_value, publish_json,
+                                          thread_check)
 
 
 class Ctl017Node(Node):
@@ -18,14 +19,18 @@ class Ctl017Node(Node):
         self.joint = cfg['lift']['joint']
         self.bus = open_bus(cfg['buses']['aux']['interface'])
         permit = config.permit_config(cfg)
-        self.emu = GazeboCtl017(self.bus, cfg['buses']['aux']['ctl017_node_id'], permit=permit)
-        self.started = False
         self.cmd_pub = self.create_publisher(Float64, '/sil/lift/gz_cmd_vel', 10)
+        # One simulation clock per process (clock contract C1): Gazebo time with use_sim_time.
+        self.sim = NodeClock(self, on_stall=self.hold_plant)
+        self.emu = GazeboCtl017(self.bus, cfg['buses']['aux']['ctl017_node_id'], permit=permit,
+                                clock=self.sim.clock)
+        self.sim.add_check(thread_check('CTL-017 emulator', self.emu))
+        self.started = False
         self.state_pub = self.create_publisher(String, '/sil/lift/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
         self.create_subscription(String, '/sil/lift/inject', self.on_inject, 10)
-        steady_timer(self, 0.01, self.on_cmd)
-        steady_timer(self, 0.05, self.on_state)
+        device_timer(self, 0.01, self.on_cmd)
+        device_timer(self, 0.05, self.on_state)
         self.inject = {
             'stall': lambda: self.emu.inject_stall(True),
             'stall-clear': lambda: self.emu.inject_stall(False),
@@ -65,9 +70,13 @@ class Ctl017Node(Node):
         msg.data = self.emu.demand_velocity_m_s() if self.started else 0.0
         self.cmd_pub.publish(msg)
 
+    def hold_plant(self):
+        """Stall (C5): hold the Gazebo lift command at zero, so the resume starts from rest."""
+        self.cmd_pub.publish(Float64(data=0.0))
+
     def on_state(self):
         if self.started:
-            publish_json(self.state_pub, self.emu.state_dict())
+            publish_json(self.state_pub, dict(self.emu.state_dict(), sim_clock=self.sim.status()))
 
     def on_inject(self, msg):
         fn = self.inject.get(msg.data.strip())

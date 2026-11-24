@@ -108,7 +108,9 @@ python3 align_enc_cal.py --arm 250        # ~6-8 s; success: "table placed -> /d
 ## 3. Full bring-up — ON THE PI
 
 One command starts the whole stack: data source (agent + LiDAR + EKF + scan filter +
-optionally camera) + Nav2 localization + navigation (+ docking with `use_docking:=true`).
+optionally camera) + Nav2 localization + navigation (+ docking, pass `use_docking:=true`
+explicitly - D-19, Alex's 11 Nov owner decision, keeps docking OFF by default on the real
+robot until its three conditions are met; see the table below).
 `bringup.launch.py` is the single sim/real selector; `sim:=false` is the default.
 
 > ⚠️ **Anything with the camera or docking → use the [composed profile](#composed-profile--the-camera--docking-default) below.**
@@ -165,7 +167,7 @@ ros2 launch openamrobot_bringup bringup.launch.py \
 | `sim` | `false` | `false` = real hardware; `true` = Gazebo. |
 | `map` | *(empty)* | **REQUIRED on real** — `sim:=false` refuses to start without an explicit map (no silent fallback to the bundled sim map). |
 | `use_camera` | `true` | Real only. `false` = no IMX708 → lighter load, no Wi-Fi camera flood, less brown-out risk. |
-| `use_docking` | `true` | `true` = `dock_trigger` owns `/goal_pose` and forwards it to `/goal_pose_nav` (it **is** the goal forwarder + AprilTag docking). `false` = a plain `topic_tools` relay takes over the forwarding for nav-only debug. **Exactly one forwarder runs — never both.** |
+| `use_docking` | *(empty)* → **OFF on real**, ON in sim | D-19 (Alex, 11 Nov): the real robot defaults to OFF until docking's three readiness conditions are met - pass `true` explicitly to override. `true` = `dock_trigger` owns `/goal_pose` and forwards it to `/goal_pose_nav` (it **is** the goal forwarder + AprilTag docking). `false` = a plain `topic_tools` relay takes over the forwarding for nav-only debug. **Exactly one forwarder runs — never both.** |
 | `use_rviz` | `false` | Open RViz with the Nav2 view (usually run RViz on the PC instead). |
 
 <a id="composed-profile--the-camera--docking-default"></a>
