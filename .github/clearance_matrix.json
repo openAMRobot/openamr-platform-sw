@@ -1,109 +1,12 @@
 {
  "groups": [
   {
-   "name": "G1 combined head values, global 0.55/3.0",
-   "lidar_min": "0.40",
-   "body_mask": "",
+   "name": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main)",
+   "lidar_min": "0.05",
+   "body_mask": "-42,42",
    "entries": [
     {
-     "label": "G1 combined head values, global 0.55/3.0, launch 1",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 2",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 3",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 4",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 5",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 6",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 7",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 8",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 9",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    },
-    {
-     "label": "G1 combined head values, global 0.55/3.0, launch 10",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
-     }
-    }
-   ]
-  },
-  {
-   "name": "G2 main values, global 0.35/3.5",
-   "lidar_min": "0.40",
-   "body_mask": "",
-   "entries": [
-    {
-     "label": "G2 main values, global 0.35/3.5, launch 1",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 1",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -112,7 +15,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 2",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 2",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -121,7 +24,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 3",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 3",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -130,7 +33,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 4",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 4",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -139,7 +42,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 5",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 5",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -148,7 +51,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 6",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 6",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -157,7 +60,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 7",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 7",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -166,7 +69,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 8",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 8",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -175,7 +78,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 9",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 9",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -184,7 +87,7 @@
      }
     },
     {
-     "label": "G2 main values, global 0.35/3.5, launch 10",
+     "label": "S1 LiDAR min 0.05, mask -42..42, global 0.35/3.5 (main), launch 10",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
@@ -195,389 +98,195 @@
    ]
   },
   {
-   "name": "G3 global 0.55/6.0",
-   "lidar_min": "0.40",
-   "body_mask": "",
+   "name": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0",
+   "lidar_min": "0.05",
+   "body_mask": "-42,42",
    "entries": [
     {
-     "label": "G3 global 0.55/6.0, launch 1",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 1",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
       "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 2",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 3",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 4",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 5",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 6",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 7",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 8",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 9",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    },
-    {
-     "label": "G3 global 0.55/6.0, launch 10",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    }
-   ]
-  },
-  {
-   "name": "G4 global 0.70/3.0",
-   "lidar_min": "0.40",
-   "body_mask": "",
-   "entries": [
-    {
-     "label": "G4 global 0.70/3.0, launch 1",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 2",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 2",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 3",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 3",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 4",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 4",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 5",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 5",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 6",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 6",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 7",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 7",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 8",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 8",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 9",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 9",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     },
     {
-     "label": "G4 global 0.70/3.0, launch 10",
+     "label": "S2 LiDAR min 0.05, mask -42..42, global 0.55/3.0, launch 10",
      "scenarios": "free,open_box,gap100,gap080",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.55,
       "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.0
      }
     }
    ]
   },
   {
-   "name": "G5 global 0.70/6.0",
-   "lidar_min": "0.40",
+   "name": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only",
+   "lidar_min": "0.05",
    "body_mask": "",
    "entries": [
     {
-     "label": "G5 global 0.70/6.0, launch 1",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 1",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 2",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 2",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 3",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 3",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 4",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 4",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 5",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 5",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 6",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 6",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 7",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 7",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 8",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 8",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 9",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 9",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     },
     {
-     "label": "G5 global 0.70/6.0, launch 10",
-     "scenarios": "free,open_box,gap100,gap080",
+     "label": "S3 LiDAR min 0.05, main mask -35..31, global 0.35/3.5 (main), free only, launch 10",
+     "scenarios": "free",
      "repeats": "1",
      "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.7,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 6.0
-     }
-    }
-   ]
-  },
-  {
-   "name": "G6 global 0.65/2.0",
-   "lidar_min": "0.40",
-   "body_mask": "",
-   "entries": [
-    {
-     "label": "G6 global 0.65/2.0, launch 1",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 2",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 3",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 4",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 5",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 6",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 7",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 8",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 9",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
-     }
-    },
-    {
-     "label": "G6 global 0.65/2.0, launch 10",
-     "scenarios": "free,open_box,gap100,gap080",
-     "repeats": "1",
-     "overrides": {
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.65,
-      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 2.0
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/inflation_radius": 0.35,
+      "global_costmap/global_costmap/ros__parameters/inflation_layer/cost_scaling_factor": 3.5
      }
     }
    ]
