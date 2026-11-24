@@ -65,6 +65,7 @@ class Runner(Node):
         self.create_subscription(BehaviorTreeLog, "/behavior_tree_log", self._bt, 50)
         # Field of view of the scans as the stack receives them: per 10 degree sector of bearing from the LiDAR
         # (0 = robot forward, lidar_joint yaw pi), the share of beams with a valid range and the smallest valid range.
+        self.body, self.body_scans, self.body_closed = {}, 0, False
         self.fov = {"/scan": {}, "/scan_filtered": {}}
         for topic in self.fov:
             self.create_subscription(LaserScan, topic, lambda m, k=topic: self._scan(k, m), 5)
@@ -91,6 +92,16 @@ class Runner(Node):
 
     def _scan(self, key, msg):
         table = self.fov[key]
+        if key == "/scan" and self.rec is None and not self.body_closed:
+            # Before the first trial the robot stands at the origin with nothing nearer than 2 m: every raw return
+            # under 0.45 m is the robot itself. Kept per degree in the LiDAR frame, for the body mask.
+            for i, r in enumerate(msg.ranges):
+                if math.isfinite(r) and msg.range_min <= r < 0.45:
+                    deg = math.degrees(msg.angle_min + i * msg.angle_increment)
+                    cell = self.body.setdefault(round(deg), [0, math.inf, 0.0])
+                    cell[0] += 1
+                    cell[1], cell[2] = min(cell[1], r), max(cell[2], r)
+            self.body_scans += 1
         table["scans"] = table.get("scans", 0) + 1
         table["range_min"], table["range_max"] = msg.range_min, msg.range_max
         if table["scans"] % 5:
@@ -103,6 +114,22 @@ class Runner(Node):
             if math.isfinite(r) and msg.range_min <= r <= msg.range_max:
                 cell[1] += 1
                 cell[2] = min(cell[2], r)
+
+    def body_report(self):
+        degs = sorted(self.body)
+        lines = [f"BODY RETURNS in the raw scan before the first trial: {self.body_scans} scans, LiDAR frame degrees"]
+        start = prev = None
+        for d in degs + [None]:
+            if start is None:
+                start = prev = d
+            elif d is None or d - prev > 1:
+                cells = [self.body[k] for k in range(start, prev + 1) if k in self.body]
+                lines.append(f"  {start:+4d}..{prev:+4d} deg: range {min(c[1] for c in cells):.3f} to"
+                             f" {max(c[2] for c in cells):.3f} m, {sum(c[0] for c in cells)} returns")
+                start = prev = d
+            else:
+                prev = d
+        return "\n".join(lines if degs else lines + ["  none"])
 
     def fov_report(self):
         lines = []
@@ -345,6 +372,7 @@ class Runner(Node):
         self.sleep_sim(3.0)
         rec["start"] = self.pose()
         with self.lock:
+            self.body_closed = True
             rec["t0"] = self.truth[0]
             self.rec = rec
         state = {"removed": False, "mover": False}
@@ -558,6 +586,7 @@ def main(argv=None):
     with open(args.markdown, "w", encoding="utf-8") as f:
         f.write(text)
     print(text, flush=True)
+    print(node.body_report(), flush=True)
     print("SCAN FIELD OF VIEW (bearing from the LiDAR, 0 = robot forward)\n" + node.fov_report(), flush=True)
     sys.stdout.flush()
     os._exit(0 if record["passed"] else 1)
