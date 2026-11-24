@@ -59,8 +59,6 @@ jobs:
              behaviors: pr90, artifact: rtf02-launch-4}
           - {name: 'rtf02 launch 5', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
              behaviors: pr90, artifact: rtf02-launch-5}
-          - {name: 'rtf02 launch 6', rtf: '0.2', delay: '7.0', trials: '3', code: head, expect: pass, rmw: rmw_cyclonedds_cpp,
-             behaviors: pr90, artifact: rtf02-launch-6}
     env:
       RMW_IMPLEMENTATION: ${{ matrix.rmw }}
       # One host runs the simulator, Nav2 and the trial client: more DDS participants than CycloneDDS's default
