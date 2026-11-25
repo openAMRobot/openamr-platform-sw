@@ -1,0 +1,102 @@
+# SCRATCH (rc.1 audit, not for merge): build-only check of the platform packages on a native arm64 runner.
+# A pass proves that the packages resolve their dependencies and compile on linux/arm64 with ROS 2 Jazzy binaries.
+# It proves nothing about a Jetson, JetPack, GPU, cameras, timing or any hardware. No test is run.
+name: diag arm64 build only (scratch)
+
+on:
+  push:
+    branches: [diag/arm64-build-only-2026-11-25]
+
+permissions:
+  contents: read
+
+env:
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
+  SLLIDAR_REPO: https://github.com/Slamtec/sllidar_ros2.git
+  SLLIDAR_REF: 34300099fadfc772965962dec837bf436706188f
+
+jobs:
+  build:
+    name: build on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    container: ros:jazzy-ros-base
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64 (reference, same steps)
+            runner: ubuntu-24.04
+    steps:
+      - name: Machine
+        run: |
+          uname -a
+          dpkg --print-architecture
+          nproc
+
+      - name: Check out this repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+
+      - name: Workspace
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y git python3-colcon-common-extensions python3-rosdep python3-pytest python3-yaml
+          mkdir -p ws/src
+          cp -r ros2/src/* ws/src/
+          cp -r interfaces/ros2/openamr_nav_msgs ws/src/
+          git clone "$SLLIDAR_REPO" ws/src/sllidar_ros2
+          git -C ws/src/sllidar_ros2 checkout "$SLLIDAR_REF"
+          cd ws && source /opt/ros/jazzy/setup.bash && colcon list
+
+      - name: rosdep (unresolved keys are listed, not fatal)
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          rosdep update --rosdistro jazzy
+          cd ws
+          echo "=== ROSDEP CHECK"
+          rosdep check --rosdistro jazzy --from-paths src --ignore-src 2>&1 | tee ../rosdep-check.txt || true
+          echo "=== ROSDEP INSTALL"
+          rosdep install --rosdistro jazzy --from-paths src --ignore-src -y -r 2>&1 | tee ../rosdep-install.txt | tail -60 || true
+          echo "=== ROSDEP ERRORS"
+          grep -i -E "^ERROR|Unable to locate|Cannot locate rosdep|No definition" ../rosdep-install.txt ../rosdep-check.txt || echo "none"
+
+      - name: colcon build, every package, continue on error
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ws
+          set +e
+          colcon build --continue-on-error --event-handlers console_cohesion+ --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1 | tee ../build.txt
+          echo "BUILD_RC=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          echo "=== ARCHBUILD SUMMARY $(dpkg --print-architecture)"
+          grep -E "^Summary:|^  [0-9]+ packages? (failed|aborted|had stderr|not processed)|^Failed   <<<|^Aborted  <<<|^Finished <<<" ../build.txt
+          echo "=== ARCHBUILD END"
+
+      - name: Compiled artefacts and their architecture
+        shell: bash
+        run: |
+          apt-get install -y file > /dev/null
+          cd ws
+          echo "=== ELF FILES IN install/"
+          find install -type f \( -name '*.so*' -o -perm -u+x \) -exec file {} + 2>/dev/null | grep ELF | sed 's/,.*BuildID.*//' | cut -c1-200 | sort | uniq -c | sort -rn | head -40
+          echo "=== PREBUILT BINARIES IN THE SOURCE TREE (not built here)"
+          find src -type f \( -name '*.so' -o -name '*.a' -o -name '*.whl' -o -name '*.bin' -o -name '*.elf' \) | head -40
+          echo "=== END"
+
+      - name: Result
+        shell: bash
+        run: |
+          echo "colcon build exit status: ${BUILD_RC}"
+          [ "${BUILD_RC}" = "0" ]
