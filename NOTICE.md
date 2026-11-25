@@ -58,7 +58,7 @@ Do not add third-party code, meshes, models, textures, datasets, marker images, 
 #### CAN software-in-the-loop emulators from openamr-platform-fw
 
 - **Files:** `ros2/src/openamrobot_sil/openamrobot_sil/vendor/can_sil/`: `canopen_common.py`, `zlac8015d_emulator.py`, `ctl017_emulator.py`, `ctl017_od_v1.py`, `tests/conftest.py`, `tests/test_zlac8015d.py`, `tests/test_ctl017.py`, `LICENSE`.
-- **Source:** [openAMRobot/openamr-platform-fw](https://github.com/openAMRobot/openamr-platform-fw), directory `tools/can_sil`, commit `ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d` (head of draft PR #53, not merged).
+- **Source:** [openAMRobot/openamr-platform-fw](https://github.com/openAMRobot/openamr-platform-fw), directory `tools/can_sil`, commit `f88bf4820d0db7d27ffc6dfad905f57c1483283d` (firmware PR #75, stacked on #53; digital-twin verification pin, not a production firmware release).
 - **Licence:** MIT, copyright OpenAMRobot (Botshare LTD). The licence file of that repository at the same commit is kept next to the files.
 - **Modification status:** unmodified, byte for byte. `SHA256SUMS` records the hashes and `test/test_vendor_integrity.py` checks them.
 - **Reason for inclusion:** the ZLAC8015D and CTL-017 CANopen emulators are reused by `openamrobot_sil` instead of being rewritten. Details: `vendor/can_sil/PROVENANCE.md`.
