@@ -17,7 +17,7 @@ buses:
 
 drive:
   wheel_radius: 0.098          # m, loaded radius (Alex decision 2026-11-15). openamrobot_description gazebo_control.xacro; test_sil_config.py checks they agree
-  wheel_separation: 0.400      # m. Same file. Placeholder there (decision DRIVE-TRACK is open)
+  wheel_separation: 0.444      # m. Same file. Placeholder there (decision DRIVE-TRACK is open)
   left_sign: 1                 # SIL test value. Axis order and sign are open (actuator ledger Q-02)
   right_sign: 1                # SIL test value
   heartbeat_ms: 100            # proposed D-24 value (platform-fw can1-drive-link.md). Not bench-validated
