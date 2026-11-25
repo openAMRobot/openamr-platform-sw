@@ -334,11 +334,11 @@ def test_02_cmd_vel_stops_base_stops_within_watchdog_plus_one_period(sref):
     assert sref.arm()
     sref.teleop = (0.15, 0.0)
     assert sref.wait(lambda: sref.gz_v() > 0.12, 8.0)
-    sref.teleop = None
     smoother = pid_of('velocity_smoother')
     assert smoother, 'velocity_smoother process not found'
-    os.kill(smoother, signal.SIGSTOP)     # the arbitration output stops while non-zero
+    os.kill(smoother, signal.SIGSTOP)     # freeze the output while it is still non-zero
     try:
+        sref.teleop = None                # remove the input only after the smoother is frozen
         time.sleep(1.5)
         rx = [c for c in sref.cmd_vel_rx if c[1] > 0.05]
         t_last = rx[-1][0]
