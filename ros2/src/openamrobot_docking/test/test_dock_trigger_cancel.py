@@ -28,7 +28,7 @@ from unittest.mock import patch
 
 import pytest
 
-rclpy = pytest.importorskip('rclpy')  # tracking: platform item 4
+rclpy = pytest.importorskip('rclpy')  # issues/102
 
 from geometry_msgs.msg import PoseStamped  # noqa: E402,I100
 from std_msgs.msg import Bool  # noqa: E402,I100

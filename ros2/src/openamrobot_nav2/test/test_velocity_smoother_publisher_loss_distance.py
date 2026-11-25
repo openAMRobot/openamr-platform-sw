@@ -109,7 +109,7 @@ def _velocity_smoother_available():
     return result.returncode == 0
 
 
-pytestmark = pytest.mark.skipif(
+pytestmark = pytest.mark.skipif(  # issues/35
     not _velocity_smoother_available(),
     reason='needs the real ros2 CLI AND the nav2_velocity_smoother package installed [#35]')
 

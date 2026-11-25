@@ -62,7 +62,7 @@ def _twist_mux_available():
     return result.returncode == 0
 
 
-requires_mux = pytest.mark.skipif(
+requires_mux = pytest.mark.skipif(  # issues/35
     not _twist_mux_available(),
     reason='needs the real ros2 CLI AND the twist_mux package installed [#35]')
 
