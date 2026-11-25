@@ -13,12 +13,43 @@ dictionary of openamr-upperbody-fw PR #15, which is a proposal. This subclass ad
    code, the timeout and the refusal result are not decided anywhere. PermitConfig carries
    them as SIL test values and they are not proposals.
 
+Time (clock contract, docs/architecture/sil-topology.md section 6, rule C1): every CTL-017 timer
+(Hall rate window, stall, move deadline, keep-alive, heartbeat consumer, standstill, permit
+freshness) reads the vendored ``_now_ms()`` hook, which this subclass points at the clock it is
+given: the process ``FedClock`` fed from Gazebo ``/clock`` in a SIL launch, host steady time
+for the internal plant. The timeout values are not changed (rule C3). A time reset is a power
+cycle of the node; a stall halts the lift and invalidates the permit, so motion needs a new
+command after the resume.
+
+Before the first ``/clock`` the node is not powered: it sends no frame (boot-up, heartbeat),
+drops every received frame and runs no step; it powers up at the first clock time with a
+boot-up frame (clock-reset contract R1). A reset loses the receive queue with the power cycle:
+frames received before the reset never act after it (R5). Frames delayed in transport past the
+reset cannot be told apart, since CAN frames carry no generation (#159).
+
+Three clocks (docs/architecture/clock-reset-contract.md, "Three clocks"):
+
+- simulation time: the Gazebo lift joint, the fed ``/clock`` and every feedback freshness check;
+- firmware time: what the emulated node itself counts with. Every CTL-017 timer (``_now_ms``),
+  the ``dt`` of each emulator step and the heartbeat producer period (``_now``). In SIL it is the
+  fed simulation clock, so a slow or fast Gazebo changes no device decision;
+- wall-clock supervision: host steady time, only for the coordinator's stall check and the
+  simulation-only hold of the Gazebo lift command (C5). It never reaches a device timer.
+
+The vendored node thread (``CanopenNode._run`` at the pinned SHA) reads host time for the step
+``dt`` and the heartbeat period. ``_run`` below is the same loop with those two reads on the
+node clock, which is what openamr-platform-fw#58 (``CanopenNode._now()``) gives the vendored
+loop; after the re-vendor at that merge SHA the override reduces to ``_now``. The host receive
+timeout stays a wait bound only (``tick_s`` of host time per poll).
+
 Emulation of documented device behaviour only. Not a safety function.
 """
 import struct
-import time
+
+import can
 
 from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
+from openamrobot_sil.sim_time import ClockWatch, SteadyClock
 
 # Joint position 0 m is the L1000 stop. The v1 dictionary puts L1000 5 mm above the lower
 # end (0x2100:01 = 5000 um), L1175 at 180 mm and L1350 at 355 mm (0x2100:02, :03).
@@ -69,7 +100,15 @@ class PermitConfig:
 
 class GazeboCtl017(c.Ctl017Emulator):
     def __init__(self, bus, node_id=c.NODE_ID, start_pos_mm=None, operational=False,
-                 permit=None):
+                 permit=None, clock=None):
+        # Set before the vendored constructor: its _reinit() reads _now_ms().
+        self.clock = clock if clock is not None else SteadyClock()
+        self._clock_watch = ClockWatch(self.clock)
+        self.clock_resets = 0
+        self.clock_stalls = 0
+        self.powered = self.clock.fed  # False until the first clock time (R1)
+        self.pre_clock_drops = 0     # frames received before the first clock
+        self.reset_drops = 0         # frames in the receive queue at a reset (R5)
         self.permit_cfg = permit
         self.external = False
         self._joint_mm = None
@@ -78,6 +117,103 @@ class GazeboCtl017(c.Ctl017Emulator):
         self.permit_stops = 0
         self._permit_reset()
         super().__init__(bus, node_id, start_pos_mm, operational)
+
+    # --- time: the clock contract ----------------------------------------
+    def _now_ms(self):
+        """Overrides the vendored hook: every CTL-017 timer reads the given clock (C1)."""
+        return clock_ms(self.clock)
+
+    def _now(self):
+        """Firmware time in seconds: the node clock (same shape as openamr-platform-fw#58)."""
+        return self.clock.now()
+
+    def _run(self):
+        """Node thread: the vendored loop with the step dt and the heartbeat period on firmware
+        time. Frame handling, the step and the heartbeat condition are the vendored ones."""
+        last = self._now()
+        while self._running:
+            msg = self.bus.recv(timeout=self.tick_s)   # host wait bound only
+            now = self._now()
+            with self.lock:
+                if msg is not None and not self.bus_off:
+                    self._handle(msg)
+                if not self.clock.fed:
+                    last = now       # before the first clock: no time has passed for the node
+                elif now < last:
+                    # Time moved backward (reset): no negative step; the heartbeat period
+                    # restarts at the new time.
+                    last = now
+                    self._last_hb = now
+                self.tick(now - last)
+                if (self.heartbeat_enabled and self.heartbeat_ms > 0 and
+                        now - self._last_hb >= self.heartbeat_ms / 1000.0):
+                    self._last_hb = now
+                    self._send(canopen_common.HB_BASE + self.node_id, [self.nmt_state])
+            last = now
+
+    def _power_on(self):
+        """First clock time: power-up. Returns False while the clock is not fed yet (R1)."""
+        if self.powered:
+            return True
+        if not self.clock.fed:
+            return False
+        self.powered = True
+        self._clock_watch = ClockWatch(self.clock)
+        self._reinit()           # every timer starts at the first clock time
+        self._send_boot()
+        return True
+
+    def _drain_rx(self):
+        """A power cycle loses the receive queue: drop what is waiting in it (R5)."""
+        while True:
+            try:
+                msg = self.bus.recv(timeout=0)
+            except can.CanError:
+                return
+            if msg is None:
+                return
+            self.reset_drops += 1
+
+    def _follow_clock(self):
+        """Apply a reset or a stall of the clock before this step uses the time."""
+        event = self._clock_watch.poll()
+        if event == 'reset':
+            # Time moved backward: power cycle. Boot-up frame, PRE-OPERATIONAL, targets and
+            # permit dropped, unhomed unless the lift stands at a stop sensor. The receive queue
+            # is lost with it.
+            self.clock_resets += 1
+            self.power_cycle()
+            self._drain_rx()
+        elif event in ('stall', 'resume'):
+            # Pause longer than the stall bound: the vendored STOP command, and the permit is
+            # invalid until a new permit frame arrives. Repeated at the resume, so a frame or
+            # command received during the pause does not carry over. No fault is raised.
+            if event == 'stall':
+                self.clock_stalls += 1
+            self._cmd_stop()
+            self.permit_valid = False
+        return event
+
+    def tick(self, dt):
+        if not self._power_on():
+            return
+        self._follow_clock()
+        super().tick(dt)
+
+    def _handle(self, msg):
+        """Every received frame (NMT, SDO, PDO) meets the clock first (R1, R5)."""
+        if not self._power_on():
+            self.pre_clock_drops += 1
+            return
+        if self._follow_clock() == 'reset':
+            self.reset_drops += 1    # received before the reset was seen: lost with the queue
+            return
+        super()._handle(msg)
+
+    def _send(self, arb_id, data):
+        if not self.powered:
+            return  # not powered before the first clock: no boot-up, no heartbeat (R1)
+        super()._send(arb_id, data)
 
     # --- plant: the Gazebo lift joint -------------------------------------
     def attach_external_plant(self, joint_position_m):
@@ -138,6 +274,7 @@ class GazeboCtl017(c.Ctl017Emulator):
         self.permit_valid = False  # a permit seen before an NMT transition is not kept
 
     def on_rx_frame(self, msg):
+        self._follow_clock()
         cfg = self.permit_cfg
         if cfg is None or msg.arbitration_id != cfg.cob_id:
             super().on_rx_frame(msg)
@@ -204,8 +341,14 @@ class GazeboCtl017(c.Ctl017Emulator):
                 'permit_rx_count': self.permit_rx_count,
                 'permit_refusals': self.permit_refusals,
                 'permit_stops': self.permit_stops,
+                'clock_resets': self.clock_resets,
+                'clock_stalls': self.clock_stalls,
+                'powered': self.powered,
+                'pre_clock_drops': self.pre_clock_drops,
+                'reset_drops': self.reset_drops,
             }
 
 
-def wall_ms():
-    return int(time.monotonic() * 1000)
+def clock_ms(clock):
+    """Milliseconds of a clock of the contract, the time base of every CTL-017 timer."""
+    return int(clock.now() * 1000)

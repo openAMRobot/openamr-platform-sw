@@ -75,7 +75,7 @@ A standalone Python node (`dock_trigger.py`) implements a **bundle-driven autodo
 | Stage | Action | Implementation |
 |---|---|---|
 | **1** | `NavigateToPose` action to the staging zone (`dock − staging_distance × approach_dir`) | Nav2 controller |
-| **2** | Open-loop scan to find the bundle → camera-frame centring P-controller on the bundle midpoint | `dock_trigger.py` on `/cmd_vel` |
+| **2** | Open-loop scan to find the bundle → camera-frame centring P-controller on the bundle midpoint | `dock_trigger.py` on `cmd_vel_dock` |
 | **3** | Estimate the dock surface **normal** from the outer tags (the line through `charging_dock_tag_0` and `charging_dock_tag_2`); back off if the robot arrived too close to re-establish a clean far-field bundle view | same |
 | **4** | Drive to a point on the normal axis with pure-pursuit in the camera/tag frame, then re-verify the normal estimate within `normal_tolerance_deg` | same |
 | **5** | Two-regime final approach: at `depth > freeze_axis_distance` follow the proximity-weighted-EMA axis; at `depth ≤ freeze_axis_distance` **freeze the axis** and run a visual corrector on the centre tag (`omega = −visual_servo_kp · atan2(X, Z)` in the camera optical frame) until `docking_distance` | same |

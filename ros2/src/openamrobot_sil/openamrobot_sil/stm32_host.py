@@ -5,6 +5,15 @@ what the emulators need to be exercised: the drive bring-up and wheel targets on
 Daly polls on CAN2, and NMT start, core heartbeat, lift commands, keep-alive and the lift
 permit frames on CAN3. It holds no safety function and takes no stop decision: it has no
 command timeout, no E-stop input and no fault reaction. With stm32:=renode it is not started.
+
+Time (clock contract, docs/architecture/sil-topology.md section 6, rule C1): the stand-in is a
+device, so its loop pacing, keep-alive, heartbeat and permit periods, odometry sample time and
+BMS answer timeout run on the clock it is given (the process ``FedClock`` in a SIL launch, host
+steady time otherwise). Host sleeps are only an upper bound of one wait (C5). After a reset or
+a stall of that clock it drops every buffered command and starts the drive bring-up again, so
+no actuator resumes from a command given before.
+
+With stm32:=renode_readonly it runs with DriveHost mode "command_only" next to the firmware.
 """
 import math
 import random
@@ -16,39 +25,150 @@ import can
 
 from openamrobot_sil import daly_bms
 from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
-from openamrobot_sil.zlac_gazebo import (RPM_TO_RAD_S, twist_to_wheel_speeds,
-                                         wheel_speeds_to_twist)
+from openamrobot_sil.sim_time import ClockWatch, Stamp, SteadyClock
+from openamrobot_sil.zlac_gazebo import (RPDO1_BASE, RPDO2_BASE, RPM_TO_RAD_S,
+                                         twist_to_wheel_speeds, wheel_speeds_to_twist)
+
+DRIVE_MODES = ('sdo', 'command_only')
+
+
+class SdoForbidden(RuntimeError):
+    """The command-only drive client tried to send an SDO request."""
+
+
+class _CommandOnlyBus:
+    """Bus wrapper of the command-only drive client: it refuses every frame to the SDO server
+    of the drive (600h + node), so the client cannot take the SDO channel from the firmware."""
+
+    def __init__(self, bus, node_id):
+        self._bus = bus
+        self._sdo_id = canopen_common.SDO_RX_BASE + node_id
+        self.sent = 0
+        self.refused = 0
+
+    def send(self, msg, timeout=None):
+        if not msg.is_extended_id and msg.arbitration_id == self._sdo_id:
+            self.refused += 1
+            raise SdoForbidden('command-only drive client: SDO frame %03X refused'
+                               % msg.arbitration_id)
+        self._bus.send(msg, timeout)
+        self.sent += 1
+
+
+class MatchedSdoClient(canopen_common.SdoClient):
+    """The vendored blocking SDO client, with the answer matched to the request.
+
+    The vendored client takes the first frame from 580h + node as the answer. A reply that comes
+    after its timeout is then read as the answer to the next request: on a slow runner a write
+    confirmation (60h) arrived as the answer of a 606Ch read, the size lookup raised KeyError 96
+    and the drive thread ended (Baseline 1 DDS benchmark run 44346730235). Here an answer counts
+    only when it carries the index and subindex of the request and a command specifier of an
+    upload answer (read), a download confirmation (write) or an abort. Any other frame from the
+    SDO server is dropped and counted in ``stale_replies``. The vendored file stays unchanged
+    (PROVENANCE.md)."""
+
+    UPLOAD_SIZE = {0x4F: 1, 0x4B: 2, 0x43: 4}
+    ABORT = 0x80
+
+    def __init__(self, bus, node_id, timeout=0.5):
+        super().__init__(bus, node_id, timeout)
+        self.stale_replies = 0
+
+    def _exchange(self, payload, answers):
+        self.bus.send(can.Message(arbitration_id=canopen_common.SDO_RX_BASE + self.node_id,
+                                  data=payload, is_extended_id=False))
+        reply_id = canopen_common.SDO_TX_BASE + self.node_id
+        end = time.monotonic() + self.timeout
+        while time.monotonic() < end:
+            msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
+            if msg is None or msg.is_extended_id or msg.arbitration_id != reply_id:
+                continue
+            data = bytes(msg.data)
+            if (len(data) == 8 and data[1:4] == payload[1:4]
+                    and (data[0] == self.ABORT or data[0] in answers)):
+                return data
+            self.stale_replies += 1
+        raise TimeoutError('no SDO response from node %d' % self.node_id)
+
+    def read(self, index, sub, signed=False):
+        resp = self._exchange(struct.pack('<BHB4x', 0x40, index, sub), self.UPLOAD_SIZE)
+        if resp[0] == self.ABORT:
+            raise canopen_common.SdoAbort(struct.unpack('<I', resp[4:8])[0], index, sub)
+        size = self.UPLOAD_SIZE[resp[0]]
+        return canopen_common.unpack_value(resp[4:4 + size], signed)
+
+    def write(self, index, sub, value, size, signed=False):
+        payload = bytes([canopen_common.SIZE_CS[size]]) + struct.pack('<HB', index, sub) + \
+            canopen_common.pack_value(value, size, signed).ljust(4, b'\x00')
+        resp = self._exchange(payload, (0x60,))
+        if resp[0] == self.ABORT:
+            raise canopen_common.SdoAbort(struct.unpack('<I', resp[4:8])[0], index, sub)
+
+
+# Longest single host sleep while waiting for the worker clock (C5: an upper bound of waiting).
+WAIT_POLL_S = 0.002
 
 
 class _Worker:
     period_s = 0.02
 
-    def __init__(self):
+    def __init__(self, clock=None):
         self.lock = threading.RLock()
+        self.clock = clock if clock is not None else SteadyClock()
+        self._clock_watch = ClockWatch(self.clock)
+        self.clock_events = 0
         self._running = False
+        self._stop_requested = False
         self._thread = None
 
     def start(self):
         self._running = True
+        self._stop_requested = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
 
     def stop(self):
         self._running = False
+        self._stop_requested = True
         if self._thread:
             self._thread.join(timeout=2)
 
+    def follow_clock(self):
+        """Apply a reset or a stall of the worker clock. Returns the event or None."""
+        event = self._clock_watch.poll()
+        if event in ('reset', 'stall'):
+            with self.lock:
+                self.clock_events += 1
+                self.on_clock_event(event)
+        return event
+
+    def on_clock_event(self, event):
+        """Drop what was buffered before a reset or stall. Subclasses extend it."""
+
     def _run(self):
-        next_t = time.monotonic()
+        if not self.clock.fed:
+            # First-clock startup: no step, no frame before the first /clock time (C1).
+            self._wait_until(0.0)
+        next_t = self.clock.now()
         while self._running:
+            if self.follow_clock() == 'reset':
+                next_t = self.clock.now()
             self.step()
-            next_t += self.period_s
-            delay = next_t - time.monotonic()
-            if delay > 0:
-                time.sleep(delay)
-            else:
-                next_t = time.monotonic()
+            next_t = self._wait_until(next_t + self.period_s)
+
+    def _wait_until(self, t):
+        """Wait until the worker clock reaches t; returns the next base time of the loop."""
+        clock = self.clock
+        generation = clock.generation
+        if clock.fed and t - clock.now() <= 0:
+            return clock.now()  # behind: do not catch up with a burst
+        while self._running and clock.generation == generation:
+            remaining = t - clock.now() if clock.fed else WAIT_POLL_S
+            if remaining <= 0:
+                return t
+            time.sleep(min(remaining, WAIT_POLL_S))
+        return clock.now()
 
     def step(self):
         raise NotImplementedError
@@ -56,14 +176,30 @@ class _Worker:
 
 class DriveHost(_Worker):
     """CAN1 role: configure and enable the ZLAC8015D, write 60FFh, read 606Ch, integrate
-    odometry from the speeds the drive reports."""
+    odometry from the speeds the drive reports.
+
+    mode "command_only" (stm32:=renode_readonly): the firmware image in Renode owns the SDO
+    channel of the drive and reads 606Ch, 6041h, 603Fh and 2026h itself. The client then sends
+    no SDO frame at all, only the SIL receive PDOs of zlac_gazebo (controlword enable sequence,
+    then the wheel targets every cycle), reads nothing and integrates no odometry. 2000h is not
+    written either; the emulator starts with it stored (stored_link_loss_ms).
+    """
 
     period_s = 0.02  # 50 Hz control cycle assumed in platform-fw docs/architecture/can1-drive-link.md
 
     def __init__(self, bus, node_id, link_loss_ms, wheel_radius, wheel_separation,
-                 left_sign=1, right_sign=1, sdo_timeout_s=0.1):
-        super().__init__()
-        self.sdo = canopen_common.SdoClient(bus, node_id, timeout=sdo_timeout_s)
+                 left_sign=1, right_sign=1, sdo_timeout_s=0.1, clock=None, mode='sdo'):
+        super().__init__(clock)
+        if mode not in DRIVE_MODES:
+            raise ValueError('drive mode must be one of %s, got %r' % (DRIVE_MODES, mode))
+        self.mode = mode
+        self.node_id = node_id
+        self.cmd_bus = None
+        if mode == 'command_only':
+            self.cmd_bus = _CommandOnlyBus(bus, node_id)
+            self.sdo = None
+        else:
+            self.sdo = MatchedSdoClient(bus, node_id, timeout=sdo_timeout_s)
         self.link_loss_ms = int(link_loss_ms)
         self.wheel_radius = wheel_radius
         self.wheel_separation = wheel_separation
@@ -93,6 +229,12 @@ class DriveHost(_Worker):
                 self.configured = False  # bring the drive up again when the link returns
                 self._last_sample = None
 
+    def on_clock_event(self, event):
+        # No wheel resumes from a twist given before: zero target, bring the drive up again.
+        self.target_v = self.target_w = 0.0
+        self.configured = False
+        self._last_sample = None
+
     def target_rpm(self):
         left, right = twist_to_wheel_speeds(self.target_v, self.target_w, self.wheel_radius,
                                             self.wheel_separation)
@@ -109,11 +251,29 @@ class DriveHost(_Worker):
             s.write(0x6040, 0, word, 2)
         self.configured = True
 
+    def _send_pdo(self, arb_id, data):
+        self.cmd_bus.send(can.Message(arbitration_id=arb_id, data=data, is_extended_id=False))
+
+    def _step_command_only(self, rpm):
+        try:
+            if not self.configured:
+                for word in (0x06, 0x07, 0x0F):            # CiA 402 enable sequence, RPDO2
+                    self._send_pdo(RPDO2_BASE + self.node_id, struct.pack('<H', word))
+                self.configured = True
+            self._send_pdo(RPDO1_BASE + self.node_id, struct.pack('<ii', rpm[0], rpm[1]))
+        except can.CanError:
+            with self.lock:
+                self.sdo_errors += 1
+                self.configured = False
+
     def step(self):
         with self.lock:
             if self.silent:
                 return
             rpm = self.target_rpm()
+        if self.mode == 'command_only':
+            self._step_command_only(rpm)
+            return
         try:
             if not self.configured:
                 self._bring_up()
@@ -131,7 +291,7 @@ class DriveHost(_Worker):
                 self.configured = False
                 self._last_sample = None
             return
-        now = time.monotonic()
+        now = self.clock.now()
         with self.lock:
             wl = self.signs[0] * left * RPM_TO_RAD_S
             wr = self.signs[1] * right * RPM_TO_RAD_S
@@ -146,13 +306,29 @@ class DriveHost(_Worker):
             self._last_sample = now
             self.samples += 1
 
+    def new_sample(self, last_samples):
+        """state() when a 606Ch sample came after the `last_samples`-th one, else None.
+
+        The last twist stays in state() when the drive stops answering or the drive thread ends.
+        A consumer that publishes it again on every timer tick turns a stopped base into a
+        constant twist: in run 44346730235 /odom kept turning at 0.05 rad/s for 100 s of Gazebo
+        time after the drive thread ended, while the base stood still. Publishing only new
+        samples lets the consumer's own staleness rule (base_state_adapter stale_s) apply."""
+        state = self.state()
+        return state if state['samples'] > last_samples else None
+
     def state(self):
         with self.lock:
-            return {'configured': self.configured, 'silent': self.silent,
-                    'sdo_errors': self.sdo_errors, 'statusword': self.statusword,
+            return {'mode': self.mode, 'configured': self.configured, 'silent': self.silent,
+                    'pdo_frames_sent': self.cmd_bus.sent if self.cmd_bus else 0,
+                    'sdo_frames_refused': self.cmd_bus.refused if self.cmd_bus else 0,
+                    'sdo_errors': self.sdo_errors,
+                    'sdo_stale_replies': self.sdo.stale_replies if self.sdo else 0,
+                    'statusword': self.statusword,
                     'fault_code': self.fault_code, 'target_rpm': list(self.target_rpm()),
                     'wheel_rad_s': list(self.wheel_rad_s), 'samples': self.samples,
-                    'x': self.x, 'y': self.y, 'yaw': self.yaw, 'v': self.v, 'w': self.w}
+                    'x': self.x, 'y': self.y, 'yaw': self.yaw, 'v': self.v, 'w': self.w,
+                    'clock_events': self.clock_events}
 
 
 class LiftHost(_Worker):
@@ -163,8 +339,8 @@ class LiftHost(_Worker):
     KEEPALIVE_S = 0.1
 
     def __init__(self, bus, node_id=c.NODE_ID, core_node_id=c.CORE_NODE_ID, permit=None,
-                 permit_period_s=0.05):
-        super().__init__()
+                 permit_period_s=0.05, clock=None):
+        super().__init__(clock)
         self.bus = bus
         self.node_id = node_id
         self.core_node_id = core_node_id
@@ -172,7 +348,7 @@ class LiftHost(_Worker):
         self.permit_period_s = permit_period_s
         self.permit = False          # false at boot
         self.permit_silent = False   # True: stop sending permit frames (expiry test)
-        self.boot_id = random.getrandbits(16) or 1
+        self.boot_id = self._new_boot_id()
         self.permit_seq = 0
         self.seq = 0
         self.cmd = None
@@ -195,7 +371,23 @@ class LiftHost(_Worker):
             self.seq = (self.seq + 1) & 0xFF
             self.cmd = (self.seq, op, stop)
             self._send(0x200 + self.node_id, self.cmd)
-            self._t_ka = time.monotonic()
+            self._t_ka = self.clock.now()
+
+    def on_clock_event(self, event):
+        # Never replay a command given before; send heartbeat and permit state at once.
+        self.cmd = None
+        self._t_hb = self._t_ka = self._t_permit = self._t_nmt = -math.inf
+        if event == 'reset':
+            # A reset power cycles every emulated device, this stand-in too: a new permit boot
+            # id, so a permit frame of the old boot that arrives late is not trusted (R5).
+            self.boot_id = self._new_boot_id(self.boot_id)
+
+    @staticmethod
+    def _new_boot_id(old=None):
+        boot = random.getrandbits(16) or 1
+        while boot == old:
+            boot = random.getrandbits(16) or 1
+        return boot
 
     def set_permit(self, permit):
         with self.lock:
@@ -203,7 +395,7 @@ class LiftHost(_Worker):
             self._t_permit = 0.0  # send the new state at once
 
     def step(self):
-        now = time.monotonic()
+        now = self.clock.now()
         msg = self.bus.recv(timeout=0)
         while msg is not None:
             self._rx(msg)
@@ -257,7 +449,8 @@ class LiftHost(_Worker):
         with self.lock:
             out = {'node_nmt': self.node_nmt, 'permit': self.permit,
                    'permit_silent': self.permit_silent, 'seq': self.seq,
-                   'cmd': list(self.cmd) if self.cmd else None, 'emcy': list(self.emcy)}
+                   'cmd': list(self.cmd) if self.cmd else None, 'emcy': list(self.emcy),
+                   'clock_events': self.clock_events}
             out.update(self.status or {})
             out.update(self.status2 or {})
             return out
@@ -269,8 +462,8 @@ class BmsHost(_Worker):
     period_s = 0.2
     POLLED = (daly_bms.ID_SOC, daly_bms.ID_MOS, daly_bms.ID_FAILURE)
 
-    def __init__(self, bus, bms_addr=0x01, host_addr=0x40, response_timeout_s=0.05):
-        super().__init__()
+    def __init__(self, bus, bms_addr=0x01, host_addr=0x40, response_timeout_s=0.05, clock=None):
+        super().__init__(clock)
         self.bus = bus
         self.bms_addr = bms_addr
         self.host_addr = host_addr
@@ -289,10 +482,13 @@ class BmsHost(_Worker):
             except can.CanError:
                 continue
             want = daly_bms.daly_id(data_id, self.host_addr, self.bms_addr)
-            end = time.monotonic() + self.response_timeout_s
+            clock = self.clock
+            end = clock.now() + self.response_timeout_s
+            generation = clock.generation
             decoded = None
-            while time.monotonic() < end:
-                msg = self.bus.recv(timeout=max(0.0, end - time.monotonic()))
+            while (clock.now() < end and clock.generation == generation
+                   and not self._stop_requested):
+                msg = self.bus.recv(timeout=WAIT_POLL_S)  # host bound of one wait (C5)
                 if msg is not None and msg.is_extended_id and msg.arbitration_id == want:
                     decoded = daly_bms.decode_response(data_id, msg.data)
                     break
@@ -302,13 +498,14 @@ class BmsHost(_Worker):
                 else:
                     self.values.update(decoded)
                     self.answers += 1
-                    self.last_answer = time.monotonic()
+                    self.last_answer = Stamp(self.clock)
 
     def state(self):
         with self.lock:
             out = dict(self.values)
             out['answers'] = self.answers
             out['timeouts'] = self.timeouts
-            out['age_s'] = (None if self.last_answer is None
-                            else round(time.monotonic() - self.last_answer, 3))
+            last = self.last_answer
+            out['age_s'] = (None if last is None or last.generation != self.clock.generation
+                            else round(self.clock.now() - last.t, 3))
             return out

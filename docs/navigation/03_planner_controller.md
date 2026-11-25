@@ -66,7 +66,7 @@ FollowPath:
 ### DWB kinematic limits (heavy-robot tuning)
 
 ```yaml
-  max_vel_x: 0.20        max_speed_xy: 0.20     min_vel_x: -0.05
+  max_vel_x: 0.20        max_speed_xy: 0.20     min_vel_x: 0.0
   max_vel_theta: 0.5
   acc_lim_x: 0.5         acc_lim_theta: 0.5
   decel_lim_x: -2.5      decel_lim_theta: -2.0
@@ -81,8 +81,10 @@ FollowPath:
   `acc_lim_*: 0.5` ramps). The robot is heavy and carries momentum; strong deceleration lets it
   slow *early* and stop on target instead of overshooting. Gentle acceleration (0.5) keeps
   starts smooth; hard braking (−2.5) absorbs the inertia.
-- **`min_vel_x: -0.05`** — a small reverse, only used to unstick; the collision_monitor guards
-  the rear (~0.365 m from `base_link`).
+- **`min_vel_x: 0.0`** (was -0.05). No reverse in ordinary navigation (D-19): the rear sectors of the
+  scan are masked, so the collision_monitor cannot guard a reverse. `velocity_smoother.min_velocity`
+  linear x is 0.0 too, and behavior_server offers spin and wait only. Pinned by
+  `test/test_baseline1_no_reverse_paths.py`.
 
 ### DWB critics
 
