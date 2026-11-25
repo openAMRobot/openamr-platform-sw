@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Test plant of the clearance trials: openamrobot_description robo_urdf.urdf.xacro unchanged, plus the Gazebo ground
+     truth of base_footprint (OdometryPublisher). The trial runner reads it; no robot node does. No link, joint, mass,
+     inertia or sensor is added or changed. Simulation only. No safety function. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="openamrobot">
+  <xacro:include filename="$(find openamrobot_description)/urdf/robo_urdf.urdf.xacro"/>
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odom_topic>/clearance/gz/ground_truth_odom</odom_topic>
+      <tf_topic>/clearance/gz/ground_truth_tf</tf_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+  </gazebo>
+</robot>

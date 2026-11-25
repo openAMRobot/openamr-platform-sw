@@ -363,8 +363,15 @@ global_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.5   # 2.5->3.5: cout retombe plus vite -> halo dur plus mince -> moins de "depart en quasi-collision"/recovery
-        inflation_radius: 0.35   # 0.20->0.35: the GLOBAL PLAN keeps further from the walls (path padding)
+        # PROPOSED (24 Nov 2026, platform-sw #188): 0.35 / 3.5 -> 0.55 / 3.0. The inscribed radius of the footprint is
+        # 0.30 m, so 0.35 gave the global plan a cost band of 0.05 m beyond "touching": the plan ran along walls and
+        # past obstacles at that distance and the local controller, which has no clearance cost of its own, followed
+        # it (measured: chassis 0.019 to 0.037 m from a cart, 0.032 to 0.076 m from a wall). With 0.55 the band is
+        # 0.25 m; measured on the same scenarios: 0.144 m and 0.175 m at the least, same travel times, and a 0.80 m
+        # passage is avoided when another route exists (openamrobot_clearance_trials). Simulation values, not a site
+        # or robot acceptance value. The local costmap is unchanged.
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
       # True: republishes the FULL grid every cycle (cf local_costmap) -> RViz always has it,
       # no more "No map received" at launch / over WiFi.
       always_send_full_costmap: True
