@@ -7,6 +7,8 @@ is not covered**.
 > **Status: this is not a certified functional-safety system.** There is currently **no
 > hardware E-stop and no safety_io** (see §4, Gaps). The layers below reduce the chance and
 > severity of a collision; they do not provide a guaranteed independent stop.
+>
+> For 2.0, the hardware E-stop chain is defined in E-01 rev1.8 (team document, 8 Nov 2026; page proposed in openamr-platform-hw#27): two dual-channel E-stops, a Pilz PNOZ s3 safety relay and two Gigavac GX11CAC contactors. The chain is hardware only, with no software and no bus in the safety path. The base controller only observes it (relay output and E-stop spare contacts, as diagnostics) and adds a secondary software inhibit; how those observations reach ROS is proposed in openamrobot-interfaces#30, not decided. Not built or tested yet, so the gaps below still apply.
 
 ---
 
@@ -84,7 +86,7 @@ and the docking docs
 - **No hardware E-stop.** There is no physical emergency-stop button wired to cut motor power
   independently of software. Today the fastest "stop" is killing the command source (or the
   firmware watchdog timing out ~200 ms after commands cease). A hardware E-stop is a required
-  addition for any un-tethered / around-people operation.
+  addition for any un-tethered / around-people operation. For 2.0, the hardware E-stop chain is defined in E-01 rev1.8 (team document, 8 Nov 2026; page proposed in openamr-platform-hw#27): two dual-channel E-stops, a Pilz PNOZ s3 safety relay and two Gigavac GX11CAC contactors. The chain is hardware only, with no software and no bus in the safety path. The base controller only observes it (relay output and E-stop spare contacts, as diagnostics) and adds a secondary software inhibit; how those observations reach ROS is proposed in openamrobot-interfaces#30, not decided. Not built or tested yet.
 - **No safety_io / safety-rated inputs.** No safety-rated bumper, light curtain, or interlock is
   integrated.
 - **2D-lidar blind spot.** Obstacles shorter than ~18 cm are invisible to the costmap **and** to

@@ -378,7 +378,7 @@ tuned values, what was tried and rejected, and the gaps that remain:
 | Series | Covers |
 |---|---|
 | [`docs/navigation/`](docs/navigation/README.md) | The Nav2 stack on real hardware: architecture, costmaps, planner/controller tuning, goal routing, troubleshooting |
-| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet) |
+| [`docs/safety/`](docs/safety/README.md) | The motion-safety envelope: collision monitor, speed/accel limits and watchdogs, and known gaps (no hardware E-stop yet; the hardware E-stop chain is defined in E-01 rev1.8 (team document, 8 Nov 2026; page proposed in openamr-platform-hw#27): two dual-channel E-stops, a Pilz PNOZ s3 safety relay and two Gigavac GX11CAC contactors. The chain is hardware only, with no software and no bus in the safety path. The base controller only observes it (relay output and E-stop spare contacts, as diagnostics) and adds a secondary software inhibit; how those observations reach ROS is proposed in openamrobot-interfaces#30, not decided. Not built or tested yet) |
 | [`docs/real_robot/`](docs/real_robot/README.md) | Taking the stack from Gazebo onto real hardware: bring-up, networking/DDS, vision pipeline & CPU budget, thermal limits, calibration, operator UI |
 
 ---
