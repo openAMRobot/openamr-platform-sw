@@ -1,9 +1,11 @@
 # Vendored: openamr-platform-fw tools/can_sil
 
 - Source: https://github.com/openAMRobot/openamr-platform-fw, directory `tools/can_sil`.
-- Pinned commit: `ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d` (head of draft PR #53, branch
-  `night-shift/fw2-can-sil-fix-2026-11-14`, fetched 14 Nov 2026). The PR is a draft proposal
-  and is not merged. When it merges or changes, re-vendor at the new SHA.
+- Pinned source commit: `f88bf4820d0db7d27ffc6dfad905f57c1483283d` (correction from firmware PR #75,
+  stacked on the authoritative CAN-SIL source branch in PR #53; branch
+  `ci/can-sil-track-vcan-skips-74`, fetched 25 Nov 2026). The correction is being verified
+  for the digital-twin simulation branch; it is not a production firmware release or a merge to `main`.
+  Once #75 is incorporated into #53, update this pin to the accepted upstream branch commit.
 - Licence: MIT, copyright OpenAMRobot (Botshare LTD). `LICENSE` here is the licence file of
   that repository at the same commit.
 - Files, byte for byte (`SHA256SUMS`, checked by `test/test_vendor_integrity.py`):
