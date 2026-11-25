@@ -7,7 +7,7 @@ import os
 import sys
 
 VENDOR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'can_sil')
-PINNED_SHA = 'ad4b0237e1822cbe4fc245d55d2fd68fb6e5209d'
+PINNED_SHA = 'f88bf4820d0db7d27ffc6dfad905f57c1483283d'
 
 if VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
