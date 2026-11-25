@@ -136,6 +136,7 @@ jobs:
             ros2/src/openamrobot_nav2/test/test_nav2_params_no_reverse.py \
             ros2/src/openamrobot_nav2/test/test_global_inflation_clearance_band.py \
             ros2/src/openamrobot_nav2/test/test_strict_yaml_duplicate_keys.py \
+            ros2/src/openamrobot_nav2/test/test_scan_body_filter_sim_config.py \
             ros2/src/openamrobot_nav2/test/test_navigate_to_pose_goal_proxy_node.py \
             ros2/src/openamrobot_nav2/test/test_navigate_through_poses_goal_proxy_node.py \
             ros2/src/openamrobot_nav2/test/test_navigation_launch_navigate_to_pose_proxy_remap.py \

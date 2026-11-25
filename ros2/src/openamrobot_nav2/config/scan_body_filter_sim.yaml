@@ -31,29 +31,31 @@
 # Mask with the same 10 deg safety margin the original (now-superseded)
 # 10 June 2026 calibration used: -24.57 - 10 = -34.57 -> -35, 20.56 + 10 =
 # 30.56 -> 31. Re-measure if the LiDAR mount, chassis, or URDF changes again.
+#
+# PROPOSED, 24 Nov 2026 (platform-sw #156): the simulated LiDAR minimum range is now
+# 0.05 m (RPLIDAR S3 datasheet, sensor_profiles.yaml) instead of 0.40 m, so the body
+# is seen where it really is, not only where it happened to be farther than 0.40 m.
+# Measured in Gazebo with the robot standing in an empty arena, nothing nearer than
+# 2 m, raw /scan, every return under 0.45 m (openamrobot_clearance_trials on the
+# scratch branch diag/188-obstacle-clearance-2026-11-24, run 45386106021; the same
+# eight bands in all 30 launches read):
+#   -38 to +38 deg (empty degrees at -22..-17, -3..-2, 0..1, 4 and 18..21):
+#       0.124 to 0.273 m, the body around the mount
+#   -86 to -84 deg and +84 to +91 deg: 0.166 to 0.174 m, a thin part on each side
+# Full mask -42 to 42 deg (4 deg beyond the measured edge on each side; the bands did
+# not move between launches). The thin parts are taken by the close mask below, which
+# keeps walls behind them.
+# With the 26 Oct mask (-35 to 31) and the 0.05 m minimum the robot saw its own body
+# and did not leave the start in 10 of 10 launches (job 138417655140).
 scan_body_filter:
   ros__parameters:
     scan_in: /scan
     scan_out: /scan_filtered
     reliable_qos: true
-    # No close-range (side-post style) returns were observed anywhere outside
-    # the full-mask band in the recording above, so sim needs no
-    # close_mask_sectors_deg override. close_max still needs a value even
-    # when unused.
-    #
-    # close_mask_sectors_deg is deliberately NOT set here (not even to `[]`):
-    # a ROS 2 parameter-file override of an array to an empty list has no
-    # element type to infer, so rclpy loads it as Type.NOT_SET rather than an
-    # empty DOUBLE_ARRAY - the node's own declare_parameter() default then
-    # never takes effect, and the very next get_parameter() call raises
-    # ParameterUninitializedException (confirmed: this crashed scan_body_filter
-    # on startup in sim, issue #74 testing, 26 Oct 2026 - full_mask_sectors_deg
-    # above is fine since it's non-empty). Leaving the key out entirely falls
-    # back to scan_body_filter.py's own default (the real unit's side-post
-    # angles, [-96,-73] and [73,96] deg) - confirmed inert in sim: close_max
-    # is 0.40 m and the recording above found zero points under 0.6 m anywhere
-    # outside the full-mask band, in any of the 86 messages, so that default
-    # never actually matches anything here. It is NOT meaningful sim geometry,
-    # just an unavoidable borrowed placeholder - don't read anything into it.
+    # Close mask: returns nearer than close_max in these sectors are the robot's own
+    # thin parts. Stated here (not left to the node's default) because the parts at
+    # -86..-84 and +84..+91 deg are measured in simulation now. The node's default has the same
+    # numbers, taken from the real unit's side posts.
+    close_mask_sectors_deg: [-96.0, -73.0, 73.0, 96.0]
     close_max: 0.40
-    full_mask_sectors_deg: [-35.0, 31.0]
+    full_mask_sectors_deg: [-42.0, 42.0]
