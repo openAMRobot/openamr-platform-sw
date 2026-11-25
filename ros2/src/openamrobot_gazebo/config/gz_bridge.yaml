@@ -26,8 +26,11 @@
   gz_type_name: "gz.msgs.Pose_V"
   direction: GZ_TO_ROS
 
-# gz topic subscribed to by DiffDrive plugin
-- ros_topic_name: "/cmd_vel"
+# gz topic subscribed to by DiffDrive plugin. /cmd_vel is not bridged directly: DiffDrive repeats
+# its last command forever, so sim_cmd_vel_timeout (gz_simulator.launch.py) forwards /cmd_vel to
+# /sim/base_cmd_vel and sends zero after 0.2 s without a command, like the real base (#79).
+# /sim/base_cmd_vel is internal to this package; nothing else publishes or reads it.
+- ros_topic_name: "/sim/base_cmd_vel"
   gz_topic_name: "/cmd_vel"
   ros_type_name: "geometry_msgs/msg/Twist"
   gz_type_name: "gz.msgs.Twist"

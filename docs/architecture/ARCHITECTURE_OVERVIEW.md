@@ -170,7 +170,7 @@ Important topics bridged by this layer:
 | `/odom` | Gazebo to ROS | Odometry |
 | `/scan` | Gazebo to ROS | 2D lidar |
 | `/rgb_image` | Gazebo to ROS | Simulated RGB camera image |
-| `/cmd_vel` | ROS to Gazebo | Velocity command to the diff-drive plugin |
+| `/sim/base_cmd_vel` | ROS to Gazebo | Velocity command to the diff-drive plugin. Internal: `sim_cmd_vel_timeout` writes it from `/cmd_vel` and sends zero after 0.2 s without a command (#79) |
 
 Gazebo also publishes camera info. The docking layer bridges the root-level `/camera_info` topic needed by the AprilTag pipeline.
 
@@ -268,13 +268,13 @@ Gazebo world
 The shortest useful mental model:
 
 ```text
-Sensors -> localization -> planning/docking -> /cmd_vel -> Gazebo wheels
+Sensors -> localization -> planning/docking -> /cmd_vel -> sim_cmd_vel_timeout -> /sim/base_cmd_vel -> Gazebo wheels
 ```
 
 If the robot does not move, debug from right to left:
 
 1. Is `/cmd_vel` being published?
-2. Is `ros_gz_bridge` subscribed to `/cmd_vel`?
+2. Is `sim_cmd_vel_timeout` subscribed to `/cmd_vel`, and `ros_gz_bridge` to `/sim/base_cmd_vel`?
 3. Is Gazebo running?
 4. Is the diff-drive plugin loaded?
 5. Are `/odom` and `/tf` changing?
@@ -283,7 +283,8 @@ If the robot does not move, debug from right to left:
 
 ## 7. Velocity Command Flow
 
-All motion eventually reaches Gazebo through ROS `/cmd_vel`.
+All motion eventually reaches Gazebo through ROS `/cmd_vel`, then `sim_cmd_vel_timeout` (zero after
+0.2 s without a command, as the real base does) and `/sim/base_cmd_vel`.
 
 Navigation flow:
 
@@ -294,6 +295,8 @@ Nav2 controller
   -> /cmd_vel_smoothed
   -> collision_monitor
   -> /cmd_vel
+  -> sim_cmd_vel_timeout
+  -> /sim/base_cmd_vel
   -> ros_gz_bridge
   -> Gazebo /cmd_vel
   -> DiffDrive plugin
@@ -305,6 +308,8 @@ Docking flow:
 dock_trigger.py
   -> /navigate_to_pose action during Phase 1
   -> direct /cmd_vel during Phases 2, 3, and 4
+  -> sim_cmd_vel_timeout
+  -> /sim/base_cmd_vel
   -> ros_gz_bridge
   -> Gazebo /cmd_vel
   -> DiffDrive plugin

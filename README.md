@@ -338,6 +338,9 @@ In the docking simulation, the chain from a velocity command to the wheels is:
 dock_trigger.py / Nav2 controller       ──>  /cmd_vel
                                               │
                                               ▼
+                    sim_cmd_vel_timeout  ──>  /sim/base_cmd_vel  (zero after 0.2 s without a command)
+                                              │
+                                              ▼
                           ros_gz_bridge  ──>  gz /cmd_vel
                                               │
                                               ▼
@@ -353,7 +356,7 @@ dock_trigger.py / Nav2 controller       ──>  /cmd_vel
                           robot_state_publisher fills in base_link → camera_optical_frame → …
 ```
 
-If any link breaks, the robot stops moving. The most common failure mode is the bridge not forwarding `/cmd_vel` (verify with `ros2 topic info /cmd_vel`). The full TF chain on top of this is in [`ros2/src/openamrobot_docking/docs/03_tf_frames.md`](ros2/src/openamrobot_docking/docs/03_tf_frames.md).
+If any link breaks, the robot stops moving. The most common failure mode is the bridge not forwarding the command (verify with `ros2 topic info /sim/base_cmd_vel -v`: `sim_cmd_vel_timeout` publishes it, the bridge subscribes to it). The simulated base stops 0.2 s after the last `/cmd_vel`, like the real base: publish commands repeatedly (see [`ros2/src/openamrobot_gazebo/README.md`](ros2/src/openamrobot_gazebo/README.md)). The full TF chain on top of this is in [`ros2/src/openamrobot_docking/docs/03_tf_frames.md`](ros2/src/openamrobot_docking/docs/03_tf_frames.md).
 
 ---
 

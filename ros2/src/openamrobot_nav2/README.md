@@ -144,8 +144,9 @@ ros2 launch openamrobot_nav2 navigation_launch.py use_sim_time:=true
 
 Starts: `controller_server`, `planner_server`, `smoother_server`, `behavior_server`, `bt_navigator`, and `waypoint_follower`.
 
-Current simulation wiring publishes Nav2 velocity commands directly to `/cmd_vel`,
-which is bridged to Gazebo's diff-drive plugin. `velocity_smoother` and
+Current simulation wiring publishes Nav2 velocity commands directly to `/cmd_vel`.
+`sim_cmd_vel_timeout` forwards them to `/sim/base_cmd_vel`, which is bridged to Gazebo's
+diff-drive plugin (zero after 0.2 s without a command). `velocity_smoother` and
 `collision_monitor` remain configured in `nav2_params.yaml` for future tuning,
 but they are not launched in the current direct-motion setup.
 
@@ -207,7 +208,8 @@ ros2 topic echo /cmd_vel
 ros2 topic echo /odom --once
 ```
 
-Expected with the current launch: `/cmd_vel` has a Nav2 publisher and a Gazebo
+Expected with the current launch: `/cmd_vel` has a Nav2 publisher and a `sim_cmd_vel_timeout`
+subscriber, and `/sim/base_cmd_vel` has the `sim_cmd_vel_timeout` publisher and a Gazebo
 bridge subscriber. If `velocity_smoother` or `collision_monitor` appears in the
 launch log, an old install space is being sourced.
 

@@ -27,6 +27,8 @@ setup(
         'test': ['pytest'],
     },
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'sim_cmd_vel_timeout = openamrobot_gazebo.sim_cmd_vel_timeout_node:main',
+        ],
     },
 )
