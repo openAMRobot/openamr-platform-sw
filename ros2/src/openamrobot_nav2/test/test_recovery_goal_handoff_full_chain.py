@@ -42,8 +42,8 @@ import unittest
 
 import pytest
 
-pytest.importorskip('openamr_nav_msgs')
-rclpy = pytest.importorskip('rclpy')
+pytest.importorskip('openamr_nav_msgs')  # issues/102
+rclpy = pytest.importorskip('rclpy')  # issues/102
 
 from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray  # noqa: E402,I100
 from builtin_interfaces.msg import Time as TimeMsg  # noqa: E402

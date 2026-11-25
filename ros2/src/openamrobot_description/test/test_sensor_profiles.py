@@ -2,7 +2,8 @@
 #
 # Licensed under the MIT License (see LICENSE).
 
-"""Checks of config/sensor_profiles.yaml against config/sensor_frames.yaml.
+"""
+Checks of config/sensor_profiles.yaml against config/sensor_frames.yaml.
 
 The profile file holds the behaviour of every base sensor (range, rate, noise) with the
 source of each number. These tests keep it honest: same frame ids as sensor_frames.yaml,

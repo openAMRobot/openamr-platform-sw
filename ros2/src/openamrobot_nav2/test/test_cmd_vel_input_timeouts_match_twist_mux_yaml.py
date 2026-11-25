@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-yaml = pytest.importorskip('yaml')
+yaml = pytest.importorskip('yaml')  # issues/102
 
 from openamrobot_nav2.safety_stop_gate_node import _CMD_VEL_INPUT_TIMEOUTS  # noqa: E402,I100
 

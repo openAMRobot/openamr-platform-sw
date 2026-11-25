@@ -76,7 +76,7 @@ def _chain_available():
         for pkg in ('twist_mux', 'nav2_velocity_smoother', 'nav2_collision_monitor', 'tf2_ros'))
 
 
-pytestmark = pytest.mark.skipif(
+pytestmark = pytest.mark.skipif(  # issues/90
     not _chain_available(),
     reason='needs twist_mux, nav2_velocity_smoother, nav2_collision_monitor and '
            'tf2_ros installed [#90]')
