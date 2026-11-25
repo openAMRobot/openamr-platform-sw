@@ -23,13 +23,13 @@ jobs, so they are inflated **differently**.
 | Resolution | 0.05 m | 0.05 m |
 | Layers | `static_layer`, `obstacle_layer`, `inflation_layer` | `voxel_layer`, `inflation_layer` |
 | Used by | `planner_server` (global path) | `controller_server` (DWB trajectory scoring) + `collision_monitor` |
-| Inflation radius | **0.35 m** | **0.15 m** |
+| Inflation radius | **0.55 m** (Proposed, #188; was 0.35 m) | **0.15 m** |
 | `cost_scaling_factor` | **3.5** | 3.0 |
 
 **Why the asymmetry:**
 
 - The **global** costmap drives the *plan*. SmacPlanner2D treats the robot as a point, so a
-  larger inflation (0.35 m) pads the path away from walls — the global plan keeps its distance.
+  larger inflation (0.55 m, a 0.25 m cost band beyond the 0.30 m inscribed radius) pads the path away from walls — the global plan keeps its distance.
   `cost_scaling_factor` was raised 2.5 → **3.5** so the cost falls off faster past the radius:
   a thinner hard halo means the robot is less likely to "set off in near-collision" and
   trigger a recovery.

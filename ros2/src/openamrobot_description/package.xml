@@ -7,6 +7,7 @@
     and RViz visualization launch.</description>
   <maintainer email="info@botshare.ai">OpenAMRobot Maintainers</maintainer>
   <license>MIT</license>
+  <license>CERN-OHL-P-2.0</license>
 
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>

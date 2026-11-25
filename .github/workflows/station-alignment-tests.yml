@@ -458,5 +458,18 @@ jobs:
           else
             # the reverted node must fail, and fail for the reason of Baseline 1
             test "${TRIALS_RC:-0}" != "0"
-            grep -q "marker not seen" out/station_alignment_trials.json
+            # The result is unchanged: only "marker not seen" passes this job. The lines below name the reason of a
+            # red job. A station goal that Nav2 aborts before the marker is sampled (#192, known limitation) does
+            # not exercise the reverted node at all: that run is INCONCLUSIVE, which is not a pass (platform-sw #202,
+            # run 45354811863).
+            if grep -q "marker not seen" out/station_alignment_trials.json; then
+              echo "revert leg: the reverted node ended with 'marker not seen', the reason of Baseline 1"
+            elif grep -qE '"outcome": "aborted: Nav2 status [0-9]+"' out/station_alignment_trials.json; then
+              echo "::error::revert leg INCONCLUSIVE, not a pass: Nav2 aborted the station goal before the marker was sampled, so the reverted node's sampling did not run (#192)"
+              exit 1
+            else
+              echo "::error::revert leg FAIL: the reverted node ended for another reason than 'marker not seen'"
+              grep -o '"outcome": "[^"]*"' out/station_alignment_trials.json || true
+              exit 1
+            fi
           fi
