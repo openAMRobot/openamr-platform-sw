@@ -105,6 +105,15 @@ downloads the Renode 1.16.1 portable release (MIT, Antmicro; SHA-256 checked) at
 - **Modification status:** modified: converted to greyscale and upscaled from 10 x 10 to 200 x 200 px, nearest neighbour (the same treatment as the docking textures). The pattern is unchanged.
 - **Reason for inclusion:** render the station marker plate in the station alignment simulation (`openamrobot_station_alignment`, Proposed). Installed by its `setup.py` into `share/openamrobot_station_alignment/models/station_marker/materials/textures/`. Details: `models/station_marker/PROVENANCE.md`.
 
+#### Nav2 bringup launch files
+
+- **Files:** `ros2/src/openamrobot_nav2/launch/navigation_launch.py`, `ros2/src/openamrobot_nav2/launch/localization_launch.py`.
+- **Source:** Nav2 ([github.com/ros-navigation/navigation2](https://github.com/ros-navigation/navigation2)), package `nav2_bringup`, files `nav2_bringup/launch/navigation_launch.py` and `nav2_bringup/launch/localization_launch.py`, branch `jazzy`. The upstream commit the copies were taken from is not recorded; they were compared with `jazzy` at `c7046550547d382a5186d106b0895eda02485d7c` (22 Nov 2026). Upstream has no NOTICE file.
+- **Copyright:** Copyright (c) 2018 Intel Corporation (as stated in the header of each file).
+- **Licence:** Apache-2.0 ([apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0)). Full licence text: [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt). The upstream licence header is kept in each file. These two files are not covered by the repository's MIT licence.
+- **Modification status:** modified by OpenAMRobot. Both files read their share directory from `openamrobot_nav2` and their default parameters from `config/nav2_params.yaml`. `localization_launch.py` passes the map file to the map server through a rewritten parameter file. `navigation_launch.py` drops `route_server` and `docking_server`, reorders the lifecycle nodes, remaps the behavior server and BT navigator topics (`cmd_vel`, `goal_pose`), sets `bond_timeout`, and adds `navigation_status_node`.
+- **Reason for inclusion:** Nav2 bringup adapted to the OpenAMRobot topic chain and docking flow. `openamrobot_nav2/package.xml` lists Apache-2.0 next to MIT; the licences apply per file, and `setup.py` keeps `MIT` as the predominant licence of the package.
+
 ## Trademarks and Project Names
 
 The names OpenAMRobot and OpenAMR are used to identify the project maintained by the OpenAMRobot organization.
