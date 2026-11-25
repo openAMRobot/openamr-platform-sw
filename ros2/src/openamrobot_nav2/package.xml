@@ -17,6 +17,9 @@
   <exec_depend>nav2_bt_navigator</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>
   <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_graceful_controller</exec_depend>
+  <exec_depend>nav2_regulated_pure_pursuit_controller</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_amcl</exec_depend>
@@ -25,6 +28,7 @@
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
   <exec_depend>openamrobot_perception</exec_depend>
   <exec_depend>rviz2</exec_depend>
@@ -38,6 +42,8 @@
   <exec_depend>openamr_nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 

@@ -1,0 +1,140 @@
+name: gate-crash-angular-repeat
+
+# platform-sw#90, Alex's owner-decision review on head 162a19a, item 6:
+# "The gate-kill test calculates about 0.47 s against the 0.5 s bound.
+# @skunal3318, please run it 20 times on hosted CI and post min, median,
+# and max. The bound does not change. If the spread touches 0.5 s we talk
+# about the cause, not the number."
+#
+# A dedicated workflow, not folded into nav-status-tests.yml's own job:
+# this is one-off evidence collection for a specific review ask, not a
+# permanent per-PR gate - running the full chain-startup/teardown 20 times
+# on every push would add several minutes to every hosted run for no
+# ongoing benefit once this evidence is posted. manual-dispatch only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Repinned to upstream main (Mohamed's review on #142, D-30): interfaces#35
+  # (StopState.msg, NavigationStatus.msg CONTRACT_VERSION 1->2) merged 15 Nov
+  # 2026 as 50ed777. Same pin as nav-status-tests.yml on #90 - keep both in
+  # sync; main never carries the fork pin.
+  INTERFACES_REPO: openAMRobot/openamrobot-interfaces
+  INTERFACES_REF: 50ed777be7990edbd3465f33fd97a158e7e3b88b
+
+jobs:
+  angular-repeat:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Check out openamrobot-interfaces at the recorded revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INTERFACES_REPO }}
+          ref: ${{ env.INTERFACES_REF }}
+          path: interfaces
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-yaml \
+            ros-jazzy-nav2-msgs \
+            ros-jazzy-tf2-ros \
+            ros-jazzy-tf2-ros-py \
+            ros-jazzy-twist-mux \
+            ros-jazzy-nav2-velocity-smoother \
+            ros-jazzy-nav2-collision-monitor
+
+      - name: Build openamr_nav_msgs and the producer
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          mkdir -p ws/src
+          cp -r interfaces/ros2/openamr_nav_msgs ws/src/
+          cp -r ros2/src/openamrobot_nav2 ws/src/
+          cd ws
+          colcon build --packages-select openamr_nav_msgs openamrobot_nav2
+
+      # 20 separate pytest invocations, not one invocation repeating the
+      # same test method with a loop: each run needs its own fresh
+      # setUp/tearDown (5 new subprocesses, a fresh gate to kill) - running
+      # them inside one process/one setUp would not be the same scenario
+      # the review is asking about.
+      - name: Run the angular gate-crash case 20 times
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ws/install/setup.bash
+          : > bounds.txt
+          any_over=0
+          for i in $(seq 1 20); do
+            echo "=== run $i ==="
+            # Mohamed's review on #142: `shell: bash` runs with `-e`, so
+            # `out=$(pytest ...)` on its own aborts this step the instant a run's
+            # own bound_s exceeds 0.5s and the test asserts - before the next line
+            # even echoes $out. That is exactly the one case Alex asked to see
+            # ("if the spread touches 0.5s we talk about the cause, not the
+            # number"), so it must never go unlogged. `|| rc=$?` keeps the
+            # assignment's own exit status at 0 (rc=$? always succeeds), so -e
+            # does not fire here; the real pytest exit code is still captured in
+            # $rc for the check below.
+            rc=0
+            out=$(python3 -m pytest -s \
+              ros2/src/openamrobot_nav2/test/test_gate_crash_full_chain_cmd_vel_bound.py::TestGateCrashCmdVelBound::test_last_nonzero_angular_z_after_a_gate_crash_is_within_half_a_second \
+              2>&1) || rc=$?
+            echo "$out"
+            # The print() in the test only runs AFTER its own assertion passes -
+            # on a failing run (bound_s > 0.5), only the assertion's own message
+            # ("...arrived 0.512s after...") carries the value, never the
+            # "bound_s=" print line. Try both.
+            value=$(echo "$out" | grep -oP 'angular\.z kill-to-last-nonzero bound_s=\K[0-9.]+' || true)
+            if [ -z "$value" ]; then
+              value=$(echo "$out" | grep -oP 'arrived \K[0-9.]+(?=s after)' || true)
+            fi
+            if [ -z "$value" ]; then
+              echo "FAIL: run $i produced no bound_s value at all (pytest exit $rc) - treating the whole evidence set as inconclusive"
+              exit 1
+            fi
+            echo "$value" >> bounds.txt
+            if [ "$rc" -ne 0 ]; then
+              echo "NOTE: run $i's own bound_s=$value exceeded the 0.5s bound (pytest exit $rc) - recorded anyway, not swallowed"
+              any_over=1
+            fi
+          done
+          echo "=== all 20 runs' bound_s values ==="
+          cat bounds.txt
+          if [ "$any_over" -ne 0 ]; then
+            echo "At least one run's bound_s exceeded 0.5s - see the NOTE lines above for which"
+            exit 1
+          fi
+
+      - name: Compute min / median / max
+        # Mohamed's review on 2812c59: the previous step exits 1 when any run's own
+        # bound_s is over 0.5s - exactly the case Alex wants to see reported, not the
+        # one case where this step would otherwise be skipped. The raw per-run values
+        # are still in bounds.txt (committed to the job log by the previous step's own
+        # "cat bounds.txt"), but min/median/max over all 20 is the number Alex actually
+        # asked to see, including when one of them is over.
+        if: always()
+        shell: bash
+        run: |
+          python3 - << 'PYEOF'
+          import statistics
+          values = [float(line) for line in open('bounds.txt') if line.strip()]
+          assert len(values) == 20, f'expected 20 values, got {len(values)}'
+          values.sort()
+          print(f'n={len(values)}')
+          print(f'min={min(values):.4f}')
+          print(f'median={statistics.median(values):.4f}')
+          print(f'max={max(values):.4f}')
+          print(f'all values (sorted): {values}')
+          PYEOF

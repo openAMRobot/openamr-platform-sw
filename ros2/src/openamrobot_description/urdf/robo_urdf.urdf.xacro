@@ -9,7 +9,8 @@ Stephen Brawner (brawner@gmail.com)
        URDF root on the floor under the drive-axle midpoint; base_link sits at the
        drive-axle midpoint 0.098 m above it; x forward, y left, z up.
        Superseded: base_link was the URDF root at the SolidWorks export origin, about
-       0.0635 m above the floor (wheel radius 0.11 minus axle height 0.046533);
+       0.0635 m above the floor (legacy SolidWorks wheel radius 0.11 minus axle height 0.046533; the
+       current model uses the loaded radius 0.098);
        superseded by Alex decision 2026-10-12.
        The legacy SolidWorks meshes, inertials and caster joints below were expressed
        in that old origin. They are shifted by z -0.034533 (0.063467 - 0.098) so they
@@ -376,9 +377,14 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-             was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
+             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
+             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
+             rest wheels and castors share one plane and the base is level. The collision radius
+             models that loaded state and equals the axle height above base_footprint (0.098).
+             Estimate until the bench measures the loaded radius (measurement plan, audits
+             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
+        <cylinder radius="0.098" length="0.046"/>
       </geometry>
     </collision>
   </link>
@@ -414,9 +420,14 @@ Stephen Brawner (brawner@gmail.com)
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
       <geometry>
-        <!-- wheel radius 0.100 (Alex decision 2026-10-12, STEP MMP.00.00.00.000);
-             was radius 0.11, superseded by Alex decision 2026-10-12 -->
-        <cylinder radius="0.100" length="0.046"/>
+        <!-- Loaded wheel radius 0.098 (Alex decision 2026-11-15): the 200 mm tyre (radius 0.100,
+             STEP MMP.00.00.00.000) is mounted 2 mm below the castor plane on purpose; under the
+             robot weight the rubber compresses about 2 mm and the castors (rigid) do not, so at
+             rest wheels and castors share one plane and the base is level. The collision radius
+             models that loaded state and equals the axle height above base_footprint (0.098).
+             Estimate until the bench measures the loaded radius (measurement plan, audits
+             digital-twin/phase1). Was radius 0.100, superseded by Alex decision 2026-11-15 -->
+        <cylinder radius="0.098" length="0.046"/>
       </geometry>
     </collision>
   </link>

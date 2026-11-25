@@ -38,8 +38,12 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.2
-    update_min_d: 0.25
+    # 0.25 m / 0.2 rad -> 0.05 m / 0.05 rad (Proposed, 17 Nov 2026, station approach). With 0.25 / 0.2 AMCL updated 16
+    # times in a 130 s Baseline 1 mission and not during the last 0.3 m of the station approach; at the station its map
+    # pose was 0.035 to 0.050 m from ground truth (runs 44100053272, 44100120091), against the 0.015 m the station
+    # tolerance leaves to localization. More filter updates cost CPU on the robot computer: owner to confirm.
+    update_min_a: 0.05
+    update_min_d: 0.05
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5
@@ -59,8 +63,38 @@ bt_navigator:
     odom_topic: /odom
     bt_loop_duration: 10
     default_server_timeout: 20
-    wait_for_service_timeout: 1000
+    # 1000 -> 30000 ms (Alex, 17 Nov 2026; platform-sw #165, OpenRAL review audits #88): how long each BT action node
+    # waits for its server when a tree is loaded. OpenRAL measured that 1000 ms aborts Nav2 on a loaded machine;
+    # hosted CI runners run Gazebo at a real-time factor of 0.13 to 0.25.
+    wait_for_service_timeout: 30000
     action_server_result_timeout: 900.0
+    # Tree fold of #90 and #164 (platform owner, 23 Nov 2026): the two files below are the
+    # stock Nav2 1.3.14 trees with (a) goal_checker_id="general_goal_checker" on FollowPath,
+    # needed because controller_server has two goal checkers (#164's station_goal_checker),
+    # and (b) D-19 audit, platform-sw#124, Alex's finding on #90: BackUp removed from
+    # RecoveryActions - no general reversing recovery, same LiDAR rear-blind-spot hazard D-19
+    # disables dock_trigger's undock reverse for - plus the bounded-clear/named-wait fix
+    # carried in from #91/#92 (see the files' own headers and NOTICE.md). navigate_to_station.xml
+    # is chosen per goal (NavigateToPose behavior_tree field) for a manipulation station; it is
+    # not a default and is not named here.
+    #
+    # The value is a relative placeholder, not a $(find-pkg-share ...) substitution: resolved to
+    # an absolute path at launch time by navigation_launch.py's own RewrittenYaml param_substitutions
+    # (confirmed live by test_navigation_launch_bt_xml_resolves_to_no_backup.py's real-launch
+    # parameter query; a find-pkg-share substitution here was never run against a real launch).
+    #
+    # MUST be top-level bt_navigator.ros__parameters keys, not nested inside
+    # navigate_to_pose:/navigate_through_poses: (panthera-momagdii's #90
+    # review, P1): Jazzy's NavigateToPoseNavigator/NavigateThroughPosesNavigator
+    # only ever read default_nav_to_pose_bt_xml/default_nav_through_poses_bt_xml
+    # at the top level (nav2_bt_navigator/src/navigators/navigate_to_pose.cpp,
+    # navigate_through_poses.cpp) - nested here, automatically_declare_
+    # parameters_from_overrides(true) still lets them exist as parameters (so
+    # a naive parameter-read test can pass), but the navigators themselves
+    # never look at them and silently fall back to the stock
+    # *_w_replanning_and_recovery.xml trees, which DO contain BackUp.
+    default_nav_to_pose_bt_xml: "behavior_trees/navigate_to_pose.xml"
+    default_nav_through_poses_bt_xml: "behavior_trees/navigate_through_poses.xml"
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
@@ -79,8 +113,8 @@ controller_server:
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.5
     progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["general_goal_checker"]
-    controller_plugins: ["FollowPath"]
+    goal_checker_plugins: ["general_goal_checker", "station_goal_checker"]
+    controller_plugins: ["FollowPath", "StationApproach", "StationRetreat"]
     use_realtime_priority: false
 
     progress_checker:
@@ -99,6 +133,92 @@ controller_server:
       # nav tolerance, so a loose nav goal does not compromise the dock approach.
       xy_goal_tolerance: 0.35
       yaw_goal_tolerance: 0.35
+    # Station approach (Proposed, 17 Nov 2026), used only by behavior_trees/navigate_to_station.xml after the coarse
+    # navigation above has ended. Derivation (openamr-upperbody-sw docs/integration/station_approach.md): for the Build 1
+    # work-shelf grasp the left arm reaches the approach, grasp and lift poses for every base pose error up to 0.04 m and
+    # 0.08 rad (inverse kinematics on the expanded URDF, 48 of 48 combinations); at 0.05 m and 0.10 rad it does not.
+    # 0.025 m and 0.05 rad leave 0.015 m and 0.03 rad of that budget to localization (AMCL against ground truth).
+    # Simulation-derived working values, not a site or robot acceptance tolerance.
+    station_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.025
+      yaw_goal_tolerance: 0.05
+    StationApproach:
+      # The control law of the docking approach (nav2_graceful_controller), on a short NavFn path that ends at the goal.
+      # Speeds stay within the commissioning limits below (max_vel_x 0.20, max_vel_theta 0.5).
+      plugin: "nav2_graceful_controller::GracefulController"
+      transform_tolerance: 0.6
+      min_lookahead: 0.10
+      max_lookahead: 0.40
+      k_phi: 2.0
+      k_delta: 1.0
+      beta: 0.4
+      lambda: 2.0
+      v_linear_min: 0.03
+      v_linear_max: 0.10
+      v_angular_max: 0.5
+      v_angular_min_in_place: 0.25
+      slowdown_radius: 0.25
+      initial_rotation: true
+      initial_rotation_tolerance: 0.25
+      prefer_final_rotation: true
+      rotation_scaling_factor: 0.5
+      # Forward only (D-19, no reverse path). Stated false: with initial_rotation true the controller would turn
+      # true to false itself (nav2_graceful_controller parameter_handler.cpp, jazzy), but the file says what runs.
+      allow_backward: false
+      in_place_collision_resolution: 0.1
+    StationRetreat:
+      # PROPOSED (22 Nov 2026, openamr-upperbody-sw #117), awaiting Kunal (Nav2 owner) and the software lead. Used only
+      # by behavior_trees/navigate_to_station_retreat.xml (the Baseline 1 forward retreat). StationApproach latches
+      # "goal reached" on the path length from the nearest path pose (graceful_controller.cpp 161 to 165), which NavFn's
+      # last segment (up to about 0.07 m) puts up to about 0.035 m from the goal, outside station_goal_checker.
+      # Regulated Pure Pursuit rotates to the goal heading on the robot-to-carrot distance instead (jazzy
+      # regulated_pure_pursuit_controller.cpp 319 to 337; the carrot is the last path pose once the remaining path is
+      # shorter than the lookahead). Values copied from StationApproach where a parameter corresponds.
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.10                    # StationApproach v_linear_max
+      lookahead_dist: 0.20
+      min_lookahead_dist: 0.10                    # StationApproach min_lookahead
+      max_lookahead_dist: 0.40                    # StationApproach max_lookahead
+      use_velocity_scaled_lookahead_dist: false
+      # Kunal's review of #182: StationApproach's own slowdown_radius (0.25 m) was copied
+      # verbatim, but the whole retreat move is only forward_m=0.3 m
+      # (baseline1_mission_options.json, upperbody#117) - at 0.25 m the robot is inside the
+      # scaling zone for essentially the entire path and the documented desired_linear_vel
+      # 0.10 m/s is never actually reached for more than an instant. Re-derived for this
+      # path length instead of copied: 0.08 m leaves about 0.22 m (roughly 70%) of the 0.3 m
+      # move at full speed, with deceleration only over the final stretch comparable to the
+      # 0.025 m station_goal_checker's own precision needs. Proposed, not measured in
+      # Gazebo - re-check against a real run before adopting.
+      approach_velocity_scaling_dist: 0.08
+      min_approach_linear_velocity: 0.03          # StationApproach v_linear_min
+      use_regulated_linear_velocity_scaling: false
+      use_cost_regulated_linear_velocity_scaling: false
+      # Forward only (D-19, no reverse path). Stated false; test_baseline1_no_reverse_paths.py lists true.
+      allow_reversing: false
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.25           # StationApproach initial_rotation_tolerance
+      rotate_to_heading_angular_vel: 0.25         # StationApproach v_angular_min_in_place
+      max_angular_accel: 3.0                      # FollowPath
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      transform_tolerance: 0.6                    # StationApproach
+      # Kunal's decision on the first StationRetreat ABORT (run 45010425642 leg 1, root-caused
+      # against the installed navigation2 1.3.14 source, regulated_pure_pursuit_controller.cpp
+      # 330-336): with stateful true, has_reached_xy_tolerance_ latches once and then only
+      # rotates (linear_vel 0) regardless of later drift (AMCL re-localizing, rotation-centre
+      # slide) pushing the robot back outside station_goal_checker's own 0.025 m circle - the
+      # goal checker then never independently sees xy inside tolerance again, and
+      # simple_progress_checker.cpp aborts after movement_time_allowance (12.0 s, shared
+      # globally with FollowPath/StationApproach - not changed here). stateful false makes RPP
+      # re-test xy every cycle (same file, :337) instead of latching, so a small drift drives
+      # the base back into the circle (curvature 0 inside 0.0316 m, min speed 0.03 m/s) instead
+      # of stalling on a stale decision. Known residual, not fixed by this: if the goal ends up
+      # more than 0.25 rad off heading, the required half turn (pi/0.25 = 12.57 s) still exceeds
+      # movement_time_allowance - raising that is a separate, global decision affecting every
+      # controller's stall-recovery speed, left to the owner.
+      stateful: false
     FollowPath:
       # RotationShimController: makes the robot ROTATE toward the path before driving (DWB alone
       # struggles to turn in place to set off in another direction). DWB remains the sub-controller.
@@ -113,7 +233,13 @@ controller_server:
       simulate_ahead_time: 1.0
       rotate_to_goal_heading: true
       debug_trajectory_details: True
-      min_vel_x: -0.05          # small reverse only when stuck (collision_monitor guards the rear ~0.365m)
+      # D-19 (platform-sw#124): was -0.05, "small reverse only when stuck,
+      # collision_monitor guards the rear" - panthera-momagdii's #90 review
+      # corrected that claim: the rear sectors are masked (scan_body_filter),
+      # so collision_monitor observes nothing back there. Any reverse here
+      # is blind, same hazard as backup/undock's own. Clamped to 0 until
+      # #78's rear-checked action exists for Build 1.
+      min_vel_x: 0.0
       min_vel_y: 0.0
       max_vel_x: 0.20          # forward speed (raised 0.12->0.20, the -2.5 braking absorbs the momentum)
       max_vel_y: 0.0
@@ -237,8 +363,15 @@ global_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.5   # 2.5->3.5: cout retombe plus vite -> halo dur plus mince -> moins de "depart en quasi-collision"/recovery
-        inflation_radius: 0.35   # 0.20->0.35: the GLOBAL PLAN keeps further from the walls (path padding)
+        # PROPOSED (24 Nov 2026, platform-sw #188): 0.35 / 3.5 -> 0.55 / 3.0. The inscribed radius of the footprint is
+        # 0.30 m, so 0.35 gave the global plan a cost band of 0.05 m beyond "touching": the plan ran along walls and
+        # past obstacles at that distance and the local controller, which has no clearance cost of its own, followed
+        # it (measured: chassis 0.019 to 0.037 m from a cart, 0.032 to 0.076 m from a wall). With 0.55 the band is
+        # 0.25 m; measured on the same scenarios: 0.144 m and 0.175 m at the least, same travel times, and a 0.80 m
+        # passage is avoided when another route exists (openamrobot_clearance_trials). Simulation values, not a site
+        # or robot acceptance value. The local costmap is unchanged.
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
       # True: republishes the FULL grid every cycle (cf local_costmap) -> RViz always has it,
       # no more "No map received" at launch / over WiFi.
       always_send_full_costmap: True
@@ -257,7 +390,7 @@ map_saver:
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
-    planner_plugins: ["GridBased"]
+    planner_plugins: ["GridBased", "StationPlanner"]
     costmap_update_timeout: 1.0
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
@@ -284,6 +417,15 @@ planner_server:
         do_refinement: true
         refinement_num: 2
 
+    # Station approach only (navigate_to_station.xml): NavFn ends its path at the goal pose itself, so the station goal
+    # checker compares the robot with the goal and not with a cell centre of the downsampled Smac2D grid.
+    StationPlanner:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.0
+      use_astar: false
+      allow_unknown: true
+      use_final_approach_orientation: false
+
 smoother_server:
   ros__parameters:
     smoother_plugins: ["simple_smoother"]
@@ -300,17 +442,23 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
-    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    # D-19 (platform-sw#124, Alex's 8 Nov ruling, option a - not an open
+    # question, per panthera-momagdii's #90 review: "reverse and automatic
+    # undock are not offered in Build 1... The catch-all does not make
+    # reverse fail-closed because rear sectors are masked, so reverse is
+    # not offered"). backup/drive_on_heading/assisted_teleop are each their
+    # own directly-callable behavior_server action, independent of
+    # whatever the BT does - drive_on_heading accepts a negative
+    # target/speed and assisted_teleop forwards whatever linear.x a
+    # teleop operator sends, both reverse-capable while registered here.
+    # Removed from behavior_plugins entirely: spin (rotation only) and
+    # wait (no motion) are the only two that cannot reverse the chassis,
+    # so they are the only two still registered.
+    behavior_plugins: ["spin", "wait"]
     spin:
       plugin: "nav2_behaviors::Spin"
-    backup:
-      plugin: "nav2_behaviors::BackUp"
-    drive_on_heading:
-      plugin: "nav2_behaviors::DriveOnHeading"
     wait:
       plugin: "nav2_behaviors::Wait"
-    assisted_teleop:
-      plugin: "nav2_behaviors::AssistedTeleop"
     local_frame: odom
     global_frame: map
     robot_base_frame: base_link
@@ -339,13 +487,26 @@ velocity_smoother:
     # Aligned to the SINGLE approved real-robot limit = the DWB limits below (Raj review PR4):
     # max_velocity matches max_vel_x / max_vel_theta; accel/decel match acc_lim_* / decel_lim_*.
     max_velocity: [0.20, 0.0, 0.5]   # = max_vel_x 0.20, max_vel_theta 0.5
-    min_velocity: [-0.20, 0.0, -0.5]
+    # linear.x floor is 0.0, not -0.20 (D-19, platform-sw#124): this is the
+    # final backstop before collision_monitor/the real /cmd_vel - whatever
+    # upstream stage a reverse command came from (DWB's own min_vel_x is
+    # separately clamped to 0.0 above), it is not offered past here either.
+    # angular.z keeps -0.5: rotating in place does not reverse the chassis.
+    min_velocity: [0.0, 0.0, -0.5]
     max_accel: [1.0, 0.0, 3.0]       # = acc_lim_x 1.0, acc_lim_theta 3.0 (stiction-deadlock fix)
     max_decel: [-2.5, 0.0, -3.0]     # = decel_lim_x -2.5, decel_lim_theta -3.0
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
-    velocity_timeout: 1.0
+    # platform-sw#90 (Alex's review): 1.0 s let a stopped teleop/any other
+    # source keep driving for up to a full second after its publisher went
+    # silent - too long for a functional stop. 0.3 s matches the
+    # software_stop lock's own timeout (twist_mux.yaml locks.software_stop),
+    # so the smoother itself does not become the longest link in the stop
+    # chain. See docs/safety/02_limits_and_watchdog.md and
+    # test_velocity_smoother_publisher_loss_distance.py (distance bound for
+    # a lost publisher, run against the real node).
+    velocity_timeout: 0.3
 
 collision_monitor:
   ros__parameters:
