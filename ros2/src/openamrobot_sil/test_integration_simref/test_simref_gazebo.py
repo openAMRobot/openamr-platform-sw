@@ -30,6 +30,8 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Int8, String
 from tf2_msgs.msg import TFMessage
 
+from readiness import Condition, format_report, wait_ready
+
 LOG = os.environ.get('SIL_LAUNCH_LOG', '/tmp/sil_simref_launch.log')
 CAPTURE_DIR = os.environ.get('SIMREF_CAPTURE_DIR', '/tmp/sil_simref_captures')
 BUSES = ('vcan_drive', 'vcan_aux', 'vcan_bms')
@@ -43,6 +45,8 @@ PERMIT_EXPIRY_S = 0.150   # config/sil_simref.yaml lift.permit.timeout_ms
 MEASURE_MARGIN_S = 0.015
 REFUSED = 0x80
 MOVING = 4                # CTL-017 state MOVING (vendored emulator)
+READY_TIMEOUT_S = 240.0   # unchanged from the original fixture
+NAV_TIMEOUT_S = 120.0     # unchanged from the original fixture
 
 
 class CanTap:
@@ -87,6 +91,7 @@ class Probe(Node):
     def __init__(self):
         super().__init__('sil_simref_test_probe')
         self.last, self.reasons, self.cmd_vel_rx = {}, [], []
+        self.updated = {}     # key -> time.monotonic() of the last message, for the readiness report
         self.lock = threading.Lock()
         self.create_subscription(String, '/sil/simref/state', lambda m: self.put('state', json.loads(m.data)), 10)
         self.create_subscription(String, '/sil/simref/reasons', self.on_reason, 100)
@@ -111,10 +116,24 @@ class Probe(Node):
     def put(self, key, value):
         with self.lock:
             self.last[key] = value
+            self.updated[key] = time.monotonic()
 
     def get(self, key):
         with self.lock:
             return self.last.get(key)
+
+    def field(self, key, *path):
+        """Return (value, update time) of a nested field of the last message under key.
+
+        The value is None when the message or the field is missing."""
+        with self.lock:
+            value, stamp = self.last.get(key), self.updated.get(key)
+        try:
+            for step in path:
+                value = value[step]
+        except (KeyError, TypeError, IndexError):
+            value = None
+        return value, stamp
 
     def on_reason(self, m):
         with self.lock:
@@ -233,18 +252,40 @@ def sref():
     executor.add_node(probe)
     threading.Thread(target=executor.spin, daemon=True).start()
     try:
-        ready = probe.wait(lambda: (
-            probe.get('gz_odom') is not None
-            and probe.s()['drive']['phase'] == 'IDLE'
-            and probe.get('/sil/drive/emulator_state')['feedback'] == 'gazebo'
-            and probe.get('/sil/lift/emulator_state')['plant'] == 'gazebo'
-            and probe.s()['lift']['nmt'] == 5
-            and probe.get('/sil/lift/emulator_state')['state'] == 3
-            and len(probe.get_publishers_info_by_topic('/cmd_vel')) >= 1), timeout=240.0, step=0.2)
-        if not ready or not probe.nav.wait_for_server(timeout_sec=120.0):
+        conditions = [
+            Condition('gz_odom received', 'any message',
+                      lambda: (('received' if probe.get('gz_odom') is not None else None),
+                               probe.updated.get('gz_odom')), lambda v: True),
+            Condition('drive phase', "'IDLE'", lambda: probe.field('state', 'drive', 'phase'),
+                      lambda v: v == 'IDLE'),
+            Condition('drive emulator feedback', "'gazebo'",
+                      lambda: probe.field('/sil/drive/emulator_state', 'feedback'),
+                      lambda v: v == 'gazebo'),
+            Condition('lift emulator plant', "'gazebo'",
+                      lambda: probe.field('/sil/lift/emulator_state', 'plant'),
+                      lambda v: v == 'gazebo'),
+            Condition('lift NMT state', '5', lambda: probe.field('state', 'lift', 'nmt'),
+                      lambda v: v == 5),
+            Condition('lift emulator state', '3',
+                      lambda: probe.field('/sil/lift/emulator_state', 'state'), lambda v: v == 3),
+            Condition('/cmd_vel publishers', '>= 1',
+                      lambda: (len(probe.get_publishers_info_by_topic('/cmd_vel')) or None, None),
+                      lambda v: v >= 1),
+        ]
+        ready, rows, waited = wait_ready(conditions, timeout=READY_TIMEOUT_S, step=0.2)
+        nav_ready = ready and probe.nav.wait_for_server(timeout_sec=NAV_TIMEOUT_S)
+        if not nav_ready:
+            # the action server is reported too, but only looked at, never waited for here
+            server = probe.nav.server_is_ready()
+            rows += [{'name': 'navigate_to_pose action server', 'expected': 'server ready',
+                      'observed': 'ready' if server else None, 'age': None,
+                      'status': 'ok' if server else ('missing' if not ready else 'wrong'),
+                      'ok': server}]
+            report = format_report(rows, waited, READY_TIMEOUT_S)
             blocked = 'BLOCKED' in tail_log(600)
-            pytest.fail('%s: simref SIL stack not ready. Seen: %s\n%s' % (
-                'BLOCKED' if blocked else 'FAILED', sorted(probe.last), tail_log()), pytrace=False)
+            pytest.fail('%s: simref SIL stack not ready. Seen: %s\n%s\n%s' % (
+                'BLOCKED' if blocked else 'FAILED', sorted(probe.last), report, tail_log()),
+                pytrace=False)
         time.sleep(2.0)
         yield probe
     finally:
