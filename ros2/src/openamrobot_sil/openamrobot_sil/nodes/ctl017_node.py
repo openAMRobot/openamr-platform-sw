@@ -26,6 +26,11 @@ class Ctl017Node(Node):
         # start-up diagnostics, observe only (LIFTDIAG lines in the launch log)
         self._dj = {'msgs': 0, 'first': None, 'last_m': None, 'snap5': False, 'snap10': False}
         self._last_state, self._last_bits, self._bit_events = None, None, 0
+        self._dg = {'t0': time.monotonic(), 'graph': {}, 'times': [], 'stamps': [], 'done': False}
+        self._safe_diag(self._diag, 'subscribed /sil/gz/joint_states as %s (reliable, volatile, '
+                                    'depth 10); publishing /sil/lift/gz_cmd_vel' %
+                        self.get_fully_qualified_name())
+        self._diag_timer = self.create_timer(0.1, self._on_diag_timer)
         self.cmd_pub = self.create_publisher(Float64, '/sil/lift/gz_cmd_vel', 10)
         self.state_pub = self.create_publisher(String, '/sil/lift/emulator_state', 10)
         self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
@@ -62,9 +67,39 @@ class Ctl017Node(Node):
         except Exception:
             pass
 
+    def _on_diag_timer(self):
+        """Graph visibility of the bridge as this node sees it, and the first-second count."""
+        self._safe_diag(self._diag_graph)
+
+    def _diag_graph(self):
+        g = self._dg
+        now = time.monotonic()
+        if now - g['t0'] > 30.0:
+            self._diag_timer.cancel()
+            return
+        for kind, topic in (('publishers', '/sil/gz/joint_states'),
+                            ('subscribers', '/sil/lift/gz_cmd_vel')):
+            infos = (self.get_publishers_info_by_topic(topic) if kind == 'publishers'
+                     else self.get_subscriptions_info_by_topic(topic))
+            who = sorted('%s %s %s' % (i.node_name, i.qos_profile.reliability.name,
+                                       i.qos_profile.durability.name) for i in infos)
+            state = (len(infos), tuple(who))
+            if g['graph'].get((kind, topic)) != state:
+                g['graph'][(kind, topic)] = state
+                self._diag('graph %s of %s = %d %s' % (kind, topic, len(infos), who))
+        if not g['done'] and g['times'] and now - g['times'][0] > 1.0:
+            g['done'] = True
+            first_second = [t for t in g['times'] if t - g['times'][0] <= 1.0]
+            self._diag('first_second messages=%d header_stamps %s .. %s' % (
+                len(first_second), g['stamps'][0], g['stamps'][len(first_second) - 1]))
+
     def _diag_joint(self, msg, position):
         d = self._dj
         d['msgs'] += 1
+        g = self._dg
+        if len(g['times']) < 400:
+            g['times'].append(time.monotonic())
+            g['stamps'].append('%d.%09d' % (msg.header.stamp.sec, msg.header.stamp.nanosec))
         stamp = '%d.%09d' % (msg.header.stamp.sec, msg.header.stamp.nanosec)
         if d['msgs'] <= 3:
             self._diag('joint_msg n=%d joints=%d has_%s=%s lift_m=%s header_stamp=%s started=%s' % (

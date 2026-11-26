@@ -31,6 +31,8 @@ from std_msgs.msg import Int8, String
 from tf2_msgs.msg import TFMessage
 
 from readiness import Condition, format_report, nav_row, wait_ready
+from startup_trace import (cpu_percent, FirstSecondCounter, GraphWatcher, LineCapture,
+                           StartupTrace)
 
 LOG = os.environ.get('SIL_LAUNCH_LOG', '/tmp/sil_simref_launch.log')
 CAPTURE_DIR = os.environ.get('SIMREF_CAPTURE_DIR', '/tmp/sil_simref_captures')
@@ -97,9 +99,9 @@ class Probe(Node):
         self.create_subscription(String, '/sil/simref/reasons', self.on_reason, 100)
         for t in ('/sil/drive/emulator_state', '/sil/lift/emulator_state'):
             self.create_subscription(String, t, lambda m, t=t: self.put(t, json.loads(m.data)), 10)
-        self.create_subscription(Odometry, '/sil/gz/odom', lambda m: self.put('gz_odom', m), 10)
+        self.create_subscription(Odometry, '/sil/gz/odom', self.on_gz_odom, 10)
         self.create_subscription(Odometry, '/odom', lambda m: self.put('odom', m), 10)
-        self.create_subscription(JointState, '/sil/gz/joint_states', lambda m: self.put('joints', m), 10)
+        self.create_subscription(JointState, '/sil/gz/joint_states', self.on_joints, 10)
         self.create_subscription(Twist, '/cmd_vel', self.on_cmd_vel, 50)
         self.create_subscription(TFMessage, '/tf', self.on_tf, 50)
         self.nav_pub = self.create_publisher(Twist, '/cmd_vel_nav', 10)
@@ -112,6 +114,60 @@ class Probe(Node):
         self.odom_tf_seen = 0
         self.teleop = None
         self.create_timer(0.05, self.on_teleop)
+        # start-up trace, observe only: first receipts and the graph as this node sees it
+        self.trace = None
+        self.joint_counter = FirstSecondCounter()
+        self.odom_first_seen = False
+        self.graph = {}
+        self.diag_t0 = time.monotonic()
+        self.diag_timer = self.create_timer(0.1, self.on_diag_graph)
+
+    def on_joints(self, m):
+        self.put('joints', m)
+        self.diag_joint(m)
+
+    def on_gz_odom(self, m):
+        self.put('gz_odom', m)
+        if self.trace is not None and not self.odom_first_seen:
+            self.odom_first_seen = True
+            try:
+                self.trace.mark('probe', 'first /sil/gz/odom message: header_stamp=%d.%09d' % (
+                    m.header.stamp.sec, m.header.stamp.nanosec))
+            except Exception:
+                pass
+
+    def diag_joint(self, m):
+        if self.trace is None:
+            return
+        try:
+            stamp = '%d.%09d' % (m.header.stamp.sec, m.header.stamp.nanosec)
+            if self.joint_counter.add(time.monotonic(), stamp):
+                names = list(m.name)
+                lift = m.position[names.index('lift_joint')] if 'lift_joint' in names else None
+                self.trace.mark('probe', 'first /sil/gz/joint_states message: header_stamp=%s '
+                                'lift_m=%s joints=%d' % (stamp, None if lift is None else '%.6f' % lift,
+                                                        len(names)))
+        except Exception:
+            pass
+
+    def on_diag_graph(self):
+        if self.trace is None:
+            return
+        if time.monotonic() - self.diag_t0 > 30.0:
+            self.diag_timer.cancel()
+            return
+        try:
+            for kind, topic in (('publishers', '/sil/gz/joint_states'), ('publishers', '/sil/gz/odom'),
+                                ('subscribers', '/sil/lift/gz_cmd_vel')):
+                infos = (self.get_publishers_info_by_topic(topic) if kind == 'publishers'
+                         else self.get_subscriptions_info_by_topic(topic))
+                who = tuple('%s %s %s' % (i.node_name, i.qos_profile.reliability.name,
+                                          i.qos_profile.durability.name) for i in infos)
+                if self.graph.setdefault((kind, topic), GraphWatcher()).observe(len(infos), who):
+                    self.trace.mark('probe', 'graph %s of %s = %d %s' % (kind, topic, len(infos),
+                                                                         list(who)))
+        except Exception:
+            pass
 
     def put(self, key, value):
         with self.lock:
@@ -224,6 +280,93 @@ def pid_of(pattern, exact=False):
     return pids[0] if pids else None
 
 
+GZ_JOINT_TOPIC = '/sil/gz/joint_states'
+
+
+def start_gz_observer(trace):
+    """Independent gz-transport subscriber of the joint state topic, started before the launch.
+
+    Diagnostics only: it shows when Gazebo's own transport first delivers the topic and with
+    which header stamp, independently of ROS discovery. Returns (process, capture) or (None, None).
+    It is one more subscriber, which is a limitation of the measurement.
+    """
+    try:
+        proc = subprocess.Popen(['gz', 'topic', '-e', '-t', GZ_JOINT_TOPIC, '-n', '300'],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                bufsize=1, start_new_session=True)
+    except OSError as exc:
+        trace.mark('gz-topic', 'could not start: %s' % exc)
+        return None, None
+    capture = LineCapture()
+
+    def read():
+        first = True
+        for line in proc.stdout:
+            now = int(time.monotonic() * 1000)
+            if first:
+                first = False
+                trace.mark('gz-topic', 'first output line')
+            capture.add(now, line)
+        trace.mark('gz-topic', 'stream ended, %d lines captured' % len(capture.lines))
+
+    threading.Thread(target=read, daemon=True).start()
+    trace.mark('gz-topic', 'observer started pid=%d on %s' % (proc.pid, GZ_JOINT_TOPIC))
+    return proc, capture
+
+
+def sample_cpu(trace, stop, seconds=20.0, period=0.5):
+    """Machine CPU load for the start-up window (busy / iowait / steal), diagnostics only.
+
+    Runs in its own daemon thread and only samples; the period is its sampling interval, it
+    delays nothing in the fixture or the tests. Ends at the first of seconds or stop.
+    """
+    try:
+        with open('/proc/stat', encoding='utf-8') as f:
+            prev = f.readline()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not stop.wait(period):
+            with open('/proc/stat', encoding='utf-8') as f:
+                cur = f.readline()
+            with open('/proc/loadavg', encoding='utf-8') as f:
+                load1 = f.read().split()[0]
+            got = cpu_percent(prev, cur)
+            prev = cur
+            if got:
+                trace.mark('cpu', 'busy=%.0f%% iowait=%.0f%% steal=%.0f%% load1=%s' % (
+                    got['busy'], got['iowait'], got['steal'], load1))
+    except Exception:
+        pass
+
+
+def mark_environment(trace):
+    try:
+        keys = ('RMW_IMPLEMENTATION', 'ROS_DOMAIN_ID', 'ROS_LOCALHOST_ONLY',
+                'ROS_AUTOMATIC_DISCOVERY_RANGE', 'FASTRTPS_DEFAULT_PROFILES_FILE')
+        trace.mark('fixture', 'env %s cpus=%s' % (
+            ' '.join('%s=%s' % (k, os.environ.get(k, '<unset>')) for k in keys), os.cpu_count()))
+        r = subprocess.run(['ip', '-br', 'addr'], capture_output=True, text=True, timeout=5)
+        trace.mark('fixture', 'interfaces ' + ' | '.join(' '.join(ln.split()[:3])
+                                                         for ln in r.stdout.splitlines()))
+    except Exception:
+        pass
+
+
+def write_startup_trace(trace, probe, gz_capture):
+    """Print and store the start-up trace next to the bus captures; never raises."""
+    try:
+        trace.mark('probe', 'joint_states in the first second after the first one: ' +
+                   probe.joint_counter.summary())
+        text = trace.format()
+        print('\n' + text)
+        with open(os.path.join(CAPTURE_DIR, 'startup-trace.txt'), 'w', encoding='utf-8') as f:
+            f.write(text + '\n')
+        if gz_capture is not None:
+            with open(os.path.join(CAPTURE_DIR, 'gz-joint-states-raw.txt'), 'w', encoding='utf-8') as f:
+                f.write(gz_capture.format() + '\n')
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope='module')
 def sref():
     for tool in ('gz', 'ros2', 'ip'):
@@ -242,11 +385,19 @@ def sref():
                                 stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                for bus in BUSES]
     taps = {b: CanTap(b) for b in ('vcan_drive', 'vcan_aux')}
+    trace = StartupTrace()
+    mark_environment(trace)
+    gz_proc, gz_capture = start_gz_observer(trace)        # before the launch, diagnostics only
     with open(LOG, 'w', encoding='utf-8') as log:
         launch = subprocess.Popen(['ros2', 'launch', 'openamrobot_sil', 'sil.launch.py', 'stm32:=simref',
                                    'nav2:=true'], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    trace.mark('fixture', 'ros2 launch started pid=%d' % launch.pid)
+    cpu_stop = threading.Event()
+    threading.Thread(target=sample_cpu, args=(trace, cpu_stop), daemon=True).start()
     rclpy.init()
     probe = Probe()
+    probe.trace = trace
+    trace.mark('fixture', 'probe node created')
     probe.taps = taps
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(probe)
@@ -282,6 +433,8 @@ def sref():
             nav_ready, nav_waited = probe.nav.server_is_ready(), None
         rows.append(nav_row(nav_ready, nav_waited, NAV_TIMEOUT_S))
         report = format_report(rows, waited, READY_TIMEOUT_S, passed=ready and nav_ready)
+        trace.mark('fixture', 'readiness gate %s after %.1f s' % ('passed' if ready else 'FAILED', waited))
+        write_startup_trace(trace, probe, gz_capture)
         print('\n' + report)
         with open(os.path.join(CAPTURE_DIR, 'readiness-report.txt'), 'w', encoding='utf-8') as f:
             f.write(report + '\n')
@@ -294,6 +447,9 @@ def sref():
         yield probe
     finally:
         probe.teleop = None
+        cpu_stop.set()
+        if gz_proc is not None and gz_proc.poll() is None:
+            gz_proc.terminate()
         for pid in (pid_of('velocity_smoother'), pid_of('simref_process', exact=True)):
             if pid:
                 os.kill(pid, signal.SIGCONT)
