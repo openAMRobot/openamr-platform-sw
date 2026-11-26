@@ -25,6 +25,8 @@ from openamrobot_sil.can_sil import canopen_common, ctl017_emulator as c
 JOINT_ZERO_MM = c.STOP_POS_MM[0]
 # Position changes below this are ignored. SIL value: a tenth of one Hall count (0.2092 mm).
 POSITION_DEADBAND_MM = 0.02
+# State names in the order of the emulator's state constants, for the start-up diagnostics.
+STATE_NAMES = ('INIT', 'UNHOMED', 'HOMING', 'IDLE', 'MOVING', 'STOPPING', 'FAULT')
 
 
 class PermitConfig:
@@ -68,6 +70,10 @@ class PermitConfig:
 
 
 class GazeboCtl017(c.Ctl017Emulator):
+    # Optional observer, callable(str), for start-up diagnostics. It only reads state; its
+    # failure is swallowed, and with none set nothing here changes the emulator.
+    diag = None
+
     def __init__(self, bus, node_id=c.NODE_ID, start_pos_mm=None, operational=False,
                  permit=None):
         self.permit_cfg = permit
@@ -87,6 +93,41 @@ class GazeboCtl017(c.Ctl017Emulator):
             self._joint_mm = JOINT_ZERO_MM + joint_position_m * 1000.0
             self.true_mm = min(c.TRAVEL_MM, max(0.0, self._joint_mm))
             self._start_pos_mm = self.true_mm
+            self._diag('attach joint_m=%.6f joint_mm=%.3f true_mm=%.3f'
+                       % (joint_position_m, self._joint_mm, self.true_mm))
+
+    # --- start-up diagnostics (observe only) ------------------------------
+    def _diag(self, text):
+        fn = self.diag
+        if fn is None:
+            return
+        try:
+            fn(text)
+        except Exception:
+            pass    # a diagnostics failure must never change the emulator
+
+    def _diag_init(self, when):
+        if self.diag is None:
+            return
+        try:
+            offsets = [round(self.true_mm - p, 3) for p in c.SENSOR_POS_MM]
+            inside = [abs(o) <= c.SENSOR_WINDOW_MM for o in offsets]
+            self._diag(
+                'finish_init %s init_age_ms=%d state=%s homed=%s position_valid=%s joint_mm=%s '
+                'true_mm=%.3f sensor_bits=0b%s offsets_mm=%s window_mm=%.1f in_window=%s '
+                'hall_supply=%s faults=%s both_limits=%s' % (
+                    when, self._now_ms() - self.t0, STATE_NAMES[self.state], self.homed,
+                    self.position_valid,
+                    None if self._joint_mm is None else round(self._joint_mm, 3), self.true_mm,
+                    format(self.sensor_bits(), '03b'), offsets, c.SENSOR_WINDOW_MM, inside,
+                    self.hall_supply, self.faults, self.both_limits()))
+        except Exception:
+            pass
+
+    def _finish_init(self):
+        self._diag_init('before')
+        super()._finish_init()
+        self._diag_init('after')
 
     def set_joint_position(self, joint_position_m):
         with self.lock:
