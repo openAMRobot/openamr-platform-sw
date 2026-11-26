@@ -25,7 +25,22 @@ def test_wheel_geometry_equals_the_gazebo_diff_drive_plugin():
     radius = float(re.search(r'<wheel_radius>([\d.]+)</wheel_radius>', xacro).group(1))
     separation = float(re.search(r'<wheel_separation>([\d.]+)</wheel_separation>', xacro).group(1))
     assert CFG['drive']['wheel_radius'] == radius
-    assert CFG['drive']['wheel_separation'] == separation
+    # The SIL value is the effective track of the simulated plant (calibration, upperbody-sw #136), not the geometric
+    # one. It can only lie between the wheel centre planes and the outer wheel edges; the model keeps its own value.
+    urdf = read(REPO_ROOT, 'ros2', 'src', 'openamrobot_description', 'urdf', 'robo_urdf.urdf.xacro')
+    widths = {float(w) for w in re.findall(r'<cylinder radius="0\.098" length="([\d.]+)"/>', urdf)}
+    assert widths == {0.046}, f'drive wheel collision width changed: {widths}'
+    assert separation == 0.400
+    assert separation <= CFG['drive']['wheel_separation'] <= separation + 0.046
+    assert CFG['drive']['wheel_separation'] == 0.411
+
+
+def test_the_effective_track_is_used_in_both_directions():
+    from openamrobot_sil.zlac_gazebo import twist_to_wheel_speeds, wheel_speeds_to_twist
+    radius, track = CFG['drive']['wheel_radius'], CFG['drive']['wheel_separation']
+    left, right = twist_to_wheel_speeds(0.0, 0.5, radius, track)
+    assert right - left == pytest.approx(0.5 * track / radius)
+    assert wheel_speeds_to_twist(left, right, radius, track) == pytest.approx((0.0, 0.5))
 
 
 def test_one_vcan_interface_per_bus_and_documented_node_ids():

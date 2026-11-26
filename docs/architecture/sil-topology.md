@@ -393,8 +393,11 @@ time quantum, and the emulators take their time from the same source.
 
 Drive. The ZLAC8015D emulator ramps its speed demand as the vendored model does. The node
 converts both wheel speeds to a body twist and publishes it for the Gazebo DiffDrive plugin of
-the unchanged base model. The conversion uses the loaded wheel radius 0.098 m (unloaded 0.100 m) and the wheel
-separation 0.400 m of that plugin (a test checks they agree). The plugin's own acceleration
+the unchanged base model. The conversion uses the loaded wheel radius 0.098 m (unloaded 0.100 m) of that plugin and
+an effective track of 0.411 m. The plugin and the model keep the geometric separation 0.400 m; the simulated base
+turns 2.7 % less than its wheel joints at 0.400 m predict, and the effective value corrects the feedback from 606Ch
+(a calibration of the twin, not of the real base; a test keeps it between the wheel centre planes and the outer
+wheel edges). The plugin's own acceleration
 limits apply on top. Object 606Ch reports the wheel joint speeds that Gazebo measures. 60FFh
 takes whole r/min, so 0.2 m/s becomes 19 r/min and 0.195 m/s.
 

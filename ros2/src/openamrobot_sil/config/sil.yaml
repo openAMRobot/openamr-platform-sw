@@ -17,7 +17,14 @@ buses:
 
 drive:
   wheel_radius: 0.098          # m, loaded radius (Alex decision 2026-11-15). openamrobot_description gazebo_control.xacro; test_sil_config.py checks they agree
-  wheel_separation: 0.400      # m. Same file. Placeholder there (decision DRIVE-TRACK is open)
+  # Effective track of the simulated plant, m. Calibration of the twin, not a measurement of the real base and not the
+  # geometric track: the model and the Gazebo diff drive plug-in keep 0.400 (placeholder, decision DRIVE-TRACK is open).
+  # In six recorded mission legs the base turned 2.7 % less than its wheel joints at 0.400 predict (first 90 degree turn
+  # over-read by 0.037 to 0.053 rad; openamr-upperbody-sw #136): the contact is a few millimetres outside the centre
+  # plane of the 0.046 m wide wheels. 0.400 * 1.027 = 0.411. The command path is not changed by this value (twist to
+  # wheel speeds and back cancel before the plug-in); it corrects the feedback, 606Ch wheel speeds to body twist.
+  # test_sil_config.py keeps it inside the wheel contact band.
+  wheel_separation: 0.411
   left_sign: 1                 # SIL test value. Axis order and sign are open (actuator ledger Q-02)
   right_sign: 1                # SIL test value
   heartbeat_ms: 100            # proposed D-24 value (platform-fw can1-drive-link.md). Not bench-validated
