@@ -30,7 +30,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Int8, String
 from tf2_msgs.msg import TFMessage
 
-from readiness import Condition, format_report, wait_ready
+from readiness import Condition, format_report, nav_row, wait_ready
 
 LOG = os.environ.get('SIL_LAUNCH_LOG', '/tmp/sil_simref_launch.log')
 CAPTURE_DIR = os.environ.get('SIMREF_CAPTURE_DIR', '/tmp/sil_simref_captures')
@@ -273,15 +273,19 @@ def sref():
                       lambda v: v >= 1),
         ]
         ready, rows, waited = wait_ready(conditions, timeout=READY_TIMEOUT_S, step=0.2)
-        nav_ready = ready and probe.nav.wait_for_server(timeout_sec=NAV_TIMEOUT_S)
-        if not nav_ready:
-            # the action server is reported too, but only looked at, never waited for here
-            server = probe.nav.server_is_ready()
-            rows += [{'name': 'navigate_to_pose action server', 'expected': 'server ready',
-                      'observed': 'ready' if server else None, 'age': None,
-                      'status': 'ok' if server else ('missing' if not ready else 'wrong'),
-                      'ok': server}]
-            report = format_report(rows, waited, READY_TIMEOUT_S)
+        if ready:
+            t_nav = time.monotonic()
+            nav_ready = probe.nav.wait_for_server(timeout_sec=NAV_TIMEOUT_S)
+            nav_waited = time.monotonic() - t_nav
+        else:
+            # as before, the action server is not waited for when the gate failed; it is only looked at
+            nav_ready, nav_waited = probe.nav.server_is_ready(), None
+        rows.append(nav_row(nav_ready, nav_waited, NAV_TIMEOUT_S))
+        report = format_report(rows, waited, READY_TIMEOUT_S, passed=ready and nav_ready)
+        print('\n' + report)
+        with open(os.path.join(CAPTURE_DIR, 'readiness-report.txt'), 'w', encoding='utf-8') as f:
+            f.write(report + '\n')
+        if not (ready and nav_ready):
             blocked = 'BLOCKED' in tail_log(600)
             pytest.fail('%s: simref SIL stack not ready. Seen: %s\n%s\n%s' % (
                 'BLOCKED' if blocked else 'FAILED', sorted(probe.last), report, tail_log()),

@@ -49,15 +49,27 @@ def evaluate(conditions, now):
         else:
             status = WRONG
         rows.append({'name': c.name, 'expected': c.expected, 'observed': value, 'age': age,
-                     'status': status, 'ok': ok})
+                     'status': status, 'ok': ok, 'first_ok': None})
     return rows
 
 
 def wait_ready(conditions, timeout, step=0.2, clock=time.monotonic, sleep=time.sleep):
-    """Poll until all conditions hold at once or timeout elapses. Returns (ok, rows, waited)."""
+    """Poll until all conditions hold at once or timeout elapses. Returns (ok, rows, waited).
+
+    Each row also carries first_ok: seconds after the start at which that condition was first
+    seen holding (None if never). This is a record only; the gate still needs every condition
+    to hold in the same evaluation.
+    """
     start = clock()
+    first = {}
     while True:
-        rows = evaluate(conditions, clock())
+        now = clock()
+        rows = evaluate(conditions, now)
+        for r in rows:
+            if r['ok'] and r['name'] not in first:
+                first[r['name']] = now - start
+        for r in rows:
+            r['first_ok'] = first.get(r['name'])
         if all(r['ok'] for r in rows):
             return True, rows, clock() - start
         if clock() - start >= timeout:
@@ -65,17 +77,42 @@ def wait_ready(conditions, timeout, step=0.2, clock=time.monotonic, sleep=time.s
         sleep(step)
 
 
-def format_report(rows, waited, timeout):
-    lines = ['readiness gate: %d of %d conditions hold after waiting %.1f s (limit %.1f s)'
-             % (sum(r['ok'] for r in rows), len(rows), waited, timeout),
-             '  %-34s %-8s %-26s %-30s %s' % ('condition', 'status', 'expected', 'last observed',
-                                              'last update')]
+def nav_row(server_ready, waited, timeout):
+    """Report row of the navigate_to_pose action server.
+
+    waited is the seconds spent waiting for it after the gate passed, or None when the gate
+    failed and the server was only looked at. An unavailable server is always 'missing'.
+    """
+    if waited is None:
+        note = 'not waited for: the gate failed first'
+    elif server_ready:
+        note = 'appeared after %.1f s of %.1f s' % (waited, timeout)
+    else:
+        note = 'did not appear in %.1f s (limit %.1f s)' % (waited, timeout)
+    return {'name': 'navigate_to_pose action server', 'expected': 'server ready',
+            'observed': 'ready' if server_ready else None, 'age': None,
+            'status': OK if server_ready else MISSING, 'ok': bool(server_ready),
+            'first_ok': None, 'note': note}
+
+
+def format_report(rows, waited, timeout, passed=None):
+    """Table of every condition, for a passing gate and for a failing one."""
+    if passed is None:
+        passed = all(r['ok'] for r in rows)
+    lines = ['readiness gate %s: %d of %d conditions hold after waiting %.1f s (limit %.1f s)'
+             % ('PASSED' if passed else 'FAILED', sum(r['ok'] for r in rows), len(rows), waited,
+                timeout),
+             '  %-32s %-8s %-14s %-24s %-15s %-12s %s' % (
+                 'condition', 'status', 'expected', 'last observed', 'last update', 'first held',
+                 'note')]
     for r in rows:
         age = 'no update time' if r['age'] is None else '%.1f s ago' % r['age']
         if r['status'] == MISSING:
             age = 'never received'
-        lines.append('  %-34s %-8s %-26s %-30s %s' % (r['name'], r['status'].upper(), r['expected'],
-                                                      _short(r['observed']), age))
+        first = '-' if r.get('first_ok') is None else '%.2f s' % r['first_ok']
+        lines.append('  %-32s %-8s %-14s %-24s %-15s %-12s %s' % (
+            r['name'], r['status'].upper(), r['expected'], _short(r['observed'], 24), age, first,
+            r.get('note', '')))
     return '\n'.join(lines)
 
 
